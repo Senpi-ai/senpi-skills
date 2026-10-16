@@ -1,0 +1,47 @@
+# Squid — multi-trader LIVE-BOOK fresh-entry mirror. A single-instance PACKAGE: this manifest
+# + one self-contained runtime.yaml + scanners/. Watches a small cohort of vetted Hyperliquid
+# traders and mirrors ONLY the positions they NEWLY open — it never inherits an existing book
+# mid-move — with a hard entry-slippage guard and budget-relative sizing that has a
+# min-notional floor. Install/teardown via senpi-strategy-ops.
+#
+# Squid replaces SHADOW, which is delisted. Shadow read each trader's book from our indexed
+# trader-state; that feed lands a median ~132 minutes behind the chain, so over 14 days and
+# ~280,000 position opens, 0.0% were visible inside its 4-minute window and it could never
+# fire. Squid reads the same books LIVE from Hyperliquid's public info endpoint and takes its
+# freshness from the tick-to-tick transition instead of a reported age.
+# See strategies/shadow/DESIGN.md for the measurement.
+schema_version: 1
+
+id: squid
+version: "1.0.0"
+
+catalog:
+  name: "Squid — Live-Book Multi-Trader Fresh-Entry Mirror"
+  emoji: "🦑"
+  tagline: "Watches a handful of vetted Hyperliquid traders and mirrors only the positions they NEWLY open, reading their books live off-chain so a mirror lands within two minutes of their fill — with a hard entry-slippage guard so you never chase a move that already ran, plus budget-relative sizing with a min-notional floor."
+  belief_plain: "Instead of copying one trader's whole account — and inheriting trades already deep in profit or loss at a worse price than they got — Squid watches up to ten proven traders and only acts when one of them OPENS a brand-new position. It reads their positions directly from the exchange every two minutes, so it sees a new trade almost as soon as they make it. It checks how far price has already moved from their entry and skips the trade if it is too late to get a comparable fill. It sizes each mirror to your budget with a floor so a position is never too small to matter, and it manages its own exit."
+  thesis: "The failure mode of naive mirroring is entry drift: you inherit a book at a 1-5% worse price than the trader got, so the same trade is a loss for you. The second failure mode is latency — a mirror is only worth having if it sees the open while the price is still near the fill. Squid fires ONLY on fresh opens (a tick-to-tick diff against a seeded book, so nothing pre-existing is ever inherited), reads those books live from the exchange rather than from an index that trails the chain, rejects any entry whose price has already run past a slippage cap, and can require multi-trader confirmation before committing size. You follow proven money at their price, not yesterday's book at yours. Leverage is capped, so a trader's 40x book becomes something survivable."
+  group: smart-money
+  archetype: copy_trading
+  sub_style: fresh_entry_mirror
+  asset_classes: [universe_crypto, xyz_equities, commodities, indices]
+  asset_scope: follows_traders
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  leverage_max: 10
+  max_slots: 5
+  assets: []
+  tags: [copy-trading, multi-trader, fresh-entry, mirror, live-book, low-latency, entry-slippage-guard, smart-money, budget-relative]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: SQUID_WALLET
+    funding_share: 1.0

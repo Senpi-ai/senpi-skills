@@ -223,12 +223,34 @@ def score_signal(trader, best_pos, concentration, sm, current_px, inputs):
     }
 
 
-def margin_pct_for(score, inputs):
-    """Conviction-scaled marginPct INTENT as a PERCENT of withdrawable in (0,100] (the
-    runtime sizes (marginPct/100)*withdrawable). v2-quirk: a two-step (NOT linear) ladder
-    — base below highConvScore, high-conv at/above it. v2 stored these as FRACTIONS
-    (0.25 / 0.35); ported here as PERCENTS (25 / 35) for the 3.0 sizing contract."""
-    base = float(inputs.get("marginPctBase", 25))
-    high = float(inputs.get("marginPctHighConv", 35))
-    high_conv_score = float(inputs.get("highConvScore", 10))
-    return high if score >= high_conv_score else base
+def margin_pct_for(score, inputs, tiers=None):
+    """Conviction-scaled marginPct INTENT as a PERCENT of withdrawable in (0,100].
+
+    REWORKED 2026-10-01. This used to be a two-step function keyed on `highConvScore` (35 at
+    score >= 10, else 25) while LEVERAGE stepped separately on 10/8/6 — two conviction ladders on
+    different boundaries. Conviction is now carried by a per-tier marginPct (the third element of
+    leverageTiers) so there is ONE ladder and leverage can stay flat.
+
+    WHY FLAT LEVERAGE MATTERS: every DSL threshold is ROE, and the engine converts ROE to a price
+    floor by DIVIDING BY LEVERAGE. Spread leverage therefore rescaled the entire exit ladder per
+    tier, and backwards — the lowest-conviction tier got the lowest leverage and so the WIDEST
+    stop. See strategies/references/ladder-leverage-coherence.md.
+
+    A tier without a third element falls back to `marginPctBase`, so an old-shape config behaves
+    as it did (minus the high-conv step, which no longer has a separate boundary)."""
+    _lev, margin = get_sizing_for_score(score, tiers)
+    return margin if margin is not None else float(inputs.get("marginPctBase", 25))
+
+
+def get_sizing_for_score(score, tiers=None):
+    """Resolve (leverage, marginPct) for a score. marginPct is None when the tier has no third
+    element, and the caller falls back to marginPctBase."""
+    for t in (tiers or LEVERAGE_TIERS):
+        if isinstance(t, dict):
+            if score >= t["min_score"]:
+                m = t.get("marginPct")
+                return t["leverage"], (float(m) if m is not None else None)
+        elif isinstance(t, (list, tuple)) and len(t) >= 2:
+            if score >= t[0]:
+                return int(t[1]), (float(t[2]) if len(t) > 2 else None)
+    return DEFAULT_LEVERAGE, None
