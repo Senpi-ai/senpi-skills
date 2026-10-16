@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.14.6"
+  version: "3.14.7"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -370,7 +370,7 @@ makes one new wallet per instance). Authoring just designs the package; **concur
   pass. Returning `[]` is fine; returning `[]` *without having read* proves nothing about the scanner.
 - **Emit a `marginPct` *intent*, not dollars** — top-level, not inside `data{}`. The runtime sizes the
   dollars off the live account; don't read the clearinghouse to size.
-- **Pure thesis math in `scoring.py`** (no I/O, no MCP, no clock) so it unit-tests. Put the computed **score into the emitted `data`** — it is the signal's audit trail; the runtime's log line prints `score 0` for every emit fleet-wide, so never verify it from there.
+- **Pure thesis math in `scoring.py`** (no I/O, no MCP, no clock) so it unit-tests. Put the computed **score into the emitted `data`** — it is the signal's audit trail; the runtime's log line prints `score 0` for every emit fleet-wide, so never verify it from there. **`data{}` records, it never instructs**: a `stop_price` emitted there does NOT bind — the floor is the instance's `exit.dsl_preset`, so express the intended stop as a preset ([signal-data-does-not-bind.md](references/signal-data-does-not-bind.md)).
 - **Memory = `ctx.state`** (`.last()/.recent()/.append()`); set `state_history_max_count` > 0. Cohort
   rotation, dedup, and first-seen ledgers all live here. **Editing a LIVE scanner is an instant, unvalidated production change** (the scaffold re-reads it each tick) and **the universe must be bounded by the thesis**, never by a scoring condition: [creating-a-strategy.md](references/creating-a-strategy.md#bound-the-universe-to-the-thesis).
 - **Exits = a named DSL preset**, copied from `references/dsl-presets.yaml`, change ≤1 field.
