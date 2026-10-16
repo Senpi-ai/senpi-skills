@@ -529,6 +529,21 @@ def test_two_consecutive_errors_is_a_real_fault_and_warns():
     assert any("degraded" in w.lower() for w in res["meta"]["warnings"])
 
 
+def test_a_degraded_runtime_quotes_the_runtimes_own_reason():
+    """The health row's `degradedReason` is the runtime's own words for why — today the supervisor's
+    crash-loop cause (long-running-supervisor.ts recordFailure). Carried on the row and quoted in the
+    warning, verbatim."""
+    reason = "5 crashes in a row, each within 10s of starting"
+    res = _run_with_status({"kodiak-main": status_doc({
+        "runtimeName": "kodiak-main", "health": "unhealthy",
+        "components": {"scanners": {"scanners": [
+            {"scannerId": "kodiak_main_signals", "health": "unhealthy", "degradedReason": reason}]}}})})
+    strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
+    assert strat["runtime_health"] == "degraded"
+    assert strat["runtime_reason"] == f"kodiak_main_signals: {reason}"
+    assert any(f"(kodiak_main_signals: {reason})" in w for w in res["meta"]["warnings"]), "the warning must carry the reason"
+
+
 def test_the_runtime_the_engine_calls_unhealthy_never_reads_live():
     """THE regression this branch made load-bearing, measured against the document the producer really
     writes: `{ok, statuses:[{health:'unhealthy', …}]}`. The verdict lives INSIDE `statuses[]`; a mapper
