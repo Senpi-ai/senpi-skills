@@ -90,10 +90,11 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # tail that defined "Redeploy" as close → create, so it closed both wallets and funded new ones. Each head
 # line pushes a line of Step 0.75 out of what `read` delivers; fitting the body to that cut means moving
 # the middle sections into references/, which CloseIsNeverARepair does not do — it pins this rule only.
-# author 430 -> 432: +2 lines separating "what opens a wallet" from "what lets it trade". ~$11.50
-# was stated four times in this body including the scripted heads-up, and telemetry had 37 agent
-# outputs quoting it in two days, several near-verbatim from that script — a funded strategy that
-# installs, scans and never opens. Resident: it fires before Decision 1 on every build (2026-09-23).
+# author 430 -> 432 (2026-09-23, moved 2026-10-16): +2 lines separating "what opens a wallet" from "what
+# lets it trade". ~$11.50 was stated four times in this body including the scripted heads-up, and telemetry
+# had 37 agent outputs quoting it in two days, several near-verbatim from that script — a funded strategy
+# that installs, scans and never opens. The pre-Decision-1 heads-up keeps the floor at main's line count (no
+# design exists yet); the two lines are Handoff step 1 quoting the design's minimum, in the tail `read` keeps.
 BODY_BUDGET = {"senpi-strategy-ops": 364, "senpi-strategy-author": 432}
 
 
