@@ -9,6 +9,7 @@ Engine (senpi-trading-runtime src/dsl/engine/floors.ts):
 """
 import pathlib
 import re
+import subprocess
 
 import pytest
 import yaml
@@ -82,11 +83,31 @@ def test_the_time_cut_table_names_every_cut_and_its_real_duration(name):
 # *.md glob), AND every shipped package. The docs are where the rot lived, but a breakeven rung in a
 # runtime.yaml is where it would cost someone money.
 _ROOT = _REFS.parents[1]
+
+
+def _repo_files():
+    """Tracked files only — what this repo actually ships, per git rather than per directory listing.
+
+    rglob also descended into gitignored scratch checkouts under .claude/, where a local `git
+    worktree` is a whole second copy of this repo: 156 phantom parameterisations on files nobody is
+    shipping, 8 of them permanently red. Always-red trains people to skim past the colour, and this
+    guard only works if someone reads it.
+    """
+    try:
+        listed = subprocess.run(
+            ["git", "ls-files", "-z"], cwd=_ROOT,
+            check=True, capture_output=True, text=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return _ROOT.rglob("*")  # no usable git: over-collect rather than silently guard nothing
+    return (_ROOT / rel for rel in listed.split("\0") if rel)
+
+
 _COPYABLE = sorted(
-    p for p in _ROOT.rglob("*")
-    if (p.suffix in (".md", ".yaml")
-        and (p.name == "dsl-presets.yaml" or p.parent.name == "references"))
-    or (p.name == "runtime.yaml" and p.relative_to(_ROOT).parts[0] == "strategies")
+    p for p in _repo_files()
+    if p.is_file()
+    and ((p.suffix in (".md", ".yaml")
+          and (p.name == "dsl-presets.yaml" or p.parent.name == "references"))
+         or (p.name == "runtime.yaml" and p.relative_to(_ROOT).parts[0] == "strategies"))
 )
 
 # Scoped to fenced yaml blocks so PROSE may name a banned pattern in order to ban it.

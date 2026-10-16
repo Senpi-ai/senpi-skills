@@ -45,7 +45,7 @@ FIDELITY NOTES vs the v2 producer (otter-producer.py v2.0.0):
     orders). FLAGGED.
   - Margin: v2 emitted marginUsd = account_value * OTTER_MARGIN_PCT (a FRACTION,
     default 0.25). This port emits `marginPct` = 25 (a PERCENT) at the top level;
-    the runtime sizes (marginPct/100)*withdrawable. The defensive "<=1.0 means a
+    the runtime sizes (marginPct/100)*withdrawable. The defensive "<1.0 means a
     pasted fraction, ×100" guard is applied (dire/koala pattern). The 25%-of-
     account INTENT is preserved.
   - Universe size: v2 scored EVERY instrument with sufficient history (no top-N
@@ -305,9 +305,9 @@ def scan(inputs, ctx):
     top_n = int(inputs.get("spreadCheckTopN", _TOP_N_SPREAD_CHECK))
 
     # marginPct: PERCENT in (0,100]. Defensive fraction->percent guard
-    # (dire/koala): a pasted <=1.0 is a fraction; ×100.
+    # (dire/koala): a pasted <1.0 is a fraction; ×100.
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         margin_pct *= 100.0
 
     history, cooldowns, recent = _load_state(ctx)

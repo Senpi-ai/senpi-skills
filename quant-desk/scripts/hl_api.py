@@ -8,8 +8,12 @@ returns at most 2000 fills and `userFunding` at most 500 rows per call — both 
 `startTime = last.time + 1` until a short page.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import email.utils
+import datetime
 import hashlib
 import json
+import random
+import socket
 import os
 import tempfile
 import time
@@ -26,12 +30,90 @@ FUNDING_PAGE = 500
 MAX_FILL_PAGES = 12           # 24k fills — past that the book is a market maker's, not a trader's
 MAX_TWAP_PAGES = 25           # TWAP slices are tiny and numerous; 50k of them is a bot
 MAX_FUNDING_PAGES = 40
-RETRIES = 4                   # on HTTP 429 only
+RETRIES = 4                   # 5xx and transport faults (timeout / reset) — see _request
+# 429 gets its own, longer budget. It is not a fault, it is the venue's per-IP weight bucket, and the
+# bucket refills on a ~minute. Four tries and 10.5s of backoff killed 3 of 7 desks run in parallel —
+# and a 15-wallet round is exactly that shape. 6 tries capped at 20s gives ~63s, one refill window.
+# (H3, @0xsarvesh #718.)
+RATE_LIMIT_RETRIES = 6
+RATE_LIMIT_MAX_SLEEP_S = 20.0
+# Retryable beyond 429: a 90-day desk makes 100-200 single-attempt requests, so one 503 or one reset
+# socket aborted the whole run with exit 1. SKILL.md's "fails open" was only ever true of the
+# OPTIONAL layers. (@0xsarvesh, #718.)
+RETRY_CODES = (429, 500, 502, 503, 504)
 BACKOFF_S = 1.5
 DEFAULT_CACHE = os.path.join(tempfile.gettempdir(), "quant-desk", "cache")
+# The cache key is sha1(request body), and `now_ms` goes INTO the body of every expensive read —
+# candleSnapshot's startTime/endTime, userFillsByTime, userFunding, the ledger. At millisecond
+# resolution every run got a unique key, so the reads that dominate runtime NEVER hit the cache the
+# module docstring promises. A desk killed at 120s therefore cost full price again on the re-run,
+# and the agent that re-ran it three more times paid four times over — into the same per-IP rate
+# bucket, which is what actually produced the 429s. (a live desk, 2026-09-23: five concurrent runs on
+# one wallet, three dead.) Flooring "now" to a 5-minute bucket makes every run inside that bucket
+# share keys, well within the 600s/900s TTLs. The cost is that the window can end up to 5 minutes
+# stale — nothing, on 90 days, and the live book is a separate 120s-TTL read that does not use it.
+NOW_BUCKET_MS = 300_000
 TTL = {"metaAndAssetCtxs::xyz": 120, "clearinghouseState": 120, "frontendOpenOrders": 120, "metaAndAssetCtxs": 120, "candleSnapshot": 900,
        "userFees": 3600, "portfolio": 600, "userNonFundingLedgerUpdates": 600, "userFillsByTime": 600,
-       "userFunding": 600, "leaderboard": 6 * 3600}
+       "userFunding": 600, "leaderboard": 6 * 3600,
+       # what an address IS does not change on a desk's timescale
+       "userRole": 7 * 24 * 3600, "vaultDetails": 7 * 24 * 3600, "userAbstraction": 600}
+
+
+def _retry_after(headers):
+    """Seconds to wait from a Retry-After header, in either legal form.
+
+    RFC 7231 allows delta-seconds OR an HTTP-date, and Hyperliquid's edge has sent both. `float()`
+    parses only the first, and the ValueError it raises on the second escapes from INSIDE the 429
+    handler — so the one header that tells us when the bucket refills turned a retryable rate-limit
+    into a hard crash. (@danielmbirochi, #718.)
+    """
+    v = (headers or {}).get("Retry-After")
+    if not v:
+        return 0.0
+    try:
+        return max(0.0, float(v))
+    except (TypeError, ValueError):
+        pass
+    try:
+        when = email.utils.parsedate_to_datetime(v)
+    except (TypeError, ValueError):
+        return 0.0
+    if when is None:
+        return 0.0
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=datetime.timezone.utc)
+    return max(0.0, (when - datetime.datetime.now(datetime.timezone.utc)).total_seconds())
+
+
+def _cached(path):
+    """A cache hit, or None if the file cannot be read as JSON.
+
+    Cache writes are atomic now, but a file written before that, or truncated by a full disk, used to
+    be terminal: every later run re-read the same corrupt bytes and died on JSONDecodeError instead
+    of refetching. A cache is an optimisation — it is never a reason to fail. (@danielmbirochi, #718.)
+    """
+    try:
+        with open(path) as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def _atomic_json(path, obj):
+    """Write-then-rename. A half-written cache file reads as JSONDecodeError, which is not an HLError,
+    so desk.py's handler misses it and the poisoned file stays hot for its whole TTL. Two desks run in
+    parallel was enough to hit it. Same idiom as addresses.save(). (@0xsarvesh, #718.)"""
+    d = os.path.dirname(path) or "."
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".hl.", suffix=".json")
+    try:
+        with os.fdopen(fd, "w") as fh:
+            json.dump(obj, fh)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
 
 
 class HLError(Exception):
@@ -51,7 +133,7 @@ class HL:
     def __init__(self, cache_dir=DEFAULT_CACHE, timeout=60, now_ms=None):
         self.cache_dir = cache_dir
         self.timeout = timeout
-        self.now_ms = now_ms or int(time.time() * 1000)
+        self.now_ms = now_ms or (int(time.time() * 1000) // NOW_BUCKET_MS) * NOW_BUCKET_MS
         self.calls = 0
         if cache_dir:
             os.makedirs(cache_dir, exist_ok=True)
@@ -62,27 +144,42 @@ class HL:
         ttl = TTL.get(body.get("type"), 300)
         path = os.path.join(self.cache_dir, key + ".json") if self.cache_dir else None
         if path and os.path.exists(path) and time.time() - os.path.getmtime(path) < ttl:
-            with open(path) as fh:
-                return json.load(fh)
+            hit = _cached(path)
+            if hit is not None:
+                return hit
         req = urllib.request.Request(INFO_URL, data=json.dumps(body).encode(), headers={"Content-Type": "application/json"})
         data = None
-        for attempt in range(RETRIES):
+        for attempt in range(max(RETRIES, RATE_LIMIT_RETRIES)):
             self.calls += 1
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout) as r:
                     data = json.load(r)
                 break
             except urllib.error.HTTPError as e:
-                # 429 = the public API's per-IP weight budget; back off and retry, never hammer it
-                if e.code == 429 and attempt < RETRIES - 1:
+                if e.code == 429 and attempt < RATE_LIMIT_RETRIES - 1:
+                    # honour Retry-After when the venue sends it; it knows when the bucket refills
+                    wait = _retry_after(e.headers) or min(
+                        RATE_LIMIT_MAX_SLEEP_S, BACKOFF_S * (2 ** attempt))
+                    # Jitter, because the bucket is per-IP and shared: without it every desk in a
+                    # parallel round backs off in lockstep and collides again on the same refill.
+                    # Budget alone took a 7-way round from 4/7 to 6/7; jitter is what decorrelates
+                    # the survivors.
+                    time.sleep(min(wait, RATE_LIMIT_MAX_SLEEP_S) * (0.5 + random.random()))
+                    continue
+                if e.code in RETRY_CODES and e.code != 429 and attempt < RETRIES - 1:
                     time.sleep(BACKOFF_S * (2 ** attempt))
                     continue
                 raise HLError(f"{body.get('type')}: HTTP {e.code}") from e
+            except (urllib.error.URLError, TimeoutError, ConnectionError, socket.timeout) as e:
+                # a reset socket or a read timeout is not an answer, it is the absence of one
+                if attempt < RETRIES - 1:
+                    time.sleep(BACKOFF_S * (2 ** attempt))
+                    continue
+                raise HLError(f"{body.get('type')}: {e}") from e
             except Exception as e:  # noqa: BLE001 — the caller decides whether this read was essential
                 raise HLError(f"{body.get('type')}: {e}") from e
         if path:
-            with open(path, "w") as fh:
-                json.dump(data, fh)
+            _atomic_json(path, data)
         return data
 
     # ---- trader-level reads ----
@@ -148,16 +245,59 @@ class HL:
         return {
             "address": addr, "now_ms": self.now_ms, "window_start_ms": win_start, "fetch_start_ms": start, "days": days,
             "clearinghouseState": self.info({"type": "clearinghouseState", "user": addr}),
-            "frontendOpenOrders": self.info({"type": "frontendOpenOrders", "user": addr}),
+            # None = the read FAILED (the audit then reads that dex's protection as unknown, never NONE);
+            # [] = no orders. Never fold a failure into [] — that is how a stop we could not see reads "naked".
+            "frontendOpenOrders": self._optional({"type": "frontendOpenOrders", "user": addr}),
+            # None = the xyz read FAILED: its positions are unknown, never none (live answers an
+            # account with no xyz collateral with an empty state, not an error).
             "clearinghouseState_xyz": self._optional({"type": "clearinghouseState", "user": addr, "dex": "xyz"}),
-            "frontendOpenOrders_xyz": self._optional({"type": "frontendOpenOrders", "user": addr, "dex": "xyz"}) or [],
+            "frontendOpenOrders_xyz": self._optional({"type": "frontendOpenOrders", "user": addr, "dex": "xyz"}),
             "spotClearinghouseState": self._optional({"type": "spotClearinghouseState", "user": addr}),
+            # the account mode ("default" / "disabled" = perps and spot are separate balances;
+            # "unifiedAccount" / "portfolioMargin" = spot holds the perps margin). None = unread.
+            "userAbstraction": self._optional({"type": "userAbstraction", "user": addr}),
             "fills": merge_fills(self.fills(addr, start), self.twap_slices(addr, start)),
             "userFunding": self.funding(addr, win_start),
             "userFees": self.info({"type": "userFees", "user": addr}),
+            # HIP-3 assets bill on their own schedule. Pricing xyz: volume with the main-dex rate
+            # overstated one book's fees 4.01x (B2, #718).
+            "userFees_xyz": self._optional({"type": "userFees", "user": addr, "dex": "xyz"}),
             "portfolio": self.info({"type": "portfolio", "user": addr}),
             "ledger": self.info({"type": "userNonFundingLedgerUpdates", "user": addr, "startTime": win_start}),
         }
+
+    def subject(self, addr):
+        """What this address IS, before the desk spends 200 reads assuming it is a trader.
+
+        `userRole` is Hyperliquid's own answer and costs one call: `user`, `vault`, `agent`,
+        `subAccount` or `missing`. It is not a heuristic and it does not guess — every senpi
+        strategy wallet and every ordinary whale comes back `user`.
+
+        This exists because of a real desk: a reader asking for their Hyperliquid score had the
+        agent point the desk at `0x31ca…974b`, which is **HLP Strategy B** — a component market
+        making strategy inside Hyperliquid's own HLP vault. 13,722 fills, 172 coins, 177 open
+        positions, 76% resting, zero fees paid. The desk spent two minutes on it and was killed
+        mid-run, and had it finished, every sentence would have been wrong: there is no entry
+        thesis to time on a quoting engine, no stop to place, and no "giving back 46% of a
+        winner's peak". One call answers it, and answers it better.
+
+        Fails OPEN: an address we cannot classify is read as an ordinary trader, which is what it
+        almost always is.
+        """
+        try:
+            role = (self.info({"type": "userRole", "user": addr}) or {}).get("role") or "user"
+        except HLError:
+            return {"role": "user", "unverified": True}
+        out = {"role": role}
+        if role == "vault":
+            try:
+                d = self.info({"type": "vaultDetails", "vaultAddress": addr}) or {}
+                out["name"] = d.get("name")
+                out["description"] = d.get("description")
+                out["leader"] = d.get("leader")
+            except HLError:
+                pass
+        return out
 
     def _optional(self, body):
         try:
@@ -196,12 +336,25 @@ class HL:
         with ThreadPoolExecutor(max_workers=workers) as ex:
             return dict(ex.map(one, addrs))
 
+    def portfolios(self, addrs, workers=6):
+        """{addr: Hyperliquid's `portfolio` reply, or None when that read failed} — one read per wallet,
+        in parallel. The SAME request `trader()` makes, so a desk run on one of these wallets inside the
+        cache TTL reuses it instead of paying for it again."""
+        def one(a):
+            try:
+                return a, self.info({"type": "portfolio", "user": a})
+            except Exception:  # noqa: BLE001 — one wallet's failure is that wallet's unknown value
+                return a, None
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            return dict(ex.map(one, addrs))
+
     def leaderboard(self):
         """Hyperliquid's public leaderboard (every account with a window performance; ~40 MB), cached."""
         path = os.path.join(self.cache_dir, "leaderboard.json") if self.cache_dir else None
         if path and os.path.exists(path) and time.time() - os.path.getmtime(path) < TTL["leaderboard"]:
-            with open(path) as fh:
-                return json.load(fh)
+            hit = _cached(path)
+            if hit is not None:
+                return hit
         self.calls += 1
         try:
             with urllib.request.urlopen(urllib.request.Request(LEADERBOARD_URL), timeout=max(self.timeout, 120)) as r:
@@ -209,8 +362,7 @@ class HL:
         except Exception as e:  # noqa: BLE001
             raise HLError(f"leaderboard: {e}") from e
         if path:
-            with open(path, "w") as fh:
-                json.dump(data, fh)
+            _atomic_json(path, data)
         return data
 
 
@@ -227,7 +379,9 @@ class HLFixture(HL):
         req = body.get("req") or {}
         user = str(body.get("user", "")).lower(); dex = body.get("dex", "")
         if user and dex and f"hl::{t}::{user}::{dex}" not in self._r and t in ("clearinghouseState", "frontendOpenOrders"):
-            raise HLError(f"fixture has no {t} for dex {dex}")          # a fixture without an xyz view = an account with no xyz collateral
+            # a fixture without an xyz view = a FAILED read. Live answers an account with no xyz
+            # collateral with an empty state, so recordings carry that state explicitly.
+            raise HLError(f"fixture has no {t} for dex {dex}")
         for key in (f"hl::{t}::{user}::{dex}" if dex else "", f"hl::{t}::{user}", f"hl::{t}::{req.get('coin', '')}::{req.get('interval', '')}", f"hl::{t}::{req.get('coin', '')}",
                     f"hl::{t}::{dex}", f"hl::{t}"):
             if not key:
@@ -283,6 +437,46 @@ def weekly_rank(leaderboard, addr):
             ranks[w] = 1 + sum(1 for r in rows if _window(r, w).get("pnl", 0.0) > mv)
     return {"rank": rank, "of": len(pnls), "top_pct": 100.0 * rank / len(pnls), "week_pnl": mine, "ranks": ranks,
             "windows": windows, "account_value": float(me.get("accountValue") or 0)}
+
+
+# The bands a reader actually thinks in. "Find me traders to analyse" is a size question first —
+# a $9k book and a $9M book teach different lessons — then a style question.
+FIND_BANDS = {
+    "5k-10k":   (5_000.0, 10_000.0),
+    "10k-25k":  (10_000.0, 25_000.0),
+    "25k-100k": (25_000.0, 100_000.0),
+    "100k-1m":  (100_000.0, 1_000_000.0),
+    "whales":   (1_000_000.0, float("inf")),
+}
+
+
+def find_traders(leaderboard, band=None, window="month", n=8, min_volume=250_000.0, losers=False):
+    """Candidate wallets to run the desk on, from public leaderboard data alone.
+
+    `band` is an account-size bracket (see FIND_BANDS) — the first thing a reader picks, because a
+    $9k book and a $9M book teach different lessons. `window` is "week" for who is hot right now or
+    "month"/"allTime" for who has held up. `min_volume` drops the vault and yield accounts that hold
+    equity but never trade — they render as an empty desk.
+
+    Returns dicts, not bare addresses: whoever is choosing needs to see why each one is on the list.
+    """
+    lo, hi = FIND_BANDS.get(band or "", (0.0, float("inf")))
+    out = []
+    for r in leaderboard.get("leaderboardRows") or []:
+        av = float(r.get("accountValue") or 0)
+        if not (lo <= av <= hi):
+            continue
+        w = _window(r, window)
+        if w.get("vlm", 0) < min_volume:
+            continue
+        pnl = w.get("pnl", 0)
+        if (pnl >= 0) if losers else (pnl <= 0):
+            continue
+        out.append(dict(address=r["ethAddress"], account_value=av, pnl=pnl,
+                        roi=w.get("roi", 0), volume=w.get("vlm", 0), window=window,
+                        turnover=(w.get("vlm", 0) / av) if av > 0 else 0.0))
+    out.sort(key=lambda x: x["pnl"], reverse=not losers)
+    return out[:n]
 
 
 def public_cohort(leaderboard, n=40, min_account_value=1_000_000.0, min_month_roi=0.05, min_month_volume=1_000_000.0):

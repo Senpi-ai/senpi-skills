@@ -6,7 +6,7 @@
 schema_version: 1
 
 id: shadow
-version: "1.3.0"
+version: "2.2.0"
 
 catalog:
   name: "Shadow — Multi-Trader Fresh-Entry Mirror"
@@ -25,7 +25,8 @@ catalog:
   leverage_max: 10
   max_slots: 5
   assets: []
-  tags: [copy-trading, multi-trader, fresh-entry, mirror, entry-slippage-guard, smart-money, budget-relative]
+  status: blocked            # ⚠️ not deployable — see shadow/DESIGN.md
+  tags: [copy-trading, multi-trader, fresh-entry, mirror, entry-slippage-guard, smart-money, budget-relative, blocked, not-deployable]
 
 requires:
   runtime: ">=3.0.0"

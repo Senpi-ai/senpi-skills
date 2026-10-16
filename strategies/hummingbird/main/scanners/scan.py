@@ -113,7 +113,8 @@ def _sm_for_asset(ctx, asset, min_traders=_DEFAULT_MIN_TRADER_COUNT):
 
 
 def scan(inputs, ctx):
-    asset = (inputs.get("asset", "HYPE") or "HYPE").upper()
+    # Verbatim — see beaver: upper() breaks `xyz:` prefixes and kPEPE/kBONK.
+    asset = str(inputs.get("asset", "HYPE") or "HYPE")
     min_score = float(inputs.get("minScore", 5))
     min_traders = int(inputs.get("minTraderCount", _DEFAULT_MIN_TRADER_COUNT))   # 4h-board headcount floor
     margin_pct = float(inputs.get("marginPct", 25))   # PERCENT of withdrawable (0,100], not a fraction
