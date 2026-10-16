@@ -2,7 +2,7 @@
 # Multi-asset, non-crypto XYZ universe (12 names, Hyperliquid HIP-3 DEX): commodities
 # (CL, BRENTOIL), metals (GOLD), indices (SP500, XYZ100), mega-cap equities (AAPL, NVDA,
 # GOOGL, TSLA, AMZN, META, MSFT). A >=1.5% 1H breakout HARD GATE + 4H trend alignment +
-# move-exhaustion penalty + volume surge + XYZ-dex smart-money + spread gate + funding,
+# move-exhaustion penalty + volume surge + XYZ-dex 4h-leader lean + spread gate + funding,
 # summed into a breakout score. Score-tiered leverage (3x/5x), fixed 30% margin, a
 # 2-position macro book. DSL-only exits. dex = "xyz", macroAsset = "" (no BTC factor).
 # XYZ trades 24/7 incl weekends — NO market-hours gate anywhere.
@@ -14,7 +14,8 @@ description: >
   universe (oil, gold, S&P/Nasdaq indices, mega-cap tech) for a >=1.5% 1H breakout HARD
   GATE, then weights the 1H magnitude heaviest (+3/+4/+5) and adds 4H trend alignment,
   a move-exhaustion penalty (relaxed 6%/4% thresholds), a volume surge, XYZ-dex
-  smart-money confirmation, a spread gate (relaxed 0.35% for wide XYZ spreads) and
+  4h-leader confirmation (leaderboard_get_markets — a momentum read, not a proven
+  cohort), a spread gate (relaxed 0.35% for wide XYZ spreads) and
   funding alignment. Floor minScore 5. Emits the single strongest candidate per tick;
   slots: 2 lets the runtime own the 2-position macro book. Score-tiered leverage: 3x
   standard, 5x at score >= 9. Fixed 30% margin. DSL is the ONLY exit (early T0 lock at
@@ -58,6 +59,7 @@ scanners:
       tiringThreshold: 4.0                 # v2 TIRING_THRESHOLD (relaxed from 2.5 in v2.0)
       spreadMax: 0.0035                    # v2 SPREAD_MAX (relaxed 0.002 -> 0.0035 for wide XYZ spreads)
       recentSignalTtlSeconds: 10800        # 180m — mirror the v2 ASSET_COOLDOWN_MINUTES (anti re-fire)
+      minTraderCount: 10                   # skip a board side thinner than this many traders at the read — a thin side never sets the lean
     signal_data_schema:
       score: { type: number }
       leverage: { type: number }

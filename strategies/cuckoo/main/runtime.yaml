@@ -46,7 +46,8 @@ scanners:
     inputs:
       topN: 12                             # v2 DEFAULT_TOP_N — how many top strategies to follow
       minStrategies: 2                     # v2 DEFAULT_MIN_STRATEGIES — min agreeing to enter
-      minNotionalUsd: 2000                 # v2 DEFAULT_MIN_NOTIONAL_USD — per-position notional floor for a vote
+      minNotionalUsd: 100                  # per-position notional floor for a vote. Was 2000 (v2 default): the strategies
+                                           # it copies hold $6–$883 positions, so every vote was discarded and it never traded
       weightCap: 3.0                       # v2 DEFAULT_WEIGHT_CAP — max per-strategy weight (outlier guard)
       highWeight: 6.0                      # v2 DEFAULT_HIGH_WEIGHT — aggregate weight that earns the bonus point
       minScore: 4                          # v2 DEFAULT_MIN_SCORE — consensus-score floor

@@ -42,7 +42,7 @@ Your code is **one read-only, pure function**: it reads data and returns candida
 runtime itself — synthesizes the canonical `main` instance from that root `runtime.yaml`, binding
 `wallet_env` to the `${...}` the recipe already uses. That is what makes **one** path serve every
 command in this guide: the package root is the target of `validate_strategy.py`,
-`validate_universe.py`, `deploy.py validate`, `openclaw senpi validate` and `deploy.py create` alike.
+`senpi-strategy-ops/scripts/validate_universe.py`, `deploy.py validate`, `openclaw senpi validate` and `deploy.py create` alike.
 The instance is still named `main`, so the recipe's linkage is `name: <id>-main`, `group: <id>` (§6).
 
 **Location is load-bearing:** build under `/data/workspace/strategies/` (`SENPI_STRATEGIES_DIR`
@@ -64,7 +64,7 @@ Beyond the layout itself, taking the exception changes **two things about the co
 
 **Every other command still takes the package root or the bare id.** `validate_strategy.py` and
 `deploy.py validate` read `strategy.yaml`, so they need the **root** — pointed at an instance dir,
-`validate_strategy.py` fails `missing strategy.yaml`. `validate_universe.py` walks every
+`validate_strategy.py` fails `missing strategy.yaml`. `senpi-strategy-ops/scripts/validate_universe.py` walks every
 `runtime*.yaml` under whatever dir you give it, so the root covers all legs in one run.
 `deploy.py create <id>` takes the bare id and funds every instance by `funding_share`. Only
 `senpi validate` is per-instance, because it resolves ONE recipe and a multi-instance root holds none.
@@ -92,7 +92,7 @@ Two invariants fall out of this:
 Decide these in prose first; the files just encode them.
 
 1. **Universe** — single asset · static basket · **dynamic** (rebuilt from `market_list_instruments`, volume floor + fresh-listing) · **derived** (names come from a leaderboard/cohort, not a list).
-2. **Data** — candles (`market_get_asset_data`) · funding/OI (`market_get_funding_*`) · smart-money (`leaderboard_get_markets`, `discovery_*`) · cross-asset flow (`market_get_cross_asset_flows`).
+2. **Data** — candles (`market_get_asset_data`) · funding/OI (`market_get_funding_*`) · 4h-board momentum (`leaderboard_get_markets`) · smart-money (`discovery_get_trader_state` on the proven cohort — a board read is momentum, never smart money) · cross-asset flow (`market_get_cross_asset_flows`).
 3. **Edge** — trend-follow · mean-revert · breakout · relative-strength · copy/follow · cohort-divergence · event/new-listing · macro-thesis.
 4. **Shape** — long-only / short-only / mixed-on-one-wallet = **1 instance** (build flat, §2) · independent long+short or distinct cadences = **multiple instances** (each its own wallet + `funding_share`) — that is §2's exception, and the only decision here that changes the layout.
 5. **Cardinality** — one best pick (`slots: 1`) · all gated qualifiers (runtime caps via `slots`).
@@ -110,7 +110,7 @@ as the working example (validated, current-idiom code; never resurrect old doc s
 | Trend / momentum | dynamic/basket | candles | confirmed trend + RS | long or L/S | all | dedup | `let_winners_run` / slow | `lynx`, `bison` |
 | Mean-reversion | majors basket | candles + RSI | fade extremes | L/S | all | dedup | `mean_reversion` / fast | `lemon`, `bald-eagle` |
 | Breakout | basket | candles + range | range break / new high | long | all | dedup | `let_winners_run` / medium | `hawk`, `badger` |
-| Trader-follower | **derived** (board) | `leaderboard_*`/`discovery_*` | mirror proven traders | L/S | all | dedup + baseline | `let_winners_run` / medium | `albatross`, `raptor` |
+| Trader-follower | **derived** (board) | `leaderboard_*`/`discovery_*` | mirror proven traders | L/S | all | dedup + baseline | `let_winners_run` / medium | `raptor` |
 | Cohort-divergence | **derived** (realized-PnL cohorts) | `discovery_*` | smart-money vs crowd | L+S (2 inst.) | all | daily ledger + cohort cache | `let_winners_run` / slow | `whalehunter`, `egret` |
 | Managed-futures | multi-class basket | candles | cross-asset trend, vol-parity | L+S | all | minimal | `let_winners_run` / slow | `caribou`, `ox` |
 | Microstructure / flow | majors | funding/OI + candles | liquidation cascade / volume | L/S | one or all | dedup | `balanced` or `scalp` / fast | `piranha`, `camel` |
@@ -127,6 +127,8 @@ grep `strategies/catalog.json` by its `archetype` field (a closed set; every pac
 No I/O, no MCP, no clock, no state — just functions over candles/numbers, so it unit-tests without mocks.
 
 > **Candle schema (`market_get_asset_data`):** keys `t,o,h,l,c,v` (+ `T,s,i,n`). Close is `candle["c"]` — there is no `candle["close"]`. Values may arrive as **strings** — always read numerics through `_f()` below (`float` of a number is a no-op, so it's correct on every runtime version and every tool). Type contract: `senpi-trading-runtime/references/scan-contract.md` → "Market data types".
+>
+> **Candle times are epoch milliseconds; `time.time()` is seconds.** `t` is the candle's open time and `T` its close time, both in ms. A candle has closed when `_f(c["t"]) / 1000 + candle_seconds <= now`: `candle_seconds` is the candle interval (`4h` = 14400, not the scanner's `interval_seconds`), and `now = time.time()` is read in `scan.py` and passed in. Comparing `t` to `time.time()` directly means no candle ever closes, so the scanner never emits.
 
 ```python
 def _f(v, d=0.0):
@@ -162,6 +164,7 @@ def scan(inputs, ctx):
         data = ctx.senpi_mcp.call_tool("market_get_asset_data",   # (2) DATA — READ-ONLY
             {"asset": asset, "candle_intervals": ["4h", "1d"],
              "dex": "xyz" if asset.lower().startswith("xyz:") else ""})
+        if not isinstance(data, dict): continue                   # raw-text payload — see scan-contract
         th = scoring.score(asset, data, None, inputs)             # (3) EDGE
         if th and th["score"] >= inputs.get("minScore", 5):
             picks.append({**th, "asset": asset})
@@ -186,6 +189,9 @@ def scan(inputs, ctx):
 - **`ctx` is frozen:** `ctx.senpi_mcp.call_tool(name, args)` (read-only), `ctx.state` (`.last()/.recent(n)/.append()/len()`), `ctx.wallet`, `ctx.scanner_name`, `ctx.interval_seconds`. No logging handle — `print(..., file=sys.stderr)`.
 - **Signal dict keys:** `asset`✅, `direction`✅ (LONG/SHORT), `marginPct` (intent), `leverage` (optional), `data{}` (validated against `signal_data_schema`), optional `valid_for_seconds` / `signal_id`. The scaffold owns `produced_at`/`valid_until`/dedup — don't set them.
 - **Anchor every `call_tool` on the published MCP I/O reference** (`read_senpi_guide`). A guessed tool name, interval string, or output field = a silent dead scanner.
+- **Bind every name before the branch that reads it.** Python fixes a function's locals at compile time, so a read on a path that runs before the assignment raises `UnboundLocalError` — it does NOT fall back to a module-level name of the same spelling — and a nested `_persist()` defined above its free variable raises `NameError` the first time an early return calls it. Both compile, both pass a scan of the happy path, and both crash EVERY tick once the branch is first taken, which can be days later. `validate_strategy.py` now fails the package on either; keep the catalog's shape — give `_persist(result=None, signaled=None)` parameters rather than closing over values bound further down.
+- **`marginPct` is a PERCENT in (0, 100], and stays one.** Out of range, the runtime drops the whole candidate at delivery (`delivery_candidate_invalid`), so the strategy funds, ticks clean and never opens. Read it from `inputs` as a constant, as the catalog does. A percent recomputed from a live balance (`max(size, MIN_ORDER) / free_margin * 100`) is correct while the wallet is liquid and passes 100 the moment the floor binds — clamp it with `min(pct, 100.0)`, or emit nothing when the size cannot be funded. `validate_strategy.py` fails an out-of-range literal and warns on a division by a live balance with no clamp.
+- **A response is not guaranteed to be a dict.** When a tool's text payload is not JSON, `call_tool` returns it as a **raw string** (by design — it mirrors `producer.mjs`), and a bare JSON array comes back as a **list**. `if not resp:` does NOT catch that, because a non-empty string is truthy. Guard with `isinstance(resp, dict)` before any `.get()`, or the tick dies on `AttributeError: 'str' object has no attribute 'get'`. It is intermittent, so it passes `validate` and surfaces hours later.
 
 ### `runtime.yaml` — the deterministic spec
 At the package root (§2). Multi-instance: one per `<instance>/` dir, with `<instance>` in place of `main`.
@@ -228,6 +234,22 @@ actions:
 exit:   { engine: dsl, dsl_preset: { ... } }   # <-- a named preset (§7)
 risk:   { guard_rails: { drawdown_halt_pct: 25, daily_loss_limit_pct: 15, cooldown_seconds: 3600, ... } }
 ```
+
+**Closing from a signal.** A close is not a direction. The runtime routes a signal only to the actions whose
+`scanners:` name its scanner, and the open action refuses any direction but `LONG`/`SHORT`
+(`invalid_direction`): a "force-flat" signal with `direction: CLOSE` is refused, and one from a scanner no
+action lists is dropped without a log line. The shipped pattern is Barracuda's `close_all`: a **dedicated
+scanner** that emits each open position's `asset` and its side (`LONG`/`SHORT`, the reason in `data{}`),
+consumed by its own action:
+```yaml
+  - name: <id>_close
+    action_type: CLOSE_POSITION
+    decision_mode: rule
+    scanners: [<id>_close_signals]
+    params: { order_type: MARKET }
+    context: [ { type: signal, scanner: <id>_close_signals } ]
+```
+The lint refuses a scanner no action lists and a `direction` literal that names a close (`CLOSE`, `FLAT`, `EXIT`).
 
 ### `strategy.yaml` — the manifest
 ```yaml
@@ -275,12 +297,16 @@ Discovery matches your strategy to users by the `catalog:` block. **Validation o
 ## 9. Prove it runs, then deploy, then confirm it *operates*
 
 ```
-python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>   # advisory lint
+python3 /data/.openclaw/skills/senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>   # advisory lint + warns (stop distance, sizing, daily cap) — relay them
 openclaw senpi validate /data/workspace/strategies/<id>                         # THE GATE — must be PASS. The package root (flat, §2)
-python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget N            # the whole path: wallet(s) ($10/wallet floor) → install → observed tick
+python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py create  <id> --budget N            # the whole path: wallet(s) ($10/wallet floor) → install → observed tick
 openclaw senpi deploy status                                                    # read-only: the report; `overall: live` is the gate
 # teardown / redeploy:  close.py <id>  (flattens positions, returns funds)
 ```
+Want to *watch* it before funding? `senpi validate` is the shadow run, and the runtime watches a funded
+strategy for free — **never schedule agent turns to poll it** (each firing is a model call):
+[`shadow-testing.md`](shadow-testing.md).
+
 **"running" ≠ "operating."** Don't trust `status: running`. Confirm the scanner has a **positive run count + a fresh `lastRunFinishedAt`** (`openclaw senpi state -r <id>-main --json`, or `openclaw senpi scanner -r <id>-main` — `-r` is the runtime id, so `<id>-<leg>` per leg on §2's exception), and that it **emits a non-empty set on a tick where it should** — a `live` report proves it *ticked*, not that it produced a signal. Those reads are read-only, and so is `deploy.py verify <id>` (it composes them into a per-instance verdict and deploys nothing); the command that moves money is the resume, `deploy.py runtime <id>` / `create <id> --budget <usd>`. This is an **agent-side check** — run it yourself; never ask the user "is it working?".
 
 ### The gate — `senpi validate`, before any wallet exists
@@ -333,9 +359,11 @@ Two things it deliberately does *not* prove, so don't over-claim on its behalf: 
 
 - `scan()` single-pass + sync; read-only MCP only; `return []` on any error.
 - Pure scoring in `scoring.py`; MCP + state in `scan.py`.
-- **Never hardcode a ticker you didn't verify against the live list.** Every static `universe`/`asset`/`catalog.assets` entry must be a live HL instrument — a fake ticker silently no-trades (`market_get_asset_data` rejects it as an unknown coin — do not retry — and the scan skips it). Check it: `validate_universe.py /data/workspace/strategies/<id>` (read-only; `deploy.py validate` reports the same thing, and `openclaw senpi deploy` REFUSES a dead name pre-money with `[E_UNIVERSE_NOT_LIVE]` — so that deploy funds no wallet, though on a redeploy it says nothing about a wallet the package already has; you find out faster here). Real index = `xyz:XYZ100`, *not* `xyz:NASDAQ`. This applies to the universe a strategy TRADES: an **exclusion** list (`excludeAssets`, `deny*`/`skip*`/`ignore*`) is exempt and never checked on either side, because it names what the strategy refuses to trade — often precisely because the venue carries no instrument for it (stablecoins are the usual case).
+- **Never hardcode a ticker you didn't verify against the live list.** Every static `universe`/`asset`/`catalog.assets` entry must be a live HL instrument — a fake ticker silently no-trades (`market_get_asset_data` rejects it as an unknown coin — do not retry — and the scan skips it). Check it: `senpi-strategy-ops/scripts/validate_universe.py /data/workspace/strategies/<id>` (read-only; `deploy.py validate` reports the same thing, and `openclaw senpi deploy` REFUSES a dead name pre-money with `[E_UNIVERSE_NOT_LIVE]` — so that deploy funds no wallet, though on a redeploy it says nothing about a wallet the package already has; you find out faster here). Real index = `xyz:XYZ100`, *not* `xyz:NASDAQ`. This applies to the universe a strategy TRADES: an **exclusion** list (`excludeAssets`, `deny*`/`skip*`/`ignore*`) is exempt and never checked on either side, because it names what the strategy refuses to trade — often precisely because the venue carries no instrument for it (stablecoins are the usual case).
 - Emit a **`marginPct` intent**, not dollars; `marginPct`/`leverage` top-level, not in `data{}`.
 - Declare every `data{}` key in `signal_data_schema`.
+- **A close is a dedicated scanner plus a `CLOSE_POSITION` action, never `direction: CLOSE`** (§6). Every external scanner must be listed by an action; the lint refuses both.
+- **A 4h-board read is momentum, not smart money.** A side taken from `pct_of_top_traders_gain` / `longPct` with no `discovery_get_trader_state` read is *4h leader momentum* — say so in every text a user reads (catalog fields, runtime `description`, README). A PnL sign is not a side: use the position's `szi` sign. The lint refuses both.
 - **Anchor on the references:** MCP fields → I/O guide; exit → a named preset; catalog facets → the glossary.
 - Linkage: `group: <id>`, `name: <id>-main` (`<id>-<instance>` per leg when multi-instance), package is `@senpi-ai/runtime`. `funding_share` sums to 1.0 only when `instances:` is declared.
 - **`strategy.wallet` must be the WHOLE value and UPPERCASE** — `"${MY_WALLET}"`, `[A-Z0-9_]` only. A lowercase (`${my_wallet}`) or mid-string (`pre${FOO}`) token passes **every** python lint, `deploy.py validate` included, and is then refused by the runtime when it loads the flat package.
@@ -455,7 +483,8 @@ def scan(inputs, ctx):
         md = ctx.senpi_mcp.call_tool("market_get_asset_data",
             {"asset": asset, "candle_intervals": ["4h", "1d"],
              "dex": "xyz" if asset.lower().startswith("xyz:") else ""})
-        if not md: continue
+        if not isinstance(md, dict): continue   # non-JSON payload comes back as RAW TEXT, and a
+                                               # non-empty str passes `if not md` then dies on .get()
         c = (md.get("data", md) or {}).get("candles", {})
         th = scoring.confirm_rebound(c.get("4h", []), c.get("1d", []), inputs)
         if th and th["score"] >= min_score:
@@ -482,3 +511,113 @@ deploy.py create us-rebound --budget 200 ; openclaw senpi deploy status   # `ove
 …then confirm it **emits** on a tick where ≥4 names confirm — not just that it ticked.
 
 **The portable lesson:** building any strategy = walk the 7 decisions → copy the matching archetype row → write the edge in `scoring.py` → name a DSL preset → fill the catalog facets from the glossary. The thesis fund's breadth+horizon, a scalp's tight preset, a follower's derived universe — those are *cells*, not different frameworks. And whatever you build, remember the creed: **every guess fails silently — anchor on the references and confirm it operates.**
+
+## The per-tick call budget
+
+`scan()` runs under the recipe's `timeout_seconds`, and **production enforces it exactly as
+validation does**. So a scanner over budget does not fail once and get retried — it times out on
+every tick, forever, and the strategy never trades. Validation reports this as
+`E_VALIDATE_TICK_TIMEOUT` with the call count it observed.
+
+Fan-out is what blows it. One `call_tool` per asset inside a loop over a wide universe reaches
+several hundred calls before anything looks wrong in the code. Two scanners authored on 2026-09-18
+came in at 398 and 390 calls against a 240s budget and both timed out.
+
+- A healthy scanner sits in the **tens**. Roughly one call per 0.6s of `timeout_seconds` is the
+  ceiling (~400 on a 240s tick), not a target.
+- Fetch candles/state **once per unique asset** and reuse across every pair or leg that needs them.
+- Hoist board-wide reads (`leaderboard_get_markets`, `discovery_get_top_traders`) out of the
+  per-asset loop — they return the whole board in one call.
+- Batch wallet reads (`discovery_get_trader_state` takes a list) rather than looping one per wallet.
+- If the count really is irreducible, raise `timeout_seconds` deliberately and say why in the
+  recipe. Don't discover the ceiling by failing validation: each attempt costs a multi-minute
+  live run.
+
+### A call budget is not enough on its own — every read needs a timeout
+
+Counting calls bounds the work a tick *intends* to do. It does nothing about a single read that
+never returns, and that is the failure that actually strands scanners: no output, no error, no
+timeout line, the runtime alive and the scan silent for hours.
+
+Observed 2026-09-19: a hand-authored scanner made the SAME reads as `senpi-signals/scripts/sweep.py`
+with the SAME limits — universe top-120, one cohort page, board 500, momentum 50 — and produced
+**zero completed ticks in 2h49m**, while the sweep runs the identical gather in about a minute. The
+limits were never the difference. The sweep budgets its reads; the scanner did not:
+
+```python
+READ_TIMEOUT_S  = 15    # per read
+READ_ATTEMPTS   = 2     # one retry, because a degraded upstream usually recovers
+FEED_DEADLINE_S = 100   # the whole gather's wall-clock budget
+```
+
+Against a bare `ctx.senpi_mcp.call_tool(name, args)` with neither, one hung call blocks the tick
+forever. `timeout_seconds` in the recipe is the runtime's backstop, not your error handling — by the
+time it fires you have lost the tick and learned nothing about which read hung.
+
+So, for any scanner that makes more than a couple of reads:
+
+- **Per-read timeout**, with one retry. Pass it to `call_tool` if the host accepts a `timeout=`
+  keyword; `sweep.py`'s `Client.mcp_call` shows how to detect that once and fall back cleanly.
+- **A whole-tick deadline** checked between reads, comfortably under `timeout_seconds`, so the scan
+  returns `[]` on its own terms instead of being killed mid-flight.
+- **Cheap reads first, the expensive lens last.** `sweep.py` reads market and leaderboard before the
+  cohort precisely because the cohort can eat the entire deadline by itself — so a degraded cohort
+  costs one detector rather than all of them.
+- **Say what went dark.** A tick that skipped a read is not the same as a market with nothing in it,
+  and the log line has to distinguish them — the recurring defect in this codebase.
+
+## Editing a LIVE strategy's scanner is an instant production change
+
+The scaffold re-reads `scanners/*.py` from disk on **every tick**. There is no apply step and no
+validation gate on scanner code: `senpi update` compares *recipes* and cannot see code. So saving an
+edit to a live strategy's `scan.py` or `scoring.py` puts it in front of real money at the next tick,
+typically within a minute.
+
+This is how the worst kind of change ships — the one made in a hurry because the strategy "isn't
+firing". Observed 2026-09-19: a scanner was edited at 01:29 to turn a gate into a non-gate, and by
+01:37 — eight minutes later, with no validation run — it had opened **six positions in 138
+seconds**, every one of them stopped out within the hour and the risk gate halted the strategy for
+the rest of the day.
+
+**Before editing a live scanner:** run `openclaw senpi validate` against the edited package and read
+the tick output, exactly as you would for a new one. If the edit loosens or removes a condition,
+say out loud how many more emits per tick it allows and against which universe. "It isn't firing" is
+a hypothesis about a rate — go measure the rate first (below), because the fix for "too strict" and
+the fix for "broken" are opposite changes and shipping the wrong one costs money.
+
+## Bound the universe to the thesis
+
+A scanner may only trade names its thesis can actually speak about. If the strategy is "BTC bounced
+and I think it's fake, so fade the pullback", the tradeable set is BTC and the alts that track it —
+not everything the venue lists.
+
+The failure is quiet, because the gate that bounds the universe is usually a *condition*, not a
+list. Replace a condition like "this coin bounced" with a weaker one like "the cohort has any bias
+on this coin" and the universe silently becomes every coin a single cohort wallet happens to hold.
+The same 2026-09-19 scanner went from scoring bouncing coins to scoring anything with
+`abs(smart_bias) >= 0.3` — and since one wallet holding a coin gives it a bias of ±1.0, that is
+every coin anyone in the cohort touches. It emitted SHORT on gold, Apple and crude oil, none of
+which its thesis has an opinion about.
+
+- State the universe as a **list or an explicit filter** the thesis justifies, not as a side effect
+  of a scoring condition.
+- Set `catalog.assets` to what it actually trades, and keep the scanner's own filter in agreement.
+- After any change to an entry condition, print the candidate count for one tick. A count that jumps
+  by an order of magnitude is the bug, whatever the score says.
+
+## Carry the score into the emitted signal
+
+`scan()` must put the score it computed into the emitted `data` (`"data": {"score": <n>, ...}`) and
+declare it in `signal_data_schema`. It is the signal's audit trail: the only durable record of how
+much conviction the scanner had when it opened a position, and what any downstream consumer of the
+signal reads.
+
+**Do not use the runtime's log line to check it.** The runtime prints `<ASSET> <DIR> signal
+(score N)` on every emit, and it prints `score 0` regardless of what the scanner attached —
+fleet-wide, 21,013 signal lines across 118 runtimes in a 30-hour window, not one non-zero. Phalanx
+passes `"score": c["conviction"]` correctly and still logs `score 0`. So that line tells you a
+signal fired and nothing about its conviction; verify the field in the scanner's own output or in
+`gen_ai.tool.call.result`, never from the log.
+
+That matters when reading a strategy you did not write: `score 0` on every line looks exactly like
+a scanner firing with no conviction, which is a misdiagnosis waiting to happen.

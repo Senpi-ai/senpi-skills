@@ -35,7 +35,7 @@ FIDELITY NOTES vs the v2 producer (raccoon-producer.py v1.0.1):
   - v2 sizing used marginPct (a FRACTION, 0.15 in raccoon-config.json) *
     account_value -> marginUsd. This port uses marginPct=15 (a PERCENT) and emits
     `marginPct`; the runtime sizes (marginPct/100)*withdrawable. Value preserved
-    (0.15 -> 15%). Defensive koala-pattern guard: an input <= 1.0 is treated as a
+    (0.15 -> 15%). Defensive koala-pattern guard: an input < 1.0 is treated as a
     pasted v2 fraction and x100'd.
   - leverage clamp min(leverage, MAX_LEVERAGE=5) preserved verbatim.
   - v2 recent-signals JSON cache (RECENT_SIGNAL_TTL_SEC=240) -> ctx.state dedup map
@@ -152,7 +152,9 @@ def fetch_weekend_universe(ctx, inputs):
 
 
 def _fetch_sm_map(ctx):
-    """ONE leaderboard_get_markets read -> {TOKEN: (long_pct, short_pct)} cache.
+    """ONE leaderboard_get_markets read -> {NAME: (long_pct, short_pct, long_n, short_n)} cache,
+    keyed the way the universe names a market (`XYZ:NVDA` for the xyz row, `BTC` for main);
+    `*_n` is that side's trader_count (the 4h leaders' headcount).
 
     v2 re-fetched the whole leaderboard once per asset inside build_thesis; this
     port fetches it ONCE per tick and resolves each asset from the cache (same
@@ -178,28 +180,37 @@ def _fetch_sm_map(ctx):
         token = str(m.get("token", m.get("coin", m.get("asset", "")))).upper()
         if not token:
             continue
+        # The board carries a BARE token plus a separate `dex` ("" main / "xyz"); the universe
+        # carries `xyz:NVDA`. A bare key never matched an xyz name, so the SM gate failed closed
+        # on every candidate. Qualify the key with the dex read the fleet's _sm_row_matches uses.
+        if str(m.get("dex", "")).strip().lower() == "xyz" and not token.startswith("XYZ:"):
+            token = "XYZ:" + token
         d = str(m.get("direction", "")).upper()
         pct = scoring._f(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
-        lp, sp = sm_map.get(token, (0.0, 0.0))
+        lp, sp, ln, sn = sm_map.get(token, (0.0, 0.0, 0, 0))
         if d == "LONG":
-            lp = pct
+            lp, ln = pct, int(m.get("trader_count", 0) or 0)
         elif d == "SHORT":
-            sp = pct
-        sm_map[token] = (lp, sp)
+            sp, sn = pct, int(m.get("trader_count", 0) or 0)
+        sm_map[token] = (lp, sp, ln, sn)
     return sm_map
 
 
-def _sm_direction(sm_map, asset):
-    """Net smart-money lean for `asset` from the cached SM map. Ported VERBATIM
-    from v2 fetch_sm_direction long_ratio derivation. Returns (direction, pct)."""
+def _sm_direction(sm_map, asset, min_traders=10):
+    """Net 4h-leader lean for `asset` from the cached board map. Ported VERBATIM from v2
+    fetch_sm_direction long_ratio derivation. Returns (direction, pct); (None, 0.0) when the
+    asset is off the board or the side the ratio picks holds fewer than `min_traders` of the
+    4h leaders — the ratio is never altered (both rows always count), a thin lean is refused."""
     entry = sm_map.get(asset.upper())
     if entry is None:
         return None, 0.0
-    long_pct, short_pct = entry
+    long_pct, short_pct, long_n, short_n = entry
     total = long_pct + short_pct
     if total <= 0:
         return "NEUTRAL", 50.0
     long_ratio = (long_pct / total) * 100
+    if (long_n if long_ratio >= 50 else short_n) < min_traders:
+        return None, 0.0   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
     if long_ratio >= 50:
         return "LONG", long_ratio
     return "SHORT", 100 - long_ratio
@@ -258,10 +269,10 @@ def scan(inputs, ctx):
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
 
     # marginPct is a PERCENT in (0,100]. Defensive koala-pattern guard: a value
-    # <= 1.0 (operator pasted the v2 FRACTION 0.15) is treated as a fraction and
+    # < 1.0 (operator pasted the v2 FRACTION 0.15) is treated as a fraction and
     # x100'd so it never silently sizes ~100x small.
     margin_pct = float(inputs.get("marginPct", scoring.DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         print(f"[raccoon.scan] marginPct={margin_pct} looks like a v2 fraction; "
               f"converting to PERCENT ({margin_pct * 100})", file=sys.stderr)
         margin_pct = margin_pct * 100.0
@@ -302,6 +313,7 @@ def scan(inputs, ctx):
         _persist({"ts": now, "emitted": False, "gate": "no_universe", "held": held_assets})
         return []
 
+    min_traders = int(inputs.get("minTraderCount", 10))   # 4h-board headcount floor on the leading side
     sm_map = _fetch_sm_map(ctx)   # one read/tick; SM-agreement gate fails closed if empty
 
     candidates = []
@@ -317,7 +329,7 @@ def scan(inputs, ctx):
         c1h = _asset_candles_1h(ctx, coin)
         if len(c1h) < 24:
             continue
-        sm_dir, sm_tilt = _sm_direction(sm_map, coin)
+        sm_dir, sm_tilt = _sm_direction(sm_map, coin, min_traders)
         th = scoring.build_thesis(coin, c1h, sm_dir, sm_tilt, inputs)
         if th and th["score"] >= min_score:
             candidates.append(th)

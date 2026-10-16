@@ -19,8 +19,8 @@ description: >
   in the leader's direction, sized by conviction tier (confidence 0.92+ -> 75%
   margin/8x, 0.85+ -> 50%/7x, 0.75+ -> 25%/5x). Dynamic hard_timeout (avg_lag x
   1.5, clamped [30,240]min) is surfaced in signal data; the DSL exit (240min
-  ceiling + Phase1/Phase2 ladder + weak_peak_cut) owns exits. Faithful port of
-  the v2 Mantis v6.0.0 thesis (filters/tiers/direction/timeout verbatim).
+  lag-window ceiling + Phase1/Phase2 ladder) owns exits. Faithful port of the v2
+  Mantis v6.0.0 thesis (filters/tiers/direction/timeout verbatim).
 
 strategy:
   wallet: "${MANTIS_WALLET}"
@@ -91,15 +91,24 @@ actions:
       - type: signal
         scanner: mantis_main_signals
 
-# ── EXIT (DSL — preserved VERBATIM from v2 runtime.yaml dsl_preset) ────────────
+# ── EXIT (DSL — the v2 dsl_preset minus its 20min weak-peak cut) ──────────────
 # v2 Mantis had THREE exit layers: (1) producer-side leader-reversal veto
 # [DROPPED — close_position is a mutation read-only scan() cannot perform; the
 # runtime cannot model "close if a separate asset's 4h move reverses"], (2)
 # dynamic per-trade hard_timeout [surfaced in signal data.hardTimeoutMinutes for
 # observability], (3) the DSL preset below. With the veto + dynamic timeout
-# dropped/advisory, the DSL preset is now the PRIMARY exit authority. Ported
-# verbatim; first Phase-2 lock at +5% ROE (reachable — NOT >+40%). order_type
-# FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST happen).
+# dropped/advisory, the DSL preset is now the PRIMARY exit authority. First
+# Phase-2 lock at +5% ROE (reachable — NOT >+40%). order_type FEE_OPTIMIZED_LIMIT,
+# taker fallback on (closes MUST happen).
+# Time IS the thesis here, so the only clock is the lag window itself: the 240min
+# hard_timeout is the ceiling of the model's own dynamic timeout (avg_lag x 1.5,
+# clamped [30,240]). It counts from entry and fires in either phase, and that is the
+# thesis's own boundary: at 4h a catchup that never reached a tier is dead, and one
+# that did and is still running is past the lag window, where holding the alt is the
+# directional bet Mantis disclaims. The 20min weak-peak cut fired BEFORE the lag
+# window could open (the model's own timeout floor is 30min; typical lags run
+# 30-90min and longer): a laggard that is late is not a laggard that is wrong.
+# Removed 2026-09-15 (Mantis 1.1.1).
 exit:
   engine: dsl
   interval_seconds: 30                     # v2 exit.interval_seconds 30
@@ -109,12 +118,10 @@ exit:
     execution_timeout_seconds: 60          # v2 exit execution_timeout_seconds
   dsl_preset:
     hard_timeout:
-      enabled: true                        # v2: 240min absolute ceiling (the catchup either happens or it doesn't)
-      interval_in_minutes: 240
+      enabled: true                        # KEPT — the lag-window ceiling, either phase (the catchup either happens or it doesn't)
+      interval_in_minutes: 240             # = inputs.hardTimeoutCeilingMinutes; never shorter than the model's own window
     weak_peak_cut:
-      enabled: true                        # v2: 20min / 1.5% min_value
-      interval_in_minutes: 20
-      min_value: 1.5
+      enabled: false                       # was 20min / 1.5% — fired inside the lag window; see EXIT note
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
       # could sit BELOW entry and close a winner at a loss. max_loss_pct is set to the old

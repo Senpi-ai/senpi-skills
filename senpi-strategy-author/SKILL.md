@@ -2,18 +2,23 @@
 name: senpi-strategy-author
 description: >-
   Build or edit a Senpi trading strategy — interactively, ONE decision at a time.
+  There is no paper-trading mode: a strategy is tested with `senpi validate` and a
+  $10-floor live run, never with a scanner re-run on a timer (a model call per firing).
   Use for "build a strategy", "create a strategy from scratch", "design a
   strategy", "I have a trading idea", or ANY strategy that needs DSL (a
   runtime-supervised exit: stop-loss, trailing stop, profit-lock ladder) — a
   runtime.yaml authored here is the ONLY way to carry a DSL; raw MCP
   strategy_create* / create_position calls cannot, and must never stand up a
   named or protected strategy. Offers the closest TEMPLATE first (via
-  senpi-strategy-discover), then fork-or-scratch as the user chooses. NOT for
+  senpi-strategy-discover) as the quick start to the user's OWN strategy, with
+  fork-before-deploy, bespoke edit and scratch as peers, each with its cost class;
+  never asks for a budget to build (it is asked once, at deploy); exits default to
+  letting winners run, stated in price at leverage; the user names what you build. NOT for
   installing (senpi-strategy-ops) or picking one to run (senpi-strategy-discover).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.2.1"
+  version: "3.14.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -51,31 +56,35 @@ much risk). Your job is to draw those out, one question at a time, and compile t
 > "succeeds," the position is gone, and the user eats the round-trip. If the user hasn't said which of
 > (A)/(B) they want, **ask before placing anything** — and never route (B) into a managed wallet to save a step.
 
-## Start here — offer the fast path before building from scratch
+## Start here — templates first, as the quick start to THEIR strategy; the other routes are peers
 
-Building from scratch is powerful, but it's the **slow** path (the full interview + compile + smoke-test).
-Most users — especially new ones — are best served by starting from a **proven template** and tweaking it
-if they want. So **before the interview, offer three ways to go** — as peers, with the fast one recommended,
-never as a gate:
+A template is not "our strategy" the user adopts — it is the fastest way to launch **their** strategy, and
+every one deploys under their name (`PurpleFrog's Starling`, or a name of their own) after ops walks them through what it does,
+how it is set and which levers to shift (ops Step 0.75). So **before the interview, offer the routes as
+peers — template first, each with its cost class as a fact — never a gate, never a downsell:**
 
-1. **Start from a matching template** — *the fastest way to get running.* If the user gave any thesis hint,
-   **hand it to `senpi-strategy-discover`** with their words — that skill surfaces the closest matching
-   template(s), which you name in the offer (*"**Cougar** — equity long/short — is close to what you
-   described"*). Discover owns the catalog and the match (and picks + deploys via ops); don't reach into
-   its internals or rebuild the catalog here.
-2. **Start from that template and make it your own** — deploy the template, then **edit it** (this skill's
-   edit path — see "Editing an existing strategy") to change the universe / thresholds / sizing / DSL. The
-   bridge for *"close, but I want changes."*
-3. **Design your own from scratch** — first-class, fully supported; you run the interview below.
+1. **Start from a matching template** — *the quick start.* If the user gave any thesis hint, **hand it to
+   `senpi-strategy-discover`** with their words — that skill surfaces the closest matching template(s),
+   which you name in the offer (*"**Cougar** — equity long/short — is close to what you described"*).
+   Discover owns the catalog and the match; ops deploys it under the user's name, as-is or with levers
+   moved. Don't reach into its internals or rebuild the catalog here. Cost: the cheapest thing the agent does.
+2. **Fork it before it goes live** — the walkthrough's levers (ops Step 0.75): a threshold, the slots, the
+   leverage, the stop, the daily cap. Values only, no new code. Cost: a little more than as-is.
+3. **Make a bespoke edit to a template** — a new universe, a different signal, a changed exit shape: this
+   skill's edit path ("Editing an existing strategy") on the forked copy, **before** deploy. Cost: more than
+   a lever fork, still well under scratch.
+4. **Design your own from scratch** — first-class, fully supported; you run the interview below. Cost:
+   roughly two to three times a template. Worth it when nothing close exists, or when the user wants it.
 
-**Tone — encourage without discouraging:** template-first is *"the fastest way to get running,"* **never**
-*"the right way"* — scratch is a **peer**, not a downsell. **The user's choice is final**: if they pick scratch
-(or already gave a specific thesis), go straight into the interview — **never re-pitch or nag**. Calibrate to
-the signal (vague ask → lean template-first; clear custom thesis → surface the closest match **once**, then
-build). No close fit → say so and go straight to scratch; never force a bad-fit template.
+**Tone — even-handed, ownership first:** template-first is *"the quick start,"* **never** *"the right way"*;
+scratch is a **peer**, not a downsell, and it works — say so. **The user's choice is final**: if they pick
+scratch (or already gave a specific thesis), go straight into the interview — **never re-pitch or nag**.
+Calibrate to the signal (vague ask → lean template-first; clear custom thesis → surface the closest match
+**once**, then build). No close fit → say so and go straight to scratch; never force a bad-fit template.
+**Never ask for a budget to start building** — see the funding heads-up below; the number is asked once,
+at deploy.
 
-Everything below is the **scratch / customize** path — the interview you run once the user chooses to build
-(or to tweak a template they just deployed).
+Everything below is the **scratch / bespoke** path — the interview, once the user chooses to build or to change more than a lever.
 
 ## ⛔ Never guess syntax — get it from the source (your memory is NOT authoritative)
 
@@ -113,11 +122,11 @@ of an import-stage run. The gate is stage 9, and it takes no `--stage` flag.
 
 ### Funding heads-up — first tool call, never a gate
 
-Before the template offer / Decision 1, read the user's accessible balance ONCE:
-`account_get_portfolio` → `data.portfolio.total_in_hyperliquid` (fall back to
-`total_withdrawable`). Deploy needs a little **over $10 USDC per wallet (~$11.50, to cover
+Before the template offer / Decision 1, read the **deployable** balance ONCE: `account_get_portfolio` → `total_in_hyperliquid` + `total_spot_usd_in_hyperliquid` + EVM stables in `token_balances[]`.
+Never `total_withdrawable`, never `total_balance_usd` — committed capital. **0 is a fact, not a missing read**: no `or` chain.
+Never say "$total free": say what is free, and that freeing the rest means withdrawing from a strategy — their call. [`references/deployable-balance.md`](references/deployable-balance.md). Deploy needs a little **over $10 USDC per wallet (~$11.50, to cover
 the ~$1.50 creation fee)** — `deploy.py create` reserves the fee first, so a wallet funded
-to exactly $10 still refuses with `[E_FUNDS_BELOW_FLOOR]`.
+to exactly $10 still refuses with `[E_FUNDS_BELOW_FLOOR]`. That floor is also how a strategy is **tested**: there is no paper-trading mode, and a scan re-run on a timer is a model call per tick, not a simulation — [`references/shadow-testing.md`](references/shadow-testing.md).
 
 - **Balance ≥ ~$11.50/wallet, or unreadable** → say nothing about funding and move on. Unreadable
   means move on too — no retry loop, no blocking; funding is re-checked at deploy anyway.
@@ -129,6 +138,9 @@ to exactly $10 still refuses with `[E_FUNDS_BELOW_FLOOR]`.
   (deposit flow = the `senpi-deposit-withdraw-transfer` skill)
 - One heads-up total. NEVER hold the interview hostage on funding, never re-ask
   mid-interview, and never refuse to build.
+- **And never ask for the budget before the build.** "How much are you allocating?" is a deploy-time
+  question (Handoff step 1). The build costs nothing but tokens; a user who says "you don't need a budget
+  to start building" is right. Build, validate, then ask once.
 
 1. **One question at a time. Never dump all 7 decisions, never paste the guide.** Ask → wait for the
    answer → reflect it back → ask the next. A wall of seven questions is the failure mode this skill
@@ -137,6 +149,9 @@ to exactly $10 still refuses with `[E_FUNDS_BELOW_FLOOR]`.
    *already* gave — including throwaway details ("rotate the cohort every 3 days" → that's the
    **Memory** decision, a 3-day cohort cache). Pre-fill those; only ask what's still open. **Losing a
    constraint from the first sentence is the #1 mistake** — write each one down as you hear it.
+   **Pre-fill from the thesis, not only from throwaway details.** A smart-money, cohort, divergence or copy
+   thesis has a **derived** universe by definition (Decision 1 = D) — never ask which tickers; "a trend on
+   one name" has its name; a fund has a basket. Ask only what the thesis leaves open.
 3. **Reflect every answer in plain language + name what it implies** ("Derived/copy strategy → we'll
    build the cohort from `discovery_get_top_traders`"). This confirms you understood and teaches the
    user what their choice means.
@@ -161,8 +176,13 @@ For each: ask the question, offer the options as plain choices, then map the ans
    package — a ticker that isn't a live instrument silently no-trades. The broad index is `xyz:XYZ100`,
    not `xyz:NASDAQ`; check, don't assume.**
 2. **Data — "What does it read to decide?"**
-   candles (`market_get_asset_data`) · funding/OI (`market_get_funding_*`) · smart-money
-   (`leaderboard_*` / `discovery_*`) · cross-asset flow. → the `call_tool`s in `scan()`.
+   candles (`market_get_asset_data`) · funding/OI (`market_get_funding_*`) · 4h-board momentum
+   (`leaderboard_*`) · smart-money (`discovery_*`) · cross-asset flow. → the `call_tool`s in `scan()`.
+   **A smart-money thesis reads the proven cohort, never the 4h board as its source of "who is smart":**
+   the 4h gain leaderboard is a consequence of the move (whoever was on the winning side is at the top),
+   so following it is circular. Use `discovery_get_top_traders` (ALL_TIME) + `discovery_get_trader_state`
+   — headcount and tick-over-tick change, the `senpi-smart-money` method — and name the template that
+   already does it (the Starling / WhaleHunter / Stingray family) as the fork option before writing a new one.
 3. **Edge — "What's the actual signal?"**
    trend-follow · mean-revert · breakout · relative-strength · copy/follow · **cohort-divergence**
    (smart money vs the crowd) · event/new-listing · macro-thesis. → the math in `scoring.py`.
@@ -170,8 +190,9 @@ For each: ask the question, offer the options as plain choices, then map the ans
    long-only / short-only / mixed-on-one-wallet = **1 instance**; independent long + short books or
    different cadences = **multiple instances** (each its own wallet + `funding_share`).
 5. **Cardinality — "One best trade at a time, or several?"**
-   single best pick (`slots: 1`) · a gated portfolio (`slots: 3–6`, runtime caps it). Add
-   `max_entries_per_day` if they want a pace limit.
+   single best pick (`slots: 1`) · a gated portfolio (`slots: 3–6`, runtime caps it). `max_entries_per_day` is a
+   **daily ceiling, not a pace** — the whole allowance can fire in the minutes after 00:00 UTC; say so when offering
+   it. With `bypass_max_entries_per_day_on_profit` (jaguar, spider) it does not bind at all on a green day.
 6. **Memory — "Does it need to remember anything between scans?"**
    none · signal-dedup (don't re-fire the same name) · first-seen ledger (catch new listings) ·
    rolling history · **pool/cohort cache with a refresh cadence** ← *this is where "rotate every N
@@ -179,7 +200,7 @@ For each: ask the question, offer the options as plain choices, then map the ans
    involved a cohort, leaderboard, or "rotate/refresh."
 7. **Exit & Risk — "How should it exit, and what's the risk appetite?"** Offer the DSL presets:
    `let_winners_run` (wide; rides to +100%, protect both sides) · `balanced` (default) ·
-   `mean_reversion` (tight, locks early — for faders) · `scalp` (HFT) · `parabolic_runner` (scalpel).
+   `mean_reversion` (tight, locks early — for faders) · `scalp` (HFT) · `parabolic_runner` (scalpel). Pick by horizon, not the default: `references/time-cuts-by-horizon.md`.
    Then set guard rails (`drawdown_halt_pct`, `daily_loss_limit_pct`) sized to the style, and cadence
    (`interval_seconds`). **Never hand-roll stops — copy a preset from
    `senpi-strategy-author/references/dsl-presets.yaml`** (full path — it lives in THIS skill, not the
@@ -190,6 +211,13 @@ For each: ask the question, offer the options as plain choices, then map the ans
    your way."* It is **a stop-loss that follows, not profit-taking**: nothing is sold on the way up and
    no rung ever closes a winner — a rung only raises the price at which a REVERSAL closes you. Users
    hear "lock 30% at +20%" as *sell 30% at +20%*. Say it every time.
+   **Default posture — let winners run.** On leverage a stop sized in ROE is a tiny price move: 6% of
+   margin at 4× is 1.5% of price, inside normal noise, and it stops winners out before they become
+   winners. So state every stop and every rung **in price terms at the chosen leverage**, keep the
+   max-loss floor wide enough that ordinary gyrations don't hit it (about 3% of price or more for a swing
+   book), let the first rung engage only on a real move, and **lower the leverage before you tighten the
+   stop**. Losers are the cost of the strategy; winners that run far enough pay for them.
+   `validate_strategy.py` warns on a stop that is too tight at the recipe's leverage — relay it.
 
 ## After the 7 — build it in STAGES, narrating as you go
 
@@ -205,7 +233,9 @@ is a *beat*, not a new turn — keep moving; you don't need the user to reply be
 for `<id>`, in order: the scoring math → the scanner → the runtime config (thesis + DSL + risk gates) →
 the catalog entry, then unit-test → lint → `senpi validate` → hand to ops."* Then tick through it, reporting each:
 
-1. **Confirm the spec.** Replay name + thesis + all 7 + opening constraints → get a "yes." *("You said
+1. **Confirm the spec.** Replay name + thesis + all 7 + opening constraints → get a "yes." **The name is
+   theirs**: ask what they want to call it — suggest one, take theirs; `id` is its lowercase slug and
+   `catalog.name` their words. The catalog's names are ours; the user's strategy carries the user's name. *("You said
    rotate the cohort every 3 days — that's in.")* Nothing is written before this yes.
    **Part of that replay is an EXIT PREVIEW — the ladder as outcomes, never as YAML.** Nobody reads
    `{trigger_pct: 50, lock_hw_pct: 60}`; everybody reads what it does to their money. Each rung is
@@ -244,11 +274,11 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
 7. **Unit-test `scoring.py`** on sample candles (pure — no mocks). Run it → report pass/fail as its own beat.
 8. **Lint — advisory, instant, no credentials** (pass the package's absolute path,
    `/data/workspace/strategies/<id>`, so they hit the authored copy from any CWD):
-   (a) **authoring lint** → `python3 senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>`
-   (candle keys, null-in-schema, mandate description, retention/cooldown bounds);
-   (b) **universe gate** → `python3 senpi-strategy-ops/scripts/validate_universe.py /data/workspace/strategies/<id>`
+   (a) **authoring lint** → `python3 /data/.openclaw/skills/senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>`
+   (candle keys, null-in-schema, mandate description, retention/cooldown bounds) **+ advisory warns you relay to the user**: the stop's distance in price at the recipe's leverage, multi-slot sizing with no free-margin gate, a daily entry cap at or below the slot count;
+   (b) **universe gate** → `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/validate_universe.py /data/workspace/strategies/<id>`
    — every hardcoded ticker you TRADE must be a live HL instrument (derived universes, and names under an exclusion key, pass trivially);
-   (c) **deploy contract** → `python3 senpi-strategy-ops/scripts/deploy.py validate /data/workspace/strategies/<id>`
+   (c) **deploy contract** → `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py validate /data/workspace/strategies/<id>`
    — the deployer's structural preflight (structure, linkage, render; **no money moved, nothing
    installed** — though not side-effect-free: a bare catalog id is fetched to disk). It also
    **reports** the universe from (b)'s predicates, so it reads the live instrument list and needs
@@ -333,16 +363,16 @@ makes one new wallet per instance). Authoring just designs the package; **concur
 ## Invariants (every guess in this system fails silently — hold these)
 
 - **`scan(inputs, ctx)` is read-only, pure, single-pass.** Return `[]` on any error. No daemon, no
-  `push_signal`, no `sleep`, no file writes, no wallet hardcoding.
+  `push_signal`, no `sleep`, no file writes, no wallet hardcoding. **One tick has a call budget** — production kills it at `timeout_seconds` exactly as validation does, so an over-budget scan times out on EVERY tick and never trades: [per-tick call budget](references/creating-a-strategy.md#the-per-tick-call-budget).
 - **A gate in `scan()` must honour `ctx.dry_run`.** If the scanner returns early outside its trading
   session (or any similar condition), consult `ctx.dry_run` and read anyway when it is set —
   otherwise validation sees a tick that read nothing, which is reported as **UNPROVEN** and is not a
   pass. Returning `[]` is fine; returning `[]` *without having read* proves nothing about the scanner.
 - **Emit a `marginPct` *intent*, not dollars** — top-level, not inside `data{}`. The runtime sizes the
   dollars off the live account; don't read the clearinghouse to size.
-- **Pure thesis math in `scoring.py`** (no I/O, no MCP, no clock) so it unit-tests.
+- **Pure thesis math in `scoring.py`** (no I/O, no MCP, no clock) so it unit-tests. Put the computed **score into the emitted `data`** — it is the signal's audit trail; the runtime's log line prints `score 0` for every emit fleet-wide, so never verify it from there.
 - **Memory = `ctx.state`** (`.last()/.recent()/.append()`); set `state_history_max_count` > 0. Cohort
-  rotation, dedup, and first-seen ledgers all live here.
+  rotation, dedup, and first-seen ledgers all live here. **Editing a LIVE scanner is an instant, unvalidated production change** (the scaffold re-reads it each tick) and **the universe must be bounded by the thesis**, never by a scoring condition: [creating-a-strategy.md](references/creating-a-strategy.md#bound-the-universe-to-the-thesis).
 - **Exits = a named DSL preset**, copied from `references/dsl-presets.yaml`, change ≤1 field.
   `max_loss_pct`/`retrace_threshold` are **ROE % (margin), not price %**.
 - **Catalog facets from the glossary** (`senpi-strategy-discover/references/glossary.yaml`):
@@ -351,14 +381,33 @@ makes one new wallet per instance). Authoring just designs the package; **concur
 - **Anchor every `call_tool` on the published MCP I/O reference** — a guessed tool name, interval
   string, or output field is a scanner that ticks clean and emits nothing.
 - **Never hardcode a ticker you didn't verify.** Every static `universe`/`asset`/`catalog.assets` entry you TRADE
-  must be a live HL instrument (`validate_universe.py`; an **exclusion** list — `excludeAssets`, `deny*`, `skip*` —
+  must be a live HL instrument (`senpi-strategy-ops/scripts/validate_universe.py`; an **exclusion** list — `excludeAssets`, `deny*`, `skip*` —
   is exempt: it names what you will *not* trade) — a fake ticker 500s on `market_get_asset_data` and the scan skips it: no error, no trade. `xyz:XYZ100`, not `xyz:NASDAQ`.
 
 ## Editing an existing strategy
 
+**An edit that removes a protection is a consent question, not a task.** Removing a daily-loss limit, a
+drawdown halt or a cap, or lowering a score / threshold you recommended earlier, gets one line of
+consequence in the user's own numbers ("this limit tripped three times in the last four days; without it
+the worst day would have run to the drawdown halt") and an explicit yes before you touch the file. Never
+"done". The same applies to deploying below the design budget: say the design number, say what degrades
+(fewer slots, smaller sizes, a strategy that cannot express its thesis), take the yes.
+
 Same references; usually no rebuild: tune `runtime.yaml` `inputs` (universe/thresholds/sizing), swap
 the `dsl_preset`, adjust `risk.guard_rails`, or change the `scoring.py` math. Re-validate, then
-re-smoke-test if you touched `scan.py`/`runtime.yaml`.
+re-smoke-test if you touched `scan.py`/`runtime.yaml` — on the runtime (`senpi validate`, or a floor-budget wallet), **never by scheduling agent turns to watch it**: an `openclaw cron` job is a model call every time it fires, and a 5-minute one is 288 a day — [`references/shadow-testing.md`](references/shadow-testing.md).
+**Describe the edit in the values you actually wrote:** re-read the file and quote
+`max_entries_per_day`, `slots` and the thresholds from it — never a number you expect it to produce.
+**Count your own edits:** several configs on one strategy in an hour means it has not run long enough
+to judge — say so *before* applying the next one; whether to keep tuning is theirs to decide.
+
+**Forking a template before it goes live** (the bespoke-edit route): edit the copy ops made under the
+user's name at the durable root `deploy.py where` prints (`/data/workspace/strategies/<template>-<user>/`;
+`id` / `catalog.name` / `forked_from` / linkage already set — the mechanics are ops' walkthrough reference),
+never the template's own fetched directory and never a directory inside a skill; same gate, hand ops the
+directory. **Execution options are part of the edit:** `validate_strategy.py` refuses an entry the executor
+cannot place (`[exec]` — a maker-only entry, an order type the runtime does not know, a `LIMIT` open) and
+warns on fee options the order type ignores.
 
 ## Handoff & the live gate — deploy is `senpi-strategy-ops` (NEVER raw MCP); "done" means verified LIVE
 
@@ -367,16 +416,16 @@ only once **`senpi-strategy-ops` deploys it AND that deploy's report says `overa
 loop every time:
 
 > **Was this an edit to a strategy that is ALREADY LIVE?** (you changed the scoring / scanner / DSL of a
-> deployed package — "make my live strategy more aggressive", re-tune, re-score) — then say so before you
-> do anything. **There is no single verb for this today, and re-running `create` will NOT apply your
-> edit**: the deploy verb is idempotent, so it adopts the wallet that already exists and leaves the
-> deployed scanner as it is. Applying an edit to a live strategy means **closing it and redeploying** —
-> `close.py <id>` (which flattens its open positions and returns the funds) and then the loop below on a
-> fresh wallet. That is real money and a market exit, so **confirm it with the user in those words
-> first**; never present it as a re-tune. The steps below are for a strategy that is not yet live.
+> deployed package — "make my live strategy more aggressive", re-tune, re-score) — then hand it to
+> **`senpi-strategy-ops`**, which applies it IN PLACE with `openclaw senpi update`: no close, no fresh
+> wallet, no market exit — call it an **update**, never a "redeploy". **Re-running `create` will NOT apply it** — the deploy verb is idempotent, so it
+> adopts the existing wallet and leaves the deployed scanner as it is. Tell the user two things:
+> `dsl_preset` is **forward-only** — new entries only, never a position already open (other `exit:` fields
+> like `order_type` DO reach open ones); and a changed `strategy.wallet`, a renamed or moved external
+> scanner or a changed `action_type` still forces close-and-redeploy — a market exit. Below: the not-yet-live path.
 
 1. **Confirm with the user** — budget + "ready to deploy?" Funding a wallet is real money and one-way, so
-   this is an explicit yes, not an assumption.
+   this is an explicit yes, not an assumption. This is the first and only time the budget is asked.
 2. **Preflight** — you proved it runs at stage 9 (`senpi validate` → PASS). Nothing downstream
    re-establishes that a tick actually runs, so stage 9 is what stands between a broken scanner and a
    funded wallet. `deploy.py validate <path-to-package>` is the structural half — every fix in **one

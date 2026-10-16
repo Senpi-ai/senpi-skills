@@ -87,7 +87,9 @@ rest open the cohort's *current* positions, so they don't cure an already-run bo
 Smart-money-by-signal templates position by where the **whole cohort** leans — many proven traders at
 once, not a 1:1 copy of anyone's book: **Stingray** (rotates long/short by net smart-money conviction
 across the board) · **Starling** (buys on a flock of top wallets piling into one name) · **Whalehunter**
-(with the smart cohort, against the crowd). Use these for *"follow the smart money"* rather than one trader.
+(with the smart cohort, against the crowd) · **Signals Hunter** (scores whale opens and adds, funding
+dislocation and OI surges across the whole book hourly, taking what clears the score floor). Use these for
+*"follow the smart money"* rather than one trader.
 
 ## Economics — answer "how much do I need" honestly
 - **$10 minimum notional per position** (auto-bumped to ~$12). A mirror needs enough budget that
@@ -99,7 +101,7 @@ across the board) · **Starling** (buys on a flock of top wallets piling into on
   catalog minimum. Answer "how much do I need for *this* OG" with it as a factual floor; the sim confirms it.
 - You pay **Hyperliquid trading fees on every mirrored fill**, so copying a hyper-active trader costs
   more in fees over time.
-- **Always simulate before funding** (`execution_estimate_position_opening`) — it shows exactly what
+- **Always simulate before funding** (`execution_estimate_position_opening` — a one-shot sizing estimate, not paper trading; Senpi has no paper mode, the live test is the $10 floor) — it shows exactly what
   would open, what would be skipped, and the minimum budget needed. The one check that prevents funding
   capital that then barely trades.
 

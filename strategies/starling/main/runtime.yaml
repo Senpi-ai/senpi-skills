@@ -1,23 +1,25 @@
 # ── STARLING · Smart-Money Rotation Follower ─────────────────────────────────
-# Follows a cohort of proven-profitable Hyperliquid wallets and opens WITH them
-# only when SEVERAL are FRESHLY piling into the same name in the same direction at
-# the same time (consensus forming = a rotation) — not a name that has stood at
-# consensus for a while. It reads the cohort's live books every 10 minutes, diffs
-# this snapshot against the last, and sizes each entry by how many wallets agree.
-# NEVER closes — a rotation change only changes what it opens next; prior positions
-# retire on their own DSL trailing stops (rotate-by-attrition, exactly like gibbon).
+# Follows the PROVEN COHORT (>= $1M lifetime realized PnL) and opens WITH it only
+# when its headcount on a name is one-sided AND still growing: >= 65% of the
+# positioned wallets (at least 10 of them) on one side, and that side's net
+# headcount up by >= 2 since the last read. That is Phalanx's engine — scanners/
+# scoring.py is byte-identical to phalanx's — with Starling's own sizing and exits.
+# The first tick only seeds the baseline. NEVER closes — prior positions retire on
+# their own DSL stops (rotate-by-attrition, exactly like gibbon).
 name: starling-main
 group: starling
 version: 1.0.0
 description: >
-  STARLING — Smart-Money Rotation Follower. Tracks a cohort of the most
-  profitable Hyperliquid wallets (all-time realized) and opens with them the
-  moment several are FRESHLY buying/shorting the same name together — the
-  snapshot-to-snapshot diff catches consensus FORMING, not a stale standing
-  crowd. Conviction/size scales with how many wallets agree (base/good/apex).
-  Opens only on the cohort's DOMINANT side while its net margin widens. One wallet,
-  up to 6 positions, leverage clamped to venue max. DSL is the ONLY exit: a FIXED 15% max-loss
-  floor plus a gains-only profit ratchet (no trailing stop, no breakeven exits), 48h weak-peak.
+  STARLING — Smart-Money Rotation Follower. Tracks the proven cohort (the most
+  profitable Hyperliquid wallets, all-time realized) and opens with it the moment
+  a name is one-sided AND still filling: >= 65% of the positioned wallets on one
+  side (at least 10 of them) and that side's net headcount up by >= 2 since the
+  last read — never a 54% split, never one wallet's move. A hit-rate ledger marks
+  each signal right or wrong an hour later and raises the bar for an asset class
+  that keeps missing. Size scales with how many wallets agree (base/good/apex).
+  One wallet, up to 6 positions, leverage clamped to venue max. DSL is the ONLY exit:
+  a FIXED 15% max-loss floor plus a gains-only profit ratchet (no trailing stop, no
+  breakeven exits).
 
 strategy:
   wallet: "${STARLING_WALLET}"
@@ -48,15 +50,17 @@ scanners:
       pageSize: 1000
       maxPages: 6
       stateBatch: 50                  # discovery_get_trader_state addresses per call
-      # ── consensus bands (of a cohort capped at 120) ──
-      # Picks are taken ONLY on the cohort's dominant side, and only while its NET margin
-      # over the other side is widening — see scoring.fresh_picks.
-      minConsensus: 6                 # >= this many wallets on the DOMINANT side to open (3 was 2.5% of
-                                      # the cohort — inside the noise floor, which is how a 13-vs-29
-                                      # minority long kept firing while the cohort was net short)
-      minMargin: 4                    # dominant must lead the other side by >= this many wallets
-      goodConsensus: 10               # bands rescaled with the floor — at the old 4/6 every pick would
-      apexConsensus: 15               # have banded apex (5x, 14% margin) the moment minConsensus hit 6
+      # ── the gate (Phalanx's engine — scan.fresh_picks over scoring.py) ──
+      # A name qualifies on its dominant side only when >= tiltThreshold % of the positioned
+      # wallets are on that side (scoring.one_sidedness: 0 below 10 wallets, so a thin name never
+      # counts) AND that side's net headcount grew by >= deltaMin since the last tick
+      # (scoring.directional_delta: one wallet is noise, two is a rotation). The hit-rate ledger
+      # moves the threshold per asset class: +4 under a 40% hit rate, -2 over 55%, floor 52.
+      tiltThreshold: 65
+      deltaMin: 2
+      # ── sizing bands (dominant-side headcount) ──
+      goodConsensus: 10               # 7 is the smallest side that can clear the gate (65% of 10) -> base
+      apexConsensus: 15
       # ── slots + sizing ──
       maxSlots: 6
       recentSignalTtlSeconds: 21600   # 6h per-name signal debounce
@@ -70,6 +74,8 @@ scanners:
       direction: { type: string }
       reasons: { type: array, required: false }
       leverage: { type: number }
+      oneSidedness: { type: number }
+      delta: { type: number }
 
 actions:
   - name: position_tracker_action
@@ -110,7 +116,7 @@ exit:
       # gets 2% our way in two days is correctly declared dead and frees its slot.
       # DISABLED - this cut closes at MARKET at whatever price is there, with no floor, so on a
       # longer-hold book it realises a small LOSS on a position that simply hadn't moved yet
-      # (Ignas, M408027, xyz:PLTR on cougar). Same defect we removed from phase1. weak_peak is
+      # (the same defect we removed from phase1). weak_peak is
       # a CHOP tool only: it belongs where the strategy already intends to be out within hours.
       enabled: false
       interval_in_minutes: 2880        # 48h

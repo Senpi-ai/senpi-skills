@@ -107,6 +107,9 @@ def scan(inputs, ctx):
     if markets is None:
         print("[jaguar.scan] no markets this tick — holding (keep prior history)", file=sys.stderr)
         return []
+    # a side thinner than minTraderCount traders never enters the snapshot (nor the rank order)
+    min_traders = int(inputs.get("minTraderCount", 10))
+    markets = [m for m in markets if isinstance(m, dict) and int(m.get("trader_count", 0) or 0) >= min_traders]
 
     current_scan = scoring.build_scan_snapshot(markets, now_iso)
 
@@ -142,18 +145,22 @@ def scan(inputs, ctx):
             continue
         if c["token"].upper() in held:             # skip assets we already hold
             continue
-        leverage, tier_label = scoring.get_leverage_for_score(c["score"], tiers)
+        # conviction is sized through MARGIN now, not leverage — see get_sizing_for_score.
+        # A 2-element tier still yields margin None and falls back to the flat marginPct, so an
+        # old-shape config behaves exactly as before.
+        leverage, tier_label, tier_margin = scoring.get_sizing_for_score(c["score"], tiers)
+        cand_margin_pct = tier_margin if tier_margin else margin_pct
         out.append({
             "asset": c["token"],
             "direction": c["direction"],
-            "marginPct": margin_pct,               # SIZING INTENT — runtime sizes the dollars
+            "marginPct": cand_margin_pct,               # SIZING INTENT — runtime sizes the dollars
             "leverage": leverage,                  # conviction-tiered (7/10); runtime clamps to venue max
             # raw wire score preserved at v2 denominator (score/14); data{}.score carries the points
             "data": {
                 "score": c["score"],
                 "tier": tier_label,
                 "leverage": leverage,
-                "marginPct": margin_pct,
+                "marginPct": cand_margin_pct,
                 "reasons": c["reasons"],
                 "mode": "STRIKER",
                 "direction": c["direction"],

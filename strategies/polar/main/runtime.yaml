@@ -3,7 +3,7 @@ name: polar-main
 group: polar
 version: 3.0.0
 description: >
-  POLAR — single-asset ETH alpha hunter (SM-LED hybrid). Smart-money concentration
+  POLAR — single-asset ETH alpha hunter (4h-leader-led hybrid). 4h leader concentration
   picks the side FIRST (pct>=5, traders>=30, cc_15m>=0.3 accel), then 4h structure
   (>=0.75) must agree, 1h confirms, 15m momentum aligns, RSI in [26,74], and a
   multi-factor composite (SM tiers, funding, OI velocity, BTC 15m+1h, RSI room,

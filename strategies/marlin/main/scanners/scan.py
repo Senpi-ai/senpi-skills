@@ -17,7 +17,7 @@ daemon, no push_signal, no create_position.
 FIDELITY NOTES vs the v2 producer (marlin-producer.py v1.0.1 / SKILL.md v1.0.0):
   - v2 fixed margin: marginPct=0.15 (a FRACTION) * account_value -> marginUsd. This
     port uses marginPct=15 (a PERCENT) and emits `marginPct`; the runtime sizes
-    (marginPct/100)*withdrawable. The <=1.0 guard converts a pasted fraction defensively.
+    (marginPct/100)*withdrawable. The <1.0 guard converts a pasted fraction defensively.
   - v2 leverage: min(int(leverage), MAX_LEVERAGE=5). Preserved: clamp to [1, 5].
   - v2 emitted exactly one signal (best, highest score). Preserved: scan() emits <=1/tick.
   - v2 recent-signals JSON cache (RECENT_SIGNAL_TTL_SEC=240, 4x-TTL prune) -> ctx.state
@@ -145,7 +145,7 @@ def _asset_data(ctx, coin):
     return md if isinstance(md, dict) else None
 
 
-def _get_sm_direction(ctx, coin):
+def _get_sm_direction(ctx, coin, min_traders=10):
     """Port of v2 fetch_sm_direction: net smart-money lean for `coin` from
     leaderboard_get_markets. Returns (direction, tilt_pct) or (None, 0). READ-GUARDED.
 
@@ -168,6 +168,7 @@ def _get_sm_direction(ctx, coin):
         return None, 0.0
 
     long_pct, short_pct, found = 0.0, 0.0, False
+    side_n = {}                                    # per-side headcount of the 4h leaders
     for m in markets:
         if not isinstance(m, dict):
             continue
@@ -176,6 +177,7 @@ def _get_sm_direction(ctx, coin):
             continue
         found = True
         d = str(m.get("direction", "")).upper()
+        side_n[d] = int(m.get("trader_count", 0) or 0)
         pct = scoring._f(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
         if d == "LONG":
             long_pct = pct
@@ -187,6 +189,8 @@ def _get_sm_direction(ctx, coin):
     if total <= 0:
         return "NEUTRAL", 50.0
     long_ratio = (long_pct / total) * 100
+    if side_n.get("LONG" if long_ratio >= 50 else "SHORT", 0) < min_traders:
+        return None, 0.0   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
     return ("LONG", long_ratio) if long_ratio >= 50 else ("SHORT", 100 - long_ratio)
 
 
@@ -217,11 +221,12 @@ def scan(inputs, ctx):
     now = time.time()
     universe = [str(a).upper() for a in inputs.get("universe", _UNIVERSE_DEFAULT)]
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
+    min_traders = int(inputs.get("minTraderCount", 10))   # 4h-board headcount floor
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
 
     # margin PERCENT in (0,100]. Defensive fraction->percent guard (v2 stored 0.15).
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:   # a value <=1.0 is a pasted FRACTION (e.g. 0.15) -> x100
+    if margin_pct < 1.0:   # a value <1.0 is a pasted FRACTION (e.g. 0.15) -> x100
         margin_pct *= 100
 
     leverage = int(inputs.get("leverage", _DEFAULT_LEVERAGE))
@@ -254,7 +259,7 @@ def scan(inputs, ctx):
         candles = data.get("candles", {}) if isinstance(data, dict) else {}
         candles_5m = candles.get("5m", []) or []
         candles_15m = candles.get("15m", []) or []
-        sm = _get_sm_direction(ctx, coin)
+        sm = _get_sm_direction(ctx, coin, min_traders)
         th = scoring.build_thesis(coin, md, candles_5m, candles_15m, sm, inputs)
         if th and th["score"] >= min_score:
             candidates.append(th)

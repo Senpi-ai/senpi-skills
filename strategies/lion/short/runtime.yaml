@@ -106,13 +106,14 @@ exit:
     weak_peak_cut:
       # DISABLED - this cut closes at MARKET at whatever price is there, with no floor, so on a
       # longer-hold book it realises a small LOSS on a position that simply hadn't moved yet
-      # (Ignas, M408027, xyz:PLTR on cougar). Same defect we removed from phase1. weak_peak is
+      # (observed live on xyz:PLTR in cougar). Same defect we removed from phase1. weak_peak is
       # a CHOP tool only: it belongs where the strategy already intends to be out within hours.
       enabled: false
       interval_in_minutes: 360            # 6h — cut a short that bottomed then stalled
       min_value: 2.0
     dead_weight_cut:
-      enabled: true
+      # 15 Oct: OFF. horizon=position, measured median hold 13.3h — a 12h clock fires at 0.90x the hold
+      enabled: false
       interval_in_minutes: 720            # 12h — recycle a short going nowhere
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it

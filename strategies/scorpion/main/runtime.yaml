@@ -4,7 +4,8 @@ group: scorpion
 version: 3.0.0
 description: >
   SCORPION — multi-market trend-follower across a curated crypto + XYZ basket. Each tick
-  scores live smart-money concentration (leaderboard_get_markets) gated on 4h price
+  scores live 4h-leader concentration (leaderboard_get_markets — the traders winning the
+  last four hours, a momentum read, not a proven cohort) gated on 4h price
   alignment, with asymmetric MIN_SCORE (crypto 11 / XYZ 9), enriches with BTC macro +
   funding regime, and emits ALL qualifying candidates (runtime owns the slot ceiling).
   Held-asset dedup + post-close cooldown + recent-signal dedup run in-scan (the v2 LLM
@@ -41,6 +42,7 @@ scanners:
       min4hAlignedPctCrypto: 1.0           # v2 MIN_4H_ALIGNED_PCT_CRYPTO
       min4hAlignedPctXyz: 0.5              # v2 MIN_4H_ALIGNED_PCT_XYZ
       minTraders: 5                        # v2 hard gate: traders < 5 → reject
+      minTraderCount: 10                   # skip a board side thinner than this many traders at the read — a thin side never sets the lean (the scoring gate above stays)
       # ── sizing ──
       marginPct: 25                        # PERCENT of withdrawable (0,100] — v2 strategy.margin_pct: 25. runtime sizes (marginPct/100)*withdrawable
       # ── dedup / cooldown (v2 producer + runtime intent) ──

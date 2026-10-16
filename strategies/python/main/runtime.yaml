@@ -2,7 +2,7 @@
 # Multi-asset universe scanner, multi-day hold. Scans the top 50 HL crypto assets
 # by 24h notional volume (market_list_instruments), scores each non-held name
 # through a multi-gate, LONG-biased thesis (4h/1h trend structure, 1d candle,
-# smart-money lean, funding, volume ratio, RSI, move-exhaustion), and emits the
+# 4h leader lean, funding, volume ratio, RSI, move-exhaustion), and emits the
 # single best >= MIN_SCORE 8. Conviction-tiered margin (25/30/40%) at a 7x
 # leverage cap, up to 2 concurrent positions, DSL-only exits with a 96h hard
 # timeout — the snake waits, then holds for days. Faithful port of the v2 producer
@@ -15,7 +15,7 @@ description: >
   multi-day holds. Scans the top 50 HL crypto assets by 24h notional volume and
   enters only when the 4h trend has macro direction, the 1h trend agrees, 15m
   momentum confirms, the move isn't a runaway counter-trend (MACRO_TREND_GATE),
-  smart money doesn't oppose (HARD BLOCK), and RSI isn't extreme — scoring the
+  the 4h leaders don't oppose (HARD BLOCK), and RSI isn't extreme — scoring the
   rest (4h strength, 1h/1d momentum, LONG-bias bonus, SM alignment, funding,
   volume, RSI room, move-exhaustion penalty) and firing the single best >=
   MIN_SCORE 8. Conviction-scaled margin (25/30/40%) at 3-7x leverage, up to 2

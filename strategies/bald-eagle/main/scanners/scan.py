@@ -30,7 +30,7 @@ FIDELITY NOTES vs eagle-producer.py v5.0.1 (thesis verbatim from v4.1):
   - MARGIN: v2 MARGIN_PCT=0.40 (FRACTION) * account_value -> marginUsd. Runtime 3.0
     sizes from a PERCENT in (0,100], so this emits marginPct=40 and the runtime sizes
     (marginPct/100)*withdrawable. The 40% value is preserved verbatim. (See the
-    "<=1.0 -> pasted fraction, x100" guard in scan() for the input override.)
+    "<1.0 -> pasted fraction, x100" guard in scan() for the input override.)
   - DROPPED (now owned by the runtime/scaffold, NOT thesis):
       * has_resting_orders()/cancel_order 600s stale-purge — that auto-CANCELS orders,
         a MUTATION; scan() is read-only (mutations raise PermissionError). The runtime's
@@ -56,7 +56,7 @@ _DEFAULT_MAX_SPREAD_PCT = 0.001       # 0.1% max book spread (execution-quality 
 _DEFAULT_MAX_LEVERAGE = 7            # v2 MAX_LEVERAGE
 _DEFAULT_TTL = 21600                 # 360m — mirror v2 is_asset_cooled_down(360) anti re-fire
 _DEFAULT_MIN_SM_PCT = 3.0           # informational (concentration already scored 0 below 3%)
-_DEFAULT_MIN_SM_TRADERS = 5         # informational
+_DEFAULT_MIN_SM_TRADERS = 10        # trader-count floor applied at the board read (minTraderCount)
 
 
 def _read(ctx, name, args):
@@ -128,7 +128,7 @@ def _get_account(ctx, wallet):
 
 # ── SM SCANNING (port of v2 scan_xyz_sm, verbatim parse) ──
 
-def _scan_xyz_sm(ctx, allowed):
+def _scan_xyz_sm(ctx, allowed, min_traders=_DEFAULT_MIN_SM_TRADERS):
     """leaderboard_get_markets filtered to dex='xyz' + the allowed universe. Keeps the
     best SM row per token (highest pct_of_top_traders_gain). Returns a list of
     normalized candidate dicts sorted by pct desc. READ-GUARDED (None -> [])."""
@@ -160,6 +160,8 @@ def _scan_xyz_sm(ctx, allowed):
 
         pct = scoring._f(m.get("pct_of_top_traders_gain", 0))
         traders = int(scoring._f(m.get("trader_count", 0)))
+        if traders < min_traders:                  # a thin side never sets the lean
+            continue
         direction = str(m.get("direction", "")).upper()
         if direction not in ("LONG", "SHORT"):
             continue
@@ -270,10 +272,10 @@ def scan(inputs, ctx):
     tiers = inputs.get("leverageTiers", scoring.DEFAULT_LEVERAGE_TIERS)
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
 
-    # margin PERCENT in (0,100]; defensive guard: a <=1.0 input is a pasted FRACTION
+    # margin PERCENT in (0,100]; defensive guard: a <1.0 input is a pasted FRACTION
     # (v2 stored 0.40) -> x100 (-> 40). (dire/koala pattern.)
     base_margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if base_margin_pct <= 1.0:
+    if base_margin_pct < 1.0:
         base_margin_pct *= 100
 
     account_value, held_tokens = _get_account(ctx, ctx.wallet)
@@ -290,7 +292,7 @@ def scan(inputs, ctx):
 
     recent = _load_recent(ctx)
 
-    raw_candidates = _scan_xyz_sm(ctx, allowed)
+    raw_candidates = _scan_xyz_sm(ctx, allowed, int(inputs.get("minTraderCount", _DEFAULT_MIN_SM_TRADERS)))
 
     out = []
     result = None

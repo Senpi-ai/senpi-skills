@@ -1,0 +1,60 @@
+# Athena-X — Athena at conviction size. Selection is Athena's; only sizing differs.
+# Athena — the smart-money hedge fund: Phalanx and Aegis as one two-wallet PACKAGE.
+# Phalanx (the alpha sleeve) follows the proven cohort's rotation; Aegis (the hedge
+# sleeve) reads the tape — funding regime, haven flows, OI velocity — and hedges the
+# regime, sitting in cash when it is neutral. The two read different things by
+# design, so the hedge is on before the cohort has rotated. Each sleeve is its
+# source template verbatim (tests/test_legs_verbatim.py pins that); the ONE lever
+# this package adds is the weighting below. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: athena-x
+version: "1.6.0"
+
+catalog:
+  name: "Athena-X — Smart-Money Hedge Fund, Conviction Sizing"
+  emoji: "🏛️"
+  tagline: "Athena at conviction size. Same two sleeves and the same selection — scanners byte-identical, stops rescaled to sit at the same place in price — but NOT the same entry behaviour: no daily loss halt and no cap on entries per day, so it fills faster and keeps adding while underwater. 5x instead of 3x, more margin per slot, one more slot each: about 3.6x the gross exposure, and 100% of each wallet committed at full slots. Take it only if you already run Athena and want conviction size behind the same calls."
+  belief_plain: "Athena decides WHAT to trade; Athena-X changes HOW MUCH, and loosens two gates that ration entries. Phalanx still follows the proven cohort (traders with >=$1M lifetime realized PnL) and Aegis still hedges the regime off the tape — the scanners are byte-identical to Athena's. What differs: 5x leverage instead of 3x, 25% of the alpha wallet per position instead of 15%, 20% of the hedge wallet instead of 12%, and one extra slot in each sleeve — about 3.6x the gross exposure for the same signals. At full slots each sleeve commits 100% of its wallet as margin, against 45% and 48% on Athena; that absence of headroom is the real change in character, not the leverage number. Two entry gates are also gone: there is no daily loss halt and no cap on entries per day, so the book can fill in one burst and can keep adding while it is underwater. Gains and drawdowns both scale with all of it."
+  thesis: "Sizing is a separate decision from selection, and Athena-X exists to make it an explicit one rather than a fork users hand-edit. Selection is Athena's and unchanged: the scanners are byte-identical to the Phalanx and Aegis source templates and a test enforces that. What differs is size and the entry gates. Every DSL threshold is rescaled so the stops sit at the same place in PRICE terms as Athena rather than tightening with leverage, and the overall risk budget is 37%/35% of PnL from peak — the same ~7% adverse market move Athena tolerates at 10%. But the daily loss halt and the daily entry cap are removed, which is deliberate for a conviction hold and does mean the only brakes left are that drawdown budget, a consecutive-loss pause, a per-asset cooldown, and each position's own DSL stop. Nothing flattens the book. It suits an operator who has already watched Athena trade and wants conviction size behind the same calls; it is the wrong first strategy. Start on Athena, move here on evidence."
+  group: smart-money
+  archetype: copy_trading
+  sub_style: sm_hedge_fund
+  asset_classes: [universe_crypto, btc_eth, major_alts, xyz_equities, commodities, indices, fx]
+  asset_scope: follows_traders
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 9
+  assets: []
+  # Computed mechanically, Athena-X's minimum is LOWER than Athena's ($40 vs $100): a bigger
+  # marginPct clears the $10 exchange floor on a smaller wallet. That is true and useless —
+  # it would advertise the higher-risk package as the cheaper one. Floored to Athena's, so
+  # nobody is told 5x conviction sizing is the entry-level option.
+  min_budget_floor: 100
+  tags: [athena-x, conviction-sizing, aggressive-sizing, smart-money, hedge-fund, smart-money-hedge-fund, alpha-plus-hedge, proven-cohort, rotation, regime-hedge, dynamic-hedge, cross-asset, long-short, phalanx, aegis]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+# THE lever: the weighting. Move the two funding_share values together (they must
+# total 1.0) in the user's fork before funding — 0.65/0.35 is the default. Each
+# wallet needs the $10 platform floor and its sleeve's own sizing at the budget.
+# THE SIZE IS THE ONLY DIFFERENCE. `athena` is the same strategy at standard sizing
+# (3x, 15%/12%, one fewer slot per sleeve). If the user has not already run Athena and
+# watched it trade, say so and offer Athena instead — this is not a first strategy. The
+# weighting lever below works identically in both.
+instances:
+  - name: phalanx
+    runtime: phalanx/runtime.yaml        # → runtime name athena-phalanx, group athena
+    wallet_env: ATHENA_X_PHALANX_WALLET    # bound as ${ATHENA_X_PHALANX_WALLET} in phalanx/runtime.yaml
+    funding_share: 0.65
+  - name: aegis
+    runtime: aegis/runtime.yaml          # → runtime name athena-aegis, group athena
+    wallet_env: ATHENA_X_AEGIS_WALLET
+    funding_share: 0.35

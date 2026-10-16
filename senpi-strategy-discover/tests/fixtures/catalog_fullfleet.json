@@ -4,46 +4,6 @@
   "_note": "SYNTHETIC v2 catalog for aggressive matcher testing — built from origin/main catalog.json (75 strategies) ENRICHED with thesis + free-text tags from producer-patterns.md (§1-27). Discovery fields inferred from group/tagline/family, NOT authoritative classification.",
   "skills": [
     {
-      "id": "albatross",
-      "name": "Albatross — Multi-Week Arena Conviction Mirror",
-      "emoji": "🐦‍⬛",
-      "tagline": "Mirror the consistent winners from the Senpi Arena, not the lucky-week winners. Albatross pulls 4 weekly leaderboards + the current monthly ",
-      "belief_plain": "Mirror the consistent winners from the Senpi Arena, not the lucky-week winners.",
-      "version": "1.0.0",
-      "group": "trader-follower",
-      "thesis": "You'd rather copy proven alpha-generating traders than form your own technical view.",
-      "tags": [
-        "onboarding",
-        "arena",
-        "multi-week",
-        "conviction-weighted",
-        "user-scope-auth-required"
-      ],
-      "archetype": "copy_trading",
-      "archetype_label": "Copy Trading",
-      "sub_style": "arena_winners",
-      "sub_style_label": "Arena Winners",
-      "asset_classes": [
-        "none"
-      ],
-      "asset_scope": "follows_traders",
-      "assets": [],
-      "direction": "long_short",
-      "risk_level": "moderate",
-      "tier": "advanced",
-      "leverage_max": 5,
-      "time_horizon": "swing",
-      "cadence_seconds": 300,
-      "min_budget": 100,
-      "instance_count": 1,
-      "funding_split": [
-        1.0
-      ],
-      "max_slots": 3,
-      "sort_order": 1,
-      "branch": "main-synthetic"
-    },
-    {
       "id": "badger",
       "name": "Badger — OI-Divergence Breakout Anticipator",
       "emoji": "🦡",

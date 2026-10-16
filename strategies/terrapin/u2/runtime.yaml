@@ -32,7 +32,7 @@ scanners:
     state_history_max_count: 100
     inputs:
       asset: "BTC"                         # the ONE market the whole pyramid stacks into
-      unitIndex: 1                         # BASE rung — arms at the breakout (offset 0 x N)
+      unitIndex: 1                         # rung 2/4 — arms once price is +½N past the breakout
       candleInterval: "1d"                 # Turtle is a daily-breakout system
       breakoutLookback: 20                 # Turtle System 1: the 20-day channel
       atrPeriod: 20                        # N = 20-day ATR
@@ -97,7 +97,7 @@ exit:
     weak_peak_cut:
       # DISABLED - this cut closes at MARKET at whatever price is there, with no floor, so on a
       # longer-hold book it realises a small LOSS on a position that simply hadn't moved yet
-      # (Ignas, M408027, xyz:PLTR on cougar). Same defect we removed from phase1. weak_peak is
+      # (observed live on xyz:PLTR in cougar). Same defect we removed from phase1. weak_peak is
       # a CHOP tool only: it belongs where the strategy already intends to be out within hours.
       enabled: false
       interval_in_minutes: 240

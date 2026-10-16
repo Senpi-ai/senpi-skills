@@ -6,11 +6,12 @@ description: >-
   today", or any open-ended market read. Use this instead of pulling market_get_prices +
   web_fetch/web_search by hand. A hidden engine (scripts/pulse.py) pulls all asset
   classes (crypto, equities, indices, commodities, macro) and computes the signals; you narrate.
-  Requires Senpi MCP.
+  Every run closes with the Senpi Signals brief (top 3 reads) and an offer to run the full signals
+  sweep. Requires Senpi MCP.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.2.0"
+  version: "1.10.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -25,6 +26,7 @@ they couldn't get from a price screen on their own.
 
 ## Golden rules
 
+- **Asked to run this on a schedule? Say the cost first.** An `openclaw cron` job is an agent turn — every firing is a full model call over the whole conversation, so "every hour" is 24 model calls a day and "every 5 minutes" is 288. Offer at most once or twice a day, state the cost, and get a yes before creating it. Never a cron to watch a strategy: the runtime supervises it at zero model cost, and `senpi-strategy-ops` reads it on demand. The daily read is one run, when asked.
 - **Run the engine; never hand-pull the market.** `python3 scripts/pulse.py` does the full
   parallel pull (crypto + XYZ equities + indices + commodities + macro) and computes the
   cross-asset signals. Read its JSON — don't fire `market_*` calls yourself. For a full read, run it as
@@ -46,7 +48,7 @@ they couldn't get from a price screen on their own.
   large or unusual, do **one** web search for the catalyst (earnings, a print, a headline), label it
   clearly as reported context (not price truth), and weave it in. This is the single biggest lever
   for "a human couldn't find this."
-- **Always end with the two CTAs** (below) — verbatim.
+- **Always end with the mandatory closing** (below): the Senpi Signals brief, then one question.
 - **Freshness:** the engine pulls live every run. Don't serve session-cached prices as "current."
 
 ## How to run the engine
@@ -55,7 +57,7 @@ Invoke via the `exec` tool. Optional leading STEP (`pulse` · `smart` · `all`; 
 
 ```
 python3 scripts/pulse.py pulse [--no-smart]   # 1. FAST core read: movers/groups/funding/signals (narrate first)
-python3 scripts/pulse.py smart                # 2. smart-money overlay, layered on the persisted core read
+python3 scripts/pulse.py smart                # 2. 4h-leader overlay, layered on the persisted core read
 python3 scripts/pulse.py all  [--no-smart]    # one-shot fallback: the full composed dict (same output as before)
 ```
 
@@ -66,8 +68,15 @@ python3 scripts/pulse.py all  [--no-smart]    # one-shot fallback: the full comp
   `macro_fx`, `crypto`.
 - `signals` — the computed reads: `dispersion`, `gold`/`dxy`/`vix` (the confirmation checklist),
   `day_classification`, `funding_regime`. Each carries a plain `read` string you can cite.
-- `smart_money` — the leaderboard layer (cohort concentration, top traders, momentum events) **or
-  `null`** if Hyperfeed is down. If null, note it once and move on — never stall.
+- `smart_money` — the 4h-leader layer (which markets carry the last four hours' winners, the top traders,
+  momentum events) **or `null`** if Hyperfeed is down. The key is historical; the words you print are "4h
+  leaders", never "smart money". If null, note it once and move on — never stall. Each layer is a short
+  `rows` list plus its source counts: the top 8 markets (`token`, `direction`, `pct_of_top_traders_gain`,
+  `trader_count`), the top 5 traders (`unrealized_pnl` over the 4h window, `top_markets`), and up to 8 momentum
+  events, one per trader, `sent` first. An event is a trader's 4h PnL crossing a tier, a real signal;
+  `decision: "blocked"` only means the alert was not pushed (`blocked_reason`), never that the move is doubtful.
+  No `top_positions` (most blocked events): give the trader, `tier_label` and `delta_pnl`, never guess the markets
+  (`leaderboard_get_trader_positions` has them). Count traders, not `total_count` (it counts re-fires).
 - `meta.warnings` / `meta.degraded` — what was unavailable. Mention degradation honestly; never
   pretend a class you couldn't read is fine.
 - The engine **fails open** — partial data still returns valid JSON. Work with what you got; flag
@@ -84,7 +93,7 @@ so your response streams and no single call hangs.
 
 ```sh
 python3 scripts/pulse.py pulse    # 1. instruments + build_groups + compute_signals + mover deep-pull → movers/groups/funding/signals (FAST, narrate first)
-python3 scripts/pulse.py smart    # 2. the smart-money overlay (leaderboard/Hyperfeed) layered on the persisted core read
+python3 scripts/pulse.py smart    # 2. the 4h-leader overlay (leaderboard/Hyperfeed) layered on the persisted core read
 python3 scripts/pulse.py all      # one-shot fallback: the full composed dict (byte-identical to before)
 ```
 
@@ -95,9 +104,9 @@ the two steps **in order** and narrate between:
    `signals` (macro character, indices, the epicenter gradient, the divergence, commodities/macro, crypto +
    `funding_regime`, notable movers). Don't wait for the smart-money layer. This is the whole output
    contract below **except** the smart-money note.
-2. `pulse.py smart` → narrate the **smart-money overlay** (`smart_money`: cohort concentration, top traders,
-   momentum events) — "the >$1M cohort is X% concentrated short HYPE and adding." If `smart_money` is null,
-   note "smart-money layer unavailable" once and move on.
+2. `pulse.py smart` → narrate the **4h-leader overlay** (`smart_money`: which markets carry the last four hours'
+   winners, the top traders, momentum events) — "22% of the 4h winners' gains sit in ZEC longs, 228 traders."
+   Never call it smart money (see Formatting). If it is null, note "4h-leader layer unavailable" once and move on.
 
 **Narrate each slice as it returns — never wait for both steps.** The steps share a state file
 (`<tempdir>/senpi-market-pulse/state.json`, overridable with `--state`), so `smart` layers onto the
@@ -106,13 +115,14 @@ minimal step:**
 
 - *"what's moving / today's markets / funding regime / market overview"* → just **`pulse`** (the core read;
   no smart-money round-trips).
-- *"what's smart money doing in the market / compare to the whales"* → **`smart`** (it self-heals the core
-  read if you skipped `pulse`), or compose **`senpi-smart-money`** for the deep trader-level whale read.
+- *"who is winning right now / what's hot in the last 4h"* → **`smart`** (it self-heals the core read if you
+  skipped `pulse`). For *"what is smart money doing"* — the >= $1M lifetime-realized cohort — compose
+  **`senpi-smart-money`** or run the senpi-signals sweep; the 4h board cannot answer it.
 
 `--no-smart` applies to every step (it makes `smart` a clean null overlay). Same fail-open contract as `all`:
 each step returns valid JSON with `meta.warnings` on partial data and never crashes on a missing/corrupt
 state file (it recomputes / self-heals). Keep **`all`** as the fallback when a single blocking call is fine —
-and all the golden rules + the two CTAs still apply to a stepped read.
+and all the golden rules + the mandatory closing still apply to a stepped read.
 
 ## Output contract
 
@@ -134,47 +144,116 @@ Top-down, always this shape:
 7. **Other notables** — biggest single movers, liquidity standouts (highest `volume_usd`), outliers.
 8. **Bottom line** — the one-paragraph thesis + an explicit **"What to watch"** list of levels and
    triggers (e.g. "BTC $62k holds → flush done; VIX > 25 → selloff broadening").
-9. **The two CTAs** (next section).
+9. **Hyperfeed Movers** — what the 4h leader board is doing *right now*, from the senpi-signals
+   folder: `python3 scripts/hyperfeed.py --top 5`. Present its block as it stands. This is the
+   minute-scale layer the rest of the read does not have — the sections above are today's structure,
+   this is the last fifteen minutes — and it is the one place a reader sees the detector Penguin and
+   Pelican actually trade. **Never call it smart money** (see the rule below). If the senpi-signals
+   folder isn't there, skip it silently, exactly as with the brief.
+10. **Senpi Signals, in brief** — the closing section below.
+11. **The closing question** (same section).
 
 Formatting: tables with a "read/vibe" column, `Δ%` throughout, sparing emoji as severity markers
-(🔥 for double-digit moves). Always show the daily move, not just the price. If `smart_money` is
-present, add a short "Smart money" note (e.g. "the >$1M cohort is X% concentrated short HYPE and
-adding") — it's high-signal.
+(🔥 for double-digit moves). Always show the daily move, not just the price. **A missing change is `—`, never `0.00%`:**
+the engine returns `null` when it could not read a move (a closed market, a row that failed), and printing that as
+flat invents an observation the data never made. If `smart_money` is present, add a short **4h leaders** note
+(e.g. "in the last 4h, 22% of the winners' gains sit in ZEC longs, across 228 traders") — it's high-signal.
+That note is the 4h *level*; the Hyperfeed Movers block in step 9 is the 15-minute *change* on the same
+board, so give the note here and let the block carry the movement rather than describing it twice.
+**Never call it smart money.** That layer is `leaderboard_get_markets`: who is winning *right now*, survivorship
+included. senpi-signals' "smart money" is the >= $1M lifetime-realized cohort, and the two are regularly on
+opposite sides of the same name in the same answer — so the words have to say which population each one is.
 
-## Mandatory closing (verbatim)
+## Mandatory closing: Senpi Signals in brief, then three numbered next steps
 
-Always end every market read with these offers — the **first two every time**, and the **third whenever
-`smart_money` is present** (a concentrated cohort is a high-intent mirror moment):
+Every market-pulse run — a full read or a narrow ask — ends the same way, after the bottom line (or
+after the narrow answer):
 
-> **1. Want me to check how our strategies and positions are positioned in this?**
-> **2. Want me to create a new strategy catered to this market?**
-> **3. Want me to find one of these smart-money traders to mirror?**  *(only when smart-money is live)*
+1. **Senpi Signals, in brief.** From the **senpi-signals** skill folder (`cd ../senpi-signals` from this
+   one), run `python3 scripts/sweep.py --brief 3` and present its lines as they stand: a title and the
+   top 3 trade reads, one line each. Narrate nothing about it. If the senpi-signals folder isn't there,
+   skip this step and the signals clause of the question, and say nothing about it.
+   The **Hyperfeed Movers** block (output-contract step 9) comes from the same folder —
+   `python3 scripts/hyperfeed.py --top 5`. Two different populations, and the answer must not blur
+   them: the brief is the >= $1M lifetime-realized cohort over days, the movers block is who is
+   winning over the last 4h with a 15-minute change on top. They are regularly on opposite sides of
+   the same name, which is the whole reason both are worth printing.
+2. **Three numbered next steps, last block of the answer.** A reader who has just been handed a
+   market read and a signals brief is deciding, not reading — so the routes are a short numbered
+   list they can answer with a digit, not a sentence they have to unpick. The signals offer is
+   first. Print it exactly like this, the heading bold and the three items numbered:
 
-- **CTA 1 → positions read.** Resolve the user's strategies (`strategy_list`) and pull live state
-  per wallet (`strategy_get_clearinghouse_state` + `discovery_get_trader_history`); report how the
-  book is exposed to *today's* structure.
-- **CTA 2 → new strategy.** Hand to **senpi-strategy-author** with a structured brief built from the
-  thesis you just produced (e.g. *"semi-led risk-off, memory −10%/logic −3%, software green, gold &
-  DXY calm = orderly rotation → candidate: long asset-light software / short memory, or fade if
-  washout; risk: timing"*). **Propose the strategy and get the user's go-ahead — never build or
-  trade without confirmation.**
-- **CTA 3 → mirror the smart money** (only when `smart_money` is present). Hand to **senpi-trader-research**
-  to vet a *copyable* trader from the cohort (mirrorability + min budget, not just PnL), then
-  **senpi-trade** to run the mirror.
+> **What do you want to do next?**
+>
+> 1. Want the full Senpi Signals sweep?
+> 2. Or I can check how your positions sit in this market.
+> 3. Or I can start planning a strategy with you to trade this market setup.
+
+That is the whole closing, whether or not the 4h-leader layer is present. Keep it to these three —
+a fourth route turns a decision into a menu. Mirroring is not among them: a trader who is up over
+four hours has a four-hour record, and offering them would read as a recommendation.
+
+- **Full sweep → senpi-signals.** Run `python3 scripts/sweep.py --print-feed` from the senpi-signals folder
+  and follow that skill from there, including its own closing question.
+- **Positions → positions read: the Senpi strategies plus the wallets the user added.** Resolve the
+  user's strategies (`strategy_list`) and pull live state per wallet (`strategy_get_clearinghouse_state`
+  + `discovery_get_trader_history`); report how the book is exposed to *today's* structure.
+  - **Saved wallets in the same read.** Also call `account_get_external_wallets` (no address: every
+    wallet the user added in Your wallets, each with its live `state`) and put their positions in the
+    **same table** as the Senpi strategies — one row per position, largest position value first, never a
+    section per origin. Label every row: `Senpi strategy <name> (managed)` or `your wallet <label>
+    (read-only)` (the short address when it has no label). Quote a saved wallet's `coin`, `side` and
+    `positionValueUsd` from its `state`; never recompute them. Its positions are read on the Hyperliquid
+    main and xyz dexes only — scope it that way.
+  - **Read-only.** Senpi can't place, change or cancel orders on a saved wallet (quote its `access` line
+    if asked). You may say a saved wallet is with or against today's structure; any action you offer is a Senpi-side one (a Senpi
+    strategy), never a trade, stop, close or strategy on the saved wallet.
+  - **`protection` is not "protected".** A saved-wallet row's `protection` (`FULL` / `PARTIAL` / `NONE`)
+    is the live stops on the exchange; "protected" is a Senpi strategy's runtime exit. Never merge them.
+  - **Unknown is never zero.** `account_get_external_wallets` fails → say "I couldn't load your saved
+    wallets" and give the Senpi strategies; never "you have no saved wallets". A wallet with `state: null`
+    or `state.readError` set → "couldn't load <label>", never flat, never $0, never "no positions". An
+    empty list means none added — leave them out.
+  - Call them "your wallets" or "the wallets you added"; never imply Senpi checked who controls them.
+- **Strategy → Penguin or Pelican first, or one built for this market.** As the quick start, offer the
+  Hyperfeed strikers — **senpi-strategy-ops** runs the walkthrough and deploys under their name:
+
+  > Want a feel for what senpi Hyperfeed can do? **Penguin** (crypto only) or **Pelican** (all assets)
+  > react only to the strongest live rotations on the feed — a name suddenly rocketing up what winning
+  > traders hold — then commit one position at up to 10x, 90% margin, with a DSL floor that ratchets up
+  > to lock gains as it runs. High risk, high reward, with -15% SL.
+
+  Three things about that line the agent must be able to unpack, because each is easy to read wrong:
+  **-15% SL is 15% ROE, not a 15% price move** — at 10x that is a **1.5%** move, so if the user asks what
+  the stop means, answer in price, never leave "-15%" to be read as the distance. On 90% margin it costs
+  **~13.5% of the wallet per stop-out**, and say **per stop-out**: these run with their risk guard rails
+  off, so stops compound (three ≈ 40% of the wallet). **Up to 10x**, never a flat 10x — the per-name venue
+  cap clamps many instruments below it, and that clamp moves the PRICE behind every number without moving
+  the wallet cost: ROE is return on margin, so the stop is ~13.5% at any leverage while the move it takes
+  doubles at 5x (3.0%), and tier 1's +20% ROE becomes a 4% move rather than 2%. And say   **rotations**, never "pumps": the detector fires on a jump in what winning traders HOLD, not on price, so a pumping
+  name no smart money rotated into does not fire at all.
+
+  Its peer is a strategy built from the thesis you just produced: hand
+  **senpi-strategy-author** a structured brief (e.g. *"semi-led risk-off, memory −10%/logic −3%,
+  software green, gold & DXY calm = orderly rotation → candidate: long asset-light software / short
+  memory, or fade if washout; risk: timing"*). Never promise or imply results. **Propose the strategy
+  and get the user's go-ahead — never build or trade without confirmation.**
+- **Mirror, if the user asks for one** (they may, after the 4h-leader note — it is never offered). Hand to
+  **senpi-trader-research** to vet a *copyable* trader on their track record, not their last four hours
+  (mirrorability + min budget, not just PnL), then **senpi-trade** to run the mirror.
 
 ## Resilience (the engine handles these — narrate them honestly)
 
-- **Hyperfeed / smart-money down** → `smart_money: null`. Note "smart-money layer unavailable",
-  deliver the rest in full.
+- **Hyperfeed down** → `smart_money: null`. Note "4h-leader layer unavailable", deliver the rest in full.
 - **A class came back thin** → it's in `meta.warnings`. Say so; don't drop the section silently.
-- **Never** answer crypto-only, never lead with a single coin, never skip the CTAs — even on
+- **Never** answer crypto-only, never lead with a single coin, never skip the mandatory closing — even on
   degraded data.
 
 ## Skill Attribution
 
 This is a guide/analysis skill (it *reads* the market and *recommends*; it does not create a
 strategy wallet or place a trade), so it has no `references/skill-attribution.md` wallet flow.
-Attribution happens downstream when **senpi-strategy-author** / **senpi-strategy-ops** act on CTA 2.
+Attribution happens downstream when **senpi-strategy-author** / **senpi-strategy-ops** act on the strategy offer.
 
 
 ## Install — both scripts are required

@@ -108,12 +108,26 @@ def _refresh_pool(ctx, cached, inputs, now):
 
 def _fetch_pool_positions(ctx, pool):
     """{addr -> [open_position dicts]} for every pool member (discovery_get_trader_state,
-    batched by 50). A failed batch is skipped (those members just look unchanged)."""
+    batched by 50), or **None** if any batch failed to read.
+
+    A partial read is not a reading. This scanner fires on positions that are NEW since the last
+    tick, so a wallet missing from the map does not look unchanged — it looks like it closed
+    everything. Saved as the baseline, every position it actually holds then looks newly opened on
+    the next full read, and `maxEntryAgeSeconds` discards all of them for being old. The scanner
+    goes quiet and reports "no fresh pool-member entries", which is a read that failed wearing the
+    words of a market with nothing in it.
+
+    Same guard as `_cohort_headcount` in whalehunter/phalanx/athena/starling/pilotfish (#658);
+    this one was missed there because it is spelled differently.
+    """
     addresses = [t["address"] for t in pool]
-    by_addr = {}
+    by_addr, failed = {}, []
     for i in range(0, len(addresses), 50):
         resp = _read(ctx, "discovery_get_trader_state",
                      {"trader_addresses": addresses[i:i + 50]})
+        if resp is None:
+            failed.append(i // 50)
+            continue
         for t in _unwrap_list(resp, "traders"):
             if not isinstance(t, dict):
                 continue
@@ -121,6 +135,10 @@ def _fetch_pool_positions(ctx, pool):
             if not addr:
                 continue
             by_addr[addr] = t.get("openPositions") or t.get("open_positions") or []
+    if failed:
+        print(f"[jackal.scan] trader_state batch(es) {failed} of "
+              f"{(len(addresses) + 49) // 50} failed — no pool reading this tick", file=sys.stderr)
+        return None
     return by_addr
 
 
@@ -248,6 +266,22 @@ def scan(inputs, ctx):
             print(f"[jackal.scan] WARNING: state append failed; next tick may re-emit "
                   f"a suppressed signal: {exc!r}", file=sys.stderr)
 
+    if current_positions is None:
+        # Hold the PRIOR baseline: advancing it to a partial map is what turns one failed batch
+        # into a permanently silent scanner. Nothing is emitted, and the line says we could not
+        # read rather than that there was nothing to see.
+        result = {"ts": now, "pool_size": len(traders), "emitted": 0,
+                  "note": "HOLDING (pool position read incomplete)"}
+        if ctx.state is not None:
+            try:
+                ctx.state.append({"cohorts": pool, "last_seen": last.get("last_seen") or {},
+                                  "recent": recent, "result": result})
+            except Exception as exc:  # noqa: BLE001
+                print(f"[jackal.scan] WARNING: state append failed: {exc!r}", file=sys.stderr)
+        print(f"[jackal.scan] HOLDING — could not read positions for the whole pool "
+              f"(pool={len(traders)}); prior baseline kept, no opens this tick", file=sys.stderr)
+        return []
+
     if not traders:
         result = {"ts": now, "pool_size": 0, "emitted": 0, "note": "WAITING (no pool)"}
         print("[jackal.scan] WAITING — empty trader pool (cohort refresh/cache empty)",
@@ -276,7 +310,8 @@ def scan(inputs, ctx):
         result = {"ts": now, "pool_size": len(traders), "emitted": 0,
                   "note": "WAITING (no fresh entries)"}
         print(f"[jackal.scan] WAITING — no fresh pool-member entries "
-              f"(pool={len(traders)})", file=sys.stderr)
+              f"(pool={len(traders)}, positions read for {len(current_positions)})",
+              file=sys.stderr)
         _persist(result)
         return []
 

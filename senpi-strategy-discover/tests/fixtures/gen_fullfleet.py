@@ -126,7 +126,6 @@ AGENT = {
     # §5 trader-follower
     "raptor": ("trader-follower-hot-streak", ["coat-tail", "24h-cache", "tick-60-180s"]),
     "jackal": ("trader-follower-hot-streak", ["new-entry", "ta", "funding"]),
-    "albatross": ("trader-follower-hot-streak", ["onboarding", "arena", "multi-week", "conviction-weighted", "user-scope-auth-required"]),
     "remora": ("trader-follower-hot-streak", ["whale-mirror", "consensus", "operator-picked", "wide-dsl"]),
     # §6 striker / rank-jump
     "jaguar": ("striker-rank-jump-detector", ["rank-jump", "1-per-day", "3m-notional"]),

@@ -36,7 +36,61 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # profit-taking" sentence, the instruction to render the ladder as outcomes, and the four
 # doesn't-fit checks. The worked example, the template and the per-mismatch wording went to
 # references/explaining-the-exit.md, which is where this budget says depth belongs.
-BODY_BUDGET = {"senpi-strategy-ops": 300, "senpi-strategy-author": 386}
+# ops 300 -> 317 (2026-09-11): the walkthrough-before-the-budget rule (Step 0.75). The resident lines are
+# what must fire on EVERY template deploy before money moves and cannot be deferred to a pay-per-read
+# file: that the walkthrough comes before the budget question, the four things it says (what it does, two
+# levers, fee load and design budget, the name — `<User>'s <Template>`), the one as-is-or-fork question,
+# the two consents (below the design budget; a guardrail removed), the post-live ownership line and
+# "update, never redeploy". The lever ranking, the name rules, the cost classes and the fork-on-disk
+# mechanics went to references/walkthrough.md. Set at the post-edit count with no slack.
+# author 386 -> 425 (2026-09-11): the four peer routes with cost classes (the product change — the route is
+# the user's choice, its cost class a fact, never a downsell), budget-never-before-build, pre-fill from the
+# thesis, the proven-cohort source rule, let-winners-run exits stated in price terms, the user names it,
+# protection removal as consent. Every one is a what-to-ASK / what-to-CLAIM rule that fires in the
+# interview, which this file says has nowhere else to live; the fork mechanics live in ops'
+# references/walkthrough.md and are named here, not repeated. Set at the post-edit count with no slack.
+# ops 322: DSL two-target rule, four resident lines (2026-09-12)
+# ops 331: templates deploy under the user's name — the walkthrough rule in bullets, plain words, the name as a fact (2026-09-12)
+# ops 335: saved is not applied — a plan says so only in its first line (no tail/head), an edit is live only once
+# `--apply` exits 0 and the running strategy shows it, and until then the user hears "saved, not applied". Resident
+# because it fires on every edit to a live strategy; the two confirming reads live in references/editing-a-live-strategy.md.
+# author 425 -> 430 (2026-09-23): three edit rules from live incidents — max_entries_per_day is a
+# ceiling not a pace, describe an edit in the values written, notice repeated retuning. Raised
+# rather than absorbed: the first draft held 425 by growing one line to 828 chars against a 341
+# next-longest, which is the same resident context without the line count showing it.
+# ops 344: the scanner fields mean different things per scheduleMode — runCount climbs every tick on
+# `interval` but only on an emitting tick on `external`, where `initialized` also stays false until the
+# first non-empty POST. Resident because it fires whenever anyone reads a scanner. Taken in LINES: the
+# first draft held 335 by growing one line to 914 chars (main's longest is 839), which is the same
+# resident context with the count hiding it (2026-09-23).
+# ops: 344 → 345 for the one-line flat-book rule beside the two-targets rule it completes; the depth is in
+# references/editing-a-live-strategy.md §4.
+# ops 345 -> 351 (2026-10-12): say how often it will trade, before funding. Jason's standing
+# instruction the day moose was catalogued. Resident because it fires on EVERY create and it gates
+# a money move: a user who is not told how often a strategy acts supplies their own number and
+# reads normal silence as breakage — shadow took 10 installs to 0 fills with all 10 wallets
+# withdrawn, which is a frequency mismatch, not a returns one. A rule delivered after the wallet is
+# funded is worthless. Taken in LINES rather than absorbed into one long line; the method, the
+# three evidence tiers and the worked numbers live in
+# senpi-strategy-discover/references/trade-frequency.md.
+# ops 345 → 351 (2026-10-12): offer the concentration sibling before funding. Standing instruction from
+# Jason the day hornet-concentrated was added, after his own agent was found running a 45%/10x hornet fork
+# that the catalog did not hold. Resident because it fires on EVERY create of a strategy whose family has
+# such a member, and it gates spending the user's money on the more aggressive of two options — a rule
+# that arrives after the wallet is funded is worthless. Taken in LINES rather than absorbed: the first
+# draft held 345 by pushing the detail into one long line, which is the same resident context with the
+# count hiding it. The axis fields, the exact wording and the tag warning live in
+# senpi-strategy-discover/references/variant-families.md.
+# Both raises above landed the same day and are additive: 345 -> 351 (frequency) -> 357
+# (concentration). Each rule is one paragraph in the body, each gates a money move, and each
+# keeps its depth in a reference rather than here.
+# ops 357 -> 364 (2026-10-13): "close.py is never a repair" — what "relaunch" / "restart" map to, which
+# verify steps need a yes, and what counts as consent to a close. Resident AND in the head: OpenClaw's `read`
+# keeps ~11,800 chars of head and <=4,000 of tail and drops the middle, and an agent told to "relaunch" got a
+# tail that defined "Redeploy" as close → create, so it closed both wallets and funded new ones. Each head
+# line pushes a line of Step 0.75 out of what `read` delivers; fitting the body to that cut means moving
+# the middle sections into references/, which CloseIsNeverARepair does not do — it pins this rule only.
+BODY_BUDGET = {"senpi-strategy-ops": 364, "senpi-strategy-author": 430}
 
 
 def _skill_body(path):
@@ -228,6 +282,225 @@ class ReferencePointersResolve(unittest.TestCase):
                 with self.subTest(skill=skill, target=target):
                     self.assertTrue((path.parent / target).resolve().is_file(),
                                     f"{skill}/SKILL.md links to missing {target}")
+
+
+class CronCostArithmeticAgreesEverywhere(unittest.TestCase):
+    """The cron-cost rule is repeated per skill ON PURPOSE — skills load independently, so text absent
+    from one skill does not exist for an agent working there. The price is that a correction has to
+    land in every copy, and the first divergence is silent. This pins the numbers every copy quotes."""
+
+    _FILES = list(REPO.glob("senpi-*/SKILL.md")) + list(REPO.glob("senpi-*/references/*.md"))
+
+    def _numbers(self, pattern):
+        found = {}
+        for f in self._FILES:
+            for n in re.findall(pattern, f.read_text()):
+                found.setdefault(n, []).append(f.relative_to(REPO).as_posix())
+        return found
+
+    def test_the_per_day_model_call_counts_agree(self):
+        # Anchored on the cost sentence ("… is 288"), not on the cadence alone: the How-it-runs
+        # template also says "every 5 minutes" next to an `interval_seconds` that is not a cost.
+        five = self._numbers(r"(?:every 5 minutes|5-minute job|five-minute (?:job|producer))\"?(?: job)? is \**~?(\d+)")
+        hourly = self._numbers(r"every hour\"? is \**~?(\d+)")
+        ten = self._numbers(r"10-minute job is \**~?(\d+)")
+        self.assertTrue(five, "no skill quotes the five-minute cost — the rule is gone")
+        self.assertEqual(set(five), {"288"}, five)
+        self.assertEqual(set(hourly), {"24"}, hourly)
+        self.assertEqual(set(ten), {"144"}, ten)
+
+
+class DslChangeHasTwoTargets(unittest.TestCase):
+    """A DSL edit reaches future positions through the file and open positions only through ratchet_stop_edit;
+    the skill must name both and the question."""
+
+    def test_rule_is_resident_and_the_protocol_is_in_the_reference(self):
+        body = _skill_body(REPO / "senpi-strategy-ops" / "SKILL.md")
+        for needle in ("ratchet_stop_edit", "ratchet_stop_list"):
+            self.assertIn(needle, body)
+        self.assertIn("senpi://guides/ratchet_stop", (REPO / "senpi-strategy-ops" / "references" / "editing-a-live-strategy.md").read_text())
+
+    def test_a_flat_book_collapses_the_question_to_the_file(self):
+        # #production-issues 2026-09-26: asked to tighten the ratchet on a flat book, the agent found no row to
+        # edit and promised to "apply this ladder to each new position as it opens" — a mechanism that does
+        # not exist. The runtime arms a new position from the file at handoff, so with no open position the
+        # file edit plus --apply is the whole change, and the user must not have to ask for it by name.
+        body = _skill_body(REPO / "senpi-strategy-ops" / "SKILL.md")
+        self.assertIn("No open positions → only (a), now", body)
+        # "Flat" is read from the clearinghouse: a row exists only after the Phase-2 handoff, so an open
+        # position can have none (pre-handoff tick, aborted handoff, phase1.enabled defaulting to true).
+        self.assertIn("`strategy_get_clearinghouse_state` shows none", body)
+        self.assertIn("MANUALLY_CLOSED", body)
+        self.assertIn("never park it for \"the next position\"", body)
+        ref = (REPO / "senpi-strategy-ops" / "references" / "editing-a-live-strategy.md").read_text()
+        for needle in ("Exception — no open positions", "no such mechanism exists", "terminal row as a template",
+                       "MANUALLY_CLOSED", "The test is the\n   clearinghouse, never the row list", "phase1.enabled"):
+            self.assertIn(needle, ref)
+
+
+class TemplatesDeployUnderTheUsersName(unittest.TestCase):
+    """A template never deploys as the bare template: the verb forks it under the user's name, the walkthrough
+    is bullets in plain words (no config keys), the name is stated, and a status check is not a yes."""
+
+    def test_rule_is_resident_and_the_language_is_in_the_reference(self):
+        body = _skill_body(REPO / "senpi-strategy-ops" / "SKILL.md")
+        for needle in ("A user ID is never a name", "never by its key", "is not a yes", "as a fact, never a question", "ignas-phalanx"):
+            self.assertIn(needle, body)
+        ref = (REPO / "senpi-strategy-ops" / "references" / "walkthrough.md").read_text()
+        for needle in ("Every block is bullets", "marginPctBase", "ignas-phalanx", "deploy.py fork", "is not a yes"):
+            self.assertIn(needle, ref)
+
+
+class ScriptInvocationsAreCwdIndependent(unittest.TestCase):
+    """Every documented `python3 …/scripts/x.py` must carry the real skills root.
+
+    Two separate ways this went wrong in one day:
+
+    1. A backgrounded `cd <skill> && python3 scripts/close.py <a> &` leaves the `cd` in the
+       subshell, so every later line runs from the original cwd and dies on `can't open file
+       'scripts/close.py'` — which reads as a broken script, not a lost directory, while the
+       strategies stay open. (2026-09-18, two closes lost.)
+    2. Rewriting those to `~/.openclaw/skills/…` to fix (1). `$HOME` is `/root` on an agent box
+       and the skills OpenClaw loads are under `/data/.openclaw/skills/`, so every rewritten line
+       would have failed — worse than the relative form, which at least worked from the skills
+       root. Caught in review before it shipped.
+
+    So the gate is on the absolute path, not merely on "not relative".
+    """
+
+    ROOT = "/data/.openclaw/skills"
+    # The counterexample in lifecycle.md IS the failing shape; rewriting it erases the lesson.
+    ALLOWED_RELATIVE = ("python3 scripts/close.py <a> &", "python3 scripts/close.py <b>")
+    DOCS = ("senpi-strategy-ops", "senpi-strategy-author", "quant-desk")
+
+    def _markdown(self):
+        for skill in self.DOCS:
+            d = REPO / skill
+            if not d.is_dir():
+                continue
+            for p in sorted(d.rglob("*.md")):
+                yield p
+
+    def test_no_documented_invocation_depends_on_the_working_directory(self):
+        bad = []
+        for p in self._markdown():
+            for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+                if any(k in line for k in self.ALLOWED_RELATIVE):
+                    continue
+                for m in re.finditer(r"python3 (\S*scripts/[a-z_]+\.py)", line):
+                    if not m.group(1).startswith(self.ROOT):
+                        bad.append(f"{p.relative_to(REPO)}:{i}  {m.group(0)}")
+        self.assertEqual(bad, [], "cwd-dependent script invocations:\n  " + "\n  ".join(bad))
+
+    def test_the_skills_root_is_never_written_as_a_home_relative_path(self):
+        bad = [f"{p.relative_to(REPO)}:{i}"
+               for p in self._markdown()
+               for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
+               if "~/.openclaw" in line or "$HOME/.openclaw" in line]
+        self.assertEqual(bad, [], "$HOME is /root on an agent box; skills live under /data:\n  "
+                                  + "\n  ".join(bad))
+
+
+class NoCommittedConflictMarkers(unittest.TestCase):
+    """A merge resolved badly must not reach main — least of all inside YAML frontmatter.
+
+    2026-10-06: a merge of `ops 3.23.4` and `#838` (ops 3.24.0) was committed with its conflict
+    markers intact, in two files:
+
+      * `senpi-strategy-ops/SKILL.md:37` — a `=======` line and TWO `version:` keys INSIDE the
+        frontmatter, which stopped the frontmatter parsing at all (`ScannerError: while scanning a
+        simple key`). That is the file every agent loads to deploy, monitor and close a strategy.
+      * `README.md:75` — the same marker plus a duplicated senpi-strategy-ops row.
+
+    The only test that noticed was the README-version check, and it reported a version mismatch —
+    which reads as a forgotten bump, not as a repo with conflict markers in it. Nothing was looking
+    for the markers themselves, and nothing was checking that a SKILL.md's frontmatter still parses.
+    Given that one malformed skill can strip every description fleet-wide, both are cheap.
+    """
+
+    MARKER = re.compile(r"^(?:<{7}|={7}|>{7})(?: |$)")
+
+    def _tracked_text_files(self):
+        import subprocess
+        out = subprocess.run(["git", "ls-files", "-z"], cwd=REPO,
+                             capture_output=True, text=True, check=True).stdout
+        for rel in filter(None, out.split("\0")):
+            if rel.endswith((".png", ".jpg", ".jpeg", ".gif", ".pdf", ".ico", ".woff",
+                             ".woff2", ".ttf", ".zip", ".gz")):
+                continue
+            if "tests/fixtures" in rel:          # a fixture may legitimately contain a marker
+                continue
+            p = REPO / rel
+            if not p.is_file():
+                continue
+            try:
+                yield rel, p.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+
+    def test_no_file_carries_a_conflict_marker(self):
+        hits = [f"{rel}:{i}" for rel, text in self._tracked_text_files()
+                for i, line in enumerate(text.splitlines(), 1) if self.MARKER.match(line)]
+        self.assertEqual(hits, [], f"committed git conflict markers: {hits}")
+
+    def test_every_skill_frontmatter_parses_and_has_one_version(self):
+        """The failure that actually bit: a duplicate `version:` key and a marker, so the whole
+        frontmatter became unparseable while the file still looked plausible in a diff."""
+        import yaml
+        skills = sorted(REPO.glob("*/SKILL.md"))
+        self.assertGreater(len(skills), 5, "found almost no SKILL.md files — glob is wrong")
+        for path in skills:
+            rel = path.relative_to(REPO)
+            with self.subTest(skill=str(rel)):
+                text = path.read_text(encoding="utf-8")
+                m = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+                self.assertIsNotNone(m, f"{rel} has no YAML frontmatter block")
+                try:
+                    doc = yaml.safe_load(m.group(1))
+                except yaml.YAMLError as exc:
+                    self.fail(f"{rel} frontmatter does not parse: "
+                              f"{type(exc).__name__}: {str(exc).splitlines()[0]}")
+                self.assertIsInstance(doc, dict, f"{rel} frontmatter is not a mapping")
+                # a duplicate key parses to ONE value, so count the raw lines too
+                n = len(re.findall(r"^\s*version:", m.group(1), re.M))
+                self.assertEqual(n, 1, f"{rel} declares `version:` {n} times in its frontmatter")
+
+
+class CloseIsNeverARepair(unittest.TestCase):
+    """A close market-exits the book and the deploy after it funds a NEW wallet, so "relaunch" / "restart" /
+    "redeploy" map to the read-only verify, and nothing else in the body may make those words a close. The
+    whole rule must also reach the agent: OpenClaw's `read` caps a tool result at 16,000 chars, keeping
+    ~11,800 of head and <=4,000 of tail (openclaw 2026.6.9 `truncateToolResultText`). On 2026-10-12 an
+    agent got lines 1-139 + 351-386 of this file; the tail defined "Redeploy" as validate → close → create,
+    and told to relaunch, it closed both wallets and funded new ones."""
+
+    HEAD_CHARS = 11_000   # under the ~11,800 OpenClaw keeps, so a filling head fails here first
+
+    def _rule(self):
+        body = _skill_body(OPS)
+        start = body.find("**`close.py` is never a repair.**")
+        self.assertNotEqual(start, -1, "the close-is-never-a-repair rule is gone from the ops body")
+        return body[start:body.index("\n\n", start)]
+
+    def test_the_whole_rule_is_in_the_head_openclaw_delivers(self):
+        rule = self._rule()
+        end = OPS.read_text().index(rule) + len(rule)
+        self.assertLess(end, self.HEAD_CHARS, f"the rule's paragraph ends at char {end}, past what "
+                        f"OpenClaw's `read` delivers — move it up, or move head content into references/")
+
+    def test_it_maps_the_words_and_gates_every_money_step(self):
+        rule = self._rule()
+        for phrase in ('"Relaunch", "restart", "redeploy"', "deploy.py verify", "Close only on", '"stop"'):
+            self.assertIn(phrase, rule)
+        # The label the rule says needs a yes is the one verify prints on its money-moving steps.
+        self.assertIn("RUNS THE DEPLOY VERB", rule)
+        self.assertIn("RUNS THE DEPLOY VERB", (OPS.parent / "scripts" / "deploy.py").read_text())
+
+    def test_no_other_line_makes_redeploy_a_close(self):
+        body = _skill_body(OPS).lower()
+        self.assertEqual(body.count("redeploy"), self._rule().lower().count("redeploy"),
+                         '"redeploy" is the user\'s word for relaunch (→ verify); name the close-and-new-'
+                         'wallet path in other words')
 
 
 if __name__ == "__main__":

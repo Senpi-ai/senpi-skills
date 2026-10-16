@@ -1,9 +1,10 @@
 # ── MEERKAT · single instance — momentum-event sniper (Runtime 3.0 port of v2 Meerkat v1.0.1) ──
 # EVENT-DRIVEN scanner. Reads the Senpi momentum-event feed
-# (leaderboard_get_momentum_events — the 4h rolling-window momentum / rank-jump
-# events), classifies each event's tier (|momentum| magnitude) + freshness,
+# (leaderboard_get_momentum_events — top traders crossing the $2M / $5.5M / $10M
+# 4h delta-PnL tiers; the markets driving each crossing sit in `top_positions`,
+# its time in `detected_at`), reads each event's tier + freshness,
 # scores tier + freshness + SM alignment + rising volume, and emits ONE signal
-# for the best fresh, high-tier event in the momentum direction. DSL is the ONLY
+# for the best fresh, high-tier crossing market in the position's direction. DSL is the ONLY
 # exit (let-winners-run, short 36h hard_timeout). Faithful port of the v2 thesis
 # — see scanners/scoring.py (math reproduced verbatim, v2-quirks flagged).
 name: meerkat-main
@@ -13,9 +14,9 @@ description: >
   MEERKAT — momentum-event sniper. Watches the Senpi momentum-event feed
   (leaderboard_get_momentum_events) and snipes the FRESHEST, HIGHEST-TIER events
   the instant they fire, entering in the momentum direction before the move is
-  broadly known. Tier (event magnitude: 3 >= 10%, 2 >= 5%) + freshness (age <=
-  30min) gate the entry; smart-money alignment + rising 1h volume are score
-  bonuses (not gates). Emits ONE signal/tick for the best event clearing score 4
+  broadly known. Tier (the feed's own: 3 = $10M+, 2 = $5.5M+ 4h delta-PnL
+  crossings) + freshness (detected_at age <= 30min) gate the entry; 4h leader momentum
+  alignment + rising 1h volume are score bonuses (not gates). Emits ONE signal/tick for the best event clearing score 4
   (a fresh tier-2 event), sized 15% margin at 4x. DSL is the ONLY exit:
   let-winners-run (T0 +10% / lock 0, max_loss 18%) with a SHORT 36h hard_timeout
   (a momentum burst pays out fast or it is stale) and no weak_peak_cut. Faithful
@@ -42,12 +43,11 @@ scanners:
     default_signal_validity_seconds: 240    # 2x tick; a fresh momentum event re-scores next tick
     state_history_max_count: 100            # dedup map + per-tick scan-results history
     inputs:
-      minTier: 2                            # v2 minTier — snipe tier 2+ (set 3 for a pure tier-3 sniper)
-      tier2MinPct: 5.0                      # v2 tier2MinPct — |momentum| for tier 2
-      tier3MinPct: 10.0                     # v2 tier3MinPct — |momentum| for tier 3
+      minTier: 2                            # v2 minTier — snipe tier 2+ (the feed's tier; set 3 for a pure tier-3 sniper)
       maxEventAgeMinutes: 30.0              # v2 maxEventAgeMinutes — freshness gate
       smTiltMinPct: 55                      # v2 smTiltMinPct — SM alignment bonus floor
       smStrongTiltPct: 70                   # v2 smStrongTiltPct — +1 strong-SM bonus floor
+      minTraderCount: 10                    # 4h-board headcount floor — a side with fewer top traders never sets the lean
       minScore: 4                           # v2 minScore — producer floor (fresh tier-2 clears)
       marginPct: 15                         # PERCENT of withdrawable (0,100]. v2 config marginPct=0.15 (FRACTION) ×100.
                                             # v2 runtime.yaml had margin_pct:20 — producer/config win per port rule.
@@ -59,7 +59,7 @@ scanners:
       direction: { type: string }
       reasons: { type: array, required: false }
       tier: { type: number, required: false }
-      magnitudePct: { type: number, required: false }
+      magnitudePct: { type: number, required: false }   # the market's share (%) of the crossing's delta PnL
       ageMin: { type: number, required: false }
       smDirection: { type: string, required: false }
       smTiltPct: { type: number, required: false }

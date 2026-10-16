@@ -5,6 +5,10 @@ Usage:  python3 validate_strategy.py <package-dir> [<package-dir> ...]
 
 Asserts the manifest ↔ runtime ↔ package consistency the deterministic install
 relies on. Exit 0 = all packages valid; exit 1 = at least one error.
+
+Two channels. `validate()` returns ERRORS (the exit code); `warnings()` returns ADVISORY findings —
+things a green package will still make the user feel in their first week (a stop inside intraday
+noise, multi-slot sizing that the second open cannot fund, a daily entry cap at or below the slot count, a daily entry cap at or below the slot count). Warnings never change the exit code; the author relays them.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import ast
@@ -33,8 +37,10 @@ _SIZING_PARENTS = {"strategy", "inputs"}
 
 
 def margin_fraction_offenders(doc, path="", parent=None):
-    """Slot-size keys whose value is a fraction (0,1] where a PERCENT (0,100] is required
+    """Slot-size keys whose value is a fraction (0,1) where a PERCENT (0,100] is required
     (`marginPct: 0.10` meant 10 — 100× too small, so every order lands under the min notional).
+    Exactly 1 passes: it is a legal 1%, and "fixing" it to 100 sizes the slot at all of withdrawable
+    (the runtime's `findMarginPctFraction` lets 1 through for the same reason).
     Scoped to `_SIZING_KEYS` under `_SIZING_PARENTS`; an emitted per-signal value is checked at the
     live stage instead, where the real number is visible rather than inferred. Kept identical to
     senpi-strategy-ops `_pkg.margin_fraction_offenders`. Returns [(dotted_key, value), ...]."""
@@ -43,7 +49,7 @@ def margin_fraction_offenders(doc, path="", parent=None):
         for k, v in doc.items():
             kp = f"{path}.{k}" if path else str(k)
             if parent in _SIZING_PARENTS and str(k).lower() in _SIZING_KEYS \
-                    and isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v <= 1:
+                    and isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v < 1:
                 out.append((kp, v))
             else:
                 out.extend(margin_fraction_offenders(v, kp, str(k).lower()))
@@ -90,6 +96,376 @@ def null_signal_field_offenders(scan_src, scoring_src, schema):
         if snake in nullable and ty in ("number", "string", "boolean", "array"):
             out.append((camel, ty))
     return sorted(set(out))
+
+
+# ── close-signal wiring ────────────────────────────────────────────────────────
+# The runtime routes a signal only to the actions whose `scanners:` name its scanner; a signal from a
+# scanner no action lists is dropped without a log line. And a close is not a direction: the open
+# action refuses anything but LONG/SHORT (`invalid_direction`), so a "force-flat" `direction: CLOSE`
+# is refused or, from an unlisted scanner, silently dropped. The shipped pattern (barracuda's
+# close_all) is a dedicated scanner emitting the position's asset + side, consumed by its own
+# CLOSE_POSITION action. Both halves are decidable here, before a wallet exists.
+_DIRECTION_LITERAL = re.compile(r"""["']direction["']\s*(?::|\]\s*=)\s*["']([A-Za-z_]+)["']""")   # dict literal, or s["direction"] = "…"
+# Only the close-intent words: analysis dicts legitimately carry `direction: NEUTRAL` / `UP` and are
+# never emitted as signals (eleven catalog scanners do this).
+_CLOSE_WORDS = {"CLOSE", "FLAT", "EXIT", "CLOSE_ALL", "FORCE_FLAT", "FORCE_CLOSE"}
+
+
+def unconsumed_scanners(rt_doc):
+    """Names of external scanners no action lists in `scanners:` or `context[].scanner`."""
+    consumed = set()
+    for a in (rt_doc.get("actions") or []) if isinstance(rt_doc, dict) else []:
+        if not isinstance(a, dict):
+            continue
+        consumed.update(str(s) for s in (a.get("scanners") or []) if s)
+        consumed.update(str(c.get("scanner")) for c in (a.get("context") or [])
+                        if isinstance(c, dict) and c.get("scanner"))
+    return [str(sc.get("name") or "<unnamed>") for sc in ((rt_doc.get("scanners") or []) if isinstance(rt_doc, dict) else [])
+            if isinstance(sc, dict) and sc.get("type") == "external_scanner"
+            and str(sc.get("name")) not in consumed]
+
+
+def direction_literal_offenders(src):
+    """`"direction": "<X>"` literals in scanner source that name a close: CLOSE, FLAT, EXIT, …"""
+    return sorted({m.group(1) for m in _DIRECTION_LITERAL.finditer(src) if m.group(1).upper() in _CLOSE_WORDS})
+
+
+# ── momentum is not smart money ────────────────────────────────────────────────
+# `leaderboard_get_markets` is the 4h board: its `pct_of_top_traders_gain` / `longPct` say which side was
+# winning over the last four hours, so a direction taken from them is a momentum read of the board —
+# whoever was on the winning side is at the top, and calling that "smart money" is circular (SKILL.md,
+# decision 2). A smart-money thesis reads the proven cohort, `discovery_get_trader_state`; a package that
+# never does may not describe itself as smart money in anything a user reads. And a PnL sign is not a
+# side: a short is green when the price falls — the side is the sign of `szi`. Grep-level on purpose.
+_BOARD_SIDE = re.compile(r"pct_of_top_traders_gain|longPct|long_pct")
+_SMART_MONEY = re.compile(r"smart[ _-]money", re.I)
+# `"LONG" if … pnl … >= 0 else "SHORT"` (either order): a direction from the sign of a PnL field.
+_PNL_SIGN = re.compile(
+    r"""["'](?:LONG|SHORT)["']\s+if\s+[^\n]*?(\w*[Pp][Nn][Ll]\w*)[^\n<>=!]*?(?:[<>]=?|[!=]=)\s*0(?:\.0+)?(?![.\d])[^\n]*?\s+else\s+["'](?:LONG|SHORT)["']""")
+
+
+def pnl_sign_directions(src):
+    """The PnL fields whose sign picks LONG/SHORT in `src` (`"LONG" if delta_pnl >= 0 else "SHORT"`)."""
+    return sorted({m.group(1) for m in _PNL_SIGN.finditer(src)})
+
+
+# ── a name read before it exists ───────────────────────────────────────────────
+# Python binds a function's locals at compile time, so a read on a path that runs before the
+# assignment raises UnboundLocalError — it does NOT fall back to the module-level name of the same
+# spelling. The closure variant raises NameError: a nested `_persist()` defined above its free
+# variable and called from an early return reads a name the enclosing scope has not bound yet.
+# Both are latent — the tick that takes the branch can be days after the deploy, and the scanner
+# then crashes EVERY tick until someone looks — hours of dead ticks on a funded wallet.
+# `ast.parse` above proves the file compiles, which is precisely what these two survive.
+# Only what is certain, because a finding fails validation: control flow in a function runs forward
+# except round a loop, so a read that precedes every binding of a local, outside any loop that also
+# binds it, crashes whenever it runs. A closure counts only when it reads the name on EVERY call —
+# `_persist(result=None)` reading it under `if result is not None` cannot crash an early `_persist()`.
+_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+_COMPS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+_CAPTURES = tuple(getattr(ast, c) for c in ("MatchAs", "MatchStar", "MatchMapping") if hasattr(ast, c))  # py3.10+
+_ALIAS = getattr(ast, "TypeAlias", ())                                                                   # py3.12+
+
+
+def _scope(fn):
+    """`fn`'s own scope in one walk → (loads, binds, declared, loops, defs, calls).
+    loads [(name, pos)] · binds {name: [(pos, is_augassign)]} · declared global/nonlocal names ·
+    loops [(first, last line)] · nested defs · calls {name: [pos]}; pos is (line, col).
+    An assignment binds at the END of its statement — `x = x + 1` and `x += 1` read x first — and a
+    walrus at its START: `x if (x := f()) else y` and `[x for t in ts if (x := g(t))]` read x after it,
+    though the source puts the read first. A nested def's body is its own scope, but its name, defaults
+    and decorators belong here; a comprehension's targets are its own, every other name it reads is
+    read here."""
+    loads, binds, declared, loops, defs, calls = [], {}, set(), [], [], {}
+    stmt = [(fn.lineno, fn.col_offset)]          # start of the statement being walked
+
+    def bind(name, pos, aug=False):
+        binds.setdefault(name, []).append((pos, aug))
+
+    def target(t, pos, aug):
+        if isinstance(t, ast.Name):
+            bind(t.id, pos, aug)
+        elif isinstance(t, (ast.Tuple, ast.List, ast.Starred)):
+            for e in (t.elts if not isinstance(t, ast.Starred) else [t.value]):
+                target(e, pos, aug)
+        else:                                    # s["k"] = v reads s
+            visit(t, frozenset())
+
+    def visit(n, hidden):
+        if isinstance(n, ast.stmt):
+            stmt[0] = (n.lineno, n.col_offset)
+        if isinstance(n, _SCOPES):
+            a = getattr(n, "args", None)
+            for ch in [*getattr(n, "decorator_list", []), *getattr(n, "bases", []),
+                       *(a.defaults + [d for d in a.kw_defaults if d] if a else [])]:
+                visit(ch, hidden)
+            if not isinstance(n, ast.Lambda):
+                bind(n.name, (n.lineno, n.col_offset))
+                if not isinstance(n, ast.ClassDef):
+                    defs.append(n)
+            return
+        if isinstance(n, _COMPS):
+            first, *rest = n.generators
+            visit(first.iter, hidden)
+            inner = hidden | {t.id for g in n.generators for t in ast.walk(g.target) if isinstance(t, ast.Name)}
+            for ch in [*first.ifs, *(x for g in rest for x in (g.iter, *g.ifs)),
+                       *([n.key, n.value] if isinstance(n, ast.DictComp) else [n.elt])]:
+                visit(ch, inner)
+            return
+        if isinstance(n, ast.Name):
+            if n.id not in hidden:
+                if isinstance(n.ctx, ast.Load):
+                    loads.append((n.id, (n.lineno, n.col_offset)))
+                else:
+                    bind(n.id, (n.lineno, n.col_offset))
+            return
+        if isinstance(n, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.NamedExpr)):
+            if n.value is None:                  # a bare annotation binds nothing
+                return
+            visit(n.value, hidden)
+            aug = isinstance(n, ast.AugAssign)
+            for t in n.targets if isinstance(n, ast.Assign) else [n.target]:
+                if aug and isinstance(t, ast.Name):
+                    loads.append((t.id, (t.lineno, t.col_offset)))
+                target(t, stmt[0] if isinstance(n, ast.NamedExpr) else (n.end_lineno, n.end_col_offset), aug)
+            return
+        if isinstance(n, _ALIAS):                # `type X = …` binds X; its value is evaluated lazily
+            bind(n.name.id, (n.lineno, n.col_offset))
+            return
+        if isinstance(n, ast.ExceptHandler) and n.name:
+            bind(n.name, (n.lineno, n.col_offset))
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            for al in n.names:
+                bind((al.asname or al.name).split(".")[0], (n.lineno, n.col_offset))
+        elif isinstance(n, _CAPTURES):           # `case {"k": str(x)}` binds x
+            for nm in (getattr(n, "name", None), getattr(n, "rest", None)):
+                if nm:
+                    bind(nm, (n.lineno, n.col_offset))
+        elif isinstance(n, (ast.Global, ast.Nonlocal)):
+            declared.update(n.names)
+        elif isinstance(n, (ast.For, ast.AsyncFor, ast.While)):
+            loops.append((n.lineno, n.end_lineno))
+        elif isinstance(n, ast.Call) and isinstance(n.func, ast.Name):
+            calls.setdefault(n.func.id, []).append((n.lineno, n.col_offset))
+        for ch in ast.iter_child_nodes(n):
+            visit(ch, hidden)
+
+    a = fn.args
+    for p in [x.arg for x in (*a.posonlyargs, *a.args, *a.kwonlyargs, a.vararg, a.kwarg) if x] \
+            + [t.name for t in getattr(fn, "type_params", [])]:
+        bind(p, (fn.lineno, fn.col_offset))
+    for s in fn.body:
+        visit(s, frozenset())
+    return loads, binds, declared, loops, defs, calls
+
+
+def _eager(node):
+    """Name loads `node` makes whenever it runs — not in an IfExp branch, a BoolOp's later operands,
+    a comprehension past its first iterable, a nested def/lambda/class, or a lazy `type` alias."""
+    if isinstance(node, ast.Name):
+        return [node] if isinstance(node.ctx, ast.Load) else []
+    kids = ([node.test] if isinstance(node, ast.IfExp) else node.values[:1] if isinstance(node, ast.BoolOp)
+            else [node.generators[0].iter] if isinstance(node, _COMPS)
+            else [] if isinstance(node, _SCOPES) or isinstance(node, _ALIAS) else ast.iter_child_nodes(node))
+    return [x for k in kids for x in _eager(k)]
+
+
+def _every_call_reads(g):
+    """Name loads `g` makes on EVERY call: its leading statements, up to the first compound statement
+    (whose if/while test or for iterable still runs) or return."""
+    out = []
+    for s in g.body:
+        if hasattr(s, "body"):
+            return out + _eager(s.test if isinstance(s, (ast.If, ast.While)) else getattr(s, "iter", ast.Pass()))
+        out += _eager(s)
+        if isinstance(s, (ast.Return, ast.Raise)):
+            break
+    return out
+
+
+def unbound_name_offenders(src):
+    """Names a function reads on a path that runs before the name exists.
+    Returns [(func, name, read_line, bind_line, kind), ...]; kind is 'local' or 'free'."""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return []                                  # the syntax error is reported on its own
+    out = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        loads, binds, declared, loops, defs, calls = _scope(fn)
+        nonlocal_ = {n for x in ast.walk(fn) if isinstance(x, ast.Nonlocal) for n in x.names}  # a nested def binds it
+        local = {n: b for n, b in binds.items() if n not in declared | nonlocal_}
+
+        def first(name):
+            return min(p for p, _ in local[name])
+
+        def rerun(pos, name):
+            """A loop can run `pos` again after binding `name` — unless `x += …` is its only binding."""
+            bs = local[name]
+            return not all(aug for _, aug in bs) and any(
+                lo <= pos[0] <= hi and any(lo <= p[0] <= hi for p, _ in bs) for lo, hi in loops)
+
+        for name, pos in loads:
+            if name in local and pos < first(name) and not rerun(pos, name):
+                out.append((fn.name, name, pos[0], first(name)[0], "local"))
+        for g in defs:
+            if isinstance(g, ast.AsyncFunctionDef) or any(isinstance(x, (ast.Yield, ast.YieldFrom)) for x in ast.walk(g)):
+                continue                                # calling it builds a coroutine/generator; the body runs later
+            _, g_binds, g_declared, *_ = _scope(g)
+            for r in _every_call_reads(g):
+                name = r.id
+                if name not in local or name in g_binds or name in g_declared:
+                    continue
+                if any((g.lineno, g.col_offset) < c < first(name) and not rerun(c, name)
+                       for c in calls.get(g.name, [])):
+                    out.append((g.name, name, r.lineno, first(name)[0], "free"))
+    return sorted(set(out))
+
+
+# ── marginPct must stay a percent ──────────────────────────────────────────────
+# `marginPct` is a PERCENT in (0, 100]. The runtime drops the whole candidate at delivery
+# (`delivery_candidate_invalid: marginPct must be a number in (0, 100] when set`) when it is not,
+# so the strategy funds, ticks clean and never opens a position. Every catalog scanner reads it
+# from `inputs` as a configured constant and is safe by construction. The shape that breaks is a
+# percent recomputed from a live balance — `max(size, MIN_ORDER) / free_margin * 100` — which is
+# fine while the wallet is liquid and blows past 100 the moment the floor binds and free margin is
+# smaller than the minimum order — the emitted percent then climbs as the margin drains, and every
+# candidate is dropped. A literal out of range is certain (an error); a division by a live balance
+# with no clamp is only likely (a warning), because whether it can pass 100 is not in the source.
+# `margin_fraction_offenders` already owns the opposite error (a fraction where a percent belongs),
+# so a literal in (0, 1] is left to it.
+
+
+def _unwrap(node):
+    """round(x, n) / float(x) / int(x) → x."""
+    while isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
+            and node.func.id in ("round", "float", "int") and node.args:
+        node = node.args[0]
+    return node
+
+
+def _number(v):
+    """A numeric literal with its sign (`-5` parses as a UnaryOp), else None."""
+    if isinstance(v, ast.UnaryOp) and isinstance(v.op, ast.USub):
+        n = _number(v.operand)
+        return None if n is None else -n
+    ok = isinstance(v, ast.Constant) and isinstance(v.value, (int, float)) and not isinstance(v.value, bool)
+    return v.value if ok else None
+
+
+def _clamped(v):
+    """The outermost call is min(…), or max(lo, min(…)) — the two-sided clamp."""
+    v = _unwrap(v)
+    return isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and (
+        v.func.id == "min" or v.func.id == "max" and any(_clamped(a) for a in v.args))
+
+
+def _bounded(fn, name):
+    """`if pct > 100: return []` — the name compared with a literal in [1, 100] somewhere in `fn`."""
+    for c in ast.walk(fn):
+        if isinstance(c, ast.Compare):
+            sides = [c.left, *c.comparators]
+            if any(isinstance(s, ast.Name) and s.id == name for s in sides) \
+                    and any(1 <= (_number(s) or 0) <= 100 for s in sides):
+                return True
+    return False
+
+
+def _live(fn):
+    """Names assigned from `ctx` — directly, or through each other: the scanner's live reads."""
+    pairs = [(t, n.value) for n in ast.walk(fn) if isinstance(n, (ast.Assign, ast.AnnAssign)) and n.value
+             for t in (n.targets if isinstance(n, ast.Assign) else [n.target])]
+    live = {"ctx"}
+    while True:
+        new = {x.id for t, v in pairs if live & {y.id for y in ast.walk(v) if isinstance(y, ast.Name)}
+               for x in ast.walk(t) if isinstance(x, ast.Name)} - live
+        if not new:
+            return live
+        live |= new
+
+
+def _margin_values(fn):
+    """Every value `fn` sets marginPct to: {"marginPct": v}, dict(marginPct=v), s["marginPct"] = v."""
+    for n in ast.walk(fn):
+        if isinstance(n, ast.Dict):
+            pairs = zip(n.keys, n.values)
+        elif isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "dict":
+            pairs = ((ast.Constant(k.arg), k.value) for k in n.keywords)
+        elif isinstance(n, ast.Assign):
+            pairs = ((t.slice, n.value) for t in n.targets if isinstance(t, ast.Subscript))
+        else:
+            continue
+        yield from (v for k, v in pairs if isinstance(k, ast.Constant) and k.value == "marginPct")
+
+
+def margin_pct_offenders(src):
+    """Emitted `marginPct` values that can leave (0, 100]. Returns [(line, kind, detail), ...]: kind
+    'literal' is a number outside the range; 'ratio' is a division by a live balance with no clamp."""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return []
+    out = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        live = _live(fn)
+        assigned = sorted(((n.lineno, t.id, n.value) for n in ast.walk(fn)
+                           if isinstance(n, (ast.Assign, ast.AnnAssign)) and n.value is not None
+                           for t in (n.targets if isinstance(n, ast.Assign) else [n.target])
+                           if isinstance(t, ast.Name)), key=lambda a: a[0])
+        for v in _margin_values(fn):
+            v = _unwrap(v)
+            num = _number(v)
+            if num is not None:
+                if not 0 < num <= 100:
+                    out.append((v.lineno, "literal", f"{num:g}"))
+                continue
+            name, expr = None, v
+            if isinstance(v, ast.Name):            # the assignment that reaches this line
+                prior = [e for line, n, e in assigned if n == v.id and line <= v.lineno]
+                if not prior:
+                    continue
+                name, expr = v.id, prior[-1]
+            if _clamped(expr) or name and _bounded(fn, name):
+                continue
+            if any(isinstance(d, ast.BinOp) and isinstance(d.op, ast.Div)
+                   and live & {x.id for x in ast.walk(d.right) if isinstance(x, ast.Name)}
+                   for d in ast.walk(expr)):
+                out.append((v.lineno, "ratio", f"`{name}` (line {expr.lineno})" if name else "the value"))
+    return sorted(set(out))
+
+
+def _strings(obj, path=""):
+    """(dotted_path, text) for every string in a parsed YAML value."""
+    if isinstance(obj, str):
+        yield path, obj
+    elif isinstance(obj, dict):
+        for k, v in obj.items():
+            yield from _strings(v, f"{path}.{k}" if path else str(k))
+    elif isinstance(obj, list):
+        for v in obj:
+            yield from _strings(v, path)
+
+
+def smart_money_mentions(pkg: Path):
+    """[(file, field, phrase)] — "smart money" in the text a user reads: strategy.yaml `catalog` (name,
+    tagline, belief_plain, thesis, tags — what discover ranks on) and `description`, each runtime.yaml's
+    registered `description` (the mandate portfolio reads back), and README.md."""
+    docs = []
+    for f in [pkg / "strategy.yaml", *sorted(pkg.rglob("runtime.yaml"))]:
+        try:
+            d = yaml.safe_load(f.read_text()) or {}
+        except Exception:  # noqa: BLE001 — unparseable YAML is reported elsewhere
+            continue
+        keys = ("catalog", "description") if f.name == "strategy.yaml" else ("description",)
+        docs.append((str(f.relative_to(pkg)), {k: d.get(k) for k in keys} if isinstance(d, dict) else {}))
+    if (pkg / "README.md").is_file():
+        docs.append(("README.md", {"text": (pkg / "README.md").read_text(errors="ignore")}))
+    return [(f, field, m.group(0)) for f, d in docs for field, s in _strings(d)
+            for m in [_SMART_MONEY.search(s)] if m]
 
 
 def _runtime_docs(pkg: Path):
@@ -179,7 +555,7 @@ def validate(pkg: Path) -> list:
                 errs.append(f"instance {name}: set runtime `name: {expect}` (found {rt_doc.get('name')!r})")
             if rt_doc.get("group") != sid:
                 errs.append(f"instance {name}: set runtime `group: {sid}` (found {rt_doc.get('group')!r})")
-            # marginPct is a PERCENT in (0,100]; a value <= 1 is the fraction slip (0.10 meant 10, 100x
+            # marginPct is a PERCENT in (0,100]; a value below 1 is the fraction slip (0.10 meant 10, 100x
             # too small). Flag it pre-deploy with the exact fix. (See scan-contract.md.)
             for kp, val in margin_fraction_offenders(rt_doc):
                 errs.append(f"instance {name}: `{kp}` must be a PERCENT in (0,100] — set {val * 100:g} "
@@ -240,8 +616,18 @@ def validate(pkg: Path) -> list:
             errs.append(f"instance {name}: missing {scan_py.relative_to(pkg)} (Runtime 3.0 scan() entrypoint)")
         elif "def scan(" not in scan_py.read_text():
             errs.append(f"instance {name}: {scan_py.relative_to(pkg)} does not define scan(inputs, ctx)")
-        if not scoring_py.is_file():
-            errs.append(f"instance {name}: missing sibling {scoring_py.relative_to(pkg)} ('import scoring' will fail)")
+        # scoring.py is OPTIONAL — CLAUDE.md: "scoring.py  optional pure math (no I/O) so the edge
+        # unit-tests". Requiring it unconditionally hard-failed a structurally sound package whose
+        # scanner imports a vendored engine instead, and it went unnoticed only because every other
+        # package happens to have one. Ask the question that actually matters: does anything import
+        # `scoring` without it being there.
+        importers = sorted(f.name for f in scn_dir.glob("*.py")
+                           if f.is_file() and f.name != "scoring.py"
+                           and re.search(r"^\s*(?:import\s+scoring|from\s+scoring\s+import)\b",
+                                         f.read_text(errors="replace"), re.M))
+        if importers and not scoring_py.is_file():
+            errs.append(f"instance {name}: {', '.join(importers)} imports `scoring` but "
+                        f"{scoring_py.relative_to(pkg)} is missing")
         if (scn_dir / "__init__.py").is_file():
             errs.append(f"instance {name}: {(scn_dir / '__init__.py').relative_to(pkg)} present — remove it (sibling-import model)")
         # Asked of the PARSED `strategy.wallet`, never of the file's text. A `${WALLET_ENV}` sitting
@@ -251,6 +637,44 @@ def validate(pkg: Path) -> list:
         # Deploy would fund a fresh wallet and install the strategy, exit engine included, against
         # the pinned one. The runtime refuses that (`E_VALIDATE_WALLET_UNBOUND`) off this same field,
         # so asking a weaker question here is how author-green stops meaning deploy-green.
+        # An OPEN_POSITION action with the taker fallback OFF is accepted by every static check and
+        # cannot be executed: the executor does not rest maker orders, so it fails every order or —
+        # worse — a partial maker fill is reconciled as a foreign position and DSL-closed, fees both
+        # ways for no position (five days on a live book, 68 of 79 signals). Decidable here, so it is
+        # an error here, not prose.
+        if isinstance(rt_doc, dict):
+            for act in rt_doc.get("actions") or []:
+                if not isinstance(act, dict) or act.get("action_type") != "OPEN_POSITION":
+                    continue
+                params = act.get("params") if isinstance(act.get("params"), dict) else {}
+                aname = act.get("name", "?")
+                ot = params.get("order_type")
+                # The action-path `params` is an open record in the runtime schema, so `order_type` is
+                # checked nowhere before the executor — and the executor does not refuse an unknown one,
+                # it falls back to MARKET with a warning: full taker fees on every entry while the recipe
+                # says otherwise. A LIMIT open needs a price the runtime's open action never supplies.
+                if ot is not None and (not isinstance(ot, str) or ot not in OPEN_ORDER_TYPES):
+                    errs.append(
+                        f"instance {name}: [exec] action {aname!r} has `params.order_type: {ot!r}` — not an "
+                        f"order type the runtime knows ({', '.join(OPEN_ORDER_TYPES)}). It would not fail: the "
+                        f"runtime logs a warning and falls back to MARKET, so every entry pays full taker fees "
+                        f"while the recipe says otherwise. Write `FEE_OPTIMIZED_LIMIT` (a maker window, then "
+                        f"taker) or `MARKET`")
+                elif ot == "LIMIT":
+                    errs.append(
+                        f"instance {name}: [exec] action {aname!r} opens with `params.order_type: LIMIT` — a "
+                        f"LIMIT order needs a `limitPrice`, and the runtime's open action never supplies one, "
+                        f"so the order cannot be placed as written. Use `FEE_OPTIMIZED_LIMIT` for a maker-first "
+                        f"entry, or `MARKET`")
+                folo = params.get("fee_optimized_limit_options")
+                if ot == "FEE_OPTIMIZED_LIMIT" and isinstance(folo, dict) and folo.get("ensure_execution_as_taker") is False:
+                    errs.append(
+                        f"instance {name}: [exec] action {aname!r} opens with "
+                        f"`ensure_execution_as_taker: false` — a maker-only entry. The executor cannot rest "
+                        f"a maker order: it fails every order, or a partial fill is reconciled as a foreign "
+                        f"position and closed (fees both ways, no position). Set "
+                        f"`ensure_execution_as_taker: true` and keep `execution_timeout_seconds` as the maker "
+                        f"window before the taker fallback")
         if not wenv:
             errs.append(f"instance {name}: missing wallet_env in strategy.yaml")
         elif isinstance(rt_doc, dict):
@@ -262,6 +686,13 @@ def validate(pkg: Path) -> list:
                 errs.append(f"instance {name}: set runtime `strategy.wallet: \"${{{wenv}}}\"` in "
                             f"{rt_rel} (found {_found}) — deploy substitutes the wallet it creates, "
                             f"so a literal address there funds one wallet and trades another")
+        if isinstance(rt_doc, dict):   # a recipe with no actions at all is the worst case: every scanner is orphaned
+            for scn in unconsumed_scanners(rt_doc):
+                errs.append(
+                    f"instance {name}: scanner {scn!r} feeds no action — the runtime routes a signal only to "
+                    f"the actions whose `scanners:` name its scanner, and a signal with no consumer is dropped "
+                    f"without a log line. List it under an OPEN_POSITION action (entries) or a CLOSE_POSITION "
+                    f"action (closes), or remove it")
         seen_wallet_envs.add(wenv)
 
     # multi-instance must use distinct wallets
@@ -278,6 +709,40 @@ def validate(pkg: Path) -> list:
         for lng, sht in candle_key_bug(src):
             errs.append(f"{py.name}: candles are keyed `o/h/l/c/v` — use `candle['{sht}']`, not `{lng}` "
                         f"(no such key → always None → the scan emits nothing).")
+        for fname, name, read, bound, kind in unbound_name_offenders(src):
+            how = ("UnboundLocalError" if kind == "local" else
+                   "NameError — the closure is called before the enclosing scope binds it")
+            errs.append(f"{py.name}: {fname}() reads `{name}` at line {read} but binds it at line {bound} "
+                        f"→ {how}. The path crashes the first tick that takes it, then every tick after. "
+                        f"Bind `{name}` before the first read (`{name} = <empty>` above the branch).")
+        if "scanners" in py.parts:
+            for line, kind, detail in margin_pct_offenders(src):
+                if kind == "literal":        # a division by a live balance is warnings()' — it may stay in range
+                    errs.append(f"{py.name}: emits `marginPct: {detail}` at line {line} — marginPct is a PERCENT "
+                                f"in (0, 100]; the runtime drops the whole candidate at delivery "
+                                f"(`delivery_candidate_invalid`), so the strategy ticks clean and never opens.")
+            for lit in direction_literal_offenders(src):
+                errs.append(
+                    f"{py.name}: emits `direction: {lit!r}` — a direction is LONG or SHORT, nothing else; the "
+                    f"open action refuses anything else (`invalid_direction`). To close from a signal, emit the "
+                    f"position's asset and its side (LONG/SHORT) from a dedicated scanner and consume it with a "
+                    f"CLOSE_POSITION action (creating-a-strategy.md §6)")
+            for fld in pnl_sign_directions(src):
+                errs.append(f"{py.name}: direction from a PnL sign (`{fld}`) is not a direction — use the "
+                            f"position's side (szi sign)")
+
+    # momentum is not smart money: a side taken from the 4h board, no proven-cohort read anywhere in the
+    # package, and text that says smart money. One line per package, naming the first mention. The board
+    # read is searched in scanners/ (where a direction is decided); the cohort read that earns the phrase is
+    # searched in every module outside tests/ — a helper can hold it, a test mock cannot buy it.
+    scn = {str(p.relative_to(pkg)): p.read_text() for p in sorted(pkg.rglob("*.py")) if "scanners" in p.parts}
+    board = [f for f, s in scn.items() if _BOARD_SIDE.search(s)]
+    cohort = any("discovery_get_trader_state" in p.read_text() for p in pkg.rglob("*.py") if "tests" not in p.parts)
+    if board and not cohort:
+        for f, field, phrase in smart_money_mentions(pkg)[:1]:
+            errs.append(f"{', '.join(board)}: momentum read of the 4h board described as smart money "
+                        f"({f} {field}: {phrase!r}) — rename to 4h leader momentum, or read the proven "
+                        f"cohort via discovery_get_trader_state")
 
     # null-in-typed-schema: an optional signal field set to None is REJECTED by the runtime
     # (candidate_rejected, silently) — omit it instead. Checked per scanner dir so scan.py,
@@ -307,6 +772,306 @@ def validate(pkg: Path) -> list:
     return errs
 
 
+# ---------------------------------------------------------------------------------------------
+# ADVISORY warnings — a channel of their own, never an error. Each one is a fact the deploy report
+# cannot say and that a validate PASS does not cover: the package runs, and then behaves like this.
+# ---------------------------------------------------------------------------------------------
+
+# A hard stop closer than this to entry, in PRICE terms, sits inside ordinary intraday movement on
+# most perps. It is hit by a wick, not by the thesis failing, and every hit pays a round trip of fees;
+# the user then reads a string of small losses as "the strategy is broken". `max_loss_pct` is ROE %,
+# so the price distance is max_loss_pct ÷ leverage — more leverage is a TIGHTER stop.
+WARN_STOP_PRICE_PCT = 1.0
+# [fees] — fee spend as % of the budget per DAY above which we warn. An ESTIMATE from the recipe's own
+# cadence / cap / slots / margin / leverage at an ASSUMED 0.05% per side (taker + builder, stated in the
+# message, never a quote): 1,314 fills on a $200 book paid $59 in fees against −$46 of PnL — fees, not
+# direction, took the money, and nothing said so before the user funded it.
+WARN_FEE_PCT_PER_DAY = 0.5
+# The order types the runtime's open path accepts (its constants/order-types.ts VALID_OPEN_ORDER_TYPES).
+# Anything else is not refused by the runtime: it logs a warning and falls back to MARKET.
+OPEN_ORDER_TYPES = ("MARKET", "LIMIT", "FEE_OPTIMIZED_LIMIT")
+FEE_RATE_PER_SIDE = 0.0005
+
+_PRESETS_FILE = Path(__file__).resolve().parent.parent / "references" / "dsl-presets.yaml"
+# The free-margin reads a multi-slot scanner makes before it emits (the camel `_get_positions` gate):
+# without one, every signal in a tick is sized off the same balance and only the first can fund.
+# Searched across every module in `scanners/` — authored packages split the read into a sibling file.
+_FREE_MARGIN_RE = re.compile(
+    r"withdrawable|free_margin|freeMargin|available_margin|availableMargin|marginSummary|totalMarginUsed")
+
+
+def _num(v):
+    """A real number, or None — bools are not numbers here (`enabled: true` is not a leverage)."""
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _nums(v):
+    """Every number inside a scalar / list / dict value (a `leverage: {conservative: 3, …}` map, a
+    `leverageTiers` list of tiers) — the shapes the catalog actually uses for these knobs."""
+    if isinstance(v, dict):
+        return [n for x in v.values() for n in _nums(x)]
+    if isinstance(v, list):
+        return [n for x in v for n in _nums(x)]
+    n = _num(v)
+    return [n] if n is not None else []
+
+
+def _preset_max_loss(name):
+    """`max_loss_pct` of a NAMED preset, read from this skill's own dsl-presets.yaml (None if unknown)."""
+    try:
+        doc = yaml.safe_load(_PRESETS_FILE.read_text()) or {}
+        p = ((doc.get("presets") or {}).get(name) or {}).get("dsl_preset") or {}
+        v = _num(p.get("max_loss_pct"))
+        return v if v is not None else _num((p.get("phase1") or {}).get("max_loss_pct"))
+    except Exception:  # noqa: BLE001 — an unreadable preset file is "cannot tell", never a warning
+        return None
+
+
+def resolved_max_loss_pct(rt_doc):
+    """The hard-stop ROE % this recipe will enforce, or None when it cannot be told from the file.
+    Same order the runtime resolves it in (senpi-trading-runtime/references/runtime-yaml.md:
+    `dsl_preset.max_loss_pct` → `phase1.max_loss_pct`); a named preset is looked up in
+    `references/dsl-presets.yaml`."""
+    ex = rt_doc.get("exit") if isinstance(rt_doc, dict) else None
+    if not isinstance(ex, dict):
+        return None
+    pre = ex.get("dsl_preset")
+    if isinstance(pre, str):
+        return _preset_max_loss(pre)
+    for scope in ((pre if isinstance(pre, dict) else {}), ex):
+        v = _num(scope.get("max_loss_pct"))
+        if v is None and isinstance(scope.get("phase1"), dict):
+            v = _num(scope["phase1"].get("max_loss_pct"))
+        if v is not None:
+            return v
+    return None
+
+
+def max_leverage(rt_doc):
+    """The highest leverage the recipe can trade at, or None: `strategy.default_leverage`, the
+    per-risk `leverage_multipliers`, and the scanner inputs' `leverage` / `maxLeverage` /
+    `leverageTiers` in whatever shape they take (scalar, per-risk map, tier list)."""
+    found = []
+    strat = rt_doc.get("strategy") if isinstance(rt_doc, dict) else None
+    if isinstance(strat, dict):
+        found += _nums(strat.get("default_leverage")) + _nums(strat.get("leverage_multipliers"))
+    for sc in (rt_doc.get("scanners") or []) if isinstance(rt_doc, dict) else []:
+        inp = sc.get("inputs") if isinstance(sc, dict) else None
+        if isinstance(inp, dict):
+            for k in ("leverage", "maxLeverage", "max_leverage", "leverageCap"):
+                found += _nums(inp.get(k))
+            found += tier_leverages(inp.get("leverageTiers"))
+    found = [v for v in found if v > 0]
+    return max(found) if found else None
+
+
+def tier_leverages(tiers):
+    """The LEVERAGE column of `leverageTiers`, in the two shapes the catalog uses. A list of rows is
+    documented as `[[min_score, lev, margin_pct], ...]` (condor: `[[15, 10, 80], ...]`) — flattening it
+    reads a score threshold or a margin percentage as leverage (condor came out as 80x). A map is
+    `{apex: 5, good: 4, base: 3}` — every value is a leverage."""
+    if isinstance(tiers, dict):
+        return _nums(tiers)
+    if isinstance(tiers, list):
+        out = []
+        for row in tiers:
+            if isinstance(row, (list, tuple)) and len(row) >= 2:
+                v = _num(row[1])
+                if v is not None:
+                    out.append(v)
+            else:
+                out += _nums(row)
+        return out
+    return []
+
+
+def tier_margins(tiers):
+    """The MARGIN column (index 2) of row-shaped `leverageTiers`; a map carries no margin."""
+    out = []
+    if isinstance(tiers, list):
+        for row in tiers:
+            if isinstance(row, (list, tuple)) and len(row) >= 3:
+                v = _num(row[2])
+                if v is not None:
+                    out.append(v)
+    return out
+
+
+def slot_plan(rt_doc):
+    """(slots, margin % per slot or None). Slots from `strategy.slots` (the ceiling the runtime
+    enforces), else the scanner's `maxSlots`; margin from `strategy.margin_pct`, else the largest
+    `marginPct`/`marginPctBase` the scanner inputs carry (a PERCENT — see margin_fraction_offenders)."""
+    strat = rt_doc.get("strategy") if isinstance(rt_doc, dict) else None
+    strat = strat if isinstance(strat, dict) else {}
+    slots = _num(strat.get("slots"))
+    margin = _num(strat.get("margin_pct"))
+    for sc in (rt_doc.get("scanners") or []) if isinstance(rt_doc, dict) else []:
+        inp = sc.get("inputs") if isinstance(sc, dict) else None
+        if not isinstance(inp, dict):
+            continue
+        if slots is None:
+            slots = _num(inp.get("maxSlots"))
+        if margin is None:
+            ms = _nums(inp.get("marginPct")) + _nums(inp.get("marginPctBase")) + tier_margins(inp.get("leverageTiers"))
+            margin = max(ms) if ms else None
+    return (int(slots) if slots and slots >= 1 else 1), margin
+
+
+def _daily_cap(rt_doc):
+    risk = rt_doc.get("risk") if isinstance(rt_doc, dict) else None
+    rails = risk.get("guard_rails") if isinstance(risk, dict) else None
+    return _num(rails.get("max_entries_per_day")) if isinstance(rails, dict) else None
+
+
+def _interval_seconds(rt_doc):
+    """The fastest external scanner cadence in the recipe, or None."""
+    best = None
+    for sc in (rt_doc.get("scanners") or []) if isinstance(rt_doc, dict) else []:
+        if isinstance(sc, dict) and sc.get("type") == "external_scanner":
+            v = _num(sc.get("interval_seconds"))
+            if v and v > 0 and (best is None or v < best):
+                best = v
+    return best
+
+
+def fee_drag_pct_per_day(rt_doc):
+    """(pct_of_budget_per_day, entries_per_day, basis) or None — an ESTIMATE of fee spend:
+    entries/day × margin × leverage × 2 sides × FEE_RATE_PER_SIDE. Entries/day is the daily cap when
+    the recipe has one; else the slots turning 3×/day at a cadence ≤ 15 min, 1×/day up to 4 h, ½×/day
+    beyond. No margin or no leverage in the recipe → None (nothing to size)."""
+    slots, margin = slot_plan(rt_doc)
+    lev = max_leverage(rt_doc)
+    if not margin or not lev:
+        return None
+    cap, interval = _daily_cap(rt_doc), _interval_seconds(rt_doc)
+    if cap:
+        entries, basis = float(cap), "the daily cap"
+    elif interval:
+        turns = 3.0 if interval <= 900 else (1.0 if interval <= 4 * 3600 else 0.5)
+        entries = slots * turns
+        basis = "%d slot(s) turning %g×/day at a %s cadence" % (slots, turns, _cadence(interval))
+    else:
+        return None
+    pct = entries * (margin / 100.0) * lev * 2 * FEE_RATE_PER_SIDE * 100.0
+    return pct, entries, basis
+
+
+def _cadence(seconds):
+    return "%gm" % (seconds / 60) if seconds < 3600 else "%gh" % (seconds / 3600)
+
+
+def _instances(pkg: Path):
+    """[(name, runtime.yaml path)] — declared instances, or the synthesized flat `main`."""
+    try:
+        man = yaml.safe_load((pkg / "strategy.yaml").read_text()) or {}
+    except Exception:  # noqa: BLE001 — validate() already reported it
+        return []
+    insts = man.get("instances") if isinstance(man, dict) else None
+    if not insts:
+        return [("main", pkg / "runtime.yaml")] if (pkg / "runtime.yaml").is_file() else []
+    return [(i.get("name", "?"), pkg / i["runtime"]) for i in insts
+            if isinstance(i, dict) and i.get("runtime")]
+
+
+def warnings(pkg: Path) -> list:
+    """Advisory findings for a package — never errors, never the exit code. Each names its fix, and
+    each is worded to be RELAYED to the user, because every one of them is something the user will
+    otherwise discover from their fills."""
+    out = []
+    for name, rt in _instances(pkg):
+        try:
+            rt_doc = yaml.safe_load(rt.read_text()) or {}
+        except Exception:  # noqa: BLE001 — unparseable YAML is validate()'s error
+            continue
+        if not isinstance(rt_doc, dict):
+            continue
+        tag = f"instance {name}"
+
+        # [exec] fee options under an order type that never reads them: the runtime forwards
+        # `fee_optimized_limit_options` only for FEE_OPTIMIZED_LIMIT, so under MARKET (the default when
+        # order_type is absent) or LIMIT the maker window is configured and never used — every entry is
+        # a taker order while the recipe reads as maker-first.
+        for act in rt_doc.get("actions") or []:
+            if not isinstance(act, dict) or act.get("action_type") != "OPEN_POSITION":
+                continue
+            params = act.get("params") if isinstance(act.get("params"), dict) else {}
+            ot = params.get("order_type")
+            if isinstance(params.get("fee_optimized_limit_options"), dict) and ot != "FEE_OPTIMIZED_LIMIT":
+                out.append(
+                    f"{tag}: [exec] action {act.get('name', '?')!r} sets `fee_optimized_limit_options` under "
+                    f"`order_type: {ot if ot is not None else 'MARKET (the default)'}` — the runtime reads those "
+                    f"options only for FEE_OPTIMIZED_LIMIT, so the maker window is never used and every entry "
+                    f"is a taker order. Set `order_type: FEE_OPTIMIZED_LIMIT`, or drop the options")
+
+        # [stop] the hard stop's distance in PRICE, at the leverage the recipe can reach
+        ml, lev = resolved_max_loss_pct(rt_doc), max_leverage(rt_doc)
+        if ml and lev:
+            price = ml / lev
+            if price <= WARN_STOP_PRICE_PCT:
+                out.append(
+                    f"{tag}: [stop] the hard stop is {price:.2f}% of price from entry (`max_loss_pct` "
+                    f"{ml:g}% ROE at {lev:g}x). For a crypto perp that is inside ordinary intraday "
+                    f"movement, so expect stop-outs on wicks rather than on the thesis failing, each paying "
+                    f"a round trip of fees; for an `xyz:` equity, index or commodity, judge it against that "
+                    f"market's own daily range. Widen `max_loss_pct`, lower the leverage, or tell the user "
+                    f"this is a known cost before they fund it (a run of small losses otherwise reads as 'broken')")
+
+        # [sizing] a marginPct recomputed from a live balance passes 100 once the balance is small enough
+        for py in sorted((rt.parent / "scanners").glob("*.py")):
+            for line, kind, detail in margin_pct_offenders(py.read_text()):
+                if kind == "ratio":
+                    out.append(
+                        f"{tag}: [sizing] {py.name} line {line} emits `marginPct` from {detail}, a division by "
+                        f"a live balance with no upper clamp — once the balance falls below the size it divides "
+                        f"(a `MIN_ORDER` floor binds), the percent passes 100 and the runtime drops every "
+                        f"candidate (`delivery_candidate_invalid`): the strategy ticks clean and never opens. "
+                        f"Clamp it with `min(pct, 100.0)`, or skip the signal when the size cannot be funded")
+
+        # [sizing] multi-slot: every slot must be fundable, and emits must be gated on free margin
+        slots, margin = slot_plan(rt_doc)
+        if slots > 1:
+            if margin and slots * margin > 100:
+                short = slots - int(100 // margin)
+                out.append(
+                    f"{tag}: [sizing] {slots} slots × {margin:g}% margin = {slots * margin:g}% of the "
+                    f"account — the last {short} slot(s) can never fund, and every tick the scanner "
+                    f"emits for them the runtime logs a failed open (`position_open_failed`). Size so "
+                    f"slots × margin ≤ 100, or run fewer slots")
+            scn = rt.parent / "scanners"
+            src = "\n".join(f.read_text() for f in sorted(scn.glob("*.py"))) if scn.is_dir() else ""
+            if src and not _FREE_MARGIN_RE.search(src):
+                out.append(
+                    f"{tag}: [sizing] a {slots}-slot scanner with no free-margin gate — every signal "
+                    f"in one tick is sized off the same balance read, so the second and later opens "
+                    f"land `position_open_failed` (insufficient margin), tick after tick. Read "
+                    f"`withdrawable` (free margin) in scan.py and emit only what it funds — the camel "
+                    f"`_get_positions` gate")
+
+        # [cap] a daily entry cap is normal practice (most catalog packages set one) and the How-it-runs
+        # summary already says it; only a cap AT OR BELOW the slot count is worth a warning — the book
+        # fills once, and every re-entry after a stop-out waits for UTC midnight.
+        # [fees] the recipe's own turnover, priced: what the book pays before direction earns anything
+        fd = fee_drag_pct_per_day(rt_doc)
+        if fd and fd[0] >= WARN_FEE_PCT_PER_DAY:
+            pct, entries, basis = fd
+            out.append(
+                f"{tag}: [fees] at {entries:g} entries/day ({basis}), {margin:g}% margin at {lev:g}x, fees "
+                f"run ≈{pct:.2f}% of the budget per day (≈{pct * 30:.0f}%/month) at an assumed 0.05% per "
+                f"side — direction has to beat that before the book makes anything, and on a small budget "
+                f"that is the whole edge. Lengthen the cadence, cut slots or leverage, or say the number to "
+                f"the user before they fund it")
+
+        cap = _daily_cap(rt_doc)
+        if cap and cap <= slots:
+            out.append(
+                f"{tag}: [cap] `max_entries_per_day: {cap:g}` is at or below the {slots} slot(s): the "
+                f"book fills once, then every re-entry after a stop-out waits for 00:00 UTC — the runtime "
+                f"logs `Runtime paused: Max Entries/Day` until then. That is the strategy's own rule, not "
+                f"a fault: say it in the How-it-runs summary, or the quiet reads as a dead strategy; raise "
+                f"the cap or lower the slots if re-entries are meant to happen")
+    return out
+
+
 def main(argv):
     if len(argv) < 2:
         sys.exit(__doc__)
@@ -324,6 +1089,12 @@ def main(argv):
             n = len(man.get("instances") or [])
             label = f"{n} instance(s)" if n else "flat single-instance"
             print(f"✓ {pkg.name} v{man.get('version')} ({label})")
+        # Advisory, under the verdict, whatever the verdict was: the exit code is the errors' alone.
+        warns = warnings(pkg)
+        if warns:
+            print(f"  ⚠ {len(warns)} advisory warning(s) — not blocking; relay each to the user:")
+            for w in warns:
+                print(f"    - {w}")
     sys.exit(1 if bad else 0)
 
 

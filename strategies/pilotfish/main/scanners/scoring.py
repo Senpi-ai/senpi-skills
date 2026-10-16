@@ -1,184 +1,352 @@
-"""PILOTFISH — pure cohort-accumulation math. No I/O, no MCP, no clock.
+"""PHALANX — pure thesis math (no I/O, no MCP, no clock).
 
-Users asked to "catch breakouts early, when smart money is just piling in". Every other
-copy strategy we ship reads a STANDING position — who is long what, right now. That is
-already priced. PILOTFISH reads the DERIVATIVE: is the proven cohort's conviction in a
-name WIDENING since the last look?
+Proven-cohort rotation scorer. Where a state-based follower reads the 4h gain
+leaderboard — a momentum/survivorship-biased read that's a *consequence* of
+price moves, not a predictor — Phalanx follows the PROVEN COHORT: traders
+with >=$1M lifetime realized PnL (discovery_get_top_traders ALL_TIME). Their
+positioning is based on track record, not 4h gains, so it's immune to the
+circularity that makes a leaderboard follower's directional calls lag.
 
-Three rules this engine exists to enforce, each one learned from a live failure:
+The unit of analysis is the BOARD, not one coin. Per tick the scanner
+aggregates the cohort's headcount per asset (long_n vs short_n among
+positioned traders), and this module scores:
 
-  1. DOMINANT SIDE ONLY. Evaluating long and short legs independently let a 13-vs-29
-     minority long fire — and band as apex, so it sized UP on the wrong side. We read
-     the NET, so the minority side is unpickable by construction.
-  2. FRESHNESS ON THE NET, NOT PER LEG. A cohort standing short for weeks has a FLAT
-     short count, so per-leg "is it fresh?" discarded it as stale and traded the noisy
-     long leg instead. Measuring the change in the net fixes the asymmetry.
-  3. A RATIO IS NOT EVIDENCE WITHOUT A SAMPLE. 4-vs-1 and 400-vs-100 are both "80%
-     one-sided"; only one is a fact about the market. Conviction is shrunk toward
-     neutral by how few wallets stand behind it.
+  - one_sidedness: how aligned the cohort is (50% = balanced, 90% = a rout).
+    Headcount-based, not notional — price can't change a headcount the way
+    it drifts notional bias. Below min_sample -> 0 (too thin to trust).
+  - directional_delta: change in net headcount in the signal direction since
+    last tick. Conviction must be GROWING (delta >= threshold), not stale.
+  - conviction: one_sidedness * multipliers (divergence booster, price
+    confirmation), gated by delta and overcrowding checks.
+  - margin_pct_for: conviction-tiered margin (1.0 / 1.25 / 1.5 x base).
+  - accuracy tracking: rolling hit rate per asset class (crypto vs xyz),
+    auto-adjusting the tilt threshold so the strategy learns which crowd
+    to trust.
 
-`bias` here is net/gross NOTIONAL in [-1,+1] — DOLLAR-weighted and signed, the same
-definition senpi-smart-money uses. It is NOT a headcount percentage; rendering it as one
-("83% of the cohort is short") is a claim about a different quantity.
+Pure: consumes already-normalized headcount dicts and candle lists; returns
+conviction-ranked signals. No I/O, no MCP, no clock — unit-testable.
 """
-# Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 
-SAMPLE_PRIOR_N = 8      # wallets before an observed lean counts at ~half weight
-MIN_MEMBERS = 4         # below this the name is not evidence at all
+import math
+import sys
 
+# ── numeric helpers ───────────────────────────────────────────────────────────
 
 def _f(v, d=0.0):
+    """Defensive numeric read: no-op on numbers, casts strings, d on None/garbage."""
     try:
         return float(v)
     except (TypeError, ValueError):
         return d
 
+# ── asset classification ──────────────────────────────────────────────────────
 
-def _num(v):
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
+def asset_class_for(asset):
+    """Return 'xyz' for HIP-3 assets (equities/commodities/indices), 'crypto' for main-DEX."""
+    return "xyz" if str(asset).lower().startswith("xyz:") else "crypto"
 
+def bare_upper(name):
+    """Bare, upper-cased asset key: strips any venue prefix ('xyz:NVDA' -> 'NVDA')."""
+    s = str(name)
+    return (s[4:] if s.lower().startswith("xyz:") else s).upper()
 
-def _bare_upper(coin):
-    return str(coin).split(":", 1)[-1].upper()
+def venue_asset(token, dex):
+    """Re-attach xyz: prefix for the venue. Bare token + dex='xyz' -> 'xyz:TOKEN'.
+    Already-prefixed tokens are rebuilt with lowercase 'xyz:' (canonical)."""
+    t = str(token)
+    if t.lower().startswith("xyz:"):
+        return "xyz:" + t[4:]
+    return f"xyz:{t}" if str(dex).lower() == "xyz" else t
 
+# ── headcount tilt + one-sidedness ────────────────────────────────────────────
 
-def _positions_of(state):
-    for k in ("openPositions", "open_positions", "positions"):
-        v = (state or {}).get(k)
-        if isinstance(v, list):
-            return v
-    return []
+def net_tilt(long_n, short_n):
+    """Headcount-based net tilt.
 
+    long_ratio = long_n / (long_n + short_n) * 100  (50 = balanced)
+    net_tilt   = long_ratio - 50  (+ = cohort net long, - = net short)
 
-def _trader_address(t):
-    for k in ("address", "traderAddress", "trader_address"):
-        v = (t or {}).get(k)
-        if v:
-            return str(v).lower()
-    return ""
-
-
-def _signed_notional(pos):
-    """Signed USD exposure: + long, - short. Tolerant of the shapes the corpus uses."""
-    szi = _num(pos.get("szi"))
-    if szi is None:
-        side = str(pos.get("side", "")).upper()
-        sz = _f(pos.get("sz", pos.get("size")), 0.0)
-        szi = -sz if side in ("SELL", "SHORT", "S", "A") else sz
-    px = _num(pos.get("entryPx", pos.get("entry_price", pos.get("markPx"))))
-    ntl = _num(pos.get("positionValue", pos.get("notional")))
-    if ntl is not None and ntl > 0:
-        return ntl if szi >= 0 else -ntl
-    if px is None:
-        return szi                                   # size-only fallback; still directional
-    return szi * px
-
-
-def cohort_bias(trader_states):
-    """{ASSET: {net, gross, bias, n_long, n_short, members, name}} — one entry per wallet.
-
-    bias = net/gross NOTIONAL in [-1,+1]: +1 all long, -1 all short. Dollar-weighted.
+    Unlike notional bias (net/gross), headcount is a decision price can't
+    fake: a wallet either holds the position or it doesn't, regardless of
+    mark-to-market drift.
     """
-    per, seen = {}, set()
-    for st in trader_states or []:
-        if not isinstance(st, dict):
+    total = _f(long_n) + _f(short_n)
+    if total <= 0:
+        return 50.0, 0.0
+    long_ratio = (_f(long_n) / total) * 100.0
+    return long_ratio, long_ratio - 50.0
+
+def one_sidedness(long_n, short_n, min_sample=10):
+    """How one-sided is the positioned split? Returns the larger side's share (0-100).
+
+    13 long vs 7 short  -> 65.0  (one-sided enough to act)
+    43 short vs 4 long  -> 91.5  (a rout)
+    429 long vs 380 short -> 53.0 (noise — barely leans)
+    4 long vs 1 short   -> 0.0  (below min_sample, too thin to trust)
+
+    This is THE key conviction metric. Signals require one_sidedness >= the
+    tilt threshold (default 65), so a 53% lean never produces a trade.
+    """
+    total = _f(long_n) + _f(short_n)
+    if total < min_sample:
+        return 0.0
+    long_ratio = (_f(long_n) / total) * 100.0
+    return max(long_ratio, 100.0 - long_ratio)
+
+def directional_delta(prev_long_n, prev_short_n, curr_long_n, curr_short_n, direction):
+    """Change in net headcount in the signal direction since last tick.
+
+    For LONG:  delta = (curr_long - curr_short) - (prev_long - prev_short)
+    For SHORT: delta = (prev_long - prev_short) - (curr_long - curr_short)
+
+    Positive = conviction growing in the signal direction.
+    Negative = conviction fading (traders closing or flipping).
+    Zero = stale (no change — don't enter, the move is already priced in).
+    """
+    prev_net = _f(prev_long_n) - _f(prev_short_n)
+    curr_net = _f(curr_long_n) - _f(curr_short_n)
+    if direction == "LONG":
+        return curr_net - prev_net
+    else:  # SHORT
+        return prev_net - curr_net
+
+# ── conviction scoring ────────────────────────────────────────────────────────
+
+def price_conviction_mult(trend_label, direction):
+    """How much does the 4h price trend support the signal direction?
+
+    BULLISH trend + LONG  -> 1.2 (confirmed — ride it)
+    BEARISH trend + SHORT -> 1.2 (confirmed — ride it)
+    BULLISH trend + SHORT -> 0.7 (fighting price — risky)
+    BEARISH trend + LONG  -> 0.7 (fighting price — risky)
+    NEUTRAL               -> 1.0 (no confirmation, no contradiction)
+    """
+    if direction == "LONG":
+        if trend_label == "BULLISH":
+            return 1.2
+        if trend_label == "BEARISH":
+            return 0.7
+    else:  # SHORT
+        if trend_label == "BEARISH":
+            return 1.2
+        if trend_label == "BULLISH":
+            return 0.7
+    return 1.0
+
+def is_divergent(cohort_long_ratio, crowd_long_ratio):
+    """True if the proven cohort and the 4h leaderboard disagree on direction.
+
+    cohort_long_ratio: proven cohort's long% for the asset (headcount-based)
+    crowd_long_ratio: 4h leaderboard's long% for the asset (gain-weighted)
+
+    Divergence: cohort net LONG (>50) while crowd net SHORT (<=50), or vice versa.
+    This is where the alpha lives — the proven cohort has historically been
+    right when the crowd disagrees.
+    """
+    cohort_side = "LONG" if cohort_long_ratio > 50 else "SHORT"
+    crowd_side = "LONG" if crowd_long_ratio > 50 else "SHORT"
+    return cohort_side != crowd_side
+
+def margin_pct_for(conviction, base_pct, max_pct=None):
+    """Conviction-scaled margin PERCENT. Stronger conviction -> bigger size.
+
+    >= 80 conviction -> base * 1.5
+    >= 65 conviction -> base * 1.25
+    else             -> base
+
+    Returns a PERCENT in (0,100]; clamped to max_pct when supplied.
+    """
+    if conviction >= 80:
+        pct = base_pct * 1.5
+    elif conviction >= 65:
+        pct = base_pct * 1.25
+    else:
+        pct = base_pct
+    if max_pct is not None and max_pct > 0:
+        pct = min(pct, max_pct)
+    return pct
+
+# ── trend structure (4h price confirmation) ───────────────────────────────────
+
+def trend_structure(candles, lookback=6):
+    """Determine the 4h trend: BULLISH (higher lows) or BEARISH (lower highs).
+
+    Uses the last `lookback` candles. Higher lows in >= lookback-2 of them
+    -> BULLISH. Lower highs in >= lookback-2 -> BEARISH. Otherwise NEUTRAL.
+
+    Returns (label, strength) where strength is the fraction of matching bars.
+    """
+    if not candles or len(candles) < lookback:
+        return "NEUTRAL", 0.0
+
+    def _low(c):
+        if isinstance(c, dict):
+            return _f(c.get("l", c.get("low", 0)))
+        if isinstance(c, (list, tuple)) and len(c) >= 5:
+            return _f(c[3])
+        return 0.0
+
+    def _high(c):
+        if isinstance(c, dict):
+            return _f(c.get("h", c.get("high", 0)))
+        if isinstance(c, (list, tuple)) and len(c) >= 5:
+            return _f(c[2])
+        return 0.0
+
+    recent = candles[-lookback:]
+    lows = [_low(c) for c in recent]
+    highs = [_high(c) for c in recent]
+
+    higher_lows = sum(1 for i in range(1, len(lows)) if lows[i] > lows[i - 1])
+    lower_highs = sum(1 for i in range(1, len(highs)) if highs[i] < highs[i - 1])
+
+    denom = max(1, lookback - 1)
+    if higher_lows >= lookback - 2:
+        return "BULLISH", higher_lows / denom
+    if lower_highs >= lookback - 2:
+        return "BEARISH", lower_highs / denom
+    return "NEUTRAL", 0.0
+
+# ── breakout check (overcrowding gate) ─────────────────────────────────────────
+
+def breakout_check(candles_1h, direction, lookback=12):
+    """Check if the latest close makes a new lookback-period high (LONG) or low (SHORT).
+
+    Used as the overcrowding gate: when one_sidedness >= 85%, the trade is
+    crowded. Require a breakout (new 12h high for longs, new 12h low for shorts)
+    before entering — no breakout means the move is exhausted, not accelerating.
+    """
+    if not candles_1h or len(candles_1h) < lookback:
+        return False
+
+    def _close(c):
+        if isinstance(c, dict):
+            return _f(c.get("c", c.get("close", 0)))
+        if isinstance(c, (list, tuple)) and len(c) >= 5:
+            return _f(c[4])
+        return 0.0
+
+    def _high(c):
+        if isinstance(c, dict):
+            return _f(c.get("h", c.get("high", 0)))
+        if isinstance(c, (list, tuple)) and len(c) >= 5:
+            return _f(c[2])
+        return 0.0
+
+    def _low(c):
+        if isinstance(c, dict):
+            return _f(c.get("l", c.get("low", 0)))
+        if isinstance(c, (list, tuple)) and len(c) >= 5:
+            return _f(c[3])
+        return 0.0
+
+    recent = candles_1h[-lookback:]
+    last_close = _close(recent[-1])
+    if last_close <= 0:
+        return False
+
+    prior = recent[:-1]
+    if direction == "LONG":
+        prior_highs = [_high(c) for c in prior]
+        return last_close >= max(prior_highs) if prior_highs else False
+    else:  # SHORT
+        prior_lows = [_low(c) for c in prior]
+        return last_close <= min(prior_lows) if prior_lows else False
+
+# ── accuracy tracking (per-class hit rate, auto-threshold tuning) ─────────────
+
+EVAL_DELAY_S = 3600  # 1h to evaluate a signal's direction
+MIN_EVAL_SAMPLES = 5  # need at least 5 evaluated signals before adjusting
+RECENT_WINDOW = 10  # rolling window of evaluated signals per class
+HIT_RATE_LOW = 0.40  # below this -> raise threshold by 4
+HIT_RATE_HIGH = 0.55  # above this -> lower threshold by 2
+THRESH_ADJ_UP = 4.0
+THRESH_ADJ_DOWN = -2.0
+THRESH_FLOOR = 52.0  # never lower the tilt threshold below this
+
+def new_accuracy_state():
+    """Fresh accuracy tracker."""
+    return {
+        "crypto": {"pending": [], "recent": [], "threshold_adj": 0.0, "evaluated": 0, "hits": 0},
+        "xyz": {"pending": [], "recent": [], "threshold_adj": 0.0, "evaluated": 0, "hits": 0},
+    }
+
+def add_pending_signal(accuracy_state, asset_class, asset, direction, entry_price, ts):
+    """Record a freshly-emitted signal for later evaluation."""
+    cls = accuracy_state.get(asset_class)
+    if cls is None:
+        return accuracy_state
+    cls["pending"].append({
+        "asset": asset, "direction": direction,
+        "entry_price": entry_price, "ts": ts,
+    })
+    return accuracy_state
+
+def update_accuracy(accuracy_state, asset_class, now, price_lookup):
+    """Evaluate pending signals whose eval delay has elapsed.
+
+    price_lookup: function(asset) -> current price (or 0.0 if unreadable).
+    Moves evaluated signals from pending -> recent, trims recent to
+    RECENT_WINDOW, and recomputes threshold_adj.
+    """
+    cls = accuracy_state.get(asset_class)
+    if cls is None:
+        return accuracy_state
+
+    still_pending = []
+    evaluated_now = []
+    for sig in cls.get("pending", []):
+        if now - sig["ts"] < EVAL_DELAY_S:
+            still_pending.append(sig)
             continue
-        wallet = _trader_address(st)
-        for pos in _positions_of(st):
-            if not isinstance(pos, dict):
-                continue
-            coin = pos.get("coin") or pos.get("asset")
-            if not coin:
-                continue
-            sn = _signed_notional(pos)
-            if not sn:
-                continue
-            asset = _bare_upper(coin)
-            key = (wallet or f"_anon_{id(pos)}", asset)
-            if key in seen:
-                continue
-            seen.add(key)
-            d = per.setdefault(asset, {"net": 0.0, "gross": 0.0, "n_long": 0, "n_short": 0,
-                                       "name": str(coin)})
-            d["net"] += sn
-            d["gross"] += abs(sn)
-            d["n_long" if sn > 0 else "n_short"] += 1
-    for d in per.values():
-        d["bias"] = round(d["net"] / d["gross"], 4) if d["gross"] > 0 else 0.0
-        d["members"] = d["n_long"] + d["n_short"]
-        d["net"] = round(d["net"], 2)
-        d["gross"] = round(d["gross"], 2)
-    return per
+        entry = _f(sig.get("entry_price", 0))
+        curr = _f(price_lookup(sig["asset"]))
+        if entry <= 0 or curr <= 0:
+            still_pending.append(sig)  # can't evaluate, keep trying
+            continue
+        if sig["direction"] == "LONG":
+            correct = curr > entry
+        else:
+            correct = curr < entry
+        cls["recent"].append({"correct": correct, "ts": now})
+        # lifetime totals (the rolling window above decides the threshold; these decide whether the
+        # template keeps its edge — read from the log line by the daily report)
+        cls["evaluated"] = int(cls.get("evaluated", 0)) + 1
+        cls["hits"] = int(cls.get("hits", 0)) + (1 if correct else 0)
+        evaluated_now.append((sig, correct))
 
+    cls["pending"] = still_pending
+    cls["recent"] = cls["recent"][-RECENT_WINDOW:]
 
-def sample_shrink(n):
-    """0..1 — how much of an observed lean survives the sample behind it."""
-    if not n or n <= 0:
-        return 0.0
-    return round(n / (n + SAMPLE_PRIOR_N), 4)
+    if len(cls["recent"]) >= MIN_EVAL_SAMPLES:
+        hit_rate = sum(1 for r in cls["recent"] if r["correct"]) / len(cls["recent"])
+        if hit_rate < HIT_RATE_LOW:
+            cls["threshold_adj"] = THRESH_ADJ_UP
+        elif hit_rate > HIT_RATE_HIGH:
+            cls["threshold_adj"] = THRESH_ADJ_DOWN
+        else:
+            cls["threshold_adj"] = 0.0
+    else:
+        cls["threshold_adj"] = 0.0
 
+    win_hits = sum(1 for r in cls["recent"] if r["correct"])
+    for sig, correct in evaluated_now:
+        print(f"[sm-ledger] EVAL {asset_class} {sig['asset']} {sig['direction']} {'hit' if correct else 'miss'} "
+              f"window={win_hits}/{len(cls['recent'])} total={cls['hits']}/{cls['evaluated']} "
+              f"threshold_adj={cls['threshold_adj']:+.0f}", file=sys.stderr)
 
-def conviction(entry):
-    """|bias| shrunk by sample size. This is what may drive a score; the RAW bias is what
-    gets reported, so shrinkage governs the decision, never the stated facts."""
-    if not entry or entry.get("members", 0) < MIN_MEMBERS:
-        return 0.0
-    return round(abs(_f(entry.get("bias"))) * sample_shrink(entry.get("members")), 4)
+    return accuracy_state
 
+def adjusted_threshold(base_threshold, asset_class, accuracy_state):
+    """The tilt threshold for this asset class, adjusted by hit-rate learning."""
+    adj = 0.0
+    cls = accuracy_state.get(asset_class)
+    if cls is not None:
+        adj = _f(cls.get("threshold_adj", 0.0))
+    return max(THRESH_FLOOR, base_threshold + adj)
 
-def accumulating(cur, prev, inputs):
-    """Names where the cohort's DOMINANT side is actively WIDENING since the last look.
+# ── signal ranking ────────────────────────────────────────────────────────────
 
-    Returns [{asset, name, direction, bias, prev_bias, delta, members, conviction, score}]
-    sorted by score desc. Pure.
-    """
-    min_delta = _f(inputs.get("minBiasDelta"), 0.10)
-    min_bias = _f(inputs.get("minBias"), 0.25)
-    min_members = int(_f(inputs.get("minMembers"), MIN_MEMBERS))
-    out = []
-    for asset, d in (cur or {}).items():
-        members = d.get("members", 0)
-        if members < min_members:
-            continue                                  # not evidence — too few wallets
-        bias = _f(d.get("bias"))
-        if abs(bias) < min_bias:
-            continue                                  # cohort is split; no dominant side
-        p = (prev or {}).get(asset) or {}
-        prev_bias = _f(p.get("bias"), 0.0)
-        # THE DERIVATIVE, on the NET — not on either leg independently
-        delta = abs(bias) - abs(prev_bias)
-        if bias * prev_bias < 0:
-            delta = abs(bias)                         # just flipped side: the whole lean is new
-        if delta < min_delta:
-            continue                                  # standing conviction, already priced
-        conv = conviction(d)
-        score = round(conv * 10.0 + min(delta, 1.0) * 8.0, 3)
-        out.append({"asset": asset, "name": d.get("name", asset),
-                    "direction": "LONG" if bias > 0 else "SHORT",
-                    "bias": bias, "prev_bias": round(prev_bias, 4), "delta": round(delta, 4),
-                    "members": members, "n_long": d.get("n_long", 0), "n_short": d.get("n_short", 0),
-                    "conviction": conv, "score": score})
-    out.sort(key=lambda r: r["score"], reverse=True)
-    return out
-
-
-def band_for(score, inputs):
-    if score >= _f(inputs.get("apexScore"), 9):
-        return "apex"
-    if score >= _f(inputs.get("goodScore"), 6):
-        return "good"
-    return "base"
-
-
-def sizing_for(band, inputs, venue_max=None):
-    """(leverage, marginPct). marginPct is a PERCENT in (0,100] — never a fraction."""
-    lev = _f((inputs.get("leverageTiers") or {}).get(band), 3)
-    mgn = _f((inputs.get("marginPctTiers") or {}).get(band), 8)
-    lev = min(lev, _f(inputs.get("maxLeverage"), 4))
-    if venue_max:
-        lev = min(lev, _f(venue_max, lev))
-    mgn = min(mgn, _f(inputs.get("maxMarginPct"), 20))
-    return int(max(1, lev)), round(max(0.1, mgn), 4)
+def rank_signals(candidates):
+    """Sort candidates by conviction descending. Pure."""
+    return sorted(candidates, key=lambda c: _f(c.get("conviction", 0)), reverse=True)

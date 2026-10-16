@@ -51,7 +51,7 @@ scanners:
       recentSignalTtlSeconds: 21600
       # ── funding gate ──
       targetApr: 30                   # annualized funding %; HL funds HOURLY (apr = rate×24×365)
-      minPersistHours: 6              # funding must have been positive ≥ this many hours
+      minPersistHours: 6              # hours in a row funding has been at or above targetApr
       oiBonusUsd: 50000000            # OI above this earns a liquidity bonus point
       # ── exhaustion gate (never short fresh strength) ──
       minExhaustion: 1                # require ≥ this much exhaustion evidence to short
@@ -108,7 +108,7 @@ exit:
     weak_peak_cut:
       # DISABLED - this cut closes at MARKET at whatever price is there, with no floor, so on a
       # longer-hold book it realises a small LOSS on a position that simply hadn't moved yet
-      # (Ignas, M408027, xyz:PLTR on cougar). Same defect we removed from phase1. weak_peak is
+      # (observed live on xyz:PLTR in cougar). Same defect we removed from phase1. weak_peak is
       # a CHOP tool only: it belongs where the strategy already intends to be out within hours.
       enabled: false
       interval_in_minutes: 720         # 12h — cut a stalled short that isn't paying its way

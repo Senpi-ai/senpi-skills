@@ -27,7 +27,9 @@ engine always passes forceFetch. Per-strategy truth comes from live strategy_get
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
+import calendar
 import json
+import math
 import os
 import subprocess
 import sys
@@ -38,6 +40,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 MARKET_ENRICH_CAP = 24      # cap the per-asset market pull
 CLOSED_HISTORY_CAP = 5      # recent closed trades to surface per strategy (realized PnL is over the full pull)
 CLOSED_HISTORY_PULL = 50    # closed positions to pull for the realized-PnL total (API default page)
+QUIET_AFTER_HOURS = 48      # a strategy whose newest CLOSE is older than this is reported as quiet
 
 # WHAT A STRATEGY DOES = its `profile`, and the load-bearing field is `profile.description`, taken from
 # the descriptor the RUNTIME renders for each runtime it has. This is UNIVERSAL: it works for a user's
@@ -62,6 +65,10 @@ RUNTIME_BLIND_MARK = "NO ENTRY SCANNERS"
 # fail-open + fixture pattern as senpi-improve-trades' event-log read. Offline test hook: a JSON file at
 # $SENPI_STATUS_FIXTURE keyed {"<runtime_id>": {status payload}} is read instead of shelling out.
 STATUS_FIXTURE_ENV = "SENPI_STATUS_FIXTURE"
+# ONE call for every runtime's health — the document `senpi-strategy-ops/scripts/_cli.py`'s
+# `runtime_health_map` reads. A per-runtime `status -r <id>` costs a plugin start each (~2-3 s) and
+# ran sequentially, so the `strategies` step grew with the runtime count and blew the exec window.
+FLEET_STATUS_CMD = ["openclaw", "senpi", "status", "--json"]
 
 CATALOG_REF = os.environ.get("SENPI_SKILLS_REF", "main")
 CATALOG_URL = f"https://raw.githubusercontent.com/Senpi-ai/senpi-skills/{CATALOG_REF}/strategies/catalog.json"
@@ -183,6 +190,37 @@ def _first_written(d, *names, default=None):
                 return v
     return default
 # ── end vendored block
+
+
+# ── VENDORED external-wallets reader, byte-identical in senpi-portfolio/scripts/portfolio.py,
+# ── senpi-improve-trades/scripts/review.py and quant-desk/scripts/addresses.py — skills install
+# ── standalone, so none may import another. senpi-portfolio/tests/test_name_reader_parity.py fails
+# ── the moment the copies drift.
+EXTERNAL_OK = "ok"
+EXTERNAL_UNAVAILABLE = "unavailable"
+
+
+def _external_wallets(me):
+    """(status, wallets) from a `user_get_me` payload, outer `data` already stripped.
+
+    The keys live inside `user`: `external_wallets_status` ("ok" | "unavailable") and, only when ok,
+    `external_wallets` [{address, label, added_at, access}]. status is "ok" or "unavailable";
+    wallets is a list only when status is "ok", else None. An ABSENT status key (an MCP older than
+    saved wallets) is "unavailable", never [] — unknown is never empty, so this never reads a
+    missing key with a default. `access` is the MCP's read-only line, carried verbatim."""
+    user = me.get("user") if isinstance(me, dict) and isinstance(me.get("user"), dict) else me
+    if not isinstance(user, dict) or user.get("external_wallets_status") != EXTERNAL_OK:
+        return EXTERNAL_UNAVAILABLE, None
+    rows = user.get("external_wallets")
+    if not isinstance(rows, list):
+        return EXTERNAL_UNAVAILABLE, None
+    wallets = []
+    for w in rows:
+        if isinstance(w, dict) and isinstance(w.get("address"), str) and w["address"].strip():
+            wallets.append({"address": w["address"].strip().lower(), "label": w.get("label"),
+                            "added_at": w.get("added_at"), "access": w.get("access")})
+    return EXTERNAL_OK, wallets
+# ── end external-wallets reader
 
 
 def _strategy_name_and_source(s):
@@ -335,6 +373,49 @@ def _note_telemetry_unavailable(meta, msg):
         meta["_telemetry_warned"] = True
 
 
+def _fleet_statuses(meta):
+    """Every `RuntimeHealthStatus` the runtime publishes, from ONE `openclaw senpi status --json`,
+    cached on `meta` for the run. `None` = the read failed or answered nothing (the gateway is
+    flaky-empty, so it is retried once) — the caller then falls back to the per-id read for that
+    runtime, so a box where the fleet call misbehaves loses nothing it had before. Fixture-driven
+    runs never come here (the per-id fixture keeps its contract). Progress goes to stderr, flushed,
+    so a streaming exec shows what the step is waiting on.
+
+    Reached only for a runtime the registry lists, so a user with no runtimes never pays for the call.
+    An EMPTY `statuses[]` while the registry lists runtimes is the gateway's known flaky-empty answer
+    (see `senpi-strategy-ops/scripts/_cli.py` `list_runtimes`), not "no runtimes" — that is what the
+    single retry is for, and after it the per-id read gets its own chance at each runtime."""
+    if "_fleet_statuses" in meta:
+        return meta["_fleet_statuses"]
+    meta["_fleet_statuses"] = None
+    if meta.get("_telemetry_dead"):
+        return None
+    print("reading runtime health (one status call for the whole fleet)…", file=sys.stderr, flush=True)
+    for _ in range(2):
+        rc, out, err = _run_cli(FLEET_STATUS_CMD, timeout=30)
+        if rc != 0:
+            head = (err or "")[:200]
+            if head.startswith(SPAWN_FAILED_PREFIX) or "unknown method" in head.lower():
+                return None                        # a dead host; the per-id path says so once and stops
+            continue
+        data = _extract_json(out)
+        recs = _status_entries(data) if isinstance(data, dict) else []
+        if recs:
+            meta["_fleet_statuses"] = recs
+            return recs
+    return None
+
+
+def _record_is(rec, runtime_id):
+    """Does this fleet record describe `runtime_id`? A `RuntimeHealthStatus` carries the registry id as
+    `runtimeId` (optional) and its name as `runtimeName` (always) — senpi-trading-runtime
+    src/health/types.ts. Only those two keys: this decides a FUNDED strategy's health, and a looser
+    match (`id`, `name`) would let an unrelated record shaped `{name: …}` claim it."""
+    want = str(runtime_id)
+    return isinstance(rec, dict) and any(
+        str(rec.get(k)) == want for k in ("runtimeId", "runtimeName") if rec.get(k) is not None)
+
+
 def _fetch_runtime_status(runtime_id, meta):
     """`openclaw senpi status -r <id> --json` → parsed dict or None. FAIL-OPEN: no `openclaw` / a
     fork-or-exec failure / timeout / non-zero exit / unknown method / parse error → None + a one-time
@@ -355,6 +436,13 @@ def _fetch_runtime_status(runtime_id, meta):
         except Exception as e:  # noqa — a bad fixture is fail-open too
             _note_telemetry_unavailable(meta, f"status fixture unreadable ({e})")
             return None
+    fleet = _fleet_statuses(meta)
+    if fleet:
+        # The per-runtime slice of the fleet document, in the shape the `-r <id>` call prints, so
+        # `_liveness_from_status` / `_risk_pause_from_status` read both paths identically. An id the
+        # fleet document does not list gets an EMPTY `statuses` — the same answer the per-id call
+        # gives for a runtime that is registered but not running — which maps to 'unknown'.
+        return {"ok": True, "statuses": [r for r in fleet if _record_is(r, runtime_id)]}
     rc, out, err = _run_cli(["openclaw", "senpi", "status", "-r", str(runtime_id), "--json"], timeout=20)
     if rc != 0:
         err = (err or "")[:200]
@@ -516,6 +604,51 @@ def _scanner_reasons(status):
 
 
 # ──────────────────────────────────────────────────────────────── strategy profile (catalog enrichment)
+# The runtime's own entry-gate vocabulary (senpi-trading-runtime src/health/types.ts: `RiskGateStatus`,
+# `RiskGateId`). When each gate lets entries resume is the reader's next question, so it rides the field.
+_RISK_PAUSED = ("CLOSED", "COOLDOWN")
+_RISK_GATE_RESET = {
+    "max_entries_day": "resets at 00:00 UTC",
+    "daily_loss_halt": "resets at 00:00 UTC",
+    "drawdown_halt": "holds until PnL recovers from its peak (or the day rollover, if configured)",
+    "consecutive_loss": "expires on its own after the cooldown",
+    "per_asset_cooldown": "expires on its own, for that asset",
+}
+
+
+def _risk_pause_from_status(status):
+    """The runtime's OWN entry gate, read off the same document `_liveness_from_status` reads:
+    `{"eligibility": "CLOSED"|"COOLDOWN", "gates": [{gate, id, reason, reset}]}` while a guard rail
+    holds entries, else None — OPEN, or no risk component at all ("cannot tell" is not "paused").
+
+    NOT a health downgrade, and that is the whole point: a runtime held by its daily entry cap reports
+    `health: healthy` — it ticks, it manages what it holds, it opens nothing. Reported only as `live`,
+    that quiet reads as a dead strategy and the user's next move is a redeploy that market-exits the
+    book and starts the same gate again from zero. Worst pause wins across records (CLOSED > COOLDOWN)."""
+    if not isinstance(status, dict) or status.get("ok") is False:
+        return None
+    found = None
+    for rec in _status_entries(status):
+        comps = rec.get("components") if isinstance(rec, dict) else None
+        risk = comps.get("risk") if isinstance(comps, dict) else None
+        if not isinstance(risk, dict):
+            continue
+        elig = str(risk.get("eligibility") or "").upper()
+        if elig not in _RISK_PAUSED:
+            continue
+        gates = []
+        for g in risk.get("gates") or []:
+            if not isinstance(g, dict) or str(g.get("status") or "").upper() not in _RISK_PAUSED:
+                continue
+            gid = str(g.get("gateId") or "") or None
+            gates.append({"gate": g.get("gateName") or gid or "risk gate", "id": gid,
+                          "reason": g.get("reason"), "reset": _RISK_GATE_RESET.get(gid or "")})
+        cand = {"eligibility": elig, "gates": gates}
+        if found is None or (elig == "CLOSED" and found["eligibility"] != "CLOSED"):
+            found = cand
+    return found
+
+
 def _catalog_facets(rec):
     """The OPTIONAL template-only enrichment facets, pulled from a strategy's catalog record (its
     strategy.yaml). None if the strategy isn't in the catalog (e.g. a user-authored/custom strategy)."""
@@ -643,17 +776,99 @@ class _FixtureClient:
 
 
 # ──────────────────────────────────────────────────────────────── wallet discovery
-def fetch_embedded(client, meta):
-    """Main/embedded wallet idle cash — the ONLY truly-free pool. Real-time (forceFetch)."""
+USER_GET_ME_TIMEOUT_S = 22       # user_get_me now waits on moxie's saved-wallets read (MCP 20 s timeout)
+
+
+def _read_me(client, meta):
+    """ONE `user_get_me` per run, shared by the embedded-wallet read and the saved-wallets read.
+    A failed read is {} + a warning — both readers then report unknown, never empty."""
+    try:
+        me = _ok(client.mcp_call("user_get_me", timeout=USER_GET_ME_TIMEOUT_S)) or {}
+        return me if isinstance(me, dict) else {}
+    except Exception as e:  # noqa
+        meta.setdefault("warnings", []).append(f"user_get_me failed: {e}")
+        return {}
+
+
+# ── VENDORED Senpi main-wallet reader, byte-identical in senpi-portfolio/scripts/portfolio.py,
+# ── senpi-improve-trades/scripts/review.py and quant-desk/scripts/addresses.py — skills install
+# ── standalone, so none may import another. senpi-portfolio/tests/test_name_reader_parity.py fails
+# ── the moment the copies drift: every skill values the main wallet with ONE rule, so their managed
+# ── subtotals reconcile.
+MAIN_WALLET_LABEL = "Senpi main wallet"
+MAIN_WALLET_STABLES = ("USDC", "USDC.E", "USDT")
+
+
+def _main_wallet_address(me):
+    """The Senpi main (embedded) wallet's address from a `user_get_me` payload (outer `data` already
+    stripped) — the first wallet whose `walletType` is "embedded". None when the payload names none."""
+    if not isinstance(me, dict):
+        return None
+    user = me.get("user") if isinstance(me.get("user"), dict) else {}
+    wallets = me.get("wallets") or user.get("wallets") or []
+    for w in wallets if isinstance(wallets, list) else []:
+        if not isinstance(w, dict):
+            continue
+        kind = w.get("walletType") if w.get("walletType") is not None else w.get("type")
+        if str(kind if kind is not None else "").lower() == "embedded":
+            return w.get("walletAddress") if w.get("walletAddress") is not None else w.get("address")
+    return None
+
+
+def _main_wallet_value(p):
+    """The main wallet's idle cash from ONE `account_get_portfolio` payload (forceFetch, outer `data`
+    stripped): perps USDC (`total_in_hyperliquid`) + Hyperliquid spot USDC + EVM stablecoins. None when
+    the payload isn't a dict (a failed read — unknown, never $0); a dict reads its fields, 0 when absent.
+
+    GetPortfolioV3 nests the fields under `portfolio`; the idle field is `total_in_hyperliquid` (the old
+    `total_usdc_in_hyperliquid` is a harmless fallback); spot is NOT inside it (omitting it under-reports
+    the idle by exactly the spot balance); a token row's USD value of exactly 0 is the API's
+    zero-as-missing sentinel, so it falls back to `formattedBalance` × `tokenPriceInUSD` (a 0 price → 1)."""
+    if not isinstance(p, dict):
+        return None
+    if isinstance(p.get("portfolio"), dict):
+        p = p["portfolio"]
+
+    def num(d, *keys, default=0.0):
+        for k in keys:
+            if isinstance(d, dict) and d.get(k) is not None:
+                try:
+                    return float(d[k])
+                except (TypeError, ValueError):
+                    continue
+        return default
+
+    out = {"idle_hl_usdc": num(p, "total_in_hyperliquid", "total_usdc_in_hyperliquid"),
+           "spot_usd": num(p, "total_spot_usd_in_hyperliquid"), "evm_usdc": []}
+    evm = 0.0
+    for tb in p.get("token_balances") if isinstance(p.get("token_balances"), list) else []:
+        if not isinstance(tb, dict):
+            continue
+        sym = tb.get("symbol") if tb.get("symbol") is not None else tb.get("tokenSymbol")
+        if str(sym if sym is not None else "").upper() not in MAIN_WALLET_STABLES:
+            continue
+        amt = num(tb, "usdValue", "usd_value", "amountUsd", "balanceUsd", "balanceInUSD", "amount")
+        if amt == 0.0:
+            amt = num(tb, "formattedBalance", "amount") * (num(tb, "tokenPriceInUSD", default=1.0) or 1.0)
+        chain = next((tb[k] for k in ("chain", "network", "chainName") if tb.get(k) is not None), "EVM")
+        if amt:
+            out["evm_usdc"].append({"chain": chain, "usd": round(amt, 2)})
+            evm += amt
+    out["idle_total"] = round(out["idle_hl_usdc"] + out["spot_usd"] + evm, 2)
+    return out
+# ── end main-wallet reader
+
+
+def fetch_embedded(client, meta, me=None):
+    """Main/embedded wallet idle cash — the ONLY truly-free pool. Real-time (forceFetch). `me` is the
+    run's `user_get_me` payload (read here when not passed). Address and value come from the vendored
+    main-wallet reader, the same one improve-trades and the quant desk value this wallet with."""
     out = {"address": None, "idle_hl_usdc": None, "evm_usdc": [], "spot_usd": None,
            "idle_total": None}
+    if me is None:
+        me = _read_me(client, meta)
     try:
-        me = _ok(client.mcp_call("user_get_me", timeout=12)) or {}
-        wallets = _field(me, "wallets", default=[]) or (me.get("user", {}) or {}).get("wallets", [])
-        for w in wallets if isinstance(wallets, list) else []:
-            if str(_field(w, "walletType", "type", default="")).lower() == "embedded":
-                out["address"] = _field(w, "walletAddress", "address")
-                break
+        out["address"] = _main_wallet_address(me)
     except Exception as e:  # noqa
         meta.setdefault("warnings", []).append(f"user_get_me failed: {e}")
 
@@ -664,47 +879,338 @@ def fetch_embedded(client, meta):
         meta.setdefault("warnings", []).append(f"account_get_portfolio failed: {e}")
         return out, {}
 
-    # account_get_portfolio (GetPortfolioV3) nests the balance fields under a `portfolio` key
-    # ({data: {portfolio: {...}}}); _ok() strips only the outer `data`. Unwrap `portfolio` here so the
-    # field reads below hit real values (else the whole embedded read is $0). Robust to both shapes.
-    # This nesting + the wrong field name below is why a $10k+ embedded infusion read as $0.
-    if isinstance(p, dict) and isinstance(p.get("portfolio"), dict):
+    # `or {}` above keeps this skill's long-standing read: an empty reply reads its fields as 0
+    out.update(_main_wallet_value(p))
+    if isinstance(p.get("portfolio"), dict):
         p = p["portfolio"]
-
-    # Idle HL balance is `total_in_hyperliquid` (per the account_get_portfolio schema + ops deploy.py) —
-    # NOT `total_usdc_in_hyperliquid` (does not exist; the wrong name made this $0). Old name kept as a
-    # harmless fallback so it can never regress.
-    out["idle_hl_usdc"] = _f(p, "total_in_hyperliquid", "total_usdc_in_hyperliquid", default=0.0)
-    out["spot_usd"] = _f(p, "total_spot_usd_in_hyperliquid", default=0.0)
-    evm = 0.0
-    for tb in (_field(p, "token_balances", default=[]) or []):
-        sym = str(_field(tb, "symbol", "tokenSymbol", default="")).upper()
-        if sym in ("USDC", "USDC.E", "USDT"):
-            # Live GetPortfolioV3 uses `balanceInUSD` (+ `formattedBalance`/`tokenPriceInUSD`) —
-            # without it every token read $0 and evm_usdc was always [].
-            amt = _f(tb, "usdValue", "usd_value", "amountUsd", "balanceUsd", "balanceInUSD", "amount", default=0.0)
-            # `== 0.0` (not a missing-key test) is DELIBERATE: a present-and-zero amount is this API's
-            # zero-as-missing sentinel (#537), same convention as the `or 1.0` price guard below.
-            if amt == 0.0:
-                raw = _f(tb, "formattedBalance", "amount", default=0.0)
-                # `or 1.0`: a PRESENT-and-zero price is this API's zero-as-missing sentinel (see #537),
-                # and raw × 0 would make the balance invisible — the exact bug this path exists to fix.
-                price = _f(tb, "tokenPriceInUSD", default=1.0) or 1.0
-                amt = raw * price
-            chain = _field(tb, "chain", "network", "chainName", default="EVM")
-            if amt:
-                out["evm_usdc"].append({"chain": chain, "usd": round(amt, 2)})
-                evm += amt
-    # spot_usd is the HL SPOT USDC bucket — deployable like the perps balance (the funding waterfall is
-    # perps + spot + EVM), and NOT inside total_in_hyperliquid. Omitting it under-reported idle_total by
-    # exactly the spot balance, quietly enough to hide under the reconciliation tolerance.
-    out["idle_total"] = round((out["idle_hl_usdc"] or 0.0) + (out["spot_usd"] or 0.0) + evm, 2)
     portfolio_totals = {
         "total_balance_usd": _f(p, "total_balance_usd", default=None),
         "total_allocated_in_strategy": _f(p, "total_allocated_in_strategy", default=None),
         "total_withdrawable": _f(p, "total_withdrawable", default=None),
     }
     return out, portfolio_totals
+
+
+# ──────────────────────────────────────────────────────────── saved wallets (read-only, never Senpi money)
+EXTERNAL_STATE_TIMEOUT_S = 25    # moxie answers within ~6.5 s; the MCP's own moxie timeout is 20 s — wait past it
+# Senpi-strategy facts that do not exist for a wallet the user trades by hand. Rendered "not applicable",
+# never as a fault ("no DSL", "runtime not running", "drained").
+EXTERNAL_NOT_APPLICABLE = ("dsl", "runtime_health", "mandate", "funded_drained", "telemetry")
+
+
+def fetch_external(client, me, meta):
+    """The user's SAVED wallets — the ones they added in Your wallets and trade themselves. Read-only:
+    Senpi can analyze them and cannot place, change or cancel orders on them.
+
+    Never part of the Senpi money map: nothing here enters `totals`, `exposure`, `signals` or
+    `strategy_groups`, and `reconciles` stays Senpi-only (GetPortfolioV3 never counts them). Each
+    wallet's `state` is `account_get_external_wallets`' object VERBATIM (camelCase, decimal strings,
+    `positions[].protection` + `stopOrders`) — quoted, never re-derived.
+
+    status "unavailable" (MCP couldn't load them, or an MCP too old to know) → wallets None: say you
+    couldn't load them, never that there are none."""
+    status, wallets = _external_wallets(me)
+    out = {"status": status, "wallets": None}
+    if status != EXTERNAL_OK:
+        return out
+    out["wallets"] = []
+    if not wallets:
+        return out
+    states = None
+    try:
+        resp = _ok(client.mcp_call("account_get_external_wallets", timeout=EXTERNAL_STATE_TIMEOUT_S)) or {}
+        rows = _field(resp, "external_wallets", default=None) if isinstance(resp, dict) else None
+        if not isinstance(rows, list):
+            raise ValueError("no external_wallets list in the response")
+        states = {str(_field(r, "address", default="")).lower(): r.get("state")
+                  for r in rows if isinstance(r, dict)}
+    except Exception as e:  # noqa — the list stays; only the balances/positions become unknown
+        meta.setdefault("warnings", []).append(
+            f"account_get_external_wallets failed: {e}; saved wallets listed without state "
+            f"(balances and positions unknown, not zero)")
+    for w in wallets:
+        st = states.get(w["address"]) if states is not None else None
+        if not isinstance(st, dict):
+            read = "unavailable"
+        elif st.get("readError"):
+            read = "error"
+        else:
+            read = "ok"
+        out["wallets"].append(dict(w, kind="external", state_read=read,
+                                   state=st if isinstance(st, dict) else None,
+                                   not_applicable=list(EXTERNAL_NOT_APPLICABLE)))
+    return out
+
+
+def _no_strategy_path(strategies, saved):
+    """True when the user has saved wallets and no Senpi strategy — the read is about wallets they
+    trade by hand, so DSL / runtime / mandate / funded-drained / telemetry are not applicable and no
+    strategy is pitched."""
+    return not strategies and bool((saved or {}).get("wallets"))
+
+
+# ──────────────────────────────────────────── the ONE wallet list (every wallet first-class, by value)
+# Every wallet the user has — the Senpi main wallet, each Senpi strategy (ALL its wallets: a strategy is
+# one row, never one row per sleeve) and each wallet they added — in ONE list ordered by value. Origin is
+# the `kind` column (managed / read-only), never a rank and never a section break. The order and every
+# total are computed HERE so the agent narrates an order it was given. The managed subtotal IS
+# `totals.grand_total_usd` (same float, same rows): the money map's three buckets ride on it unchanged.
+# Unknown is never zero: a wallet that couldn't load sorts last, is never summed, and the total names it.
+KIND_MANAGED = "managed"
+KIND_READ_ONLY = "read-only"
+EMBEDDED_LABEL = MAIN_WALLET_LABEL
+DEEP_DIVE_QUESTION = "Which one do you want me to go deeper on?"
+BOOK_ORDER_RULE = "by value, largest first; ties by label, then address; a wallet that couldn't load last"
+POSITIONS_SCOPE = "the Hyperliquid main and xyz dexes"
+READ_ONLY_NOTE = ("read-only: the wallets you added. Senpi can analyze them and cannot trade them, so this "
+                  "money is never idle, never deployable and never in the managed subtotal")
+STRATEGY_DETAIL_COLUMNS = ["open_positions", "protected", "unrealized_pnl_usd"]
+
+
+def _usd(v):
+    """A dollar figure as a finite float rounded to cents, else None (unknown — never 0)."""
+    n = _num(v)
+    return round(n, 2) if n is not None and math.isfinite(n) else None
+
+
+def _money_str(v):
+    return f"${v:,.2f}"
+
+
+def _embedded_row(embedded):
+    emb = embedded or {}
+    value = _usd(emb.get("idle_total"))
+    return {"label": EMBEDDED_LABEL, "kind": KIND_MANAGED, "origin": "embedded",
+            "address": emb.get("address"), "address_short": _short_wallet(emb.get("address")) or None,
+            "value_usd": value, "loaded": value is not None,
+            # no strategy trades from the main wallet: it holds the idle cash legs (perps + spot + EVM USDC)
+            "holds": "cash", "not_applicable": ["open_positions", "protection", "pnl"]}
+
+
+def _strategy_label(key, insts):
+    """The group id (`cub`) for a packaged strategy; an ungrouped one (keyed by its own wallet) by its
+    own name when it has one, else by its short wallet — never a 42-character address as a label."""
+    if all(key != str(s.get("wallet")) for s in insts):
+        return key
+    s = insts[0]
+    if s.get("name_source") in ("strategyName", "shortTraderAddress") and s.get("name"):
+        return s.get("name")
+    return f"strategy {_short_wallet(s.get('wallet'))}"
+
+
+# ── VENDORED book group key — byte-identical in senpi-portfolio, senpi-improve-trades and quant-desk;
+# pinned by senpi-portfolio/tests/test_name_reader_parity.py. Edit all three or none.
+def _book_group_key(strat):
+    """The book's key for a strategy's wallets — one Senpi strategy is ONE row, with all its wallets.
+
+    The invariant it rests on: one package = one strategy. The deploy verb stamps `skillName = <package
+    id>` on every wallet it creates and names each `<id>-<instance>` (bare `<id>` for one instance); a
+    re-run ADOPTS the live wallet of that name instead of funding a second, and refuses a wallet stamped
+    by another package. So a package's instances are its wallets, and they share this key. A fork is a
+    new id, so a new row. A wallet created outside the deploy path has no stamp: nothing says which
+    wallets are one strategy, so it is its own row. A duplicate wallet (a deploy race) carries the same
+    stamp and lands on the SAME row as an extra wallet — visible in its wallet count, never a second
+    strategy.
+
+    The SAME key in every step and every skill: portfolio's `money` step reads no runtime registry (the
+    fast slice), so there is no `profile.group` there — grouping by it made one strategy two rows, then
+    one. `skill_name` (from strategy_list) is on every read."""
+    if strat.get("skill_name"):
+        return str(strat["skill_name"])
+    return str(strat.get("wallet") or id(strat))
+# ── end vendored book group key
+
+
+def _strategy_rows(strategies, groups):
+    """One row per Senpi strategy, summed across ALL its wallets (`_book_group_key` — one key in every
+    step). `groups` is None on the `money` step, which reads no positions — those columns are then
+    `not_read_this_step` (asked later), not unknown. A wallet whose clearinghouse read failed has no
+    `account_value`: it is counted in `wallets_couldnt_load`, never summed as $0."""
+    order, buckets = [], {}
+    for s in (strategies or []):
+        try:
+            key = _book_group_key(s)
+        except Exception:  # noqa — a malformed row must not sink the list
+            key = str(s.get("wallet") or id(s))
+        if key not in buckets:
+            buckets[key] = []
+            order.append(key)
+        buckets[key].append(s)
+    rows = []
+    for key in order:
+        insts = buckets[key]
+        read = [s for s in insts if _usd(s.get("account_value")) is not None]
+        value = round(sum(_usd(s.get("account_value")) for s in read), 2) if read else None
+        row = {"label": _strategy_label(key, insts), "kind": KIND_MANAGED, "origin": "strategy",
+               "strategy_group": key, "wallet_count": len(insts),
+               "strategy_wallets": [{"name": s.get("name"), "wallet": s.get("wallet"),
+                                     "wallet_short": _short_wallet(s.get("wallet")),
+                                     "value_usd": _usd(s.get("account_value"))} for s in insts],
+               "value_usd": value, "loaded": value is not None,
+               "wallets_couldnt_load": len(insts) - len(read)}
+        if groups is None:
+            row.update({c: None for c in STRATEGY_DETAIL_COLUMNS})
+            row["not_read_this_step"] = list(STRATEGY_DETAIL_COLUMNS)
+            row["detail_step"] = "strategies"
+        else:
+            # rolled up over THIS row's wallets with group_strategies' own rules (all-protected, worst health,
+            # realized summed over the wallets that read) — never looked up by a key the money step lacks
+            row["open_positions"] = sum(len(s.get("positions") or []) for s in read) if read else None
+            # the runtime-exit word for a Senpi strategy — never `protection` (that is live stops on a saved wallet)
+            row["protected"] = _rollup_flag(insts, "protected")
+            row["runtime_health"] = next((v for v in _GROUP_HEALTH_WORST_FIRST
+                                          if any(s.get("runtime_health") == v for s in insts)), "unknown")
+            row["unrealized_pnl_usd"] = (round(sum(_num(p.get("upnl")) or 0.0 for s in read
+                                                   for p in (s.get("positions") or [])), 2) if read else None)
+            realized = [_num((s.get("closed") or {}).get("realized_pnl")) for s in insts]
+            realized = [v for v in realized if v is not None]
+            row["realized_pnl_usd"] = round(sum(realized), 2) if realized else None
+        rows.append(row)
+    return rows
+
+
+def _saved_rows(saved):
+    """One row per wallet the user added. Every figure is quoted from its verbatim `state`; a wallet whose
+    state couldn't be read is `loaded: false` with every column null."""
+    rows = []
+    for w in ((saved or {}).get("wallets") or []):
+        st = w.get("state") if w.get("state_read") == "ok" and isinstance(w.get("state"), dict) else None
+        value = _usd(st.get("totalValueUsd")) if st else None
+        no_activity = bool(st and str(st.get("role") or "").upper() == "MISSING" and not value)
+        if no_activity:
+            value = 0.0      # the read succeeded and Hyperliquid has no account here: a real $0
+        positions = st.get("positions") if st and isinstance(st.get("positions"), list) else None
+        if value is None:
+            positions = None
+        protection = upnl = None
+        if positions is not None:
+            protection = {}
+            for p in positions:
+                k = str(p.get("protection")) if isinstance(p, dict) else "None"
+                protection[k] = protection.get(k, 0) + 1
+            vals = [_num(p.get("unrealizedPnlUsd")) if isinstance(p, dict) else None for p in positions]
+            upnl = round(sum(vals), 2) if all(v is not None for v in vals) else None
+        unpriced = st.get("unpricedCoins") if st else None
+        rows.append({"label": w.get("label") or _short_wallet(w.get("address")),
+                     "kind": KIND_READ_ONLY, "origin": "saved",
+                     "address": w.get("address"), "address_short": _short_wallet(w.get("address")),
+                     "value_usd": value, "loaded": value is not None,
+                     "open_positions": len(positions) if positions is not None else None,
+                     # live stops on the exchange (FULL / PARTIAL / NONE counts) — never `protected`
+                     "protection": protection, "unrealized_pnl_usd": upnl,
+                     "excludes_coins": list(unpriced) if isinstance(unpriced, list) and unpriced else [],
+                     "no_hyperliquid_activity": no_activity, "positions_scope": POSITIONS_SCOPE,
+                     "state_read": w.get("state_read"), "access": w.get("access"),
+                     "not_applicable": list(EXTERNAL_NOT_APPLICABLE)})
+    return rows
+
+
+def _book_sort_key(row):
+    v = row.get("value_usd")
+    addr = row.get("address") or min((str(w.get("wallet") or "") for w in row.get("strategy_wallets") or []),
+                                     default="")
+    return (v is None, -(v or 0.0), str(row.get("label") or "").lower(), str(addr or "").lower())
+
+
+def _join(parts):
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
+def _deep_dive_worthy(row):
+    """A row the deep-dive question offers: something to go deeper on — a non-zero value, an open
+    position, or a value that couldn't load (unknown is never "nothing there"). A read $0 with no open
+    position (an empty Senpi main wallet, a saved wallet with no Hyperliquid activity) is still a row of
+    the list, never an option of the question."""
+    v = row.get("value_usd")
+    return v is None or v != 0 or bool(row.get("open_positions"))
+
+
+def build_book(embedded, strategies, saved, totals, groups=None, strategies_unreadable=False):
+    """`book` — the ONE wallet list + the one book total. `totals` is this step's Senpi money map;
+    `managed_usd` is its `grand_total_usd`, exactly. Additive: nothing here feeds back into `totals`.
+    `strategies_unreadable`: strategy_list itself failed, so the managed subtotal is the Senpi main wallet
+    only — said on the line and in `excludes`, never presented as the whole managed side."""
+    rows = [_embedded_row(embedded)] + _strategy_rows(strategies, groups) + _saved_rows(saved)
+    rows.sort(key=_book_sort_key)
+    saved_ok = (saved or {}).get("status") == EXTERNAL_OK
+    managed = totals.get("grand_total_usd")
+    ro_rows = [r for r in rows if r["kind"] == KIND_READ_ONLY]
+    ro_loaded = [r for r in ro_rows if r["loaded"]]
+    # None = unknown, never 0: the saved-wallets read failed, or not one of the saved wallets loaded
+    read_only = (round(sum(r["value_usd"] for r in ro_loaded), 2)
+                 if saved_ok and (ro_loaded or not ro_rows) else None)
+    total = round((managed or 0.0) + (read_only or 0.0), 2)
+    # what the total leaves out: every wallet that couldn't load (a strategy's unread sleeve by its name),
+    # the saved-wallets read when it failed, and every coin a saved wallet could not price
+    excluded = []
+    for r in rows:
+        if r["origin"] == "strategy" and r["wallets_couldnt_load"]:
+            excluded += [str(w.get("name") or w.get("wallet_short")) for w in r["strategy_wallets"]
+                         if w.get("value_usd") is None]
+        elif not r["loaded"]:
+            excluded.append(str(r["label"]))
+    coins = sorted({c for r in rows for c in (r.get("excludes_coins") or []) if isinstance(c, str)})
+    parts = []
+    if strategies_unreadable:
+        parts.append("your Senpi strategies (couldn't be read)")
+    if excluded:
+        parts.append(f"{len(excluded)} wallet{'s' if len(excluded) != 1 else ''} that couldn't load "
+                     f"({', '.join(excluded)})")
+    if not saved_ok:
+        parts.append("the wallets you added (couldn't load them)")
+    if coins:
+        parts.append(f"{', '.join(coins)} (no price)")
+    excludes_note = f"total excludes {_join(parts)}" if parts else None
+    reconciles = totals.get("reconciles")
+    if strategies_unreadable:
+        # the strategy buckets are unknown, not $0 — the managed figure is the main wallet alone
+        line = (f"Book total {_money_str(total)} — managed by Senpi {_money_str(managed or 0.0)} "
+                f"(your {EMBEDDED_LABEL} only — your Senpi strategies couldn't be read)")
+    else:
+        line = (f"Book total {_money_str(total)} — managed by Senpi {_money_str(managed or 0.0)} "
+                f"(idle in your {EMBEDDED_LABEL} {_money_str(totals.get('idle_in_embedded') or 0.0)} · "
+                f"idle in strategies {_money_str(totals.get('idle_in_strategies') or 0.0)} · "
+                f"deployed in positions {_money_str(totals.get('deployed_in_positions') or 0.0)})")
+    # the read-only clause: omitted when there are no saved wallets (nothing to say); "unknown" when none
+    # loaded; "N of M" when only some did. An unavailable read is said in the excludes note instead.
+    if saved_ok and ro_rows:
+        if read_only is None:
+            line += " · read-only unknown"
+        else:
+            count = (f"{len(ro_loaded)} of {len(ro_rows)} wallets you added" if len(ro_loaded) < len(ro_rows)
+                     else "wallets you added")
+            line += f" · read-only {_money_str(read_only)} ({count} — Senpi cannot trade or deploy it)"
+    if excludes_note:
+        line += f" · {excludes_note}"
+    if reconciles is False:
+        line += " · the managed figures do not reconcile (see meta.warnings) — re-run before quoting this total"
+    return {
+        "order_rule": BOOK_ORDER_RULE,
+        "wallets": rows,
+        "totals": {
+            "total_usd": total,
+            "managed_usd": managed,               # == totals.grand_total_usd, by construction
+            "managed_breakdown": {k: totals.get(k) for k in
+                                  ("idle_in_embedded", "idle_in_strategies", "deployed_in_positions",
+                                   "reconciles")},
+            # False = strategy_list failed: managed_usd is the Senpi main wallet only (said on the line)
+            "managed_complete": not strategies_unreadable,
+            # None = unknown, never 0: the saved-wallets read failed, or none of the saved wallets loaded
+            "read_only_usd": read_only,
+            "read_only_wallets": ({"total": len(ro_rows), "loaded": len(ro_loaded)} if saved_ok
+                                  else {"total": None, "loaded": None}),
+            "read_only_note": READ_ONLY_NOTE,
+            "excludes": {"wallets": excluded, "coins": coins, "saved_wallets_unavailable": not saved_ok,
+                         "strategies_unreadable": bool(strategies_unreadable)},
+            "excludes_note": excludes_note,
+            "line": line,
+        },
+        # only rows with something to go deeper on (`_deep_dive_worthy`), in the list's order
+        "deep_dive": {"offer": sum(1 for r in rows if _deep_dive_worthy(r)) > 1, "question": DEEP_DIVE_QUESTION,
+                      "order": [r["label"] for r in rows if _deep_dive_worthy(r)]},
+    }
+
+
 
 
 def fetch_strategies(client, meta):
@@ -714,6 +1220,7 @@ def fetch_strategies(client, meta):
         sl = _ok(client.mcp_call("strategy_list", status=["ACTIVE"], timeout=20))
     except Exception as e:  # noqa
         meta.setdefault("warnings", []).append(f"strategy_list failed: {e}")
+        meta["strategy_list_failed"] = True     # unknown, never "no strategies" (no_strategy_path, book)
         return []
     rows = sl if isinstance(sl, list) else _field(sl, "strategies", "data", default=[])
     # UNIVERSAL source of "what it does / how it works": the descriptor the RUNTIME renders for each
@@ -939,6 +1446,13 @@ def fetch_strategies(client, meta):
             reasons = _scanner_reasons(doc)
             if reasons:
                 s["runtime_reason"] = "; ".join(reasons)   # the runtime's own words — quote them
+            # A second fact off the same document, never a downgrade of the first (see the reader).
+            s["risk_pause"] = _risk_pause_from_status(doc)
+    for s in strategies:
+        s.setdefault("risk_pause", None)     # mirror / unverified / not_running rows: not asked, not paused
+    paused = [s["name"] for s in strategies if s.get("risk_pause")]
+    if paused:
+        meta["paused_by_risk_gate"] = paused
     # Roll up any strategy reported ACTIVE but holding $0 (empty wallet) — status/clearinghouse mismatch.
     dormant = [s["name"] for s in strategies if s.get("empty")]
     if dormant:
@@ -988,16 +1502,82 @@ def fetch_strategies(client, meta):
     recovering = [s["name"] for s in strategies if s.get("runtime_health") == "recovering"]
     if recovering:
         meta["recovering_runtimes"] = recovering
+    # RECENCY — the newest CLOSE per strategy, with its age. This is the last CLOSE, not the last
+    # activity: a clearinghouse position carries no open time, so an entry taken since it is invisible.
+    # A strategy with NO close on record is never flagged — `strategy_list` carries no creation date, so
+    # "never closed" cannot be told apart from "deployed ten minutes ago".
+    quiet = []
+    for s in strategies:
+        c = s.get("closed") if isinstance(s.get("closed"), dict) else {}
+        s["last_close_utc"] = c.get("closed_record_newest_utc")
+        s["hours_since_last_close"] = h = _age_hours(s["last_close_utc"])
+        if h is not None and h >= QUIET_AFTER_HOURS and not s.get("empty"):
+            quiet.append({"name": s.get("name"), "hours": h, "holding": len(s.get("positions") or [])})
+    # Data, NOT a `meta.warnings` line: warnings are this file's fault channel (degraded, not running,
+    # a failed read), and a slow-clock sleeve holding a book for days is working as designed. A warning
+    # that is usually benign is one people learn to skip. SKILL.md says when it is worth narrating.
+    if quiet:
+        meta["quiet_strategies"] = quiet
     return strategies
 
 
+def _closed_direction(row):
+    """Side of a CLOSED trade, read only from a side label on the row. The real `discovery_get_trader_history`
+    row labels the side in `type` ("Close Long" / "Close Short") and carries an UNSIGNED at-close `szi` —
+    positive on a closed short too — so the sign of the size says nothing about the side. The label is on
+    every row the feed returns. A label in `dir` / `side` / `direction` / `positionSide` / `type` containing
+    "long" or "short" (any case) decides it, and nothing else is read: not the size's sign, not realized PnL
+    against the price move, not a buy / sell side (on a closed row that can be the closing fill, which is the
+    opposite side). No label → None, and the row counts as `unknown_side`."""
+    for name in ("dir", "side", "direction", "positionSide", "type"):
+        label = str(_field(row, name, default="") or "").strip().lower()
+        if "short" in label:
+            return "short"
+        if "long" in label:
+            return "long"
+    return None
+
+
+def _utc_iso(ts):
+    """An epoch timestamp as `YYYY-MM-DDTHH:MM:SSZ` (UTC), or None when it does not read as one. The
+    trader-history `closeTime` is epoch SECONDS; a value of 1e12 or more is MILLISECONDS (the same cut as
+    senpi-improve-trades' `_ms`). Only a 10-digit second (2001-2286) is a date: text, zero, a negative
+    or a number of any other size is None, never a date made up from it."""
+    n = _num(ts)
+    if n is None:
+        return None
+    secs = n / 1000.0 if n >= 1e12 else n
+    if not 1e9 <= secs < 1e10:
+        return None
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(secs))
+
+
+def _age_hours(iso):
+    """Whole hours between a `_utc_iso` stamp and now, or None when it does not read as one.
+    `timegm` (not `mktime`) because the stamp is UTC and the host's local zone must not shift it.
+    An unparseable stamp is "cannot tell" → None, never an age invented from it."""
+    if not isinstance(iso, str):
+        return None
+    try:
+        secs = calendar.timegm(time.strptime(iso, "%Y-%m-%dT%H:%M:%SZ"))
+    except Exception:  # noqa — bad stamp in, None out
+        return None
+    return max(0, int((time.time() - secs) // 3600))
+
+
 def fetch_closed(client, wallet, meta):
-    """Read-guarded closed-position ledger for a strategy wallet: total realized PnL + a short list of
-    recent closed trades. Extraction matches the real `discovery_get_trader_history` shape
-    (senpi://guides/trader-closed-positions): a `closedPositions[]` of records with `coin`, signed `szi`
-    (>0 closed long / <0 closed short), string `realizedPnl`, Unix-ms `closeTime`, `entryPx`/`exitPx`.
+    """Read-guarded closed-position ledger for a strategy wallet: total realized PnL, the record over the
+    whole pull (winners / losers / win rate / longs / shorts) + a short list of recent closed trades.
+    The record is printed so the narration quotes it — `recent[]` is the last few trades, and a win rate
+    or a long/short split read off it is a guess. Extraction matches the real `discovery_get_trader_history` shape
+    (senpi://guides/trader-closed-positions): a `closedPositions[]` of records with `coin`, the side labelled
+    in `type` ("Close Long" / "Close Short") beside an UNSIGNED at-close `szi`, string `realizedPnl`,
+    `closeTime`, `entryPx`/`exitPx`. The side is read by `_closed_direction`, never off the sign of `szi`.
+    Each close is dated in UTC (`closed_at_utc`) and `closed_record_newest_utc` is the newest close the
+    record holds: the record is ingested after the fact, so a close can be missing from it for hours.
     Fails OPEN — any read/parse error → empty closed block + a meta.warning, never crashes."""
-    empty = {"realized_pnl": None, "trade_count": 0, "recent": []}
+    empty = {"realized_pnl": None, "trade_count": None, "winners": None, "losers": None, "win_rate_pct": None,
+             "longs": None, "shorts": None, "unknown_side": None, "closed_record_newest_utc": None, "recent": []}
     try:
         h = _ok(client.mcp_call("discovery_get_trader_history", trader_address=wallet,
                                 sort_by="CLOSED_TIME", sort_direction="DESC",
@@ -1013,23 +1593,54 @@ def fetch_closed(client, wallet, meta):
     if not isinstance(rows, list):
         rows = []
     realized_total = 0.0
+    winners = losers = longs = shorts = unknown_side = 0
+    parsed = 0                   # the denominator is the rows actually read, never len(rows)
+    undated = 0
+    newest = None
     recent = []
     for p in rows:
         if not isinstance(p, dict):
             continue
+        parsed += 1
         pnl = _f(p, "realizedPnl", "realized_pnl", default=0.0)   # often a string → _f coerces
         realized_total += pnl
+        side = _closed_direction(p)
+        close_raw = _field(p, "closeTime", "closed_time", "closeTimeMs")
+        closed_at = _utc_iso(close_raw)
+        if closed_at is None:
+            undated += 1
+        elif newest is None or closed_at > newest:    # same-width ISO strings sort in time order
+            newest = closed_at
+        if pnl > 0:
+            winners += 1
+        elif pnl < 0:
+            losers += 1              # a flat close counts as neither, so winners + losers <= trade_count
+        if side == "long":
+            longs += 1
+        elif side == "short":
+            shorts += 1
+        else:
+            unknown_side += 1        # None = nothing on the row reads as a side, and the gap stays visible
         if len(recent) < CLOSED_HISTORY_CAP:
-            szi = _f(p, "szi", "size", default=0.0)
             recent.append({
                 "asset": _field(p, "coin", "coinDisplayName", "asset"),
-                "direction": "long" if szi >= 0 else "short",   # closed-side sign (szi>0 closed a long)
+                "direction": side,
                 "realized_pnl": round(pnl, 2),
                 "entry_px": _field(p, "entryPx", "entry_px"),
                 "exit_px": _field(p, "exitPx", "exit_px"),
-                "closed_time": _field(p, "closeTime", "closed_time", "closeTimeMs"),
+                "closed_time": close_raw,         # raw epoch as the feed sent it; quote closed_at_utc
+                "closed_at_utc": closed_at,
             })
-    return {"realized_pnl": round(realized_total, 2), "trade_count": len(rows), "recent": recent}
+    if undated:
+        meta.setdefault("warnings", []).append(
+            f"trader_history {wallet[:8]}: {undated} closed trade(s) with no readable close time — "
+            f"closed_at_utc is null for them; give those closes no date")
+    n = parsed
+    return {"realized_pnl": round(realized_total, 2), "trade_count": n,
+            "winners": winners, "losers": losers,
+            "win_rate_pct": round(100.0 * winners / n, 1) if n else None,
+            "longs": longs, "shorts": shorts, "unknown_side": unknown_side,
+            "closed_record_newest_utc": newest, "recent": recent}
 
 
 # ──────────────────────────────────────────────────────────────── live per-position DSL / ratchet tier
@@ -1203,11 +1814,13 @@ def _warn_if_not_reconciled(totals, meta):
     grand = totals.get("grand_total_usd") or 0.0
     gap = round(abs((pbal or 0.0) - grand), 2)
     tol = round(_reconcile_tolerance(grand), 2)
-    meta.setdefault("warnings", []).append(
-        f"TOTALS DO NOT RECONCILE — the portfolio aggregate (${pbal:,.2f}) and the per-wallet grand "
-        f"total (${grand:,.2f}) disagree by ${gap:,.2f} (tolerance ${tol:,.2f}): a bucket is missing or "
-        f"double-counted. STOP and re-run before narrating any dollar figure (SKILL.md); if it "
-        f"persists, trust the per-wallet (live) figures and say the aggregate disagrees.")
+    msg = (f"TOTALS DO NOT RECONCILE — the portfolio aggregate (${pbal:,.2f}) and the per-wallet grand "
+           f"total (${grand:,.2f}) disagree by ${gap:,.2f} (tolerance ${tol:,.2f}): a bucket is missing or "
+           f"double-counted. STOP and re-run before narrating any dollar figure (SKILL.md); if it "
+           f"persists, trust the per-wallet (live) figures and say the aggregate disagrees.")
+    warnings = meta.setdefault("warnings", [])
+    if msg not in warnings:          # idempotent: a later step re-checks what an earlier one already said
+        warnings.append(msg)
 
 
 def compute(embedded, strategies, portfolio_totals, meta=None):
@@ -1364,12 +1977,26 @@ def group_strategies(strategies, meta):
             return round(sum(vals), 2) if vals else None
         realized_vals = [_num((s.get("closed") or {}).get("realized_pnl")) for s in insts]
         realized_vals = [v for v in realized_vals if v is not None]
+
+        def _closed_count(field):
+            vals = [_num((s.get("closed") or {}).get(field)) for s in insts]
+            vals = [v for v in vals if v is not None]
+            return int(sum(vals)) if vals else None
+        closed_counts = {f: _closed_count(f) for f in ("trade_count", "winners", "losers", "longs", "shorts", "unknown_side")}
+        n_closed = closed_counts["trade_count"] or 0
+        newest = [(s.get("closed") or {}).get("closed_record_newest_utc") for s in insts]
         totals = {
             "account_value": _sum("account_value"),
             "idle_withdrawable": _sum("idle_withdrawable"),
             "deployed": _sum("deployed"),
             "upnl": _sum("upnl"),
             "realized_pnl": round(sum(realized_vals), 2) if realized_vals else None,
+            # the closed record summed across the strategy's wallets — quote these, never a rate
+            # worked out from the per-wallet `recent[]` samples
+            **closed_counts,
+            "win_rate_pct": (round(100.0 * closed_counts["winners"] / n_closed, 1)
+                             if n_closed and closed_counts["winners"] is not None else None),
+            "closed_record_newest_utc": max(filter(None, newest), default=None),   # newest close on any wallet
         }
 
         # flat instances = an instance with NO open positions. For a multi-wallet strategy this is its
@@ -1410,6 +2037,9 @@ def group_strategies(strategies, meta):
             # recovering+live pair reports a clean 'live'.
             "runtime_health": next((v for v in _GROUP_HEALTH_WORST_FIRST
                                     if any(s.get("runtime_health") == v for s in insts)), "unknown"),
+            # risk_pause: ANY sleeve held by its own risk gate → the strategy is (partly) paused by its
+            # rule. The first paused sleeve's gate is carried; per-sleeve detail is on each instance.
+            "risk_pause": next((s.get("risk_pause") for s in insts if s.get("risk_pause")), None),
             "flat_instances": flat_instances,
             "profile_source": prof.get("source"),
         })
@@ -1422,7 +2052,9 @@ def group_strategies(strategies, meta):
 # ──────────────────────────────────────────────────────────────── orchestration
 def run(client, want_market=True):
     meta = {"warnings": [], "real_time": True, "force_fetch": True}
-    embedded, portfolio_totals = fetch_embedded(client, meta)
+    me = _read_me(client, meta)
+    embedded, portfolio_totals = fetch_embedded(client, meta, me=me)
+    saved = fetch_external(client, me, meta)
     strategies = fetch_strategies(client, meta)
     if want_market and strategies:
         enrich_market(client, strategies, meta)
@@ -1432,12 +2064,21 @@ def run(client, want_market=True):
     # A STRATEGY IS ALL ITS WALLETS — re-unite the per-wallet rows into one entry per real strategy.
     # SUPPLEMENTS `strategies[]` (kept — bucket math + detail rely on it); groups add the strategy-level view.
     strategy_groups = group_strategies(strategies, meta)
-    if not strategies and not embedded.get("address"):
-        meta["degraded"] = "no wallet data — check the token is USER-scoped"
+    _mark_no_wallet_data(meta, strategies, embedded, saved)
+    # per-wallet reads run in a thread pool, so warnings land in completion order; sort them so two runs
+    # over the same data are byte-identical (the `all` step is compared to run() that way)
+    meta["warnings"] = sorted(meta["warnings"])
     return {
         "as_of": "live",
-        "totals": totals,           # the three buckets — NEVER conflate them
+        # EVERY wallet in ONE list by value (kind = managed / read-only) + the one book total — present
+        # from here; managed subtotal == totals.grand_total_usd
+        "book": build_book(embedded, strategies, saved, totals, strategy_groups,
+                           strategies_unreadable=bool(meta.get("strategy_list_failed"))),
+        "totals": totals,           # the three buckets — NEVER conflate them (the MANAGED money only)
         "embedded_wallet": embedded,
+        # READ-ONLY wallets the user trades by hand — their raw state; never in totals/idle/reconciles.
+        # Presented as rows of `book`, never as a section of their own.
+        "external_wallets": saved,
         "strategies": strategies,
         # ONE entry per real strategy (a strategy is ALL its wallets); reason + recommend at THIS level.
         "strategy_groups": strategy_groups,
@@ -1549,6 +2190,7 @@ def fetch_strategy_money(client, meta):
         sl = _ok(client.mcp_call("strategy_list", status=["ACTIVE"], timeout=20))
     except Exception as e:  # noqa
         meta.setdefault("warnings", []).append(f"strategy_list failed: {e}")
+        meta["strategy_list_failed"] = True     # unknown, never "no strategies" (no_strategy_path, book)
         return []
     rows = sl if isinstance(sl, list) else _field(sl, "strategies", "data", default=[])
     strategies = []
@@ -1557,9 +2199,13 @@ def fetch_strategy_money(client, meta):
         if not wallet:
             continue
         name, name_source = _strategy_name_and_source(s)
+        meta_obj = _field(s, "strategyMetadata", "metadata")
+        skill_name = _field(meta_obj, "skillName", "skill_name") if isinstance(meta_obj, dict) else None
         strategies.append({
             "name": name,
             "name_source": name_source,     # see fetch_strategies — same reader, same contract
+            # the package (same reader as fetch_strategies) — the `book` groups a strategy's wallets by it
+            "skill_name": skill_name or _field(s, "skillName", "skill_name", "skill"),
             "wallet": wallet,
             "strategy_id": _field(s, "id", "strategyId", "strategy_id"),
             "status": _field(s, "status", default="ACTIVE"),
@@ -1616,22 +2262,56 @@ def _ensure_full_strategies_in_state(client, state, want_market, meta):
     portfolio_totals = state.get("portfolio_totals")
     strategies = state.get("strategies_full")
     if isinstance(embedded, dict) and isinstance(strategies, list) and isinstance(portfolio_totals, dict):
+        if state.get("strategy_list_failed"):
+            meta["strategy_list_failed"] = True
         return embedded, strategies, portfolio_totals
     # state absent/partial → recompute the full pull (embedded + fully-hydrated strategies). The market
     # enrichment is the `positions` step's job — skip it here (want_market only gates step 3's fold).
-    embedded, portfolio_totals = fetch_embedded(client, meta)
+    me = _read_me(client, meta)
+    embedded, portfolio_totals = fetch_embedded(client, meta, me=me)
+    if not _has_external(state):
+        state["external_wallets"] = fetch_external(client, me, meta)
     strategies = fetch_strategies(client, meta)
     state["embedded_wallet"] = embedded
     state["portfolio_totals"] = portfolio_totals
     state["strategies_full"] = strategies
-    state.setdefault("meta_warnings", [])
-    state["meta_warnings"] = meta.get("warnings", [])
+    state["strategy_list_failed"] = bool(meta.get("strategy_list_failed"))
+    # MERGE, never overwrite: the `money` step's stored warnings (a failed read, TOTALS DO NOT RECONCILE)
+    # are still true of this turn, and the book line points at them
+    stored = list(state.get("meta_warnings") or [])
+    state["meta_warnings"] = stored + [w for w in meta.get("warnings", []) if w not in stored]
     state["registry_source"] = meta.get("registry_source")
     state["catalog_source"] = meta.get("catalog_source")
     state["profile_source"] = meta.get("profile_source")
     if "runtime_read_ok" in meta:
         state["runtime_read_ok"] = meta["runtime_read_ok"]
     return embedded, strategies, portfolio_totals
+
+
+def _has_external(state):
+    saved = state.get("external_wallets")
+    return isinstance(saved, dict) and "status" in saved
+
+
+def _ensure_external_in_state(client, state, meta):
+    """The saved-wallets section for the `strategies`/`positions` steps — from state when an earlier
+    step (or the full-fetch self-heal) stored it, else the same fetch `money` makes. Without it a
+    saved-only user's empty strategy list reads as "no positions" and invites a strategy pitch."""
+    if _has_external(state):
+        return state["external_wallets"]
+    saved = fetch_external(client, _read_me(client, meta), meta)
+    state["external_wallets"] = saved
+    return saved
+
+
+def _mark_no_wallet_data(meta, strategies, embedded, saved):
+    """`meta.no_strategy_path` for a saved-only user, else the token fault when nothing came back —
+    one rule for `run()` and every step. A FAILED strategy_list is not "no strategy": never the
+    no-strategy path on an unread list."""
+    if _no_strategy_path(strategies, saved) and not meta.get("strategy_list_failed"):
+        meta["no_strategy_path"] = True
+    elif not strategies and not embedded.get("address"):
+        meta["degraded"] = "no wallet data — check the token is USER-scoped"
 
 
 def _carry_provenance(meta, state):
@@ -1661,21 +2341,27 @@ def step_money(client, want_market=True, state_path=None):
     # money re-fetches everything it needs. (_load_state's TTL covers a standalone `strategies`/`positions`.)
     state = {}
     meta = _fresh_meta()
-    embedded, portfolio_totals = fetch_embedded(client, meta)
+    me = _read_me(client, meta)
+    embedded, portfolio_totals = fetch_embedded(client, meta, me=me)
+    saved = fetch_external(client, me, meta)
     strategies = fetch_strategy_money(client, meta)
     totals = _money_totals(embedded, strategies, portfolio_totals, meta)
     meta["strategy_count"] = len(strategies)
-    if not strategies and not embedded.get("address"):
-        meta["degraded"] = "no wallet data — check the token is USER-scoped"
+    _mark_no_wallet_data(meta, strategies, embedded, saved)
     # persist the money-lite strategy rows (name/wallet/id/status/money) so the later steps reuse the
     # wallet set; the full hydrate (positions/DSL/closed/profile) is the `strategies` step's self-heal.
     state["embedded_wallet"] = embedded
     state["portfolio_totals"] = portfolio_totals
     state["strategies_money"] = strategies
+    state["external_wallets"] = saved
     state["totals"] = totals
+    state["strategy_list_failed"] = bool(meta.get("strategy_list_failed"))
     state["meta_warnings"] = meta.get("warnings", [])
     _save_state(state_path, state)
-    return {"totals": totals, "embedded_wallet": embedded, "strategies": strategies, "meta": meta}
+    return {"book": build_book(embedded, strategies, saved, totals,
+                               strategies_unreadable=bool(meta.get("strategy_list_failed"))),
+            "totals": totals,
+            "embedded_wallet": embedded, "external_wallets": saved, "strategies": strategies, "meta": meta}
 
 
 def step_strategies(client, want_market=True, state_path=None):
@@ -1693,18 +2379,24 @@ def step_strategies(client, want_market=True, state_path=None):
     for w in state.get("meta_warnings", []):
         if w not in meta["warnings"]:
             meta["warnings"].append(w)
+    saved = _ensure_external_in_state(client, state, meta)
     _carry_provenance(meta, state)
     meta["strategy_count"] = len(strategies)
     meta.setdefault("has_multi_wallet_strategy", False)
     strategy_groups = group_strategies(strategies, meta)
-    if not strategies and not embedded.get("address"):
-        meta["degraded"] = "no wallet data — check the token is USER-scoped"
+    _mark_no_wallet_data(meta, strategies, embedded, saved)
+    # this step prints no `totals`; the book's managed subtotal is the same money map over these rows. Its
+    # line says "(see meta.warnings)" on a mismatch, so the warning is raised here too (once — the warn is
+    # idempotent against the one carried from the `money` step).
+    book = build_book(embedded, strategies, saved, _money_totals(embedded, strategies, portfolio_totals, meta),
+                      strategy_groups, strategies_unreadable=bool(meta.get("strategy_list_failed")))
     state["strategies_full"] = strategies
     state["strategy_groups"] = strategy_groups
     state["meta_warnings"] = meta.get("warnings", [])
     state["has_multi_wallet_strategy"] = meta.get("has_multi_wallet_strategy", False)
     _save_state(state_path, state)
-    return {"strategies": strategies, "strategy_groups": strategy_groups, "meta": meta}
+    return {"book": book, "strategies": strategies, "strategy_groups": strategy_groups,
+            "external_wallets": saved, "meta": meta}
 
 
 def step_positions(client, want_market=True, state_path=None):
@@ -1721,6 +2413,7 @@ def step_positions(client, want_market=True, state_path=None):
     for w in state.get("meta_warnings", []):
         if w not in meta["warnings"]:
             meta["warnings"].append(w)
+    saved = _ensure_external_in_state(client, state, meta)
     if want_market and strategies:
         enrich_market(client, strategies, meta)
     totals, exposure, signals = compute(embedded, strategies, portfolio_totals, meta)
@@ -1731,8 +2424,7 @@ def step_positions(client, want_market=True, state_path=None):
     # positions — this is exactly run()'s order (enrich_market → group_strategies), keeping the shared
     # state after the full pipeline byte-consistent with `all`.
     strategy_groups = group_strategies(strategies, meta)
-    if not strategies and not embedded.get("address"):
-        meta["degraded"] = "no wallet data — check the token is USER-scoped"
+    _mark_no_wallet_data(meta, strategies, embedded, saved)
     # persist the enriched strategies (market fields now folded onto positions) + exposure/signals + the
     # refreshed groups (over the enriched positions).
     state["strategies_full"] = strategies
@@ -1743,8 +2435,10 @@ def step_positions(client, want_market=True, state_path=None):
     state["meta_warnings"] = meta.get("warnings", [])
     state["has_multi_wallet_strategy"] = meta.get("has_multi_wallet_strategy", False)
     _save_state(state_path, state)
-    return {"strategies": strategies, "strategy_groups": strategy_groups, "exposure": exposure,
-            "signals": signals, "totals": totals, "meta": meta}
+    return {"book": build_book(embedded, strategies, saved, totals, strategy_groups,
+                               strategies_unreadable=bool(meta.get("strategy_list_failed"))),
+            "strategies": strategies, "strategy_groups": strategy_groups, "external_wallets": saved,
+            "exposure": exposure, "signals": signals, "totals": totals, "meta": meta}
 
 
 # ──────────────────────────────────────────────────────────────── CLI
@@ -1773,6 +2467,7 @@ def _all_and_persist(client, want_market, state_path):
         state_path = _default_state_path()
     state = {
         "embedded_wallet": result.get("embedded_wallet"),
+        "external_wallets": result.get("external_wallets"),
         "strategies_full": result.get("strategies"),
         "strategy_groups": result.get("strategy_groups"),
         "totals": result.get("totals"),
@@ -1783,6 +2478,7 @@ def _all_and_persist(client, want_market, state_path):
         "catalog_source": (result.get("meta") or {}).get("catalog_source"),
         "profile_source": (result.get("meta") or {}).get("profile_source"),
         "has_multi_wallet_strategy": (result.get("meta") or {}).get("has_multi_wallet_strategy", False),
+        "strategy_list_failed": bool((result.get("meta") or {}).get("strategy_list_failed")),
     }
     _save_state(state_path, state)
     return result

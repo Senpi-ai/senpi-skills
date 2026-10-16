@@ -1,7 +1,7 @@
 # ── BADGER · single instance — OI-divergence breakout anticipator ─────────────
 # Runtime 3.0 port of the v2 Badger (SKILL.md v1.0.0 / badger-producer.py v1.0.1).
 # Liquid-majors whitelist (BTC/ETH/SOL/HYPE). Takes a prior-24h range break ONLY
-# when open interest is RISING (new money) AND smart money agrees with the break,
+# when open interest is RISING (new money) AND the 4h leaders sit on the side of the break,
 # then sizes 20% / 5x and hands it to a wide DSL ladder so a confirmed breakout
 # can run. DSL-only exits, time-cuts disabled. Faithful port of the v2 producer
 # thesis — see scanners/scoring.py (math reproduced verbatim, v2-quirks flagged).
@@ -13,7 +13,7 @@ description: >
   Open interest is the fuel of a breakout: a price push beyond the prior 24h range
   confirmed by RISING open interest = new money committing = real follow-through; a
   breakout on flat/declining OI is a fakeout. Three hard gates — price breaks the
-  prior 24h range edge, OI rising >= 2% over 1h, smart-money direction agrees + tilt
+  prior 24h range edge, OI rising >= 2% over 1h, the 4h leaders' side agrees + tilt
   >= 55% — then a max-~10 score (breakout magnitude, OI strength, SM strength, 4h
   structure, volume) picks the single best candidate at score >= 5. Flat 20% margin /
   5x leverage. DSL is the ONLY exit — time-cuts disabled, wide ratchet ladder (first
@@ -47,6 +47,7 @@ scanners:
       oiStrongPct: 5.0                     # v2 oiStrongPct — strongly-building bonus
       smTiltMinPct: 55                     # v2 smTiltMinPct
       smStrongTiltPct: 70                  # v2 smStrongTiltPct
+      minTraderCount: 10                   # 4h-board headcount floor: a lean whose leading side has fewer traders is refused
       marginPct: 20                        # PERCENT of withdrawable (0,100]; v2 config 0.20 -> 20%
       leverage: 5                          # clamped to MAX_LEVERAGE 5 in scan.py
       recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)

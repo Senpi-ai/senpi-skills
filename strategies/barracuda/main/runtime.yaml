@@ -58,6 +58,8 @@ scanners:
       # own "medium" conviction floor) while the cooldowns + max_entries_per_day
       # hold turnover down. NOTE: gate any real deploy on a 24h backtest FIRE RATE —
       # a min_score that yields zero candidates over the window ships a dead scanner.
+      pause_after_close_seconds: 1200   # after ANY position leaves the book, stop opening for 20m: a freed
+                                       # slot refilled within minutes is what made fees 10.9% of capital
       min_score: 20
       min_score_fast: 18         # fast-track (volume-spike breakout) enters a touch easier
       max_positions: 4           # matches strategy.slots
@@ -148,7 +150,12 @@ actions:
     decision_mode: rule
     scanners: [close_all_scanner]
     params:
-      order_type: MARKET
+      # The book-wide take-profit fired 105 times and closed 329 positions in 30 days, every one a
+      # market order. Maker window first, taker fallback so the exit still happens.
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
     context:
       - { type: signal, scanner: close_all_scanner }
 
@@ -200,7 +207,8 @@ risk:
     daily_loss_limit_pct: 10
     max_entries_per_day: 20              # hard daily entry cap — the primary turnover/fee control; never disable it
     max_consecutive_losses: 5
-    cooldown_seconds: 1200               # 20m global pause between entries
+    cooldown_seconds: 1200               # gate 3: the pause AFTER max_consecutive_losses losing closes —
+                                         # not a gap between entries (the scanner's pause_after_close_seconds is that)
     per_asset_cooldown_seconds: 7200     # 2h before the same name can re-enter
     drawdown_halt_pct: 20
     drawdown_reset_on_day_rollover: true

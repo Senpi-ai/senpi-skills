@@ -3,9 +3,9 @@ name: beaver-main
 group: beaver
 version: 3.0.0
 description: >
-  BEAVER — single-asset BTC trend follower with a hard Smart-Money direction gate.
+  BEAVER — single-asset BTC trend follower with a hard 4h-leader direction gate.
   Onboarding tier. Enters only when 4h candle structure is trending (non-NEUTRAL),
-  1h optionally confirms, and Senpi's Smart-Money leaderboard agrees with the 4h
+  1h optionally confirms, and the 4h leaderboard's winning side agrees with the 4h
   direction at >=60% tilt. Simple 5-component score (max ~9), floor 5. Flat 5x
   leverage (no conviction tiers — faithful to v2). DSL is the ONLY exit (wide
   Bison-pattern ladder so winning trends ride multi-day). Faithful port of the v2
@@ -36,6 +36,7 @@ scanners:
       marginPct: 25                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
       smTiltMinPct: 60                     # SM gate floor (hard)
       smStrongTiltPct: 70                  # +1 score when SM tilt >= this
+      minTraderCount: 10                   # 4h-board headcount floor: a lean whose leading side has fewer traders is refused
       recentSignalTtlSeconds: 14400        # 240m — mirror the 4h per-asset cooldown
     signal_data_schema:
       score: { type: number }

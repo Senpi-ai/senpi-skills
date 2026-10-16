@@ -1,7 +1,7 @@
 # ── HEDGEHOG · single instance — equal-weight BTC/ETH/SOL directional basket ──
 # Runtime 3.0 port of the v2 HEDGEHOG (hedgehog-producer.py v1.0.1 / SKILL.md
 # v1.0.0). Onboarding-tier major-crypto basket: each of BTC/ETH/SOL evaluated
-# INDEPENDENTLY (long OR short) on a HARD-GATED 4h trend + Smart-Money direction
+# INDEPENDENTLY (long OR short) on a HARD-GATED 4h trend + 4h-leader direction
 # thesis. Up to 3 simultaneous positions, flat 10% margin per leg, 5x leverage,
 # per-position DSL exits. Faithful port — see scanners/scoring.py (math verbatim).
 name: hedgehog-main
@@ -10,7 +10,7 @@ version: 3.0.0
 description: >
   HEDGEHOG — equal-weight major-crypto basket (BTC + ETH + SOL), each leg
   independently directional. Per asset: HARD GATES (4h trend non-neutral +
-  Smart-Money direction agrees with the 4h direction + SM tilt >= 55%), then a
+  the 4h leaders' direction agrees with the 4h direction + SM tilt >= 55%), then a
   simple 4-component score (max ~9): +3 4h trend, +2 1h confirm, +2 SM aligned,
   +1 SM strongly tilted (>=70%). Emits the single highest-scoring unheld leg per
   tick; the basket fills to 3 slots over ticks. Flat 10% margin per leg (max 30%
@@ -43,6 +43,7 @@ scanners:
       minScore: 5                          # v2 minScore (DEFAULT_MIN_SCORE) — easy directional-confluence floor
       smTiltMinPct: 55                     # v2 smTiltMinPct (DEFAULT_SM_TILT_MIN) — SM agreement gate
       smStrongTiltPct: 70                  # v2 smStrongTiltPct (DEFAULT_SM_STRONG) — +1 strong-tilt bonus
+      minTraderCount: 10                   # 4h-board headcount floor: a lean whose leading side has fewer traders is refused
       marginPct: 10                        # PERCENT of withdrawable (0,100]; flat per leg (v2 0.10 fraction x100)
       leverage: 5                          # clamped to [1,5] in scan.py (MAX_LEVERAGE)
       recentSignalTtlSeconds: 240          # v1.0.1 RECENT_SIGNAL_TTL_SEC (race-window dedup)

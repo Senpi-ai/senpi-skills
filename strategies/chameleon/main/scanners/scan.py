@@ -17,7 +17,7 @@ FIDELITY NOTES vs the v2 producer (chameleon-producer.py v1.0.1):
   - v2 sized via marginPct * account_value -> marginUsd, with marginPct stored as
     a FRACTION (config marginPct=0.15). This port emits `marginPct` as a PERCENT
     in (0,100] (15) and the runtime sizes (marginPct/100)*withdrawable. The
-    defensive "<=1.0 means a pasted v2 fraction, x100" guard is added (dire/koala
+    defensive "<1.0 means a pasted v2 fraction, x100" guard is added (dire/koala
     pattern) so an operator who pastes 0.15 doesn't silently size ~100x small.
   - v2's runtime.yaml template said `margin_pct: 20`, but the PRODUCER + config.json
     are the source of truth and use marginPct 0.15 (=15%). This port uses 15% and
@@ -158,7 +158,7 @@ def _fetch_candles(ctx, asset):
     return candles.get("1h", []) or []
 
 
-def _fetch_sm_direction(ctx, asset):
+def _fetch_sm_direction(ctx, asset, min_traders=10):
     """Port of v2 fetch_sm_direction: net smart-money lean for `asset` from
     leaderboard_get_markets. Returns (direction, tilt_pct) or (None, 0.0).
     READ-GUARDED. Verbatim: long_ratio >= 50 -> ('LONG', long_ratio) else
@@ -180,6 +180,7 @@ def _fetch_sm_direction(ctx, asset):
         return None, 0.0
 
     long_pct, short_pct, found = 0.0, 0.0, False
+    side_n = {}                                    # per-side headcount of the 4h leaders
     for m in markets:
         if not isinstance(m, dict):
             continue
@@ -188,6 +189,7 @@ def _fetch_sm_direction(ctx, asset):
             continue
         found = True
         d = str(m.get("direction", "")).upper()
+        side_n[d] = int(m.get("trader_count", 0) or 0)
         pct = scoring._f(m, "pct_of_top_traders_gain", "longPct", default=0.0)
         if d == "LONG":
             long_pct = pct
@@ -199,6 +201,8 @@ def _fetch_sm_direction(ctx, asset):
     if total <= 0:
         return "NEUTRAL", 50.0
     long_ratio = (long_pct / total) * 100
+    if side_n.get("LONG" if long_ratio >= 50 else "SHORT", 0) < min_traders:
+        return None, 0.0   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
     return ("LONG", long_ratio) if long_ratio >= 50 else ("SHORT", 100 - long_ratio)
 
 
@@ -216,15 +220,16 @@ def scan(inputs, ctx):
     now = time.time()
     pairs = inputs.get("pairs", _DEFAULT_PAIRS)
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
+    min_traders = int(inputs.get("minTraderCount", 10))   # 4h-board headcount floor
     lev_default = int(inputs.get("leverage", _DEFAULT_LEVERAGE))
     max_leverage = int(inputs.get("maxLeverage", _MAX_LEVERAGE))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
 
-    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value <= 1
+    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value < 1
     # (an operator who pasted the v2 FRACTION 0.15) into a PERCENT so it never
     # silently sizes ~100x small (the runtime sizes (marginPct/100)*withdrawable).
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         print(f"[chameleon.scan] marginPct={margin_pct} looks like a v2 fraction; "
               f"converting to PERCENT ({margin_pct * 100})", file=sys.stderr)
         margin_pct = margin_pct * 100.0
@@ -259,7 +264,7 @@ def scan(inputs, ctx):
         if leg in held_set or scoring.was_recently_signaled(signaled, leg, ttl, now):
             continue
         scanned += 1
-        sm = _fetch_sm_direction(ctx, pair["leg"])
+        sm = _fetch_sm_direction(ctx, pair["leg"], min_traders)
         th = scoring.build_pair_thesis(pair, closes_by_asset, candles_by_asset, sm, inputs)
         if th and th["score"] >= min_score:
             candidates.append(th)

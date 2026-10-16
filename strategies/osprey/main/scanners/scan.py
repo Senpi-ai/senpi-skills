@@ -34,7 +34,7 @@ FIDELITY NOTES vs the v2 producer (osprey-producer.py v1.0.1 + osprey_config.py)
     documented signature read with the required warmup/BTC-only read-guard.
   - v2 conviction-scaled margin used marginPct=0.15 (a FRACTION) * account_value
     -> marginUsd. This port emits `marginPct` (PERCENT) and the runtime sizes
-    (marginPct/100)*withdrawable. Defensive guard: a value <= 1.0 is treated as a
+    (marginPct/100)*withdrawable. Defensive guard: a value < 1.0 is treated as a
     pasted v2 fraction and converted x100 (dire/koala pattern).
   - DROPPED v2 order-lifecycle: none. v2 Osprey had NO cancel_order /
     has_resting_orders / stale-order purge — the producer NEVER closed (DSL owns
@@ -70,10 +70,17 @@ def _sm_row_matches(row, token, target):
 
 # v2 defaults (osprey-producer.py / osprey-config.json)
 _DEFAULT_LEADER = "BTC"
+# Betas are MEASURED, not assumed: realized beta vs BTC = cov(proxy, BTC)/var(BTC) over 720 hourly
+# bars (30 days) to 2026-09-18, from Hyperliquid candles. The previous values (COIN 1.8, MSTR 2.5)
+# ran 40-45% above realized, and this scanner multiplies the leader's move BY beta to decide what a
+# proxy "owes" — so an overstated beta does not make it cautious, it manufactures catch-up gaps that
+# were never there. Names are kept only where BTC explains the moves (R^2 0.71 / 0.54); BMNR, HOOD
+# and IREN measured 0.47/0.24/0.06 and were rejected. Mirrors runtime.yaml — keep the two in sync.
 _DEFAULT_PROXIES = [
-    {"proxy": "xyz:COIN", "beta": 1.8},
-    {"proxy": "xyz:MSTR", "beta": 2.5},
+    {"proxy": "xyz:MSTR", "beta": 1.73},
+    {"proxy": "xyz:COIN", "beta": 1.28},
 ]
+
 _DEFAULT_MOVE_LOOKBACK = 4            # 1h bars — the "recent move" window for both legs
 _DEFAULT_MIN_LEADER_MOVE = 2.0       # leader must move at least this % to matter
 _DEFAULT_MIN_SCORE = 4               # v2 DEFAULT_MIN_SCORE
@@ -163,7 +170,7 @@ def _fetch_candles(ctx, asset):
     return candles.get("1h", []) if isinstance(candles, dict) else []
 
 
-def _get_sm_direction(ctx, asset):
+def _get_sm_direction(ctx, asset, min_traders=10):
     """Net smart-money lean for `asset` from leaderboard_get_markets.
     Returns (direction, pct) or (None, 0.0). READ-GUARDED. Ported verbatim from
     v2 fetch_sm_direction: long_ratio >= 50 -> LONG else SHORT (NEUTRAL/50 when
@@ -186,6 +193,7 @@ def _get_sm_direction(ctx, asset):
         return None, 0.0
 
     long_pct, short_pct, found = 0.0, 0.0, False
+    side_n = {}                                    # per-side headcount of the 4h leaders
     for m in markets:
         if not isinstance(m, dict):
             continue
@@ -194,6 +202,7 @@ def _get_sm_direction(ctx, asset):
             continue
         found = True
         d = str(m.get("direction", "")).upper()
+        side_n[d] = int(m.get("trader_count", 0) or 0)
         pct = scoring._f(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
         if d == "LONG":
             long_pct = pct
@@ -205,6 +214,8 @@ def _get_sm_direction(ctx, asset):
     if total <= 0:
         return "NEUTRAL", 50.0
     long_ratio = (long_pct / total) * 100
+    if side_n.get("LONG" if long_ratio >= 50 else "SHORT", 0) < min_traders:
+        return None, 0.0   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
     return ("LONG", long_ratio) if long_ratio >= 50 else ("SHORT", 100 - long_ratio)
 
 
@@ -276,12 +287,13 @@ def scan(inputs, ctx):
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
     lev_default = int(inputs.get("leverage", _DEFAULT_LEVERAGE))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
+    min_traders = int(inputs.get("minTraderCount", 10))
 
-    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value <= 1
+    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value < 1
     # (an operator who pasted the v2 FRACTION 0.15) into a PERCENT so it never
     # silently sizes ~100x small (the runtime sizes (marginPct/100)*withdrawable).
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         print(f"[osprey.scan] marginPct={margin_pct} looks like a v2 fraction; "
               f"converting to PERCENT ({margin_pct * 100})", file=sys.stderr)
         margin_pct = margin_pct * 100.0
@@ -333,7 +345,7 @@ def scan(inputs, ctx):
         if len(proxy_candles) <= lookback:
             continue
         proxy_closes = [scoring._close(c) for c in proxy_candles]
-        sm = _get_sm_direction(ctx, proxy)
+        sm = _get_sm_direction(ctx, proxy, min_traders)
         th = scoring.build_thesis(proxy_cfg, leader_move, proxy_closes, proxy_candles, sm, inputs)
         if th and th["score"] >= min_score:
             candidates.append(th)

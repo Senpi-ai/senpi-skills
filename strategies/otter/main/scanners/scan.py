@@ -45,7 +45,7 @@ FIDELITY NOTES vs the v2 producer (otter-producer.py v2.0.0):
     orders). FLAGGED.
   - Margin: v2 emitted marginUsd = account_value * OTTER_MARGIN_PCT (a FRACTION,
     default 0.25). This port emits `marginPct` = 25 (a PERCENT) at the top level;
-    the runtime sizes (marginPct/100)*withdrawable. The defensive "<=1.0 means a
+    the runtime sizes (marginPct/100)*withdrawable. The defensive "<1.0 means a
     pasted fraction, ×100" guard is applied (dire/koala pattern). The 25%-of-
     account INTENT is preserved.
   - Universe size: v2 scored EVERY instrument with sufficient history (no top-N
@@ -174,9 +174,10 @@ def fetch_instruments(ctx):
 # ═══════════════════════════════════════════════════════════════
 
 def fetch_sm_map(ctx, inputs):
-    """{asset: {direction, pct, traders}} for the SM concentration bonus.
-    READ-GUARDED. Verbatim port of v2 fetch_sm_map (XYZ skipped, pct ×100)."""
+    """{asset: {direction, pct, traders}} of each token's dominant side, for the SM concentration bonus.
+    READ-GUARDED. Port of v2 fetch_sm_map (XYZ skipped); pct is the board's own percent share."""
     limit = int(inputs.get("smLimit", 100))
+    min_traders = int(inputs.get("minTraderCount", 10))
     raw = _read(ctx, "leaderboard_get_markets", {"limit": limit})
     if not raw:
         return {}
@@ -195,11 +196,14 @@ def fetch_sm_map(ctx, inputs):
         dex = str(m.get("dex", "")).lower()
         if dex == "xyz":
             continue
-        if not token:
+        # LONG and SHORT are separate rows per token: keep the dominant side, never the last row.
+        if not m.get("is_dominant_direction", False):
+            continue
+        if not token or int(m.get("trader_count", 0) or 0) < min_traders:   # thin side: never sets the lean
             continue
         out[token] = {
             "direction": str(m.get("direction", "")).upper(),
-            "pct": scoring._f(m.get("pct_of_top_traders_gain", 0)) * 100,
+            "pct": scoring._f(m.get("pct_of_top_traders_gain", 0)),   # already a percent of the board's 4h gains
             "traders": int(m.get("trader_count", 0) or 0),
         }
     return out
@@ -226,8 +230,12 @@ def fetch_spread_bps(ctx, asset):
     ob = data.get("order_book") or data.get("orderBook") or {}
     if not isinstance(ob, dict):
         return None
-    bids = ob.get("bids") or []
-    asks = ob.get("asks") or []
+    levels = ob.get("levels")
+    if isinstance(levels, list) and len(levels) >= 2:     # live shape: {levels: [[bids], [asks]]}
+        bids, asks = levels[0] or [], levels[1] or []
+    else:
+        bids = ob.get("bids") or []
+        asks = ob.get("asks") or []
     if not bids or not asks:
         return None
     best_bid = scoring._f((bids[0] or {}).get("price") or (bids[0] or {}).get("px"))
@@ -297,9 +305,9 @@ def scan(inputs, ctx):
     top_n = int(inputs.get("spreadCheckTopN", _TOP_N_SPREAD_CHECK))
 
     # marginPct: PERCENT in (0,100]. Defensive fraction->percent guard
-    # (dire/koala): a pasted <=1.0 is a fraction; ×100.
+    # (dire/koala): a pasted <1.0 is a fraction; ×100.
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         margin_pct *= 100.0
 
     history, cooldowns, recent = _load_state(ctx)

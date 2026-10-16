@@ -38,10 +38,10 @@ def _load(path, name):
 # ── the REAL upstream shapes (verified against prod MCP 2026-07-23) ───────────
 # leaderboard_get_markets: BARE ticker + a separate `dex` field.
 LEADERBOARD_ROWS = [
-    {"token": "NVDA", "dex": "xyz", "direction": "SHORT", "pct_of_top_traders_gain": 71.0},
-    {"token": "NVDA", "dex": "xyz", "direction": "LONG", "pct_of_top_traders_gain": 29.0},
-    {"token": "BTC", "dex": "", "direction": "LONG", "pct_of_top_traders_gain": 63.0},
-    {"token": "BTC", "dex": "", "direction": "SHORT", "pct_of_top_traders_gain": 37.0},
+    {"token": "NVDA", "dex": "xyz", "direction": "SHORT", "pct_of_top_traders_gain": 71.0, "trader_count": 40},
+    {"token": "NVDA", "dex": "xyz", "direction": "LONG", "pct_of_top_traders_gain": 29.0, "trader_count": 15},
+    {"token": "BTC", "dex": "", "direction": "LONG", "pct_of_top_traders_gain": 63.0, "trader_count": 60},
+    {"token": "BTC", "dex": "", "direction": "SHORT", "pct_of_top_traders_gain": 37.0, "trader_count": 30},
 ]
 # strategy_get_clearinghouse_state: top level is ALWAYS {"main": ..., "xyz": ...}
 CLEARINGHOUSE = {

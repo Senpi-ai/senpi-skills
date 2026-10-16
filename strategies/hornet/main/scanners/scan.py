@@ -84,7 +84,7 @@ _DEFAULT_SHORT_BREADTH = 0.35      # breadth <= this -> SHORT-only eligible
 _DEFAULT_MARGIN_PCT = 18           # flat marginPct base (PERCENT)
 _DEFAULT_LEVERAGE = 4
 _MIN_LEVERAGE = 1
-_MAX_LEVERAGE = 5
+_MAX_LEVERAGE = 5                  # DEFAULT ceiling; `maxLeverage` input raises it (see below)
 _DEFAULT_MAX_EMIT = 2              # emit the top 1-2 by score
 _DEFAULT_RECENT_TTL = 240         # race-window dedup (seconds)
 
@@ -149,7 +149,11 @@ def _get_account(ctx):
     return account_value, positions
 
 
-def _get_sm_direction(ctx, coin):
+# Floor on the 4h board's `trader_count`: a lean whose leading side is thinner than this is refused.
+_DEFAULT_MIN_TRADER_COUNT = 10
+
+
+def _get_sm_direction(ctx, coin, min_traders=_DEFAULT_MIN_TRADER_COUNT):
     """Net smart-money lean for `coin` from leaderboard_get_markets. Returns
     (direction, tilt_pct) or (None, 0.0). READ-GUARDED -> degrades to neutral
     on failure (smart-money is a score CONTRIBUTOR here, never a hard gate).
@@ -175,6 +179,7 @@ def _get_sm_direction(ctx, coin):
 
     long_pct, short_pct, found = 0.0, 0.0, False
     cu = coin.upper()
+    side_n = {}                                    # per-side headcount of the 4h leaders
     for m in markets:
         if not isinstance(m, dict):
             continue
@@ -183,6 +188,7 @@ def _get_sm_direction(ctx, coin):
             continue
         found = True
         d = str(m.get("direction", "")).upper()
+        side_n[d] = int(m.get("trader_count", 0) or 0)
         pct = scoring._f(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
         if d == "LONG":
             long_pct = pct
@@ -195,6 +201,8 @@ def _get_sm_direction(ctx, coin):
     if total <= 0:
         return "NEUTRAL", 50.0
     long_ratio = (long_pct / total) * 100
+    if side_n.get("LONG" if long_ratio >= 50 else "SHORT", 0) < min_traders:
+        return None, 0.0   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
     if long_ratio >= 50:
         return "LONG", long_ratio
     return "SHORT", 100 - long_ratio
@@ -254,6 +262,7 @@ def scan(inputs, ctx):
     universe = inputs.get("universe", _DEFAULT_UNIVERSE)
     sub_groups = inputs.get("subGroups", _DEFAULT_SUB_GROUPS)
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
+    min_traders = int(inputs.get("minTraderCount", _DEFAULT_MIN_TRADER_COUNT))   # 4h-board headcount floor
     long_breadth = float(inputs.get("longBreadthPct", _DEFAULT_LONG_BREADTH))
     short_breadth = float(inputs.get("shortBreadthPct", _DEFAULT_SHORT_BREADTH))
     lev_cfg = int(inputs.get("leverage", _DEFAULT_LEVERAGE))
@@ -261,13 +270,18 @@ def scan(inputs, ctx):
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
 
     # marginPct: PERCENT in (0,100]. Defensive fraction guard (bobcat/dire/koala
-    # pattern): a value <= 1.0 is a pasted FRACTION (e.g. 0.18) -> *100 -> 18.
+    # pattern): a value < 1.0 is a pasted FRACTION (e.g. 0.18) -> *100 -> 18.
     margin_pct = float(inputs.get("marginPctBase", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         margin_pct = margin_pct * 100
 
-    # leverage: clamp to [1,5].
-    leverage = min(lev_cfg, _MAX_LEVERAGE)
+    # leverage: clamp to [1, maxLeverage]. The ceiling is an INPUT with the old hardcoded 5 as its
+    # default, so an absent key is exactly the previous behaviour. It has to be configurable because
+    # the clamp is the real cap: `leverage: 10` against a hardcoded 5 sizes at 5 while every card
+    # claims 10, which is the dead-floor shape this tree was bitten by in #677. hornet-concentrated
+    # raises it to 10; hornet itself does not set it and stays at 5.
+    max_leverage = int(inputs.get("maxLeverage", _MAX_LEVERAGE))
+    leverage = min(lev_cfg, max_leverage)
     leverage = max(leverage, _MIN_LEVERAGE)
 
     account_value, positions = _get_account(ctx)
@@ -355,7 +369,7 @@ def scan(inputs, ctx):
             continue
         if _was_recently_signaled(signaled, coin, ttl, now):
             continue
-        sm = _get_sm_direction(ctx, coin)
+        sm = _get_sm_direction(ctx, coin, min_traders=min_traders)
         th = scoring.build_thesis(
             coin, sub_groups.get(coin, "logic"),
             md["candles_1h"], md["candles_4h"], gate_dir,

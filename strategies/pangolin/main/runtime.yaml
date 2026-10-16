@@ -1,15 +1,16 @@
 # ── PANGOLIN · single instance — extreme funding-rate fader (Runtime 3.0 port of v2 Pangolin) ──
 name: pangolin-main
 group: pangolin
-version: 3.0.0
+version: 3.2.0
 description: >
-  PANGOLIN — multi-asset funding-rate fader. Scans every liquid perp (OI > $3M, derived
+  PANGOLIN — multi-asset funding-rate fader. Scans every liquid perp (OI > $10M, derived
   live from market_list_instruments) for funding that has been EXTREME (>= 0.0000228/hr,
   ~20% annualized) and PERSISTENT (>= 3h) — the crowd is one-sided and paying to hold it.
   Fades the crowd (enters OPPOSITE the funding-payer side) only when the market funding
-  regime confirms the fade OR is neutral/unavailable, and the smart-money lean isn't
-  fighting the fade. Composite score (funding extremity + persistence + trend + regime +
-  smart-money + sticky-OI + price-reversal) must clear 9. Conservative leverage (3x default,
+  regime confirms the fade OR is neutral/unavailable, and the 4h leaders' lean (which side
+  the last four hours' winners sit on) isn't fighting the fade. Composite score (funding
+  extremity + persistence + trend + regime + 4h-leader lean + sticky-OI + price-reversal)
+  must clear 9. Conservative leverage (3x default,
   5x at score >= 13 — crowded unwinds are violent). Quiet-hours gate: no entries 00-04 UTC.
   Collects funding hourly while the crowded position mean-reverts (24-48h thesis). DSL-only
   exits with a reachable first profit-lock. Faithful port of the v2 producer thesis (v2.2.0);
@@ -31,22 +32,38 @@ scanners:
     path: ./scanners
     entrypoint: scan.py
     interval_seconds: 300                   # v2 producer cadence (5 min — funding doesn't move fast)
-    timeout_seconds: 240                    # universe scan + 1 funding-history read per candidate; v2 WARN_OVER_300S budget
+    timeout_seconds: 240                    # universe scan + 1 asset-data (hourly funding) read per candidate; v2 WARN_OVER_300S budget
     default_signal_validity_seconds: 1800
     state_history_max_count: 100            # dedup map (emit + post-close) + per-tick scan-result history
     inputs:
       dex: ""                               # main DEX only; xyz: names are banned in scan (no funding thesis on equities)
       minScore: 9                           # v1.4 floor (raised from 7 for persistence + regime points)
       minFundingRate: 0.0000228             # ~20% annualized floor (HL funding is HOURLY: rate * 8760 * 100). v3.0.1 recalibration.
-      minOiUsd: 3000000                     # liquidity floor — TASK SPEC OI>$3M (v2 producer was 1_000_000; see fidelity note)
+      minOiUsd: 10000000                    # liquidity floor. Was 3M (task spec): with persistence read correctly, names with
+                                            # only a few million of open interest clear every gate; a fade needs a book to exit into
       minPersistenceHours: 3                # hard gate against fresh spikes (v1.4)
       marginPct: 25                         # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable. v2 margin_pct=25.
-      leverageTiers: [[13, 5], [9, 3]]      # v1.4 carryover: score>=13 -> 5x, else 3x
+      # [min_score, leverage, marginPct]. Leverage FLATTENED to 3x and conviction scaled
+      # through margin instead. Exposure per tier UNCHANGED: 5x25%=1.25x, 3x25%=0.75x
+      # -> 3x41.7%, 3x25%. Two slots x 41.7% = 83% of the wallet worst case.
+      #
+      # WHY 3x: MEASURED. 63% of this package's 252 emits over 14 days fired at 3x.
+      #
+      # THE LADDER IS DELIBERATELY UNCHANGED. Measured on pangolin's OWN 20 closed positions
+      # (not penguin's universe): median peak 0.57% of price, p75 3.51%, p90 5.39%. At 3x its
+      # rung 0 needs 2.67% and arms on 40% of positions; rung 1 needs 5.33% and arms on 10%.
+      # The top two rungs (10.0% and 16.7% of price) did not arm in 20 positions — but a tail
+      # rung exists for the rare runner and removing it would cap winners, which is the same
+      # reasoning penguin's ladder records for its own 1.5-4% tail tier. n=20 is also too thin
+      # to retune a four-rung ladder on. Revisit when there are more closes.
+      # Was [[13, 5], [9, 3]].
+      leverageTiers: [[13, 3, 41.7], [9, 3, 25.0]]
       defaultLeverage: 3
       quietHoursStartUtc: 0                 # quiet-hours gate (TASK SPEC): no entries 00:00-04:00 UTC
       quietHoursEndUtc: 4
       recentSignalTtlSeconds: 14400         # 240m post-EMIT cooldown (v1 ASSET_COOLDOWN_MINUTES)
       postCloseCooldownSeconds: 14400       # 240m post-CLOSE cooldown (v2.1.2 thrash-cycle guard)
+      minTraderCount: 10                    # 4h leader board: a side with fewer traders than this never sets the lean
     signal_data_schema:
       mode: { type: string }                              # always "FUNDING_FADE"
       score: { type: number }                             # producer composite (>=9 floor)
@@ -78,17 +95,22 @@ actions:
     params:
       order_type: FEE_OPTIMIZED_LIMIT
       fee_optimized_limit_options:
-        ensure_execution_as_taker: false     # v1 ENTRY patience preserved: cancel-and-skip, don't take. Funding fade isn't urgent.
+        ensure_execution_as_taker: true    # maker window first, then taker fallback — a maker-only entry (fallback off) passes validation and fails or phantom-fills at the executor
         execution_timeout_seconds: 60
     context:
       - type: signal
         scanner: pangolin_main_signals
 
 # EXIT — DSL with maker-exit recovery, ported VERBATIM from v2.2.0.
-#   hard_timeout 720m — funding fade takes 24-48h; 12h cap is the absolute fail-safe
-#   weak_peak DISABLED — time cuts pre-empt the thesis (v1.6 decision)
-#   dead_weight 480m — one full funding cycle (8h); cuts trades that get no funding payment
-#   phase1 max_loss 30% / retrace 10 / 1-breach — 10% price buffer at 3x for funding-induced spikes
+#   hard_timeout OFF — a clock knows nothing about the trade: of 142 clock closes across the fleet
+#     in one week, 110 (77.5%) were in profit when the clock cut them. The ladder and stop decide.
+#   weak_peak DISABLED — funding fade takes 24-48h (v1.6 decision, unchanged)
+#   dead_weight OFF — same reason as hard_timeout
+#   phase1 max_loss 10% ROE = 3.33% of price at 3x / retrace inert / 1-breach
+#   NOTE: this ladder is deliberately NOT penguin's. Penguin's rungs are calibrated on the 4h
+#     leaderboard universe (median favourable peak 0.84% of price); pangolin draws a different
+#     universe from market_list_instruments whose own measured peaks are median 0.57% / p75 3.51%,
+#     so porting penguin's 0.60%-of-price rung 0 here would arm on noise and scratch the runners.
 #   phase2 ladder T0 8/50 (FIRST LOCK reachable at ~2.7% price move at 3x), 16/65, 30/85, 50/92
 exit:
   engine: dsl
@@ -99,14 +121,14 @@ exit:
     execution_timeout_seconds: 60
   dsl_preset:
     hard_timeout:
-      enabled: true
+      enabled: false                       # #819b: clock cuts winners (110/142 in profit)
       interval_in_minutes: 720               # 12h fail-safe
     weak_peak_cut:
       enabled: false                         # v1.6 disabled — funding fade takes 24-48h
       interval_in_minutes: 180
       min_value: 2.0
     dead_weight_cut:
-      enabled: true
+      enabled: false                       # #819b: a clock knows nothing about the trade
       interval_in_minutes: 480               # 8h = one full funding cycle
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a small favourable

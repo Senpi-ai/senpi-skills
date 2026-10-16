@@ -5,7 +5,7 @@ version: 3.0.0
 description: >
   WOLVERINE — single-asset HYPE alpha hunter with a MACRO/REGIME GATE. Six structural
   gates (4h structure >=0.65 & directional, 1h not opposing 4h, 15m momentum, base-tech
-  floor, 4h trailing-window magnitude >=1.0%) PLUS a smart-money HARD BLOCK on opposing
+  floor, 4h trailing-window magnitude >=1.0%) PLUS a 4h leader momentum HARD BLOCK on opposing
   direction, RSI hard gates (72/28), and a market-wide funding-regime + funding-persistence
   macro layer. Multi-factor composite (~17 max) clears minScore 10; conviction-tiered
   leverage 3x standard / 5x apex (>=11). DSL is the ONLY exit. Faithful port of the v2
@@ -42,6 +42,7 @@ scanners:
       rsiMaxLong: 72                       # v2-quirk: producer constant 72 (SKILL prose says 74)
       rsiMinShort: 28                      # v2-quirk: producer constant 28 (SKILL prose says 26)
       fundingCrowded: 0.005
+      minTraderCount: 10                   # 4h-board headcount floor — a side with fewer top traders never sets the lean
       leverageTiers: [[11, 5, "apex"], [9, 3, "standard"]]
       recentSignalTtlSeconds: 14400        # 240m — mirror the per-asset cooldown
       quietHours:                          # FP-001: skip non-apex emission 00-04 UTC

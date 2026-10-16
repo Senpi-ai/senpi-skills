@@ -30,13 +30,69 @@ def _f(v, d=0.0):
 
 
 def get_leverage(score, tiers, default_leverage=3):
-    """Conviction-tiered leverage. tiers = [[min_score, leverage], ...] desc by score.
-    v2-quirk: LEVERAGE_TIERS = [{min_score:13, leverage:5}, {min_score:9, leverage:3}],
-    DEFAULT_LEVERAGE = 3 — ported verbatim from v1.4 (crowded unwinds are violent)."""
+    """Conviction-tiered leverage. Kept for callers that only want the leverage."""
+    return get_sizing(score, tiers, default_leverage)[0]
+
+
+def get_sizing(score, tiers, default_leverage=3):
+    """Resolve (leverage, marginPct) for a score. tiers = [[min_score, leverage]] or
+    [[min_score, leverage, marginPct]] desc by score.
+
+    The third element is how conviction is scaled now, so leverage can stay FLAT: every DSL
+    threshold is ROE and the engine converts ROE to a price floor by DIVIDING BY LEVERAGE, so
+    spread leverage rescaled the whole exit ladder per tier — and backwards, since the
+    lowest-conviction tier got the lowest leverage and therefore the WIDEST stop. A tier with no
+    third element returns margin None and the caller falls back to the flat marginPct, so an
+    old-shape config behaves exactly as before.
+    (DEFAULT_LEVERAGE 3 is ported verbatim from v1.4 — crowded unwinds are violent.)"""
     for t in tiers:
         if score >= t[0]:
-            return int(t[1])
-    return int(default_leverage)
+            return int(t[1]), (float(t[2]) if len(t) > 2 else None)
+    return int(default_leverage), None
+
+
+# ═══════════════════════════════════════════════════════════════
+# FUNDING PERSISTENCE + TREND (from the venue's hourly rates)
+# ═══════════════════════════════════════════════════════════════
+
+_HOURS_PER_YEAR = 24 * 365
+
+
+def funding_history_stats(history, floor_rate, current_funding):
+    """Persistence + trend from market_get_asset_data's HOURLY funding_history rows
+    ({coin, fundingRate, premium, time}). Hyperliquid funds hourly.
+      • persistence_hours — consecutive latest hours the crowd kept paying: the same sign as the
+                            current funding and |rate| >= floor_rate (minFundingRate)
+      • trend             — the crowd's payment over the last 3 hours vs the 3 before:
+                            INCREASING above 1.25x, DECREASING below 0.8x, else STABLE
+    Replaces market_get_funding_history, which annualizes the hourly rate as if it were 8h (8x too
+    low) and filters at 20% of that, 160% true APR (verified against Hyperliquid, Sep 17 2026).
+    Returns None when no row carries a rate (the caller skips the candidate)."""
+    rates = []
+    for row in sorted((r for r in (history or []) if isinstance(r, dict)), key=lambda r: _f(r.get("time"))):
+        try:
+            rates.append(float(row.get("fundingRate")))
+        except (TypeError, ValueError):
+            continue
+    if not rates:
+        return None
+    sign = 1.0 if _f(current_funding) > 0 else -1.0
+    persist = 0
+    for rate in reversed(rates):
+        if rate * sign < _f(floor_rate):
+            break
+        persist += 1
+    trend = "STABLE"
+    if len(rates) >= 6:
+        recent = sum(r * sign for r in rates[-3:]) / 3
+        before = sum(r * sign for r in rates[-6:-3]) / 3
+        if before > 0 and recent > before * 1.25:
+            trend = "INCREASING"
+        elif before > 0 and recent < before * 0.8:
+            trend = "DECREASING"
+    return {"persistence_hours": float(persist), "trend": trend,
+            "funding_direction": "SHORT" if sign > 0 else "LONG",
+            "annualized_pct": abs(_f(current_funding)) * _HOURS_PER_YEAR * 100}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -92,7 +148,7 @@ def score_candidate(name, ctx_block, fh, regime, sm, volume_24h):
     Args (all plain data — no MCP, no clock):
       name        : asset symbol (uppercase)
       ctx_block   : instrument context dict ({funding, openInterest, markPx/midPx, ...})
-      fh          : funding-history dict from scan.py's parser
+      fh          : funding stats from funding_history_stats (the venue's hourly rates)
                     ({persistence_hours, funding_direction, trend, annualized_pct})
       regime      : market funding regime string (or None)
       sm          : smart-money market row for this asset (dict or None)
@@ -121,16 +177,18 @@ def score_candidate(name, ctx_block, fh, regime, sm, volume_24h):
     score = 0
     reasons = []
 
-    # v2-quirk: Funding extremity
+    # Funding extremity. The v2 tiers (0.001 / 0.0006 / 0.0003) were 8h rates; HL funding is HOURLY,
+    # so read as hourly they meant 876% / 526% / 263% APR and almost nothing scored. Divided by 8:
+    # 110% / 66% / 33% APR, the extremity v2 intended.
     abs_funding = abs(funding)
     annualized = abs_funding * 8760 * 100   # HL funding is HOURLY -> *24*365
-    if abs_funding >= 0.001:
+    if abs_funding >= 0.000125:
         score += 4
         reasons.append(f"EXTREME_FUNDING {funding*100:.4f}% ({annualized:.0f}% ann)")
-    elif abs_funding >= 0.0006:
+    elif abs_funding >= 0.000075:
         score += 3
         reasons.append(f"HIGH_FUNDING {funding*100:.4f}% ({annualized:.0f}% ann)")
-    elif abs_funding >= 0.0003:
+    elif abs_funding >= 0.0000375:
         score += 2
         reasons.append(f"ELEVATED_FUNDING {funding*100:.4f}% ({annualized:.0f}% ann)")
 

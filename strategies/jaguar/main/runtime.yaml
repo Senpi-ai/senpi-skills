@@ -1,21 +1,22 @@
 # ── JAGUAR · single instance — Striker rank-jump detector (Runtime 3.0 port of v2 JAGUAR v4.0.2) ──
 name: jaguar-main
 group: jaguar
-version: 3.0.0
+version: 3.3.0
 description: >
-  JAGUAR — multi-asset Striker. A derived-universe rank-jump detector: reads the live
-  smart-money concentration feed (leaderboard_get_markets) every 3 min, compares it tick-
+  JAGUAR — multi-asset Striker. A derived-universe rank-jump detector: reads the live 4h
+  leaderboard concentration feed (leaderboard_get_markets — a momentum read of who is
+  winning right now, not a proven cohort) every 3 min, compares it tick-
   over-tick, and fires only on a violent FIRST_JUMP — an asset rocketing from rank 20+ into
-  the top 10 with a >=10 rank jump while 15m SM contribution velocity is actively building and
-  4h price is aligned with the SM direction. "One amazing trade per day." Conviction-tiered
-  leverage (7x conviction / 10x apex), MIN_SCORE 9, $3M day-notional liquidity floor, XYZ ban.
+  the top 10 with a >=10 rank jump while 15m leader contribution velocity is actively building and
+  4h price is aligned with the leaders' direction. "One amazing trade per day." Flat 10x leverage
+  with conviction sized in margin (35% / 50% apex), MIN_SCORE 9, $3M day-notional floor, XYZ ban.
   Entry FEE_OPTIMIZED_LIMIT with taker fallback (a violent jump must fill). DSL is the only
   exit. Faithful port of the v2 producer thesis (detect-then-append contract preserved).
 
 strategy:
   wallet: "${JAGUAR_WALLET}"
   slots: 2                                  # v2 RULE 3: max 2 concurrent positions
-  default_leverage: 7                       # fallback; scan emits per-signal 7/10 by score
+  default_leverage: 10                      # fallback; scan emits a FLAT 10x (venue-clamped in scan.py)
   trading_risk: aggressive
   enabled: true
 
@@ -33,10 +34,30 @@ scanners:
     state_history_max_count: 60             # scan-history (replaces v2 scan-history.json, MAX_SCAN_HISTORY=60)
     inputs:
       marketLimit: 100                      # leaderboard_get_markets top-N traders to aggregate
-      minScore: 9                           # v2 MIN_SCORE entry floor
+      minScore: 10                           # v2 MIN_SCORE entry floor
+  # RAISED 9 -> 10: 10 is this package's own next conviction band (9/10).
+      # 2026-10-01: of 25 closes in 24h across the fleet, 15 never armed a single profit
+      # rung and their median peak was 2.0% ROE (~0.2% of price) — entries that never went
+      # green, which no stop placement fixes. Fees were 57% of gross over the same set.
+      # The 9 band below the floor is now UNREACHABLE. Kept deliberately: it records the author's
+      # calibration and comes back if an experiment lowers the floor again.
       marginPct: 50                         # PERCENT of withdrawable (0,100] — v2 MARGIN_PCT 0.50 as a percent
-      leverageTiers: [[10, 10], [9, 7]]     # per-signal conviction tiers: >=10 -> 10x apex, >=9 -> 7x conviction
+      # [min_score, leverage, marginPct]. Leverage FLATTENED to 10x and conviction
+      # scaled through margin instead. Exposure per tier is UNCHANGED — each row is the old
+      # leverage x the old flat marginPct, re-expressed at 10x.
+      #
+      # WHY 10x: MEASURED, not chosen. Over 14 days of real emits, 67% of this
+      # package's 684 signals fired at 10x — it is the leverage its trades actually run
+      # at, so calibrating the ladder for it is calibrating for the common case.
+      #
+      # WHY FLAT: every DSL threshold is ROE and the engine divides by leverage to get a price
+      # floor, so spread leverage rescaled the whole ladder per tier — and backwards, since the
+      # lowest-conviction tier got the lowest leverage and therefore the WIDEST stop.
+      # Was [[10, 10], [9, 7]].
+      leverageTiers: [[10, 10, 50.0], [9, 10, 35.0]]     # leverage FLAT 10x; conviction is the
+                                                         # third element: 50% apex, 35% conviction
       scanHistoryLen: 60                    # how many prior snapshots to compare velocity across
+      minTraderCount: 10                    # skip a board side thinner than this many traders at the read — a thin side never enters the rank order
     signal_data_schema:
       score: { type: number }
       tier: { type: string, required: false }
@@ -76,9 +97,10 @@ actions:
         scanner: jaguar_main_signals
 
 # EXIT — DSL (ported verbatim from v2 v4.0.2). Striker trades are violent short-term
-# explosions: wide Phase 1 for volatility, reachable Phase 2 first lock, time cuts that
-# give a rank-jump room to accelerate before chopping it.
-#   v4.0.2: dead_weight_cut relaxed 12 -> 30min (12min chopped flat-but-not-failed trades).
+# explosions: a Phase 1 stop placed OUTSIDE ordinary noise (1.50% of price) and a Phase 2 ladder
+# whose first rung is a loss reducer at 0.60% of price. The old 8.0 ROE stop was 0.80% of price —
+# well inside the measured 1.38% p75 adverse bounce. No clock cuts: of 142 clock closes in a week,
+# 110 (77.5%) were in profit when the clock cut them.
 #   v3.0+: maker-preferred FEE_OPTIMIZED_LIMIT exits (HL maker 0.015% vs taker 0.045%).
 exit:
   engine: dsl
@@ -89,14 +111,14 @@ exit:
     execution_timeout_seconds: 60
   dsl_preset:
     hard_timeout:
-      enabled: true
+      enabled: false                       # #819b: clock cuts winners (110/142 in profit)
       interval_in_minutes: 45
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 25
+      interval_in_minutes: 300                 # penguin parity: a dead position gets 5h, not 25m
       min_value: 3.0
     dead_weight_cut:
-      enabled: true
+      enabled: false                       # #819b: a clock knows nothing about the trade
       interval_in_minutes: 30               # v4.0.2: 12 -> 30
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a small favourable
@@ -105,18 +127,21 @@ exit:
       # max_loss_pct := the old retrace (8.0% ROE), which is what the trail was already
       # enforcing, so the per-trade risk cap is UNCHANGED. retrace_threshold is now inert.
       enabled: false
-      max_loss_pct: 8.0   # was 15.0 — set to the old retrace so the risk cap is unchanged
+      max_loss_pct: 15   # 1.5% of price at 10x — was 8.0 ROE (=0.80% px), inside the measured 1.38% p75 bounce
       retrace_threshold: 8
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 7,  lock_hw_pct: 40 }   # first lock reachable at +7%
-        - { trigger_pct: 12, lock_hw_pct: 55 }
-        - { trigger_pct: 15, lock_hw_pct: 75 }
-        - { trigger_pct: 20, lock_hw_pct: 85 }
-
 # RISK — guard_rails ported verbatim from v2 v3.7 (cap losers, ride winners).
+        - { trigger_pct: 6,     lock_hw_pct: 30 }   # 0.6% of price   <- LOSS REDUCER
+        - { trigger_pct: 20,    lock_hw_pct: 40 }   # 2% of price
+        - { trigger_pct: 25,    lock_hw_pct: 50 }   # 2.5% of price
+        - { trigger_pct: 30,    lock_hw_pct: 60 }   # 3% of price
+        - { trigger_pct: 40,    lock_hw_pct: 65 }   # 4% of price
+        - { trigger_pct: 50,    lock_hw_pct: 70 }   # 5% of price
+        - { trigger_pct: 70,    lock_hw_pct: 75 }   # 7% of price
+        - { trigger_pct: 100,   lock_hw_pct: 85 }   # 10% of price
 risk:
   data_retention_seconds: 259200       # 72h (was data_retention_hours: 72)
   guard_rails:

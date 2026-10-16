@@ -8,7 +8,7 @@ discards the WHOLE candidate on a null:
                                 (expected number, got NoneType)
 
 The scanner logs a normal `candidate_rejected` tick, so every error-keyed health check passes while
-the strategy never trades. Measured cost on 2026-09-04: M409673's catalog `dog` discarded **151**
+the strategy never trades. Measured cost on 2026-09-04: one live catalog `dog` discarded **151**
 candidates over 7 days and had not traded in 15 days ($70 ACTIVE); `vulture` users lost 71 + 43 + 11
 more, `grizzly` 1. Three catalog packages emit a nullable optional key when the upstream
 funding-persistence read has no row for the asset — the common real-world case.
@@ -118,7 +118,7 @@ def _dog_ctx():
 
 
 def test_dog_emits_no_null_data_values_when_funding_persistence_is_missing():
-    """The M409673 defect, end to end: scan() must emit a candidate whose `data` carries
+    """The discarded-candidate defect, end to end: scan() must emit a candidate whose `data` carries
     no None. Before the fix `persistenceHours` and `crowdingTrend` are both None and the
     intake discards the candidate."""
     scan = _load("dog")

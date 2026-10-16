@@ -31,7 +31,7 @@ FIDELITY NOTES vs owl-producer.py v8.0.1 (thesis frozen at v7.1):
   - SIZING: v2 MARGIN_PCT 0.25 was a FRACTION; the producer emitted
     marginUsd = account_value * 0.25. This port emits a top-level `marginPct`
     PERCENT (25) and the runtime sizes (marginPct/100)*withdrawable. Defensive
-    <=1.0 guard treats a pasted fraction as a percent (x100).
+    <1.0 guard treats a pasted fraction as a percent (x100).
   - PERSISTENCE STATE: v2 persisted crowding-history.json / asset-cooldowns.json
     under state/<wallet-hash>/. This port keeps the crowding-persistence ledger
     AND a per-asset emit-cooldown map in ctx.state (transactional, rolled back on
@@ -142,9 +142,13 @@ def fetch_sm_positioning_map(ctx, inputs):
     """Returns (sm_map, btc_p4h) where sm_map = {coin: (long_pct, trader_count)}
     for crypto markets and btc_p4h is BTC's 4h price change percent (macro gate).
 
-    Ported verbatim from v2 fetch_sm_positioning_map (v7.0/v7.1): ONE call per
-    scan; BTC 4h move extracted from the same response (no extra MCP cost)."""
+    Port of v2 fetch_sm_positioning_map (v7.0/v7.1): ONE call per scan; BTC 4h
+    move extracted from the same response (no extra MCP cost). long_pct is the
+    coin's long share, 0-100 (50 = neutral): each board row carries its side's
+    share of the WHOLE board's 4h gains, so the share is long / (long + short)
+    * 100 over the coin's two rows. trader_count counts both sides."""
     limit = int(inputs.get("smLimit", 200))
+    min_traders = int(inputs.get("minTraderCount", 10))
     raw = _read(ctx, "leaderboard_get_markets", {"limit": limit})
     if not raw:
         return {}, 0.0
@@ -156,13 +160,14 @@ def fetch_sm_positioning_map(ctx, inputs):
     if not isinstance(sm, list):
         return {}, 0.0
 
-    out = {}
+    sides = {}                                     # {coin: {"long"|"short": (pct, trader_count)}}
     btc_p4h = 0.0
     for m in sm:
         if not isinstance(m, dict):
             continue
         token = str(m.get("token", m.get("coin", m.get("asset", "")))).upper()
-        if not token or _is_xyz(token):            # v2: skip dex=="xyz"; live shape -> name prefix
+        # XYZ ban: the board sends a BARE token plus dex="xyz" (never a prefixed name).
+        if not token or _is_xyz(token) or str(m.get("dex", "")).lower() == "xyz":
             continue
         # v7.1: capture BTC's 4h move from the same scan (macro gate input)
         if token == "BTC":
@@ -171,10 +176,18 @@ def fetch_sm_positioning_map(ctx, inputs):
         direction = str(m.get("direction", "")).lower()
         pct = scoring._f(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
         trader_count = int(m.get("trader_count", m.get("traderCount", 0)) or 0)
-        if direction == "long":
-            out[token] = (pct * 100, trader_count)
-        elif direction == "short":
-            out[token] = ((1 - pct) * 100, trader_count)
+        if direction in ("long", "short"):
+            sides.setdefault(token, {})[direction] = (pct, trader_count)
+
+    out = {}
+    for token, s in sides.items():
+        (long_pct, long_n), (short_pct, short_n) = s.get("long", (0.0, 0)), s.get("short", (0.0, 0))
+        if long_pct + short_pct <= 0:
+            continue                               # no gain on either side: neutral (the lookup default)
+        long_share = long_pct / (long_pct + short_pct) * 100
+        if (long_n if long_share >= 50 else short_n) < min_traders:
+            continue                               # the leading side is too thin to call a lean
+        out[token] = (long_share, long_n + short_n)
     return out, btc_p4h
 
 
@@ -294,7 +307,12 @@ def _coerce_tiers(tiers):
         if isinstance(t, dict):
             out.append(t)
         elif isinstance(t, (list, tuple)) and len(t) >= 2:
-            out.append({"min_score": t[0], "leverage": t[1]})
+            # a THIRD element is a per-tier marginPct — that is how conviction is scaled now, so
+            # leverage can stay flat and one ROE ladder stays correct for every tier
+            d = {"min_score": t[0], "leverage": t[1]}
+            if len(t) > 2:
+                d["marginPct"] = t[2]
+            out.append(d)
     return out or None
 
 
@@ -310,7 +328,7 @@ def scan(inputs, ctx):
     macro_gate = float(inputs.get("macroGateBtc4hPct", scoring.MACRO_GATE_BTC_4H_PCT))
     cooldown_minutes = float(inputs.get("assetCooldownMinutes", scoring.ASSET_COOLDOWN_MINUTES))
     margin_pct = float(inputs.get("marginPct", 25))             # PERCENT in (0,100]
-    if margin_pct <= 1.0:                                       # defensive: a pasted fraction -> percent
+    if margin_pct < 1.0:                                       # defensive: a pasted fraction -> percent
         margin_pct *= 100.0
     tiers = _coerce_tiers(inputs.get("leverageTiers"))
 
@@ -449,7 +467,11 @@ def scan(inputs, ctx):
                   "candidates": len(candidates), "held": sorted(held)})
         return []
 
-    leverage = scoring.get_leverage_for_score(best["combined_score"], tiers)
+    # conviction is sized through MARGIN now, not leverage — see get_sizing_for_score. A tier with
+    # no marginPct yields None and falls back to the flat value, so an old config is unchanged.
+    leverage, tier_margin = scoring.get_sizing_for_score(best["combined_score"], tiers)
+    if tier_margin:
+        margin_pct = tier_margin
     cooldowns[best["asset"]] = {"emittedTimestamp": now}    # v2 mark_asset_emitted
 
     result = {"ts": now, "emitted": True, "gate": "pass", "coin": best["asset"],

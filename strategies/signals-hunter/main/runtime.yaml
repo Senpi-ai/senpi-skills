@@ -1,0 +1,126 @@
+# ── SIGNALS-HUNTER · the Senpi Signals engine as a live trader ──
+name: signals-hunter-main
+group: signals-hunter
+version: 3.0.0
+description: >
+  SIGNALS-HUNTER — runs the senpi-signals gather and detector library on a clock and trades the
+  TRADE lens. The engine (sweep.py / score.py / smartmoney.py) is vendored byte-identically from
+  the skill, so a detector fixed in the feed is fixed here. Hourly. Opens names clearing the
+  trade_score floor, sized by conviction. Skips the tick outright when the proven-cohort lens is
+  dark, because a score without it is OI/funding/price wearing the same name.
+
+strategy:
+  wallet: "${SIGNALS_HUNTER_WALLET}"
+  slots: 5
+  margin_pct: 20
+  default_leverage: 5
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: signals_hunter_scan
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 3600               # hourly — the feed's own cadence
+    # 240s, not the 900s an unbudgeted version of this needed. The gather carries its OWN deadline
+    # (gatherDeadlineSeconds below) and a 15s-per-read timeout inside the engine, so it returns on
+    # its own terms; this is only the runtime's backstop. A scanner that relies on THIS to stop is
+    # one that has already lost the tick and learned nothing about which read hung.
+    timeout_seconds: 240
+    default_signal_validity_seconds: 3600
+    state_history_max_count: 4           # the ring lives INSIDE one record; history depth is not it
+    inputs:
+      # ── the lens ──
+      minScore: 65                       # trade_score floor. The feed's own TRADE floor is 45 —
+                                         # this is deliberately stricter than what it prints.
+      highScoreThreshold: 80             # at/above this, size up a tier
+      topN: 6                            # score.TOP_N
+      familyCap: 2                       # score.FAMILY_CAP — one funding flood does not fill the book
+      # ── sizing (conviction; see the card) ──
+      marginPct: 20
+      highMarginPct: 25
+      leverage: 5
+      # ── gather ──
+      universeTopN: 120                  # sweep.UNIVERSE_TOP_N
+      gatherDeadlineSeconds: 100         # sweep.FEED_DEADLINE_S
+      ringMax: 24                        # >12h of hourly snapshots so the slow trend arm has one
+      # ── dedup ──
+      recentSignalTtlSeconds: 7200       # 2h — one name+direction per reversion, not per tick
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      detector: { type: string, required: false }
+      credibility: { type: number, required: false }
+      oneSidedness: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: signals_hunter_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [signals_hunter_scan]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true   # a signal names a moment; a resting maker order misses it
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: signals_hunter_scan
+
+# ── EXIT — every ROE threshold sized for 5x, so the stops sit where they would at 3x in PRICE ──
+# ROE / leverage = the price move tolerated. Carrying a 3x-tuned ladder onto a 5x book shrinks every
+# exit by 3/5 — the mistake that produced live stop-outs on 2026-09-19. Leverage, stop width and this
+# ladder are one system: change them together.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 4320          # 72h — a signal that has not resolved in three days is not one
+    weak_peak_cut:
+      enabled: false                     # closes at market with no floor; a chop tool, not a swing tool
+      interval_in_minutes: 120
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: false
+    phase1:
+      enabled: false                     # trailing OFF — a floor below entry can ratchet a winner into a loss
+      max_loss_pct: 25.0                 # 25% ROE = 5.0% of price at 5x
+      retrace_threshold: 25              # INERT while phase1.enabled is false
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                             # ROE triggers; the price move each represents at 5x in brackets
+        - { trigger_pct: 33,  lock_hw_pct: 40 }   # 6.6% of price: keep 40% of the peak
+        - { trigger_pct: 50,  lock_hw_pct: 55 }   # 10% of price
+        - { trigger_pct: 100, lock_hw_pct: 65 }   # 20% of price
+        - { trigger_pct: 167, lock_hw_pct: 85 }   # 33% of price
+
+risk:
+  data_retention_seconds: 345600
+  guard_rails:
+    # NO daily_loss_limit_pct. Every gate here halts ENTRIES and none of them closes a position, so
+    # a daily halt only stops the strategy acting on the feed while it is underwater — which is when
+    # the feed is most worth acting on. The overall budget is drawdown_halt_pct.
+    max_consecutive_losses: 4
+    cooldown_seconds: 7200
+    drawdown_halt_pct: 37                # ~7.4% adverse market move at this book's 5.0x notional
+                                         # (5 slots x 20% x 5x). Divide by NOTIONAL, not leverage.
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 21600    # 6h — the same name should not be re-entered on the next tick

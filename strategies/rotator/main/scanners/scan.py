@@ -51,21 +51,28 @@ def _held(ctx):
 
 
 def _events(ctx, inputs):
-    raw = _read(ctx, "leaderboard_get_momentum_events",
-                {"tier": int(scoring._f(inputs.get("minEventTier"), 2))}, "momentum_events")
+    """The tool's `tier` arg is an EXACT match (tier 2 would drop the tier-3 crossings), so read
+    every tier and let scoring apply minEventTier as a floor. Envelope: data.events is the feed's
+    response object {events: [...], query, total_count} — the list sits one level down."""
+    raw = _read(ctx, "leaderboard_get_momentum_events", {}, "momentum_events")
     if isinstance(raw, list):
         return raw
     if isinstance(raw, dict):
         ev = raw.get("events", raw.get("momentum_events", raw.get("results", [])))
+        if isinstance(ev, dict):
+            ev = ev.get("events", [])
         return ev if isinstance(ev, list) else []
     return []
 
 
 def scan(inputs, ctx):
     now = time.time()
-    max_slots = int(scoring._f(inputs.get("maxSlots"), 2))
-    min_score = scoring._f(inputs.get("minScore"), 4.0)
-    ttl = scoring._f(inputs.get("recentSignalTtlSeconds"), 10800)
+    # scoring._f(x, *keys, default=) — a bare second positional is a KEY, not the default: the
+    # old `_f(inputs.get("maxSlots"), 2)` read 0.0 for every input, so max_slots was 0 and the
+    # scan logged "book full (0/0)" on every tick. Read the inputs dict by key.
+    max_slots = int(scoring._f(inputs, "maxSlots", default=2))
+    min_score = scoring._f(inputs, "minScore", default=4.0)
+    ttl = scoring._f(inputs, "recentSignalTtlSeconds", default=10800)
     leader = str(inputs.get("leaderAsset", "BTC"))
 
     st = (ctx.state.last() or {}) if ctx.state else {}
@@ -90,7 +97,7 @@ def scan(inputs, ctx):
 
     flow = scoring.unwrap_flow(_read(ctx, "market_get_cross_asset_flows",
                                      {"leader_asset": leader,
-                                      "min_move_pct": scoring._f(inputs.get("leaderMinMovePct"), 1.0)},
+                                      "min_move_pct": scoring._f(inputs, "leaderMinMovePct", default=1.0)},
                                      "cross_asset_flows"))
     cands0 = scoring.laggards(flow, inputs)
     if not cands0:

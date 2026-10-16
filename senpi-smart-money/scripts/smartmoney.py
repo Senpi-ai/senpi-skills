@@ -25,8 +25,9 @@ Modeled on the whalehunter strategy's cohort engine (same definitions + bias mat
 senpi-strategy-discover's hidden-engine pattern: guarded I/O, fails open, always valid JSON.
 
 ⚠ discovery_* requires a USER-scoped SENPI_AUTH_TOKEN (it resolves a user id). With an app-scoped
-token the cohort pulls return empty and the engine reports `meta.cohorts_unavailable` — narrate that
-honestly rather than pretending the smart cohort is flat.
+token the cohort pulls return empty. When the cohort cannot be read at all the engine reports
+`meta.cohorts_unavailable`, naming WHICH it was — a read that failed, or one that succeeded and
+returned nothing — so narrate that line rather than pretending the smart cohort is flat.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
@@ -172,6 +173,26 @@ def build_cohorts(client, meta):
     return smart, crowd
 
 
+_COHORT_PAGE_FAILED = "top_traders page "   # the prefix build_cohorts records a failed page read under
+
+
+def _cohorts_unavailable(meta):
+    """Why there is no cohort — the read FAILED, or the read succeeded and returned nothing.
+
+    Two different facts. The second one's cause (an app-scoped token) must never be asserted over
+    the first: an upstream timeout reported as a token problem sent one investigation down a
+    token-scope dead end for hours. A failed read is already recorded in `warnings`, so it is quoted
+    here rather than guessed at.
+    """
+    failed = [w for w in meta.get("warnings", []) if w.startswith(_COHORT_PAGE_FAILED)]
+    if failed:
+        return ("no cohort data — the discovery_get_top_traders read failed, so the cohort was "
+                f"never read (this is not a token problem): {failed[-1]}")
+    return ("no cohort data — discovery_get_top_traders succeeded and returned no traders. "
+            "discovery_* needs a USER-scoped SENPI_AUTH_TOKEN; an app-scoped token returns "
+            "nothing here.")
+
+
 def _signed_notional(p):
     szi = _f(p, "szi", "size")
     val = _f(p, "positionValue", "notional", "position_value")
@@ -187,7 +208,12 @@ def cohort_bias(client, addrs, meta, label):
     for i in range(0, len(addrs), STATE_BATCH):
         batch = addrs[i:i + STATE_BATCH]
         try:
-            resp = client.mcp_call("discovery_get_trader_state", trader_addresses=batch, timeout=20)
+            # `include_position_age` costs nothing extra — same call, same batch — and it is what
+            # lets a whale OPEN be read from a single sweep: the position carries its own start
+            # time, so "opened 18 minutes ago" is a fact about the position, not a diff against an
+            # earlier reading of ours.
+            resp = client.mcp_call("discovery_get_trader_state", trader_addresses=batch,
+                                   include_position_age=True, timeout=20)
         except Exception as e:  # noqa
             meta.setdefault("warnings", []).append(f"{label} trader_state batch failed: {e}")
             continue
@@ -251,10 +277,79 @@ def divergences(smart_per, crowd_per):
 
 
 # ──────────────────────────────────────────────────────────────── near-term layer (Leaderboard / Hyperfeed)
+# OpenClaw truncates exec results over ~16k chars, and the raw leaderboard reads run to ~220k (live
+# 2026-10-09). near_term therefore keeps only these rows of the narrated fields, then trims to the budget.
+NEAR_MARKET_LIMIT = 8
+NEAR_TRADER_LIMIT = 5
+NEAR_EVENT_LIMIT = 8
+NEAR_BUDGET_CHARS = 5_000       # near_term's share: the step also prints the cohort headline (~7k live)
+
+
+def _latest_per_trader(events):
+    """Momentum events arrive newest first, and most are blocked repeats of the same few traders (live
+    2026-10-09: 1,807 events in 4h from 3 traders, every one blocked, none with top_positions). Blocked
+    only means the push was not delivered — the tier crossing is still the signal — so a positionless
+    event is kept, not dropped. One event per trader: its newest `sent` one if any (sent events name
+    their positions), else its newest. Sent traders first, then recency."""
+    def sent(e):
+        return e.get("decision") == "sent"
+
+    best = {}
+    for i, e in enumerate(events):
+        t = e.get("trader_id")
+        if t is not None and (t not in best or (sent(e) and not sent(best[t][1]))):
+            best[t] = (i, e)
+    picked = sorted(best.values(), key=lambda p: (not sent(p[1]), p[0]))
+    return [dict(e, top_positions=(e.get("top_positions") or [])[:3] or None) for _, e in picked]
+
+
+# Each tool's `data`, per senpi-hyperliquid-mcp src/types/leaderboard.types.ts + src/tools/leaderboard.tools.ts
+# (every handler wraps its client payload under one more key): label → (tool, path to the rows, envelope
+# fields kept, row limit, row fields kept, row filter). Never the status `prices` map (one per market), never
+# `blocked_details` (free text that repeats the wallet).
+NEAR_LAYERS = {
+    "concentration": ("leaderboard_get_markets", ("markets", "markets"), ("window", "source_trader_count"),
+                      NEAR_MARKET_LIMIT, ("token", "dex", "direction", "is_dominant_direction",
+                      "pct_of_top_traders_gain", "trader_count", "contribution_pct_change_15m",
+                      "contribution_pct_change_1h", "contribution_pct_change_4h", "token_price_change_pct_4h"),
+                      None),
+    "hot_traders": ("leaderboard_get_top", ("leaderboard", "data"), ("window", "total_traders"),
+                    NEAR_TRADER_LIMIT, ("rank", "trader_id", "unrealized_pnl", "pnl_percentage", "top_markets"),
+                    None),
+    "momentum_events": ("leaderboard_get_momentum_events", ("events", "events"), ("total_count",),
+                        NEAR_EVENT_LIMIT, ("trader_id", "tier_label", "delta_pnl", "decision", "blocked_reason",
+                        "top_positions", "detected_at"), _latest_per_trader),
+}
+# The tool's max: the newest 50 events span ~3 minutes of re-fires from the same 2-3 traders, 200 span ~17.
+NEAR_CALL_ARGS = {"leaderboard_get_momentum_events": {"limit": 200}}
+
+
+def _dig(data, path):
+    """The value at `path`, or None where the envelope does not have it (schema drift)."""
+    for key in path:
+        data = data.get(key) if isinstance(data, dict) else None
+    return data
+
+
+def _fit_budget(near):
+    """Drop the last (lowest-ranked) row of the largest layer until near_term fits NEAR_BUDGET_CHARS,
+    never below one row per layer; each layer's source counts still say how many there were."""
+    def size(x):
+        return len(json.dumps(x, ensure_ascii=False))
+
+    while size(near) > NEAR_BUDGET_CHARS:
+        layers = [v for v in near.values() if isinstance(v, dict) and len(v.get("rows") or []) > 1]
+        if not layers:
+            break
+        max(layers, key=lambda v: size(v["rows"]))["rows"].pop()
+    return near
+
+
 def fetch_near_term(client, meta):
-    """The 4h-window momentum layer — health-gated. Returns None cleanly if Hyperfeed is down.
-    leaderboard_get_markets = where the hot cohort's gains concentrate; momentum_events = the live
-    entry/scale/exit flow (is the move building or fading)."""
+    """The 4h-window momentum layer — health-gated, projected to the narrated fields and bounded.
+    Returns None cleanly if Hyperfeed is down; a single unreadable layer is None plus a warning.
+    concentration = where the hot cohort's gains concentrate (contribution_pct_change_* = building or
+    fading); hot_traders = the 4h board's top; momentum_events = traders whose 4h PnL crossed a tier."""
     try:
         status = client.mcp_call("leaderboard_get_status", timeout=8)
     except Exception as e:  # noqa
@@ -263,16 +358,34 @@ def fetch_near_term(client, meta):
     if _ok(status) is None:
         meta.setdefault("warnings", []).append("near-term layer unavailable (Hyperfeed unreachable)")
         return None
-    near = {"status": _ok(status)}
-    for label, tool in (("concentration", "leaderboard_get_markets"),
-                        ("hot_traders", "leaderboard_get_top"),
-                        ("momentum_events", "leaderboard_get_momentum_events")):
+    st = _dig(_ok(status), ("status",))
+    if isinstance(st, dict):
+        st = {k: st[k] for k in ("window", "last_update_timestamp", "total_leaderboard_traders")
+              if st.get(k) is not None}
+    else:
+        meta.setdefault("warnings", []).append("leaderboard_get_status: response has no `status` object")
+        st = None
+    near = {"status": st}
+    for label, (tool, path, env_fields, limit, fields, keep) in NEAR_LAYERS.items():
         try:
-            near[label] = _ok(client.mcp_call(tool, timeout=10))
+            data = _ok(client.mcp_call(tool, timeout=10, **NEAR_CALL_ARGS.get(tool, {})))
+            if data is None:
+                raise ValueError("no data")
+            env = _dig(data, path[:-1])
+            rows = env.get(path[-1]) if isinstance(env, dict) else None
+            # a renamed envelope must read as unavailable, not as "no rows"
+            if not isinstance(rows, list):
+                raise ValueError(f"response has no `{'.'.join(path)}` list")
+            rows = [r for r in rows if isinstance(r, dict)]
+            layer = {k: env[k] for k in env_fields if env.get(k) is not None}
+            layer.setdefault("total_count", len(rows))
+            layer["rows"] = [{k: r[k] for k in fields if r.get(k) is not None}
+                             for r in (keep(rows) if keep else rows)[:limit]]
+            near[label] = layer
         except Exception as e:  # noqa
             meta.setdefault("warnings", []).append(f"{tool} failed: {e}")
             near[label] = None
-    return near
+    return _fit_budget(near)
 
 
 # ──────────────────────────────────────────────────────────────── orchestration
@@ -283,9 +396,7 @@ def run(client, want_near=True):
     meta["crowd_cohort_size"] = len(crowd_addrs)
 
     if not smart_addrs and not crowd_addrs:
-        meta["cohorts_unavailable"] = (
-            "no cohort data — discovery_get_top_traders returned empty. discovery_* needs a "
-            "USER-scoped SENPI_AUTH_TOKEN; an app-scoped token returns nothing here.")
+        meta["cohorts_unavailable"] = _cohorts_unavailable(meta)
 
     smart_per = cohort_bias(client, smart_addrs, meta, "smart") if smart_addrs else {}
     crowd_per = cohort_bias(client, crowd_addrs, meta, "crowd") if crowd_addrs else {}
@@ -366,9 +477,7 @@ def _cohorts_slice(client, meta):
     meta["smart_cohort_size"] = len(smart_addrs)
     meta["crowd_cohort_size"] = len(crowd_addrs)
     if not smart_addrs and not crowd_addrs:
-        meta["cohorts_unavailable"] = (
-            "no cohort data — discovery_get_top_traders returned empty. discovery_* needs a "
-            "USER-scoped SENPI_AUTH_TOKEN; an app-scoped token returns nothing here.")
+        meta["cohorts_unavailable"] = _cohorts_unavailable(meta)
     smart_per = cohort_bias(client, smart_addrs, meta, "smart") if smart_addrs else {}
     crowd_per = cohort_bias(client, crowd_addrs, meta, "crowd") if crowd_addrs else {}
     leaning = smart_conviction(smart_per)

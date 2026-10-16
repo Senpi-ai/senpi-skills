@@ -111,7 +111,7 @@ def fetch_trader_positions(ctx, trader_address):
 
 
 def fetch_sm_map(ctx, inputs):
-    """Port of v2 fetch_sm_map (verbatim): per-asset smart-money lean from
+    """Port of v2 fetch_sm_map: per-asset smart-money lean (the dominant side's row) from
     leaderboard_get_markets, xyz dex dropped."""
     xyz_banned = bool(inputs.get("xyzBanned", True))
     raw = _read(ctx, "leaderboard_get_markets", {"limit": 100})
@@ -136,7 +136,8 @@ def fetch_sm_map(ctx, inputs):
         dex = str(m.get("dex", "")).lower()
         if xyz_banned and dex == "xyz":
             continue
-        if not token:
+        # LONG and SHORT are separate rows per token: keep the dominant side, never the last row.
+        if not token or not m.get("is_dominant_direction", False):
             continue
         sm_map[token] = {
             "direction": str(m.get("direction", "")).upper(),
@@ -280,8 +281,9 @@ def scan(inputs, ctx):
                   "score": best["score"], "asset": best["asset"], "direction": best["direction"]})
         return []
 
+    # ONE conviction ladder: the tier carries both leverage (now flat) and marginPct.
     leverage = scoring.get_leverage_for_score(best["score"], tiers, default_leverage)
-    margin_pct = scoring.margin_pct_for(best["score"], inputs)
+    margin_pct = scoring.margin_pct_for(best["score"], inputs, tiers)
 
     # mark the (trader,asset) event seen so we don't re-fire it within the dedupe window
     seen[_seen_key(best["fullTraderId"], best["asset"])] = now

@@ -95,6 +95,8 @@ phase1:
 
 ## Time-based cuts
 
+**Which of these to enable at all is decided by the strategy's `time_horizon`, not by the preset you started from — see [time-cuts-by-horizon.md](time-cuts-by-horizon.md). A long-hold strategy carries no `weak_peak_cut` and no short timed close; `strategies/tests/test_time_cuts_match_horizon.py` enforces it.**
+
 Defined at **preset level** (NOT inside `phase1`). All optional. Evaluated every tick after breach logic, **regardless of phase**; first match wins. The only exception is `hard_timeout`, which is skipped on the exact tick a position crosses into Phase 2 so a boundary hit cannot lose to the clock before the tier advance runs.
 
 Time-cut intervals are clamped to at least the DSL cron interval (e.g. `interval_seconds: 30` -> min 0.5 min), so very small values cannot fire every tick.

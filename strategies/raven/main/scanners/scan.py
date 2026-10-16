@@ -65,6 +65,12 @@ def _derive_universe(ctx, inputs):
     rows = list(main)
     if bool(inputs.get("includeXyz", True)):
         rows += (_instrument_rows(ctx, "xyz") or [])
+    else:
+        # The no-dex instrument listing already carries xyz: names, so the flag has to
+        # REMOVE them — adding a second board when it is on was never the whole job.
+        # Without this, includeXyz: false filtered nothing and xyz: names were graded
+        # against xyzVolFloorUsd instead of the main floor.
+        rows = [r for r in rows if r["dex"] != "xyz"]
     vfloor = scoring._f(inputs.get("universeVolFloorUsd"), 25_000_000)
     xfloor = scoring._f(inputs.get("xyzVolFloorUsd"), 3_000_000)
     keep = [r for r in rows if r["vol"] >= (xfloor if r["dex"] == "xyz" else vfloor)]
@@ -144,8 +150,17 @@ def _recalibrate(ctx, inputs, state, now):
         return cur_min, cur_scale, {"n": -1}, "history unreadable — holding calibration"
     stats = scoring.track_record(closed, scoring._f(inputs.get("historyTrades"), 40))
     if stats.get("n", 0) == 0:
-        print("[raven.scan] WARNING: 0 closed trades parsed from history — holding "
-              "(verify discovery_get_trader_history payload shape)", file=sys.stderr)
+        # Zero parsed from zero rows is a strategy that has not closed a trade yet — true of every
+        # deploy on its first day, and not a defect. Zero parsed from rows that DID arrive is a
+        # payload-shape problem. Warning about the shape in both cases cried wolf on every new
+        # wallet, which is how a real parse failure would have gone unnoticed.
+        if closed:
+            print(f"[raven.scan] WARNING: {len(closed)} history rows returned but 0 parsed — "
+                  "holding calibration (verify discovery_get_trader_history payload shape)",
+                  file=sys.stderr)
+        else:
+            print("[raven.scan] no closed trades yet — holding the initial calibration",
+                  file=sys.stderr)
     min_score, size_scale, note = scoring.adapt(stats, state, inputs)
     return min_score, size_scale, stats, note
 

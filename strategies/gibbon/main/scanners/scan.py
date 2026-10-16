@@ -248,6 +248,7 @@ def _rebuild_posture(ctx, inputs, now):
     board = _board(ctx)
     regime = _funding_regime(ctx)
     posture = scoring.build_posture(pool, pulse, regime, cohort, board, inputs, now)
+    posture["cohort"] = cohort               # kept with the posture so entries score against it, not the board
     print(f"[regime.scan] POSTURE: {posture['narrative']}", file=sys.stderr)
     return posture
 
@@ -282,7 +283,7 @@ def scan(inputs, ctx):
     if free > 0:
         if board is None:
             board = _board(ctx)                  # cheap near-term lean for tape confirm
-        cohort = {"available": posture.get("cohorts_available", False)}  # bias lives in board on topup
+        cohort = posture.get("cohort") or {"available": False}   # the cohort the recalibration read
         candidates = ([(n, "LONG") for n in posture.get("longs", [])] +
                       [(n, "SHORT") for n in posture.get("shorts", [])])
         looked = 0

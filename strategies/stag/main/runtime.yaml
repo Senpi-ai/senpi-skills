@@ -8,7 +8,7 @@ description: >
   ALL FIVE gates pass for an asset: structural trend (close > 200-bar 4h SMA AND 7d high
   within last 48h), strength (7d move >= 25% — the parabolic threshold), volume surge
   (recent 6 4h bars / trailing 42 bars >= 1.5x), acceleration (4d move >= 7d move / 2),
-  and Smart Money aligned LONG >= 60%. LONG only. Emits the single highest-scoring
+  and the 4h leaders aligned LONG >= 60%. LONG only. Emits the single highest-scoring
   candidate. Then the WIDEST DSL in the catalog (parabolic_runner, ported VERBATIM) holds
   the position through the 5-8% intraday gyrations that would chop out a normal trend
   trail. Most ticks return empty by design — deploy operator-driven on a forming parabolic.
@@ -45,6 +45,7 @@ scanners:
       volBaselineBars: 42                  # 7d
       volSurgeRatio: 1.5                   # gate; >=2.0x adds +1 to score
       smTiltMinPct: 60                     # SM aligned LONG gate
+      minTraderCount: 10                   # 4h-board headcount floor — a side with fewer top traders never sets the lean
       minScore: 5                          # floor (base 3 + bonuses up to ~7)
       marginPct: 25                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable. v2 fraction 0.25
       maxLeverage: 5                       # v2 MAX_LEVERAGE; default_leverage 4 unless raised

@@ -78,7 +78,7 @@ cheaper — the two skills-side validators (`deploy.py validate`, and the author
 
 The refusal **names the offending instances and computes the re-check block for them** — one
 `openclaw senpi validate '<that instance's dir>'` per offender, then the package-wide
-`python3 senpi-strategy-ops/scripts/deploy.py validate '<package dir>'`. **Run the block it printed,
+`python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py validate '<package dir>'`. **Run the block it printed,
 in that order, and do not substitute the python line for the runtime one**: the refusal says so
 itself — only `openclaw senpi validate` records the proof the deploy requires, and the python route
 writes none. Add the exit block to the instance `runtime.yaml`, re-check, then re-run.
@@ -195,7 +195,7 @@ already own a funded, live wallet, and the unscoped sentence is what funds a sec
 The one refusal names every dead instrument, both forms it checked
 (`T` and `xyz:T`), and the exact file + key path each appears in. Fix each named instrument in the
 package (the **senpi-strategy-author** edit path), re-check read-only with
-`python3 senpi-strategy-ops/scripts/validate_universe.py <dir>`, then re-run. A dead name never
+`python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/validate_universe.py <dir>`, then re-run. A dead name never
 errors at runtime — the scan skips it and the strategy silently trades nothing — so **never
 "deploy anyway"**. If the step instead reports that the live instrument list **could not be read**,
 nothing is claimed dead, nothing was created by that run and nothing the package already had was
@@ -229,6 +229,30 @@ and do NOT re-run `create`; the repair note is printed to stderr before validati
 killed call still says what it was doing. Deploy needs **every**
 instance proven and stops at the first that is not, so on a multi-instance package expect to be
 sent back for the next sleeve; validating every instance dir up front avoids the round trip.
+
+## Backend rejections the box cannot fix
+
+### `SERR124` — no approved strategy wallet in this account's pool
+
+Reaches you as a **`failed` report (exit 3)** on `create` with the backend's text quoted
+(`No approved strategy wallet available in the pool (free=0, …)`), or as the raw MCP error if a
+create was called directly. Senpi keeps a pool of pre-approved strategy wallets **per account**, and
+this account's is empty — a condition seen on some migrated older accounts, not a platform outage
+(other accounts deploy normally), not this package, and not the budget. **Nothing was created or
+debited**; the budget never left the funding wallet. No retry refills the pool: someone at Senpi does.
+
+- **Tell the user in one sentence**: their account is out of strategy wallets right now, nothing was
+  created, their funds are untouched, and Senpi support refills it — you have handed it over.
+- **Route it**: Senpi support — **the chat on senpi.ai**, the only support channel (the Telegram group is a
+  community space, not support; there is no Discord and no email queue) — with the exact backend line (`free=0, unapproved=N` says that account's
+  approval step is stuck). **Try ONCE more only after support confirms** — the same `deploy.py create`
+  command; it resumes cleanly because nothing exists.
+- **Never**: re-run every 30 seconds or on a timer (an identical request refuses identically until the
+  pool is refilled); lower the budget or switch templates (the budget is not the problem); call
+  `strategy_create` / `strategy_create_custom_strategy` directly to route around the verb (same pool,
+  same refusal, and a raw create is not a runtime strategy); close another strategy to "free a wallet"
+  (that is a live strategy with the user's money in it, and it does nothing for the pool); or tell the
+  user Senpi is down (it is not — other accounts are deploying).
 
 ## Budget warnings (`W_`)
 

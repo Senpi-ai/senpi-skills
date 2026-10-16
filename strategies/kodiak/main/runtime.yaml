@@ -4,7 +4,7 @@ group: kodiak
 version: 3.0.0
 description: >
   KODIAK — single-asset SOL alpha hunter. Enters only when 4h structure (>=0.75) and
-  1h agree, 15m momentum confirms, and a multi-factor composite (smart-money lean,
+  1h agree, 15m momentum confirms, and a multi-factor composite (4h-leader lean,
   funding, BTC correlation, RSI room) clears score 10. Conviction-tiered leverage:
   5x standard, 6x at >=11, 7x apex at >=13. DSL is the ONLY exit (asymmetry-optimized:
   cut losers fast/cheap, ride winners hard). Faithful port of the v2 producer thesis.
@@ -38,6 +38,7 @@ scanners:
       minMom15mPct: 0.1
       rsiMaxLong: 72
       rsiMinShort: 28
+      minTraderCount: 10                   # 4h-board headcount floor: a lean whose leading side has fewer traders is refused
       leverageTiers: [[13, 7], [11, 6], [10, 5]]
       recentSignalTtlSeconds: 14400        # 240m — mirror the per-asset cooldown
     signal_data_schema:

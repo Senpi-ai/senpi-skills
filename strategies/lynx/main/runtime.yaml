@@ -12,7 +12,7 @@ version: 1.0.0
 description: >
   LYNX — adaptive MIN_SCORE self-tuner. A multi-asset momentum scorer on liquid
   majors (BTC/ETH/SOL/HYPE): 4h trend strength (+3/+2/+1), 1h confirmation (+2),
-  smart-money alignment (+2), volume rising (+1); max ~8. Every 6h it audits its own
+  4h leader momentum aligned (+2), volume rising (+1); max ~8. Every 6h it audits its own
   closed-trade history (audit_query), buckets trades by the entry score logged in
   ai_reasoning, and auto-raises MIN_SCORE above any bucket at-or-above the floor with
   >= minBucketN samples and avg ROE < bleed threshold. Raise-only (a floor that
@@ -46,6 +46,7 @@ scanners:
       # ── momentum scorer ──
       initialMinScore: 4                   # v2 initialMinScore (permissive — feeds the auditor)
       smTiltMinPct: 55                     # v2 smTiltMinPct (SM-alignment gate)
+      minTraderCount: 10                   # 4h-board headcount floor — a side with fewer top traders never sets the lean
       marginPct: 20                        # PERCENT of withdrawable (0,100]; <=1.0 treated as a fraction (x100)
       leverage: 3                          # v2 leverage; clamped to [1,5] in scan.py (MAX_LEVERAGE)
       recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)

@@ -49,7 +49,7 @@ def _read(ctx, name, args):
         return None
 
 
-def _get_markets(ctx):
+def _get_markets(ctx, min_traders=10):
     """leaderboard_get_markets → list of market-row dicts (or [] on failure)."""
     raw = _read(ctx, "leaderboard_get_markets", {"limit": 100})
     if not raw:
@@ -59,7 +59,10 @@ def _get_markets(ctx):
         markets = markets.get("markets", markets)
     if isinstance(markets, dict):
         markets = markets.get("markets", [])
-    return markets if isinstance(markets, list) else []
+    if not isinstance(markets, list):
+        return []
+    # a side thinner than min_traders traders never reaches scoring — a thin side never sets the lean
+    return [m for m in markets if isinstance(m, dict) and int(m.get("trader_count", 0) or 0) >= min_traders]
 
 
 def _fetch_btc_macro(ctx):
@@ -171,7 +174,7 @@ def scan(inputs, ctx):
     recent_ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
 
     # 1) READ + SCORE every market row (verbatim v2 thesis)
-    markets = _get_markets(ctx)
+    markets = _get_markets(ctx, int(inputs.get("minTraderCount", 10)))
     if not markets:
         return []
     candidates = []

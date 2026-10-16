@@ -65,7 +65,11 @@ def _asset_data(ctx, asset, dex):
     return md.get("data", md) if isinstance(md, dict) else None
 
 
-def _sm_for_asset(ctx, asset):
+# Floor on the 4h board's `trader_count`: a lean whose leading side is thinner than this is refused.
+_DEFAULT_MIN_TRADER_COUNT = 10
+
+
+def _sm_for_asset(ctx, asset, min_traders=_DEFAULT_MIN_TRADER_COUNT):
     """Port of v2 get_btc_sm_direction: net smart-money lean for `asset` from
     leaderboard_get_markets. Returns {direction, pct, traders, cc_15m} or None.
     On a read failure returns None -> scoring treats SM as absent (no align bonus,
@@ -89,8 +93,8 @@ def _sm_for_asset(ctx, asset):
 
     want = asset.upper()
     long_pct = short_pct = 0.0
-    traders_sum = 0
-    cc_15m = 0.0
+    long_tc = short_tc = 0          # each side's OWN headcount — never summed across sides
+    long_cc = short_cc = 0.0        # each side's OWN 15m velocity — never the last row's
     found = False
     for m in markets:
         if not isinstance(m, dict):
@@ -104,20 +108,22 @@ def _sm_for_asset(ctx, asset):
         traders = int(m.get("trader_count", 0) or 0)
         cc = scoring._f(m.get("contribution_pct_change_15m", 0))
         if direction == "LONG":
-            long_pct = pct
-            traders_sum += traders
-            cc_15m = cc
+            long_pct, long_tc, long_cc = pct, traders, cc
         elif direction == "SHORT":
-            short_pct = pct
-            traders_sum += traders
-            cc_15m = cc
+            short_pct, short_tc, short_cc = pct, traders, cc
     if not found:
         return None
 
+    # the dominant side's own headcount and 15m velocity (the side returned below, or the
+    # larger side when the split is NEUTRAL)
+    traders_sum, cc_15m = (long_tc, long_cc) if long_pct >= short_pct else (short_tc, short_cc)
     total = long_pct + short_pct
     if total == 0:
         return {"direction": "NEUTRAL", "pct": 0, "traders": traders_sum, "cc_15m": cc_15m}
     long_ratio = (long_pct / total) * 100
+    lean = "LONG" if long_ratio > 58 else "SHORT" if long_ratio < 42 else None
+    if lean and (long_tc if lean == "LONG" else short_tc) < min_traders:
+        return None   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
     if long_ratio > 58:
         return {"direction": "LONG", "pct": long_pct, "traders": traders_sum, "cc_15m": cc_15m}
     if long_ratio < 42:
@@ -157,6 +163,7 @@ def scan(inputs, ctx):
     asset = (inputs.get("asset", "BTC") or "BTC")
     dex = _dex_for(asset, inputs)
     min_score = float(inputs.get("minScore", 12))
+    min_traders = int(inputs.get("minTraderCount", _DEFAULT_MIN_TRADER_COUNT))   # 4h-board headcount floor
     margin_pct = float(inputs.get("marginPct", 50))   # PERCENT of withdrawable (0,100], not a fraction
     tiers = inputs.get("leverageTiers", _DEFAULT_TIERS)
     default_leverage = float(inputs.get("defaultLeverage", _DEFAULT_LEVERAGE))
@@ -187,7 +194,7 @@ def scan(inputs, ctx):
     funding = scoring._f(asset_ctx.get("funding", 0))
     oi_velocity = data.get("oi_velocity") if isinstance(data.get("oi_velocity"), dict) else None
 
-    sm = _sm_for_asset(ctx, asset)
+    sm = _sm_for_asset(ctx, asset, min_traders=min_traders)
     funding_regime = _funding_regime(ctx)
     funding_persistence_h = _funding_persistence_h(ctx, asset)
 

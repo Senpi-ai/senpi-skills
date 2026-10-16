@@ -39,7 +39,7 @@ FIDELITY NOTES vs the v2 producer (lynx-producer.py v1.0.1):
   - v2 recent-signals JSON cache (240s TTL) -> ctx.state dedup map (same TTL).
   - v2 marginPct was a FRACTION (0.20) * account_value -> marginUsd. This port emits
     `marginPct` as a PERCENT (20); the runtime sizes (marginPct/100)*withdrawable.
-    The "<=1.0 means a pasted fraction, x100" guard normalizes a fraction default.
+    The "<1.0 means a pasted fraction, x100" guard normalizes a fraction default.
   - v2 leverage default 3, clamped to MAX_LEVERAGE 5. Preserved (clamp [1,5]).
   - v2 score normalization for the wire (score/8.0) is dropped — the contract takes
     the raw score on data{}; the runtime owns any [0,1] normalization.
@@ -140,7 +140,7 @@ def _get_account(ctx):
     return account_value, positions
 
 
-def _get_sm_direction(ctx, coin):
+def _get_sm_direction(ctx, coin, min_traders=10):
     """Port of v2 fetch_sm_direction: net smart-money lean for `coin` from
     leaderboard_get_markets. Returns (direction, tilt_pct) or (None, 0). READ-GUARDED.
 
@@ -164,6 +164,7 @@ def _get_sm_direction(ctx, coin):
         return None, 0.0
 
     long_pct, short_pct, found = 0.0, 0.0, False
+    side_n = {}                                    # per-side headcount of the 4h leaders
     for m in markets:
         if not isinstance(m, dict):
             continue
@@ -172,6 +173,7 @@ def _get_sm_direction(ctx, coin):
             continue
         found = True
         d = str(m.get("direction", "")).upper()
+        side_n[d] = int(m.get("trader_count", 0) or 0)
         pct = scoring._f(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
         if d == "LONG":
             long_pct = pct
@@ -184,6 +186,8 @@ def _get_sm_direction(ctx, coin):
     if total <= 0:
         return "NEUTRAL", 50.0
     long_ratio = (long_pct / total) * 100
+    if side_n.get("LONG" if long_ratio >= 50 else "SHORT", 0) < min_traders:
+        return None, 0.0   # the leading side is too thin (< minTraderCount of the 4h leaders) to call a lean
     return ("LONG", long_ratio) if long_ratio >= 50 else ("SHORT", 100 - long_ratio)
 
 
@@ -347,6 +351,7 @@ def _was_recently_signaled(signaled, coin, ttl, now):
 def scan(inputs, ctx):
     now = time.time()
     whitelist = inputs.get("whitelist", _WHITELIST_DEFAULT)
+    min_traders = int(inputs.get("minTraderCount", 10))   # 4h-board headcount floor
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
     initial_min = int(inputs.get("initialMinScore", _DEFAULT_INITIAL_MIN_SCORE))
 
@@ -382,7 +387,7 @@ def scan(inputs, ctx):
         if not md:
             continue
         candles = md["candles"]
-        sm = _get_sm_direction(ctx, coin)
+        sm = _get_sm_direction(ctx, coin, min_traders)
         th = scoring.build_thesis(
             coin, candles.get("4h", []), candles.get("1h", []),
             sm, current_min_score, inputs,
@@ -405,9 +410,9 @@ def scan(inputs, ctx):
         best = candidates[0]
 
         # marginPct PERCENT in (0,100]. v2 marginPct was a FRACTION (0.20); a value
-        # <= 1.0 is a pasted fraction -> x100 (dire/koala guard).
+        # < 1.0 is a pasted fraction -> x100 (dire/koala guard).
         margin_pct = float(inputs.get("marginPct", 20))
-        if margin_pct <= 1.0:
+        if margin_pct < 1.0:
             margin_pct *= 100.0
 
         leverage = min(int(inputs.get("leverage", _DEFAULT_LEVERAGE)), _MAX_LEVERAGE)

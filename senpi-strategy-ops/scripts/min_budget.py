@@ -105,7 +105,14 @@ def _lev_values(tiers):
         out = []
         for row in tiers:
             if isinstance(row, (list, tuple)) and row:
-                out.append(_f(row[-1]))
+                # LEVERAGE IS ELEMENT 1, always. `row[-1]` was correct only for the 2-element
+                # `[min_score, leverage]` shape; on the 3-element `[min_score, leverage, marginPct]`
+                # shape that condor/cheetah/wolverine use it silently read the MARGIN PERCENT as a
+                # leverage. Read as 18-80x instead of 5-10x, the notional check passed on a wallet
+                # that cannot actually open the position: cheetah computed a $10 minimum where the
+                # smallest tier needs $15 (18% margin x 5x on $10 = $9 notional, under the $12
+                # bumped minimum). The others happened to floor at WALLET_FLOOR and so were masked.
+                out.append(_f(row[1]) if len(row) >= 2 else _f(row[0]))
             elif _f(row):
                 out.append(_f(row))
         return [x for x in out if x and x > 0]
@@ -175,6 +182,11 @@ def strategy_min_budget(manifest, runtimes):
     floor_override = _f(cat.get("min_budget_floor"))
     if floor_override:                                       # deliberate authored number — RAISE only,
         computed = max(computed, floor_override)             # and NEVER shrunk by the rounding
+        # _f() returns a float, so an authored whole number used to serialise as `100.0` into the
+        # catalog while every COMPUTED minimum is an int — a visible type split between two rows
+        # that mean the same thing. Keep the type the rest of the field has.
+        if float(computed).is_integer():
+            computed = int(computed)
     binding = None
     if breakdown:
         binding = max(breakdown, key=lambda b: b["per_wallet_min"] / (b["funding_share"] or 1.0))["wallet"]

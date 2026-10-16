@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "4.0.1"
+  version: "4.1.7"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -33,6 +33,10 @@ division of labor is fixed:
 - **Your code produces signals — nothing else.** `scan(inputs, ctx)` *reads* market and account data
   and *returns* a `list[dict]` of candidate signals. It does not open, close, size, schedule, or
   execute anything.
+- **Zero model cost, and the only loop there is.** The runtime ticks every `interval_seconds` without a
+  model call. Never put an agent-turn cron beside it — a producer, a re-check, a watcher — each
+  firing is a full model call. There is no paper-trading mode: a strategy is tested with `senpi validate`
+  (one real tick, no wallet) and then run live at the $10 floor.
 - **The runtime owns everything downstream:** scheduling (`interval_seconds`), spawning +
   supervising + restarting the scanner, validating (`signal_data_schema`) + de-duplicating the
   signals you return, **sizing & order execution** (`FEE_OPTIMIZED_LIMIT`), slot accounting,
@@ -83,7 +87,49 @@ real tick with no wallet and no funding, and a full unscoped PASS at live depth 
 `.senpi-proof.json` `senpi deploy` refuses to fund a package without. Run it before `deploy`, once per
 instance, pointed at the directory holding that instance's `runtime.yaml`.
 
-Beyond `validate`, `deploy`/`deploy status` and `runtime list/delete`, the CLI exposes the runtime's live state — `senpi dsl
+**To CHANGE a strategy that is already live** → `openclaw senpi update`, not a delete-and-redeploy.
+Deleting a runtime abandons its DSL position files, so every open position loses the trailing stop
+the strategy already promised and its replacement re-adopts from scratch at whatever price it
+finds. `update` swaps the components in place and keeps DSL state, scanner stores and action
+history — no wallet is created, nothing is funded, and no position is closed.
+
+```bash
+openclaw senpi update ./pkg                       # PLAN — what changes, what it leaves alone
+openclaw senpi update ./pkg --apply               # commit (needs the same proof deploy needs)
+openclaw senpi update ./pkg --apply --code-only   # assert only scan.py changed; refuses if not
+```
+
+It plans by default; `--apply` is the only way to commit. `phase2.tiers` is what users call the **ratchet**;
+with no open position, the edit plus `--apply` is the whole change. **`dsl_preset` changes are forward-only** — new
+entries only, while every open position keeps a snapshot of the preset it was opened under (other `exit:`
+fields, e.g. `order_type`, are read live and DO reach open positions). Refused outright, changing
+nothing: a different `strategy.wallet` (that is a new deployment, and the old wallet's positions
+would be left unmanaged), an external scanner renamed or moved (state is keyed by name and position
+together, and inserting or removing one moves every external scanner below it — appending at the end
+moves nobody and is allowed), or a changed `action_type` under a stable name. `--apply` also needs a
+passing proof that covers the recipe being applied, so point it at the package DIRECTORY: a recipe
+handed over as bare text has nothing to verify against and is refused. Exit `2` means the runtime
+was never touched; exit `1` means an apply was attempted and it may not be where you left it — read
+the message before retrying.
+
+**Saved is not applied.** Without `--apply`, `update` changes nothing, and only the first line of its
+output says so — `Dry run for <runtime_id> — nothing has been applied.` — so never pipe
+`openclaw senpi` output through `tail` or `head`. A scanner imports `scan.py` once, when it starts, so
+a running strategy keeps its old code until `--apply` restarts its scanners (a crash or a gateway
+restart would load the edit too, unannounced). `senpi validate` runs the copy on disk, never the
+running one, and re-running `deploy` on a strategy that is already running applies nothing. The edit
+is live once the apply exits `0` with `Updated <runtime_id>.` as its first line and no `WARNING` that
+its external scanners are NOT running, and the running strategy shows it:
+
+```bash
+openclaw senpi events -r <runtime_id> --name runtime.updated   # an entry for this apply (code-only edits too)
+openclaw senpi update ./pkg --id <runtime_id>                  # read-only: a recipe edit that landed plans "The recipe is unchanged."
+```
+
+Until both reads show it, tell the user the edit is **saved, not applied**. What a tick keeps and what
+discards one: `references/scan-contract.md`.
+
+Beyond `validate`, `deploy`/`deploy status`, `update` and `runtime list/delete`, the CLI exposes the runtime's live state — `senpi dsl
 positions|inspect|closes` (the exit engine), `senpi action list|inspect|history|decisions` (the
 decision layer), `senpi risk` (am I allowed to trade, and why not), `senpi audit` (backend trade
 trail with AI reasoning), `senpi scanner` (per-scanner health, liveness, and a `(no signals yet)` flag for scanners that run but produce nothing),

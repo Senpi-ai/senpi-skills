@@ -98,7 +98,8 @@ def clamp_leverage(desired, cap):
 def build_thesis_pre_listing(asset_name, c1h, c4h, sm_dir, sm_tilt, config):
     """Returns a scored thesis dict or None if a gate blocks. `sm_dir`/`sm_tilt`
     are the smart-money lean for this asset (scan.py fetches them; sm_dir is None
-    when leaderboard data is absent — sparse pre-listing -> trend-only fallback)."""
+    when the board has no row for the name — the normal pre-listing case — and the
+    SM component is then NEUTRAL: no gate, no points; the trend must carry the score)."""
     if len(c4h) < 6 or len(c1h) < 6:
         return None
     t4, s4 = trend_structure(c4h)
@@ -109,9 +110,9 @@ def build_thesis_pre_listing(asset_name, c1h, c4h, sm_dir, sm_tilt, config):
 
     sm_min = float(config.get("smTiltMinPct", 55))
     sm_strong = float(config.get("smStrongTiltPct", 70))
-    # IPOP SM data is sparse pre-listing — fall back to trend-only if absent.
+    # No board row for this name (the normal pre-listing case): neutral — trend-only, no SM points.
     if sm_dir is None:
-        sm_dir, sm_tilt = direction, sm_min
+        sm_tilt = 0.0
     elif sm_dir == "NEUTRAL" or sm_dir != direction or sm_tilt < sm_min:
         return None
 
@@ -120,10 +121,13 @@ def build_thesis_pre_listing(asset_name, c1h, c4h, sm_dir, sm_tilt, config):
     if (direction == "LONG" and t1 == "BULLISH") or (direction == "SHORT" and t1 == "BEARISH"):
         score += 2
         reasons.append(f"1h_confirms_{t1.lower()}")
-    score += 2
-    reasons.append(f"sm_aligned_{sm_tilt:.0f}%" if sm_tilt > sm_min else "sm_sparse_assumed_aligned")
-    if sm_tilt >= sm_strong:
-        score += 1
-        reasons.append("sm_strong")
+    if sm_dir is not None:                   # a board row that agrees — never an absent one
+        score += 2
+        reasons.append(f"sm_aligned_{sm_tilt:.0f}%")
+        if sm_tilt >= sm_strong:
+            score += 1
+            reasons.append("sm_strong")
+    else:
+        reasons.append("sm_no_board_row")
     return {"coin": asset_name, "direction": direction, "score": score, "reasons": reasons,
             "trend4h": t4, "sm_tilt": sm_tilt}

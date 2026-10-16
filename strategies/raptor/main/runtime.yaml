@@ -1,22 +1,22 @@
 # ── RAPTOR · single instance — hot-streak follower (Runtime 3.0 port of v2 Raptor v4.0.0) ──
 name: raptor-main
 group: raptor
-version: 3.0.0
+version: 3.3.0
 description: >
   RAPTOR — quality-first hot-streak follower. Pulls ELITE/RELIABLE traders winning the
   WEEKLY window (discovery_get_top_traders, unrealized >= $500k), isolates each one's
-  strongest open position, confirms a smart-money lean in the same direction
-  (leaderboard_get_markets, >= 2% of top-trader gain, >= 10 traders), applies whale
+  strongest open position, confirms the 4h leaders' side agrees (leaderboard_get_markets —
+  which side the last four hours' winners sit on; >= 2% of top-trader gain, >= 10
+  traders), applies whale
   entry-price discipline (skip if price already ran > 5% past the whale's entry in the
-  whale's favor), scores, and follows ONLY the single best candidate. Conviction-tiered
-  leverage: 7x base, 8x at score >= 8, 10x apex at >= 10; conviction-scaled margin (25%
-  base, 35% at score >= 10). Derived universe (XYZ banned). Faithful port of the v2
+  whale's favor), scores, and follows ONLY the single best candidate. Flat 10x leverage with
+  conviction sized in margin (20% at the score-8 floor, 35% at >= 10). Derived universe (XYZ banned). Faithful port of the v2
   producer thesis — scoring reproduced verbatim.
 
 strategy:
   wallet: "${RAPTOR_WALLET}"
   slots: 2                                 # v2 maxPositions: 2
-  default_leverage: 7                      # fallback; scan emits per-signal 7/8/10 by score
+  default_leverage: 10                     # fallback; scan emits a FLAT 10x (venue-clamped in scan.py)
   trading_risk: aggressive
   enabled: true
 
@@ -41,7 +41,7 @@ scanners:
       tier3Threshold: 3000000               # scoring tier-3 trader-delta floor (USD)
       minConcentration: 0.35                # min |pnl| concentration of the strongest position
       minPositionPnl: 100000                # min |delta_pnl| on the strongest position (USD)
-      # ── smAlignment (smart-money confirmation) — verbatim from v2 ──
+      # ── smAlignment (4h-leader confirmation) — verbatim from v2 ──
       minSmPct: 2.0                         # min pct_of_top_traders_gain on the asset
       minSmTraders: 10                      # min trader_count on the asset
       requireDirectionMatch: true
@@ -50,12 +50,32 @@ scanners:
       # ── dedupe ──
       eventDedupeHours: 4                   # per-(trader,asset) re-fire window
       # ── entry / sizing ──
-      minScore: 6                           # score floor to fire
-      marginPctBase: 25                     # PERCENT of withdrawable (0,100] — v2 fraction 0.25 -> 25
-      marginPctHighConv: 35                 # PERCENT, used at score >= highConvScore — v2 0.35 -> 35
-      highConvScore: 10                     # score at/above which marginPctHighConv applies
+      minScore: 8                           # score floor to fire
+  # RAISED 6 -> 8: 8 is this package's own next conviction band (6/8/10).
+      # 2026-10-01: of 25 closes in 24h across the fleet, 15 never armed a single profit
+      # rung and their median peak was 2.0% ROE (~0.2% of price) — entries that never went
+      # green, which no stop placement fixes. Fees were 57% of gross over the same set.
+      # The 6 band below the floor is now UNREACHABLE. Kept deliberately: it records the author's
+      # calibration and comes back if an experiment lowers the floor again.
+      # 17.5 — the SMALLEST reachable tier margin, and a fallback only: every tier above
+      # carries its own marginPct. It is kept at the smallest because min_budget reads
+      # marginPctBase from an explicit allowlist and cannot see the third tier element,
+      # so a higher value here under-computes the minimum budget.
+      marginPctBase: 17.5
       # ── leverage tiers (conviction-scaled) — verbatim from v2 config ──
-      leverageTiers: [[10, 10], [8, 8], [6, 7]]
+      # [min_score, leverage, marginPct]. Leverage FLATTENED to 10x and conviction scaled
+      # through margin instead. Exposure per tier is UNCHANGED: 10x35%=3.50x, 8x25%=2.00x,
+      # 7x25%=1.75x  ->  10x35%, 10x20%, 10x17.5%.
+      #
+      # WHY 10x: MEASURED. Over 14 days, 67% of this package's 1,066 emits fired at 10x —
+      # the leverage its trades actually run at, so the ladder is calibrated for the common
+      # case. rung 0 (trigger 8) then sits at 0.80% of price, inside the measured median peak.
+      #
+      # WHY FLAT: every DSL threshold is ROE and the engine divides by leverage to get a price
+      # floor, so spread leverage rescaled the ladder per tier — and backwards, since the
+      # lowest-conviction tier got the lowest leverage and therefore the WIDEST stop.
+      # Was [[10, 10], [8, 8], [6, 7]] with margin stepping separately on highConvScore.
+      leverageTiers: [[10, 10, 35.0], [8, 10, 20.0], [6, 10, 17.5]]
       defaultLeverage: 7
       recentSignalTtlSeconds: 14400         # 240m — mirror the per-asset cooldown (anti re-fire)
     signal_data_schema:
@@ -93,8 +113,15 @@ actions:
       - type: signal
         scanner: raptor_main_signals
 
-# EXIT — follow-the-streak DSL (ported VERBATIM from v2 runtime.yaml): wide disaster
-# stop, let winners compound, first lock already reachable at +8%.
+# EXIT — follow-the-streak DSL: wide disaster stop, let winners compound, first lock
+# already reachable at +8%. No time-based cuts: Raptor rides one proven trader's live
+# conviction bet, and a whale's position runs for hours to days, so a follow exits on the
+# hard stop (phase1.max_loss_pct) or the profit-lock ladder (phase2.tiers) — never because
+# a clock ran out. The 6h hard_timeout counts from entry and fires in either phase, so it
+# closed follows that had not yet reached the first tier (+8% ROE is ~1.1% of price at 7x)
+# and tier-armed winners mid-run alike; the 60m weak-peak cut and the 40m dead-weight cut
+# closed follows that had merely not moved yet. The whale not having been paid yet is not
+# the whale being wrong. Removed 2026-09-15 (Raptor 1.1.2).
 exit:
   engine: dsl
   interval_seconds: 30
@@ -104,15 +131,11 @@ exit:
     execution_timeout_seconds: 60
   dsl_preset:
     hard_timeout:
-      enabled: true
-      interval_in_minutes: 360
+      enabled: false
     weak_peak_cut:
-      enabled: true
-      interval_in_minutes: 60
-      min_value: 2.5
+      enabled: false
     dead_weight_cut:
-      enabled: true
-      interval_in_minutes: 40
+      enabled: false
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a small favourable
       # move it can still sit BELOW entry and close a WINNER at a loss — churning fees.
@@ -120,18 +143,20 @@ exit:
       # max_loss_pct := the old retrace (10.0% ROE), which is what the trail was already
       # enforcing, so the per-trade risk cap is UNCHANGED. retrace_threshold is now inert.
       enabled: false
-      max_loss_pct: 10.0   # was 25.0 — set to the old retrace so the risk cap is unchanged
+      max_loss_pct: 15   # 1.5% of price at 10x — was 10.0 ROE (=1.00% px), inside the measured 1.38% p75 bounce
       retrace_threshold: 10
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 8,  lock_hw_pct: 25 }   # first lock reachable at +8%
-        - { trigger_pct: 15, lock_hw_pct: 50 }
-        - { trigger_pct: 25, lock_hw_pct: 65 }
-        - { trigger_pct: 40, lock_hw_pct: 80 }
-        - { trigger_pct: 60, lock_hw_pct: 88 }
-
+        - { trigger_pct: 6,     lock_hw_pct: 30 }   # 0.6% of price   <- LOSS REDUCER
+        - { trigger_pct: 20,    lock_hw_pct: 40 }   # 2% of price
+        - { trigger_pct: 25,    lock_hw_pct: 50 }   # 2.5% of price
+        - { trigger_pct: 30,    lock_hw_pct: 60 }   # 3% of price
+        - { trigger_pct: 40,    lock_hw_pct: 65 }   # 4% of price
+        - { trigger_pct: 50,    lock_hw_pct: 70 }   # 5% of price
+        - { trigger_pct: 70,    lock_hw_pct: 75 }   # 7% of price
+        - { trigger_pct: 100,   lock_hw_pct: 85 }   # 10% of price
 risk:
   guard_rails:
     daily_loss_limit_pct: 15
@@ -140,5 +165,6 @@ risk:
     max_consecutive_losses: 3
     cooldown_seconds: 1800                  # v2 cooldown_minutes: 30
     per_asset_cooldown_seconds: 7200        # v2 per_asset_cooldown_minutes: 120
-    max_entries_per_day: 6
+    max_entries_per_day: 3             # was 6: the cap bound on 18 of 21 sampled days, and days with 12+ fills paid 94%
+                                       # of the fees; the edge per trade (≈4.7 bps) is below the round-trip cost (30d read)
     bypass_max_entries_per_day_on_profit: false

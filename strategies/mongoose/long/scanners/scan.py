@@ -31,7 +31,7 @@ FIDELITY NOTES vs mongoose-producer.py v1.0.0:
     fraction * 100) * sizingWeights[name], and the runtime sizes (marginPct/100)*withdrawable.
     The per-name conviction weighting is identical; only the unit (fraction->percent) and the
     sizing owner (producer->runtime) changed. A defensive guard converts an inputs.marginPct
-    that was pasted as a fraction (<=1.0) by x100.
+    that was pasted as a fraction (<1.0) by x100.
   - v2's affordability cap decremented a running free_margin and applied a 1.1 fee/slippage
     headroom per emit so a mixed-size basket never emits an un-fundable order. Preserved: the
     per-name weighted margin is checked against a running free_margin (1.1 headroom) and the
@@ -210,9 +210,9 @@ def scan(inputs, ctx):
     min_score = int(inputs.get("minScore", 5))
 
     # marginPct INTENT (PERCENT of withdrawable, (0,100]). v2 stored a FRACTION (0.18); the
-    # defensive guard treats a pasted <=1.0 as a fraction and x100 (dire/koala pattern).
+    # defensive guard treats a pasted <1.0 as a fraction and x100 (dire/koala pattern).
     margin_pct = float(inputs.get("marginPct", 18))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         margin_pct *= 100.0
 
     max_lev = int(inputs.get("maxLeverage", 5))
