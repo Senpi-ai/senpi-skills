@@ -68,6 +68,7 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   trend_continuation: { gloss: "Enters in the direction of an established, still-intact trend." }
   accumulation: { gloss: "Detects persistent institutional accumulation — relative-strength decoupling from the market on rising volume with shallow, bought dips — from the tape, no catalyst feed needed." }
   indicator_crossover: { gloss: "Textbook technical setup: a MACD signal-line crossover triggers the entry, RSI confirms momentum, higher-timeframe trend adds context." }
+  ma_crossover: { gloss: "The classic moving-average crossover: a fast EMA crossing a slow EMA on closed candles (or a Donchian breakout), taken only with the higher-timeframe trend; the oldest trend-following rule there is." }
   # contrarian_fade
   sm_crowding:   { gloss: "Fades the side the 4h leaders crowded into once price stops following." }
   funding_extreme: { gloss: "Fades extreme funding rates." }

@@ -70,11 +70,24 @@ def test_the_closing_does_not_offer_to_mirror_a_4h_winner():
     assert "mirror" not in q[:300].lower()
 
 
-def test_the_strategy_route_offers_athena_first():
-    route = SKILL[SKILL.index("**Strategy → Athena first, or one built for this market.**"):]
-    assert route.index("**Athena**") < route.index("**senpi-strategy-author**")
-    assert "**senpi-strategy-ops** runs its walkthrough and deploys it under their name" in route
+def test_the_strategy_route_offers_the_hyperfeed_strikers_first():
+    """Athena led this route until 2026-09-27; Penguin/Pelican replaced it on Jason's call.
+
+    The reason is what users actually do with them: a live Hyperfeed rotation shows up fast enough
+    that a reader sees what the machinery does before they have a thesis, and both templates are
+    built to be forked and modified from there. Athena is still offered — it moved to the
+    senpi-signals family question and to senpi-portfolio's idle-capital menu — but a market read is
+    the surface where someone is most likely to have no strategy at all yet, so the fast-feedback
+    option leads here. The author route stays the peer, so a template never reads as the only way.
+    """
+    route = SKILL[SKILL.index("**Strategy → Penguin or Pelican first, or one built for this market.**"):]
+    assert route.index("**Penguin**") < route.index("**senpi-strategy-author**")
+    assert route.index("**Pelican**") < route.index("**senpi-strategy-author**")
+    assert "**senpi-strategy-ops** runs the walkthrough and deploys under their name" in route
     assert "Never promise or imply results." in route
+    # the two claims that are easy to get wrong, pinned where the copy lives
+    assert 'never "pumps"' in route, "the rotations-not-pumps rule left the route"
+    assert "13.5% of the wallet" in route, "the per-stop wallet cost left the route"
 
 
 def test_a_box_without_senpi_signals_skips_the_step_silently():

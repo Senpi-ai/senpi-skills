@@ -224,8 +224,8 @@ def scan(inputs, ctx):
                                       for t in tracked_xyz]   # basket names carry their venue
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))      # PERCENT (0,100]
-    # defensive: a pasted FRACTION (<=1.0) means margin was stored as 0.30 -> 30%.
-    if 0 < margin_pct <= 1.0:
+    # defensive: a pasted FRACTION (<1.0) means margin was stored as 0.30 -> 30%.
+    if 0 < margin_pct < 1.0:
         margin_pct *= 100.0
     max_positions = int(inputs.get("maxPositions", _DEFAULT_MAX_POSITIONS))
     xyz_banned = bool(inputs.get("xyzBanned", False))                      # v2 XYZ_BANNED=False

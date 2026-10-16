@@ -43,7 +43,7 @@ FIDELITY NOTES:
     one `best`; this port emits up to `emitTopN` (default 2) using the SAME sort
     key (score, consensus count, max_notional) per the 1-2 emit allowance.
   - marginPct emitted as PERCENT in (0,100] at the top level; the runtime sizes
-    (marginPct/100)*withdrawable. Default 15. A defensive "<=1.0 means a pasted
+    (marginPct/100)*withdrawable. Default 15. A defensive "<1.0 means a pasted
     fraction, x100" guard preserves either input form.
   - leverage clamped to [1, MAX_LEVERAGE].
   - v2 recent-signals.json race-window dedup -> ctx.state dedup map (TTL=240s,
@@ -281,9 +281,9 @@ def scan(inputs, ctx):
     emit_top_n = max(1, min(2, int(inputs.get("emitTopN", 2))))   # 1-2 emit allowance
 
     # marginPct intent (PERCENT in (0,100]). v2 stored a FRACTION (0.15); the
-    # defensive guard converts a pasted fraction (<=1.0) to a percent (x100).
+    # defensive guard converts a pasted fraction (<1.0) to a percent (x100).
     margin_pct = float(inputs.get("marginPct", 15))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         margin_pct *= 100.0
 
     # ── WHALE-SOURCE RESOLUTION ──
