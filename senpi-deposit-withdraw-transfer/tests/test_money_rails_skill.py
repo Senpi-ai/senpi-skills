@@ -120,7 +120,8 @@ def test_withdraw_everything_is_the_exact_available_figure():
 
 def test_creation_fee_is_stated_before_money_moves():
     _needles("Creating a strategy reserves a creation fee — about $1, budgeted as $1.50 per wallet",
-             "the per-wallet minimum and fee up front",
+             "quote the design's minimum, not the floor",
+             "~$11.50 per wallet opens a wallet. It is not what the strategy needs to",
              "\"funds in transit\" figure",
              "Never invent a fee a tool did not return")
 
