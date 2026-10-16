@@ -173,6 +173,8 @@ raises `PermissionError` (loud, fail-fast — never a silent `None`).
 The allowlist is scaffold-owned in source and **empty by default** — there is no env/operator/author
 knob. As an author: **assume you cannot mutate anything.** Produce signals; the runtime executes.
 
+No partial exits: every runtime close is full (`runtime-concepts.md` → DSL Exit Engine).
+
 ---
 
 ## Market data types
