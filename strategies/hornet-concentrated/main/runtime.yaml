@@ -148,35 +148,64 @@ exit:
       enabled: false
       interval_in_minutes: 60
     phase1:
-      # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
-      # could sit BELOW entry and close a winner at a loss. max_loss_pct is set to the old
-      # retrace (8% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
-      # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
+      # Trailing DISABLED fleet-wide: the phase-1 floor trails HIGH-WATER, so after a small
+      # favourable move it can sit BELOW entry and close a winner at a loss. With it off,
+      # max_loss_pct is the SOLE floor beneath entry and the runtime rests it on the exchange.
       enabled: false
-      max_loss_pct: 20                   # = 2.00% of price at 10x — IDENTICAL to hornet's 8% at 4x
-      retrace_threshold: 20
+      max_loss_pct: 12                   # = 1.20% of price at 10x
+      retrace_threshold: 12
       consecutive_breaches_required: 1
     phase2:
       enabled: true
-      tiers:                               # wide-by-design; FIRST lock at +10% ROE
-        # ROE triggers, so the engine divides by leverage: every rung below sits at the SAME
-        # distance in PRICE as hornet's at 4x. The 25/20 rung is new — an early lock 10x can
-        # afford and 4x could not (2.50% of price).
-        - { trigger_pct: 25,  lock_hw_pct: 20 }   # 2.50% of price (new)
-        - { trigger_pct: 50,  lock_hw_pct: 25 }   # 5.00%  — hornet 20/25
-        - { trigger_pct: 75,  lock_hw_pct: 40 }   # 7.50%  — hornet 30/40
-        - { trigger_pct: 125, lock_hw_pct: 60 }   # 12.50% — hornet 50/60
-        - { trigger_pct: 187.5, lock_hw_pct: 75 } # 18.75% — hornet 75/75
-        - { trigger_pct: 250, lock_hw_pct: 85 }   # 25.00% — hornet 100/85
+      # 1.1.0 — THIS IS THE LADDER THE LIVE BOOK RUNS, and 1.0.0's was wrong.
+      #
+      # 1.0.0 re-derived every rung to preserve the PARENT hornet's price distances (2.50 /
+      # 5.00 / 7.50 / 12.50 / 18.75 / 25.00% at 10x). That rule is right for a concentrated
+      # variant in general — it keeps the fork comparable to the template it varies — but it
+      # was anchored on the wrong parent. This package was derived from a LIVE FORK that
+      # already had its own measured ladder (Hornet v1.1.2 base, DSL from Camel Concentrated),
+      # and the derivation discarded it in favour of the template's. The result was the fork's
+      # SIZING (45% at 10x, 2 slots) wearing the TEMPLATE's exits: concentrated risk with
+      # loose protection, a combination nobody chose.
+      #
+      # What that cost, in price terms at 10x:
+      #     first lock armed at 2.50% instead of 1.50%   (67% later)
+      #     first lock kept   20% instead of 40%         (half as much)
+      #     stop sat at       2.00% instead of 1.20%     (67% wider)
+      #   and it compounded: at ~5.6% the fork keeps 65%, 1.0.0 at 5.00% kept 25%.
+      #
+      # Independently measured on the live book 2026-10-13: arming the lock at 1.5% of price
+      # and keeping 60% was worth +$755 over 245 trades, i.e. the arm point below is the
+      # measured one and 2.50% was not. See project_exit_study_m418867_oct13.
+      #
+      # Reconstructed from the running book rather than copied on trust — four positions, each
+      # reproducing these rungs and contradicting 1.0.0's: SKHX short 1204.2 -> floor 1157.4
+      # (tier 3, lock 65), AMAT short 489.61 -> 470.22 (tier 3), MRVL long 269.55 -> 271.18
+      # (tier 1, lock 40), WDC long 391.61 -> 394.02 (tier 1); and the max-loss floor on an
+      # ASML short at entry 1700.6 observed at 1721.1, which is 12 ROE / 10x and not 20.
+      tiers:
+        - { trigger_pct: 15,  lock_hw_pct: 40 }   # 1.50% of price — the measured arm point
+        - { trigger_pct: 28,  lock_hw_pct: 45 }   # 2.80%
+        - { trigger_pct: 56,  lock_hw_pct: 65 }   # 5.60%
+        - { trigger_pct: 100, lock_hw_pct: 80 }   # 10.00%
+        - { trigger_pct: 180, lock_hw_pct: 90 }   # 18.00%
 
 # ── RISK guard rails (minutes/hours -> seconds) ──
 risk:
   data_retention_seconds: 259200           # 72h (in [3600,604800])
   guard_rails:
-    daily_loss_limit_pct: 18               # one stop = 20% ROE x 45% = 9.00% of account, so this
-                                           # is 2 stops. hornet's 15% would halt after ONE.
+    daily_loss_limit_pct: 18               # one stop = 12% ROE x 45% = 5.40% of account, so this
+                                           # is >3 stops. hornet's 15% would halt after ONE.
     max_entries_per_day: 4
-    bypass_max_entries_per_day_on_profit: false
+    # 1.1.0 — THE CAP LIFTS ON A PROFITABLE DAY. Gate 5 stays OPEN at the cap whenever
+    # today_snapshot.pnl.delta_since_open > 0 (strict: exactly zero does NOT bypass). The cap
+    # therefore only ever constrains a day that is already down, which is the only kind of day
+    # it has ever constrained in practice: on the one live day the cap was reached (2026-10-09,
+    # a 4-entry day that netted -35.34), the strategy's next 99 emits were all refused by SLOTS
+    # at 2/2 rather than by this gate, and all 99 were attempts to re-buy the two names that had
+    # just lost money. Lifting the cap on a winning day costs nothing measured and removes a
+    # brake that was never the binding constraint when things were going well.
+    bypass_max_entries_per_day_on_profit: true
     max_consecutive_losses: 3
     cooldown_seconds: 3600                  # 60m post-loss cooldown
     drawdown_halt_pct: 30                  # 3.3 stops (hornet: 20% = 13.9 of its 1.44% stops)
