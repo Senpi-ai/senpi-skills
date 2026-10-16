@@ -67,12 +67,12 @@ def _vol(c):
 def roundtrip_fee_pct(inputs, maker_entry=True):
     """Cost of one full round trip, as a PERCENT OF PRICE (not of margin).
 
-    The defaults are the MEASURED venue rates per side (8 bps taker, 6 bps maker; 1.1.0),
-    the same numbers runtime.yaml ships: 0.14% maker-in/taker-out, 0.16% taker/taker.
-    1.0 defaulted to HL's base schedule (4.5/1.5 bps, 0.06% a round trip), less than half
-    of what the wallet pays. The exact per-wallet schedule is on HL's Info API
-    (`userFees`) and varies with volume tier and Senpi points; they are inputs so nobody
-    has to edit code to correct them.
+    The defaults (8 bps taker, 6 bps maker per side; 1.1.0) are HL's fee plus the Senpi
+    builder fee as measured on live fills, the same numbers runtime.yaml ships: 0.14%
+    maker-in/taker-out, 0.16% taker/taker. 1.0 defaulted to HL's base fee alone (4.5/1.5
+    bps, 0.06% a round trip). A wallet's own rate differs: HL's fee varies with volume tier
+    (Info API `userFees`), the builder fee with the user's Senpi tier (get_loyalty_tiers);
+    they are inputs so nobody has to edit code to correct them.
     """
     taker = _f(inputs.get("takerFeeBps"), 8.0) / 100.0     # bps -> percent
     maker = _f(inputs.get("makerFeeBps"), 6.0) / 100.0

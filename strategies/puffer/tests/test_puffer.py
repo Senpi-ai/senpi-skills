@@ -1,10 +1,10 @@
-"""Puffer 1.1.0: four slots at 20% and 4x, a 3%-of-price stop, the fee gate at the venue's measured rates.
+"""Puffer 1.1.0: four slots at 20% and 4x, a 3%-of-price stop, the fee gate at measured live rates.
 
 From the 2026-10-12 template audit: in a 208-day replay on four majors, as 1.0 was written, Puffer
 traded about seven times per coin per month with 28% winners, and 88% of its live closes were the
 exchange stop — an 8% ROE stop 1.6% of price away at 5x, inside the release candle's own range. The
-fee gate priced a round trip at 0.06% (HL's base schedule, 4.5/1.5 bps) against measured venue rates
-of 8 bps taker / 6 bps maker per side (0.14-0.16%). These tests pin the shipped numbers, the fee
+fee gate priced a round trip at 0.06% (HL's base fee alone, 4.5/1.5 bps) against 8 bps taker / 6 bps
+maker per side measured on live fills (0.14-0.16%; HL + the builder fee, which is per user). These tests pin the shipped numbers, the fee
 arithmetic, and scan() ticks against a fake desk. The wider stop's trip rate is not measured yet, so
 nothing here (or on the card) promises one.
 
@@ -91,7 +91,7 @@ def test_four_slots_at_twenty_percent_and_four_x_everywhere():
     assert scoring.sizing_for("base", {}) == (4, 20.0)
 
 
-def test_the_fee_gate_is_priced_at_the_measured_venue_rates():
+def test_the_fee_gate_is_priced_at_the_measured_rates():
     assert (INPUTS["takerFeeBps"], INPUTS["makerFeeBps"], INPUTS["feeCoverMultiple"]) == (8, 6, 2.5)
     assert abs(scoring.roundtrip_fee_pct(INPUTS) - 0.14) < 1e-9                       # maker in, taker out
     assert abs(scoring.roundtrip_fee_pct(INPUTS, maker_entry=False) - 0.16) < 1e-9    # taker both ways
@@ -99,7 +99,7 @@ def test_the_fee_gate_is_priced_at_the_measured_venue_rates():
     ok, detail = scoring.clears_fees(_released(), INPUTS)
     assert ok and abs(detail["required_pct"] - 0.35) < 1e-9 and detail["expected_capture_pct"] >= 0.35
     # a tape offering 0.6 x ATR between 0.15% and 0.35% of price was tradeable at 1.0's pricing and is
-    # priced out at the wallet's real rates — the audit's finding, as arithmetic
+    # priced out at the measured rates — the audit's finding, as arithmetic
     thin = _feed([(100.2, 99.8, 100.0, 1000.0)] * 20)                                  # ATR 0.4% -> capture 0.24%
     assert scoring.clears_fees(thin, INPUTS)[0] is False
     assert scoring.clears_fees(thin, dict(INPUTS, takerFeeBps=4.5, makerFeeBps=1.5))[0] is True
