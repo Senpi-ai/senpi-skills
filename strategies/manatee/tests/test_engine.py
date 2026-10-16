@@ -107,6 +107,7 @@ class _Mcp:
         self.margin_used = margin_used or {}   # name -> marginUsed, so a position can be shown at a
                                                # size this scanner never emitted (a double fill)
         self.dex_seen = {}                     # asset -> the dex the candle read carried
+        self.inst_calls = []                   # the dex of each market_list_instruments read
 
     def call_tool(self, name, args):
         if name == "strategy_get_clearinghouse_state":
@@ -118,7 +119,9 @@ class _Mcp:
                                                  "marginUsed": str(self.margin_used.get(c, 100.0))}}
                                    for c, (sz, e) in self.held.items()]}}}
         if name == "market_list_instruments":
-            board = self.xyz if args.get("dex") == "xyz" else self.listed
+            # production: `dex` is a FILTER — no dex returns BOTH boards (verified 2026-10-16)
+            self.inst_calls.append(args.get("dex") or "")
+            board = self.xyz if args.get("dex") == "xyz" else tuple(self.listed) + self.xyz
             rows = [{"name": n, "is_delisted": False,
                      "context": {"openInterest": str(self.oi.get(n, 9e8)), "markPx": "1.0"}}
                     for n in board]
@@ -323,13 +326,46 @@ def test_a_held_equity_below_the_floor_stays_in_scope_under_its_venue_spelling()
     assert ctx.senpi_mcp.dex_seen["xyz:NVDA"] == "xyz"
 
 
-def test_an_unreadable_equities_board_trades_nothing_rather_than_half_a_universe():
+def test_one_instrument_read_serves_both_boards():
+    """`dex` is a FILTER: the no-dex read already carries the xyz board, so asking for it again
+    every tick is a wasted call and an extra way to fail."""
+    ctx = _ctx({}, {"DOT": 94.0, "xyz:NVDA": 94.0}, listed=("DOT",), xyz=("xyz:NVDA",))
+    assert sorted(o["asset"] for o in scan.scan(INPUTS, ctx)) == ["DOT", "xyz:NVDA"]
+    assert ctx.senpi_mcp.inst_calls == [""]
+
+
+def test_the_equities_board_is_asked_for_by_name_when_the_merged_read_lacks_it():
+    """If the venue ever stops folding xyz into the default read, the half of this universe
+    that carries the strategy must not vanish in silence."""
+    ctx = _ctx({}, {"DOT": 94.0, "xyz:NVDA": 94.0}, listed=("DOT",), xyz=("xyz:NVDA",))
+    real = ctx.senpi_mcp.call_tool
+    def only_perps(n, a):
+        r = real(n, a)
+        if n == "market_list_instruments" and not a.get("dex"):
+            r["data"]["instruments"] = [i for i in r["data"]["instruments"]
+                                        if not str(i["name"]).startswith("xyz:")]
+        return r
+    ctx.senpi_mcp.call_tool = only_perps
+    assert sorted(o["asset"] for o in scan.scan(INPUTS, ctx)) == ["DOT", "xyz:NVDA"]
+    assert ctx.senpi_mcp.inst_calls == ["", "xyz"]
+
+
+def test_an_unreadable_equities_fallback_trades_nothing_rather_than_half_a_universe():
     """A half-read universe is not a smaller universe — it is a different strategy, aimed at
     whichever board happened to answer."""
     ctx = _ctx({}, {"DOT": 94.0}, listed=("DOT",), xyz=("xyz:NVDA",))
     real = ctx.senpi_mcp.call_tool
-    ctx.senpi_mcp.call_tool = lambda n, a: (None if n == "market_list_instruments"
-                                            and a.get("dex") == "xyz" else real(n, a))
+    def no_xyz_anywhere(n, a):
+        if n == "market_list_instruments":
+            if a.get("dex") == "xyz":
+                real(n, a)          # still record the call
+                return None
+            r = real(n, a)
+            r["data"]["instruments"] = [i for i in r["data"]["instruments"]
+                                        if not str(i["name"]).startswith("xyz:")]
+            return r
+        return real(n, a)
+    ctx.senpi_mcp.call_tool = no_xyz_anywhere
     assert scan.scan(INPUTS, ctx) == []
 
 

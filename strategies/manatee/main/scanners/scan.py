@@ -90,16 +90,28 @@ def _instruments(ctx):
 
     None and {} are opposite facts once the universe is DERIVED from this read: "unreadable" must
     trade nothing, "the venue lists nothing" would too, but collapsing both to {} would silently
-    trade an unvetted board. EITHER board failing returns None for the same reason one notch up:
-    the two halves of this universe do NOT behave alike (see derive_universe), so a half-read
-    board would quietly re-aim the strategy at whichever half happened to answer.
+    trade an unvetted board. A HALF-read board is the same hazard one notch up: the two halves
+    of this universe do NOT behave alike (see derive_universe), so losing one would quietly
+    re-aim the strategy at whichever half answered.
+
+    ONE read serves both boards. Verified 2026-10-16: the no-dex call returns 370 instruments —
+    234 bare perps plus all 136 xyz names, and that xyz subset is byte-identical to what
+    dex="xyz" returns. `dex` is a FILTER, not a switch, so reading both boards separately is a
+    wasted call per tick and an extra way to fail. The xyz board is asked for by name only if
+    the merged read comes back without it: that half of the universe is the half that carries
+    this strategy, and losing it in silence would ship a crypto-only book under a cross-asset
+    card. If the board is genuinely gone the named read returns [] and the universe simply
+    shrinks; if it is unreadable we are back to None, for the reason above.
 
     `openInterest` and `markPx` sit under `context`; oi_usd is their product.
     """
-    out = {}
-    for dex in ("", "xyz"):
-        data = _read(ctx, "market_list_instruments", ({"dex": dex} if dex else {}),
-                     f"market_list_instruments({dex or 'main'})")
+    data = _read(ctx, "market_list_instruments", {}, "market_list_instruments")
+    rows = data.get("instruments") if isinstance(data, dict) else data
+    if not isinstance(rows, list):
+        return None
+    out = _board(rows)
+    if not any(k.startswith("XYZ:") for k in out):
+        data = _read(ctx, "market_list_instruments", {"dex": "xyz"}, "market_list_instruments(xyz)")
         rows = data.get("instruments") if isinstance(data, dict) else data
         if not isinstance(rows, list):
             return None
