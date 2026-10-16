@@ -337,7 +337,7 @@ They lack the vocabulary; recommend *without* making them self-classify:
 ```
 {lead: top pick + why-now from market_facts}.
 🦏  Rhino — Tail-Risk / Crisis-Alpha   [{tier}]
-    {thesis}.   Minimum ~${min_budget}{ + funding_split if multi-instance}
+    {thesis}.   Minimum ~${min_budget}{ + funding_split if wallet_count > 1}
 {2nd / 3rd card}.   {caveats, verbatim}.
 "You've got ~${user_context.budget} free — start from {top} (I'll walk you through how it's set and the levers before we fund it; it deploys as {user}'s {top} — or a name of your own), add a hedge alongside it, or build your own?"
 ```
