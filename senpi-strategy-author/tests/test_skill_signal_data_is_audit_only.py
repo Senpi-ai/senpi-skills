@@ -7,6 +7,7 @@ import os
 HERE = os.path.dirname(os.path.abspath(__file__))
 SKILL = os.path.join(HERE, "..", "SKILL.md")
 DSL_CONFIG = os.path.join(HERE, "..", "references", "dsl-configuration.md")
+DEPTH = os.path.join(HERE, "..", "references", "signal-data-does-not-bind.md")
 
 
 def test_skill_says_an_emitted_stop_does_not_bind_and_points_at_the_depth():
@@ -14,13 +15,16 @@ def test_skill_says_an_emitted_stop_does_not_bind_and_points_at_the_depth():
     for needle in ("`data{}` records, it never instructs",
                    "does NOT bind",
                    "exit.dsl_preset",
-                   "dsl-configuration.md#a-stop-in-the-signal-does-not-bind"):
+                   "references/signal-data-does-not-bind.md"):
         assert needle in text, needle
 
 
-def test_the_depth_exists_under_that_anchor():
-    text = open(DSL_CONFIG, encoding="utf-8").read()
-    assert "## A stop in the signal does not bind" in text
+def test_the_depth_exists_and_the_dsl_reference_points_at_it():
+    """Its own file: dsl-configuration.md sits just under the 16k read cap (test_preset_time_cuts)."""
+    text = open(DEPTH, encoding="utf-8").read()
+    assert text.startswith("# A stop in the signal does not bind")
+    assert len(text) < 16000
+    assert "signal-data-does-not-bind.md" in open(DSL_CONFIG, encoding="utf-8").read()
     for needle in ("A scanner cannot set a position's stop",
                    "Express the intended stop as the preset",
                    "entry × (1 - max_loss_pct/100/leverage)"):
