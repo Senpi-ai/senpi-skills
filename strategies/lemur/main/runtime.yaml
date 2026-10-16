@@ -51,7 +51,7 @@ description: >
 
 strategy:
   wallet: "${LEMUR_WALLET}"
-  slots: 1                                 # one position at a time (1.2.0; was 2 — the scan emits <= 1 signal/tick)
+  slots: 1                                 # one position at a time (1.2.0; was 2 — a second could fill on a later tick)
   margin_pct: 40                           # baseline %; scan emits the marginPct intent per signal (1.2.0; was 15)
   default_leverage: 3                      # fallback; scan emits min(config 3x, instrument cap, 5x venue cap) = 3x
   trading_risk: moderate
