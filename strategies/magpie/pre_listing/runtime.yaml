@@ -1,23 +1,38 @@
 # ── MAGPIE · PRE-LISTING book — accumulate pre-IPO perpetuals (IPOPs) into the IPO ──
+#
+# 1.2.0 (2026-10-12), from the template audit: three slots at 25% margin (was 12%) and 3x, so a
+# full book is 75% of the wallet; the stop is 10% ROE = 3.3% of price at 3x (was 7% ROE = 2.3%);
+# every clock cut is off — the ladder and the stop are the only exits; the drawdown breaker no
+# longer re-arms at midnight; the entry cap stays above the slot count. The scan now reads the
+# wallet before it emits: with a 12-minute dedup under a 15-minute tick, a held name used to be
+# emitted again on every tick. The IPOP signature is now the venue's leverage cap plus a volume
+# floor; the v2 funding band is opt-in and off (it matched nothing on the live board, so the book
+# never saw an IPOP). The trend is read on closed 1h and 4h candles.
 name: magpie-pre_listing
 group: magpie
 version: 3.0.0
 description: >
   MAGPIE PRE-LISTING — pre-IPO accumulation (Runtime 3.0 port of the v2 Magpie
   PRE-LISTING leg). One of two books. DYNAMIC UNIVERSE: each tick it discovers
-  IPOPs (pre-IPO perpetuals) off the LIVE xyz instrument board by their funding
-  signature (|funding| <= cap, max_leverage <= cap, min daily volume — the
-  trade.xyz pre-listing structure) and rides the pre-listing trend into the IPO:
-  4h structure sets direction, 1h + 4h leader momentum confirm (sparse pre-listing ->
-  trend-only fallback). BOTH directions. Pairs with the GRADUATION book on a
-  SEPARATE wallet, which trades the conversion event. The edge is EVENT alpha on
-  the pre-IPO ramp. IPOPs are price-throttled by Discovery Bounds, so the DSL is
-  moderate (not catastrophic). Today the live board typically has NO IPOPs (the
-  marquee names have already converted) — the book waits for the next listing.
+  IPOPs (pre-IPO perpetuals) off the LIVE xyz instrument board by the venue's
+  leverage cap (max_leverage <= 5 — the cap trade.xyz lists a pre-IPO perpetual at
+  and lifts when it graduates) plus a daily-volume floor; the v2 funding band is
+  optional and off (see inputs). It rides the pre-listing trend into the IPO, read
+  on closed candles: 4h structure sets direction, 1h + 4h leader momentum confirm
+  (sparse pre-listing -> trend-only fallback). BOTH directions. A name the wallet already holds is never
+  re-emitted (the wallet is read on every tick with a candidate; unreadable -> no
+  opens that tick). Pairs with the GRADUATION book on a SEPARATE wallet, which trades
+  the conversion event. The edge is EVENT alpha on the pre-IPO ramp. IPOPs are
+  price-throttled by Discovery Bounds, so the DSL is moderate (not catastrophic):
+  three slots at 25% margin and 3x, a 10% ROE stop (3.3% of price), a ratchet that
+  locks 40% of the gain from +10% ROE, no clock cut. Today the live board typically
+  has NO IPOPs (the marquee names have already converted) — the book waits for the
+  next listing.
 
 strategy:
   wallet: "${MAGPIE_PRE_LISTING_WALLET}"
   slots: 3
+  margin_pct: 25                           # per-slot margin %; 3 x 25% = 75% of the book
   default_leverage: 3                      # IPOP discovery-bounds regime; scan clamps per-instrument
   trading_risk: moderate
   enabled: true
@@ -31,20 +46,29 @@ scanners:
     path: ./scanners
     entrypoint: scan.py
     interval_seconds: 900                   # v2 pre-listing tick cadence (15 min)
-    timeout_seconds: 180
+    timeout_seconds: 180                    # the instrument read, one wallet read, then a candle + board read per IPOP
     default_signal_validity_seconds: 1800
     state_history_max_count: 12             # holds the signal-dedup map + per-tick result
     inputs:
       minScore: 5
-      marginPct: 12                         # PERCENT of withdrawable (0,100], not a fraction
-      maxLeverage: 3                        # IPOP discovery-bounds regime; clamped to venue max
-      ipopFundingMaxAbs: 1.0e-7             # IPOP funding-signature ceiling
-      ipopMaxLeverageCap: 5                 # IPOP leverage-cap ceiling
-      ipopMinDailyVolUsd: 100000            # pre-listing min daily volume floor
+      marginPct: 25                         # PERCENT of withdrawable (0,100], not a fraction; == strategy.margin_pct
+      maxLeverage: 3                        # IPOP discovery-bounds regime; clamped to venue max; == catalog leverage_max
+      # THE IPOP SIGNATURE is the venue's leverage cap: trade.xyz lists a pre-IPO perpetual at <= 5x and
+      # lifts the cap when it graduates. A volume floor goes with it — a cap-5 market with no volume is a
+      # market that has not traded, not a listing. The funding band the v2 producer used is OFF by
+      # default: live pre-IPO perps fund at the same ~1e-5 magnitude as ordinary xyz equities, so
+      # |funding| <= 1e-7 marks dead markets, not listings. Measured on the live xyz board, 2026-10-12
+      # (114 names): one name at cap <= 5, one at |funding| <= 1e-7, none at both; median |funding|
+      # 8.3e-6 — with the band on, neither book could ever see an IPOP. Shared with the other book.
+      ipopMaxLeverageCap: 5                 # the IPOP leverage-cap ceiling (the SIGNATURE, not the trading leverage)
+      ipopMinDayVolumeUsd: 25000            # the signature's daily-volume floor (context.dayNtlVlm)
+      ipopFundingBandEnabled: false         # opt-in: ALSO require |funding| <= ipopFundingBandAbs
+      ipopFundingBandAbs: 1.0e-7            # the band, when enabled (the v2 "throttled funding" marker)
+      ipopMinDailyVolUsd: 100000            # the BOOK's floor: an IPOP is only traded over this daily volume
       smTiltMinPct: 55
       smStrongTiltPct: 70
       minTraderCount: 10                    # 4h-board headcount floor — a side with fewer top traders never sets the lean
-      recentSignalTtlSeconds: 720
+      recentSignalTtlSeconds: 720           # in-flight dedup only; a HELD name is skipped off the wallet read
     signal_data_schema:
       score: { type: number }
       direction: { type: string }
@@ -72,9 +96,12 @@ actions:
       - type: signal
         scanner: magpie_pre_listing_signals
 
-# EXIT — MODERATE multi-day pre-listing discovery DSL (ported from v2 runtime-pre_listing.yaml).
-# Discovery Bounds throttle IPOP velocity, so moves are multi-day and not catastrophic.
-# First lock tier is REACHABLE (+10% -> lock 40%) — new listings are volatile, keep stops sane.
+# EXIT — DSL only. Every threshold is ROE; price distance is ROE / leverage, and leverage is 3x,
+# so: stop 3.3% of price; rungs arm at +3.3% / 7.3% / 15% / 27% / 43% of price and lock
+# 40 / 50 / 65 / 80 / 90% of the best ROE. Discovery Bounds throttle IPOP velocity, so moves are
+# multi-day and not catastrophic; the first lock is REACHABLE (+10% ROE -> lock 40%). Clock cuts
+# are OFF (1.2.0): a clock reads nothing about the trade, so the ladder and the stop are the only
+# exits — a flat position holds its slot until the stop.
 exit:
   engine: dsl
   interval_seconds: 60
@@ -83,31 +110,40 @@ exit:
     ensure_execution_as_taker: true
     execution_timeout_seconds: 60
   dsl_preset:
+    hard_timeout:
+      enabled: false                        # 1.2.0: no clock — the DSL decides every exit
+      interval_in_minutes: 10080
+    weak_peak_cut:
+      enabled: false                        # 1.2.0: no clock
+      interval_in_minutes: 180
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: false                        # 1.2.0: no clock
+      interval_in_minutes: 90
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
-      # could sit BELOW entry and close a winner at a loss. max_loss_pct is set to the old
-      # retrace (7% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
-      # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
+      # could sit BELOW entry and close a winner at a loss. max_loss_pct is the hard stop;
+      # retrace_threshold below is inert while enabled: false.
       enabled: false
-      max_loss_pct: 7
-      retrace_threshold: 7
+      max_loss_pct: 10.0   # 10% ROE = 3.3% of price at 3x (1.2.0: was 7 = 2.3% of price)
+      retrace_threshold: 10
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 10, lock_hw_pct: 40 }   # first lock reachable (v2 was 10->0, never armed)
-        - { trigger_pct: 22, lock_hw_pct: 50 }
-        - { trigger_pct: 45, lock_hw_pct: 65 }
-        - { trigger_pct: 80, lock_hw_pct: 80 }
-        - { trigger_pct: 130, lock_hw_pct: 90 }
+        - { trigger_pct: 10, lock_hw_pct: 40 }   # +3.3% of price -> floor +1.3% (first lock reachable; v2 was 10->0, never armed)
+        - { trigger_pct: 22, lock_hw_pct: 50 }   # +7.3%          -> floor +3.7%
+        - { trigger_pct: 45, lock_hw_pct: 65 }   # +15%           -> floor +9.8%
+        - { trigger_pct: 80, lock_hw_pct: 80 }   # +27%           -> floor +21%
+        - { trigger_pct: 130, lock_hw_pct: 90 }  # +43%           -> floor +39%
 
 risk:
   guard_rails:
     daily_loss_limit_pct: 12
-    max_entries_per_day: 4                  # few IPOPs exist; turns over slowly
+    max_entries_per_day: 4                  # above the 3 slots: a re-entry after a stop-out is not blocked until midnight
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 4
     cooldown_seconds: 5400                  # 90 min
-    drawdown_halt_pct: 18
-    drawdown_reset_on_day_rollover: true
+    drawdown_halt_pct: 18                   # the wallet-wide hard stop; never re-arms at midnight
+    drawdown_reset_on_day_rollover: false   # 1.2.0: was true
     per_asset_cooldown_seconds: 21600       # 360 min

@@ -11,8 +11,8 @@ The indicator primitives (`_close`/`_high`/`_low`/`_vol`, `calc_rsi`,
 `price_momentum`) are ported VERBATIM from bison/scoring.py (a validated Runtime
 3.0 scorer) so the RSI math is byte-faithful. `rsi_series` reuses `calc_rsi` at
 each bar to expose the trailing-window RSI history the CROSS detector needs.
-`band_for`/`sizing_for` clone raven's conviction bands, clamped to salmon's tighter
-caps (leverage <= 4, margin <= 20%) — reversions fail fast, so moderate size.
+`band_for`/`sizing_for` clone raven's conviction bands, clamped to salmon's caps
+(leverage <= 3, a flat 18% margin per slot) — reversions fail fast, so moderate size.
 
 DSL owns every exit; this module only shapes ENTRY. Pure and unit-testable on
 plain candle lists — no network, no state, no clock.
@@ -177,7 +177,7 @@ def oversold_bounce(candles, inputs):
     return None
 
 
-# ── conviction band + sizing (cloned from raven; salmon's tighter caps) ──
+# ── conviction band + sizing (cloned from raven; salmon's caps) ──
 
 def band_for(score, inputs):
     """Conviction band from the reversion score."""
@@ -192,15 +192,18 @@ def band_for(score, inputs):
 
 def sizing_for(band, inputs, venue_max=None):
     """(leverage, marginPct). marginPct is a PERCENT in (0,100]; clamped to salmon's
-    caps: leverage <= maxLeverage (default 4) and <= the venue max; margin <=
-    maxMarginPct (default 20). Reversions fail fast — moderate leverage by design."""
-    lev_tiers = inputs.get("leverageTiers") or {"apex": 4, "good": 3, "base": 2}
-    mgn_tiers = inputs.get("marginPctTiers") or {"apex": 12, "good": 9, "base": 6}
-    cap = int(_f(inputs.get("maxLeverage"), 4))
+    caps: leverage <= maxLeverage (default 3) and <= the venue max; margin <=
+    maxMarginPct (default 18). Reversions fail fast — moderate leverage by design.
+    The fallbacks mirror runtime.yaml so a missing input cannot size bigger than it."""
+    lev_tiers = inputs.get("leverageTiers") or {"apex": 3, "good": 3, "base": 2}
+    mgn_tiers = inputs.get("marginPctTiers") or {"apex": 18, "good": 18, "base": 18}
+    cap = int(_f(inputs.get("maxLeverage"), 3))
     lev = int(_f(lev_tiers.get(band), 2))
     if venue_max:
         cap = min(cap, int(_f(venue_max, cap)))
     lev = max(1, min(lev, cap))
-    mgn = _f(mgn_tiers.get(band), 6)
-    mgn = max(1.0, min(mgn, _f(inputs.get("maxMarginPct"), 20)))
+    mgn = _f(mgn_tiers.get(band), 18)
+    if 0 < mgn < 1.0:                 # a pasted fraction (0.18) is a percent (18); 1 is a legal 1%
+        mgn *= 100
+    mgn = max(1.0, min(mgn, _f(inputs.get("maxMarginPct"), 18)))
     return lev, round(mgn, 2)

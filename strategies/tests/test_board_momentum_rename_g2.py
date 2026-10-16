@@ -133,7 +133,8 @@ CASES = {
     "piranha":            ("main", "BTC", _tuple_helper("_get_sm_direction")),
     "python":             ("main", "BTC", lambda scan, ctx, floor, asset:
                            scan.get_sm_map(ctx, {"minTraderCount": floor}).get(asset)),
-    "salamander":         ("main", "BTC", _tuple_helper("_get_sm_direction")),
+    "salamander":         ("main", "BTC", lambda scan, ctx, floor, asset:          # 1.3.0: one board read a tick, the lean off its rows
+                           scan._sm_direction(scan._read_board(ctx), asset, floor)[0]),
     "sheep":              ("main", "BTC", _tuple_helper("_get_sm_direction")),
     "stag":               ("main", "BTC", lambda scan, ctx, floor, asset:
                            scan._sm_direction(scan._sm_markets(ctx), asset, floor)[0]),
