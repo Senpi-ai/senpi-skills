@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.32.2"
+  version: "1.33.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -42,8 +42,7 @@ dump when the user asked about their **strategies** — is a failure. The user w
 > **label + mandate/expected-behavior → is it doing its job (against its OWN mandate) → positions as
 > evidence → PnL/ROE (realized + unrealized) → DSL protection posture.** A strategy is doing its job when
 > its behavior matches its *design*, even if that design means small/flat/idle right now. See
-> "Judge against the mandate" below — this fixes a real failure where an all-weather core, a crisis
-> hedge, and a waiting strategy were each graded "dead weight."
+> "Judge against the mandate" below.
 >
 > **The mandate comes from the strategy's own deployed `runtime.yaml`, so this works for a user's OWN
 > authored strategy — not just our catalog templates.** The engine attaches `strategies[].profile`,
@@ -63,8 +62,7 @@ dump when the user asked about their **strategies** — is a failure. The user w
 > `ratchet_stop_list` shows **only** the live ratchet for positions that have already crossed Tier 1 — it
 > does **not** carry the strategy's config DSL exit, so a by-hand read makes every sub-Tier-1 position look
 > "unprotected" when it isn't. The engine reads BOTH the config ladder (`profile.dsl`) and the live tier
-> (`positions[].dsl`) and frames every position correctly; run it. (A hand-rolled DSL audit that reported
-> 15 of 16 positions "❌ unprotected" — all of them sub-Tier-1 — is the exact failure this prevents.)
+> (`positions[].dsl`) and frames every position correctly; run it.
 >
 > **This skill reads. It never changes protection.** A portfolio read, a health check or an "are my
 > positions protected?" answer never calls `ratchet_stop_add` / `ratchet_stop_edit` / `ratchet_stop_delete`
@@ -93,6 +91,9 @@ dump when the user asked about their **strategies** — is a failure. The user w
 >   (`closed_record_newest_utc` is the newest close it holds; a re-read does not skip the wait). Say it
 >   has not reached trade history yet and show the live state from this read instead — open `positions[]`
 >   and `account_value`. Never present older closes as today's, and never invent the missing P&L.
+> - **"What did the trader do?" on a copy-trade (`mirror`) means the COPIED trader, never the user's wallet.**
+>   `mirror_of` / `traderAddress` are masked and discovery rejects them: ask for the full address, then
+>   read `discovery_get_trader_state` / `discovery_get_trader_history` on it.
 > - **"In profit" on an open position is unrealized.** Say it is unrealized, and do not forecast the close.
 
 ## The wallet model (get this exactly right)
