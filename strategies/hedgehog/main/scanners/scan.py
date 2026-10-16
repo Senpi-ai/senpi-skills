@@ -17,7 +17,7 @@ FIDELITY NOTES vs hedgehog-producer.py v1.0.1:
   - v2 computed marginUsd = account_value * marginPct (marginPct stored as a
     FRACTION, 0.1) and emitted marginUsd. Runtime 3.0 sizes from a PERCENT in
     (0,100], so this port emits `marginPct` top-level and converts the v2 fraction
-    x100 (0.1 -> 10). The defensive "<=1.0 means a pasted fraction, x100" guard is
+    x100 (0.1 -> 10). The defensive "<1.0 means a pasted fraction, x100" guard is
     applied so an operator who pastes 0.10 still gets 10%. The PER-LEG flat sizing
     (no conviction tiers — every leg is the same %) is preserved verbatim.
   - v2 emitted exactly one signal (best). Preserved: scan() emits <= 1 signal/tick;
@@ -235,8 +235,8 @@ def scan(inputs, ctx):
     leverage = int(inputs.get("leverage", _DEFAULT_LEVERAGE))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
 
-    # Defensive: a pasted FRACTION (<=1.0, e.g. v2's 0.1) -> PERCENT (x100).
-    if margin_pct <= 1.0:
+    # Defensive: a pasted FRACTION (<1.0, e.g. v2's 0.1) -> PERCENT (x100).
+    if margin_pct < 1.0:
         margin_pct = margin_pct * 100.0
 
     # leverage clamp: v1.0.1 min(int(leverage), MAX_LEVERAGE)

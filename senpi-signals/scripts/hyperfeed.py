@@ -83,6 +83,11 @@ TOP_N = 50                 # penguin's topN — the rows the detector ever score
 MIN_TRADERS = 10           # penguin's minTraderCount — a thin side never enters the rank order
 
 
+# Off deliberately: hyperfeed is a READ surface that publishes what the detector saw. Gating it
+# would hide candidates a trading package is still shown, so the feed and the trader would
+# disagree about what existed. Set only if the feed is meant to mirror a gated package.
+MAX_PRE_MOVE_PCT = None
+
 def default_state_dir():
     """Shares senpi-signals' state root so the ring sits beside current.json / signals.md."""
     base = os.environ.get("SENPI_STATE_DIR") or os.path.join(
@@ -260,7 +265,8 @@ def score_against(markets, ring, now_s, hour_utc, top):
         key = (m["token"], m.get("dex", ""))
         recent = contrib_hist.get(key, []) + [m["contribution"]]
         res = scoring.score_market(m, prev_by_key.get(key), old_by_key.get(key),
-                                   prev_tokens, recent, hour_utc)
+                                   prev_tokens, recent, hour_utc,
+                                   max_pre_move_pct=MAX_PRE_MOVE_PCT)
         if not res:
             continue
         score, reasons, meta = res

@@ -37,7 +37,7 @@ FIDELITY NOTES vs dog-producer.py v3.0.0 (thesis frozen at v2.5):
     observability but does NOT add a producer-side dedup TTL (faithful — v3.0 dropped it).
   - margin is FLAT 30% (v2 runtime.yaml strategy.margin_pct: 30 — already a PERCENT, NOT
     a fraction; no x100 conversion needed). v2 did NOT conviction-tier the margin (only
-    the leverage). Defensive guard still applies: a value <=1.0 would be a pasted
+    the leverage). Defensive guard still applies: a value <1.0 would be a pasted
     fraction -> x100.
 """
 
@@ -185,9 +185,9 @@ def scan(inputs, ctx):
     leaderboard_limit = int(inputs.get("leaderboardLimit", _DEFAULT_LEADERBOARD_LIMIT))
     min_traders = int(inputs.get("minTraderCount", _MIN_TRADERS))
 
-    # Defensive: a value <=1.0 is a pasted FRACTION (v2 stored 0.30) -> x100 (dire/koala
+    # Defensive: a value <1.0 is a pasted FRACTION (v2 stored 0.30) -> x100 (dire/koala
     # guard). Dog's v2 runtime stored 30 (a PERCENT) so this never fires in practice.
-    if 0 < margin_pct <= 1.0:
+    if 0 < margin_pct < 1.0:
         margin_pct *= 100.0
 
     assets_upper = [str(a).upper() for a in assets]

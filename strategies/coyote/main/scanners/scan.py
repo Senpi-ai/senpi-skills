@@ -21,7 +21,7 @@ FIDELITY NOTES vs the v2 producer (coyote-producer.py v1.0.1):
   - v2 stored margin as a FRACTION (config marginPct=0.25) and computed
     marginUsd = account_value * 0.25. Runtime 3.0 sizes from a PERCENT in
     (0,100], so this port emits `marginPct` = 25 (0.25 * 100). The defensive
-    "<=1.0 means a pasted fraction, *100" guard is applied so an operator who
+    "<1.0 means a pasted fraction, *100" guard is applied so an operator who
     leaves the v2-style 0.25 in inputs still gets 25%.
   - v2 leverage: min(int(config.leverage=3), MAX_LEVERAGE=5) -> clamped to 5.
     Preserved verbatim (DEFAULT_LEVERAGE=3, MAX_LEVERAGE=5).
@@ -60,14 +60,14 @@ _DEFAULT_RECENT_TTL = 240              # v2 RECENT_SIGNAL_TTL_SEC
 def _to_percent(v, default):
     """Defensive fraction->percent guard (dire/koala pattern). A v2 config that
     still carries marginPct as a FRACTION (0.25) would otherwise size at 0.25%.
-    Any value <= 1.0 is treated as a pasted fraction and scaled *100."""
+    Any value < 1.0 is treated as a pasted fraction and scaled *100."""
     try:
         p = float(v)
     except (TypeError, ValueError):
         return float(default)
     if p <= 0:
         return float(default)
-    if p <= 1.0:
+    if p < 1.0:
         p *= 100.0
     return p
 

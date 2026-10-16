@@ -7,14 +7,14 @@
 schema_version: 1
 
 id: koala
-version: "1.2.0"
+version: "2.0.0"
 
 catalog:
-  name: "Koala — Set-and-Forget Trail HODL"
+  name: "Koala — Trail HODL"
   emoji: "🐨"
-  tagline: "The simplest agent in the catalog: pick one asset (default BTC), fire LONG once on deploy, then hold with an ultra-wide DSL trail (max_loss 30%, retrace, 90-day timeout). No scoring, no scheduling — the choice to deploy Koala IS the bet."
-  belief_plain: "Trades only the one coin you pick (BTC by default). It buys once when you turn it on, then just holds — never adding, never trading around it — with a very wide safety stop that only releases on a catastrophic reversal or after three months. The whole idea is to own the coin and have a net under it."
-  thesis: "Some users do not want a market-reading agent at all — they just want to own one asset and have a safety net. Koala is that answer in code: one asset, one entry, one stop. Fire-once by default (a true buy-and-forget), with an optional re-entry cycle for operators who want 'buy / DSL-exits / buy again' on a long cooldown."
+  tagline: "The simplest agent in the catalog: pick one asset (default BTC), go long at 2x on 40% of the wallet, and hold behind the widest stop in the catalog — 30% of margin, 15% of price — with a ratchet that only ever locks gains. No scoring, no scheduling; the choice to deploy Koala IS the bet. A week after a hold ends it buys again (set fireOnceMode for a true one-shot). Measured on two years of BTC, ETH and SOL: the median hold ran about three weeks and ended positive two times in three."
+  belief_plain: "Trades only the one coin you pick (BTC by default). It buys when you turn it on and holds — never adding, never trading around it — behind a wide safety stop that only releases on a 15% fall from your entry, and a trailing lock that banks part of a big run. When a hold ends, it waits a week and buys again, so the wallet stays invested; turn that off if you want one shot and nothing more. An entry only counts once it has actually filled, so a refused first order never leaves the wallet silent."
+  thesis: "Some users do not want a market-reading agent at all — they want to own one asset with a net under it. Koala is that in code: one asset, one entry at a time, one wide stop, one ratchet. Measured on 112 weekly starts over two years of BTC, ETH and SOL, the stop the file used to carry (5% of price) ended half of all holds at a loss inside about eight days; the card's 30%-of-margin stop turns the median hold positive. Re-entry a week after each exit is what keeps the wallet in the market, since the ratchet's first rung ends most holds within a few weeks. Sized at 80% exposure, not more: a full-wallet 2x cycle drew down more than half the book."
   group: single-asset
   archetype: single_market
   sub_style: hodl
@@ -26,7 +26,7 @@ catalog:
   leverage_max: 3
   max_slots: 1
   assets: ["BTC"]
-  tags: [btc, single-asset, hodl, buy-and-hold, set-and-forget, wide-dsl, onboarding, long-only]
+  tags: [btc, single-asset, hodl, buy-and-hold, set-and-forget, wide-dsl, re-entry, entry-on-fill, onboarding, long-only, dsl-only]
 
 requires:
   runtime: ">=3.0.0"

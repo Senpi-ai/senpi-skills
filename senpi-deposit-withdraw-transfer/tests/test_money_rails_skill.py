@@ -40,6 +40,17 @@ def test_failed_top_up_recovers_the_spot_leg_and_names_the_balance():
              "**Never say \"still in the funding wallet\" without naming the balance — perps or Spot.**")
 
 
+def test_spot_to_perps_is_never_claimed_as_the_agents_move():
+    """No tool moves Spot -> Perps (the MCP dropped transfer_spot_to_perps, senpi-hyperliquid-mcp#232).
+    A Say line claiming the agent moved it back sends the user hunting in the wrong balance."""
+    text = _skill()
+    assert not re.search(r"I(?:'ve| have) moved it back to perps", text, re.I)
+    tool_moves = re.search(r"\(([^)]*)\) DO use tools", text.split("license:", 1)[0]).group(1)
+    assert "spot" not in tool_moves.lower(), f"the description lists Spot → Perps as a tool move: {tool_moves}"
+    assert " ".join(text.split()).count("Move it to Perps in Balances and I'll top up again.") >= 2, \
+        "rule 3 and the Say table must hand the user the same move"
+
+
 def test_failed_top_up_reread_bypasses_the_portfolio_cache():
     """The default account_get_portfolio read is cached — a post-FAILED re-read that does not
     force-fetch cannot see the Spot rise, and the money is reported as never having moved."""
