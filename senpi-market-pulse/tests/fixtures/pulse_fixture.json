@@ -46,8 +46,18 @@
   "market_get_funding_regime": {"regime": "neutral"},
   "market_get_asset_data": {"context": {"dayNtlVlm": "500000000", "funding": "-0.0000051"}},
   "market_get_asset_data::xyz": {"context": {"dayNtlVlm": "417000000", "funding": "0.0"}},
-  "leaderboard_get_status": {"window": "4h", "updated_at": "2026-06-23T15:00:00Z"},
-  "leaderboard_get_markets": {"concentration": [{"asset": "HYPE", "direction": "short", "pct_of_gains": 19}]},
-  "leaderboard_get_top": {"traders": [{"wallet": "0xabc", "delta_pnl": 120000}]},
-  "leaderboard_get_momentum_events": {"events": [{"asset": "HYPE", "type": "scale_in", "direction": "short"}]}
+  "leaderboard_get_status": {"status": {"window": "4h", "base_snapshot_timestamp": 1782212400000, "last_update_timestamp": 1782226800000, "total_leaderboard_traders": 4821, "prices": {"BTC": 62515, "ETH": 1660, "HYPE": 31.2}}},
+  "leaderboard_get_markets": {"markets": {"markets": [
+    {"token": "HYPE", "dex": "", "direction": "short", "max_leverage": 10, "pct_of_top_traders_gain": 19.4, "contribution_pct_change_15m": 1.2, "contribution_pct_change_1h": 3.1, "contribution_pct_change_4h": null, "token_price_change_pct_15m": -0.4, "token_price_change_pct_1h": -1.8, "token_price_change_pct_4h": -6.2, "day_notional_volume": 412000000, "trader_count": 228, "is_dominant_direction": true},
+    {"token": "BTC", "dex": "", "direction": "short", "max_leverage": 40, "pct_of_top_traders_gain": 11.0, "contribution_pct_change_15m": null, "contribution_pct_change_1h": null, "contribution_pct_change_4h": null, "token_price_change_pct_15m": -0.1, "token_price_change_pct_1h": -0.6, "token_price_change_pct_4h": -2.9, "day_notional_volume": 2100000000, "trader_count": 61, "is_dominant_direction": true}
+  ], "source_trader_count": 100, "window": "4h", "timestamp": 1782226800000}},
+  "leaderboard_get_top": {"leaderboard": {"data": [
+    {"rank": 1, "trader_id": "0xabc", "unrealized_pnl": 1200000, "pnl_percentage": 38.5, "ath_delta": null, "top_markets": ["HYPE", "BTC"], "trader_tags": {"tas": "Tactical", "tcs": "Reliable", "trp_score": 71, "trp_label": "High"}},
+    {"rank": 2, "trader_id": "0xdef", "unrealized_pnl": 640000, "pnl_percentage": null, "ath_delta": -12000, "top_markets": ["BTC"], "trader_tags": null}
+  ], "window": "4h", "timestamp": 1782226800000, "total_traders": 4821}, "count": 2},
+  "leaderboard_get_momentum_events": {"events": {"events": [
+    {"trader_id": "0xabc", "tier": 1, "tier_label": "Exceptional", "delta_pnl": 2100000, "decision": "blocked", "blocked_reason": "trader_cooldown_active", "blocked_details": null, "concentration": 0.81, "top_positions": null, "trader_tags": {"tas": "Tactical", "tcs": "Reliable"}, "detected_at": "2026-06-23T14:55:00Z"},
+    {"trader_id": "0xabc", "tier": 1, "tier_label": "Exceptional", "delta_pnl": 2050000, "decision": "sent", "blocked_reason": null, "blocked_details": null, "concentration": 0.8, "top_positions": [{"market": "HYPE", "delta_pnl": 1500000, "direction": "short", "leverage": 5}], "trader_tags": {"tas": "Tactical", "tcs": "Reliable"}, "detected_at": "2026-06-23T14:40:00Z"},
+    {"trader_id": "0x123", "tier": 2, "tier_label": "Rare", "delta_pnl": 5600000, "decision": "blocked", "blocked_reason": "system_cooldown_active", "blocked_details": null, "concentration": 0.66, "top_positions": [{"market": "BTC", "delta_pnl": 3000000, "direction": "short", "leverage": null}], "trader_tags": null, "detected_at": "2026-06-23T14:30:00Z"}
+  ], "query": {"from": "2026-06-23T11:00:00Z", "to": "2026-06-23T15:00:00Z", "limit": 50, "tier": null, "asset": null}, "total_count": 3}}
 }

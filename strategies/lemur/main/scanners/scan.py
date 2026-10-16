@@ -27,7 +27,7 @@ FIDELITY NOTES vs lemur-producer.py v1.0.1:
   - v2 stored `marginPct` as a FRACTION (0.15) and computed marginUsd =
     account_value * 0.15, emitting a USD figure. This port emits `marginPct` as
     a PERCENT (15) at the top level and lets the runtime size
-    (marginPct/100)*withdrawable. The defensive `<=1.0 means a pasted fraction
+    (marginPct/100)*withdrawable. The defensive `<1.0 means a pasted fraction
     -> x100` guard converts a fraction supplied via inputs. Sizing is otherwise
     identical (15% of equity at default config).
   - v2 emitted exactly one signal (best). Preserved: scan() emits <= 1 signal/tick.
@@ -247,9 +247,9 @@ def _was_recently_signaled(signaled, coin, ttl, now):
 
 def _resolve_margin_pct(inputs):
     """marginPct intent as a PERCENT in (0,100]. v2 stored a FRACTION (0.15);
-    convert with the defensive `<=1.0 means a pasted fraction -> x100` guard."""
+    convert with the defensive `<1.0 means a pasted fraction -> x100` guard."""
     mp = scoring._f(inputs.get("marginPct", _DEFAULT_MARGIN_PCT), _DEFAULT_MARGIN_PCT)
-    if mp <= 1.0:                 # a fraction was pasted (e.g. 0.15) -> percent
+    if mp < 1.0:                 # a fraction was pasted (e.g. 0.15) -> percent
         mp *= 100.0
     return mp
 

@@ -82,9 +82,12 @@ def _book_inputs():
                                            "marginUsed": "20", "unrealizedPnl": "10", "returnOnEquity": "0.5", "cumFunding": {"sinceOpen": "1"}}},
                              {"position": {"coin": "SOL", "szi": "-10", "entryPx": "50", "leverage": {"type": "isolated", "value": 5}, "liquidationPx": "60",
                                            "marginUsed": "100", "unrealizedPnl": "-5", "returnOnEquity": "-0.05", "cumFunding": {"sinceOpen": "0"}}}]}
-    oo = [dict(coin="ETH", side="A", sz="1", isTrigger=True, triggerPx="98", triggerCondition="Price below 98"),   # stop for half the long
-          dict(coin="ETH", side="A", sz="1", isTrigger=True, triggerPx="120", triggerCondition="Price above 120"),  # a take-profit, not a stop
-          dict(coin="SOL", side="B", sz="10", isTrigger=True, triggerPx="55", triggerCondition="Price above 55")]  # full stop for the short
+    oo = [dict(coin="ETH", side="A", sz="1", isTrigger=True, triggerPx="98", triggerCondition="Price below 98",
+               reduceOnly=True, orderType="Stop Market", isPositionTpsl=False, children=[]),              # stop for half the long
+          dict(coin="ETH", side="A", sz="1", isTrigger=True, triggerPx="120", triggerCondition="Price above 120",
+               reduceOnly=True, orderType="Take Profit Market", isPositionTpsl=False, children=[]),       # a take-profit, not a stop
+          dict(coin="SOL", side="B", sz="10", isTrigger=True, triggerPx="55", triggerCondition="Price above 55",
+               reduceOnly=True, orderType="Stop Market", isPositionTpsl=False, children=[])]              # full stop for the short
     ctxs = [{"universe": [{"name": "ETH"}, {"name": "SOL"}, {"name": "BTC"}]}, [{"markPx": "105", "funding": "0.0000125", "openInterest": "1000", "dayNtlVlm": "1"},
                                                                                 {"markPx": "50", "funding": "-0.00001", "openInterest": "1000", "dayNtlVlm": "1"},
                                                                                 {"markPx": "70000", "funding": "0", "openInterest": "1", "dayNtlVlm": "1"}]]
@@ -769,8 +772,8 @@ def test_the_skill_defaults_to_the_readers_own_book_and_remembers_the_rest():
     skill = (_P(__file__).resolve().parents[1] / "SKILL.md").read_text(encoding="utf-8")
     assert "An address is the reader's own book unless we know otherwise" in skill
     assert "already recorded as *analyzed* stays\n   someone else's on a bare re-run" in skill
-    for needle in ("**verified**", "**claimed**", "**analyzed**", "--claim", "--addresses",
-                   "a claim, not proof", "whenever the request is about someone else"):
+    for needle in ("**verified**", "**analyzed**", "**claimed** is retired", "--claim", "--addresses",
+                   "what the reader says is theirs lives in their saved wallets", "whenever the request is about someone else", "--my-wallets"):
         assert needle in skill, needle
 
 
@@ -1149,8 +1152,9 @@ def test_the_desk_never_promises_a_signature_it_cannot_take():
     # the reader is offered help, not handed homework
     assert "name the naked positions and ask how you can help" in skill
     assert "is the fact, not the offer" in skill
-    # and the restriction carries its own expiry, so it gets revisited instead of going stale
-    assert "Dated, revisit this" in skill and "2026-09-21" in skill
+    # and the restriction is stated as it stands today: no dated note, no release estimate — "about a
+    # week out" is itself a future-tense promise, and a dated one goes stale in place
+    assert "Dated, revisit this" not in skill and "about a week out" not in skill
 
 
 def test_next_steps_offers_a_route_for_someone_who_does_not_want_their_own_history_mechanised():
@@ -3111,25 +3115,23 @@ def test_an_empty_book_does_not_send_the_reader_back_to_strategy_list():
     assert "strategy_list" not in blk, "the book exit repeats advice this reader has already taken"
 
 
-def test_an_address_the_reader_already_claimed_is_not_forgotten():
-    """@betashop on 1.26.0: a reader who previously gave an address and said it was their book
-    should still have it remembered — the senpi strategy wallets are a FALLBACK, not a replacement.
-
-    A trader who arrives from Hyperliquid with their own external wallet does not stop owning it the
-    moment they have senpi strategies, and the address book already records exactly this: `claimed`
-    for an address they typed and called theirs, `verified` for a Senpi-issued one. 1.26.0 went
-    straight to `strategy_list` and never consulted it."""
+def test_a_saved_wallet_is_not_forgotten():
+    """@betashop on 1.26.0: a reader who brought their own Hyperliquid wallet must still have it
+    remembered — the senpi strategy wallets never replace it. Since 1.42.0 "theirs" is a wallet they
+    added in Your wallets (a saved wallet), read by `desk.py --my-wallets` beside their strategy
+    wallets; since 1.43.0 as ONE list ordered by value. A typed `claimed` row is no longer consulted."""
     skill = " ".join(_P(HERE, "..", "SKILL.md").read_text().split())
     own = skill[skill.index("If they mean their OWN book"):skill.index("If they want someone ELSE")]
 
-    assert "--addresses" in own, "the own-book branch never reads the address book"
-    assert "claimed" in own and "verified" in own, "the two tiers of 'theirs' are not distinguished"
-    assert own.index("address book") < own.index("strategy_list"), \
-        "the address book must be consulted BEFORE falling back to senpi wallets"
-    assert "do not forget an address they already claimed" in own.lower() or \
-           "do not forget an address they already claimed" in own, "the rule is not stated"
-    # and when both exist the reader decides — not us
-    assert "Both?" in own and "ask" in own.lower(), "ambiguity must go back to the reader"
+    assert "--my-wallets" in own, "the own-book branch never reads the reader's wallets"
+    # R1 review §02: every wallet first-class — ONE list by value, never saved-first or senpi-first.
+    # (This pin used to require "Saved wallets" before "strategy wallets**": an origin rank.)
+    assert "keep that order and never split it by origin" in own, "the list may be re-sectioned by origin"
+    assert "saved wallets first" not in own.lower()
+    assert "do not forget a saved wallet" in own, "the rule is not stated"
+    assert "claimed" not in own, "the own-book branch still treats a typed claim as ownership"
+    # and when there is more than one the reader decides — not us
+    assert "More than one?" in own and "ask" in own.lower(), "ambiguity must go back to the reader"
     assert "Never guess" in own or "never guess" in own, "the no-guessing rule must survive"
 
 
@@ -3323,3 +3325,31 @@ def test_the_desk_says_which_dsl_tier_is_armed_and_never_claims_the_rest():
     # the side read must never be able to break the desk
     assert dsl.attach(None, "0xabc", {"positions": []}) == 0
     assert dsl.strategies_for(None, "0xabc") == []
+
+
+def test_the_header_carries_the_full_address_not_just_a_truncation():
+    """A reader researching a trader has to be able to COPY the address out of the desk.
+
+    Every mention in the desk is short() — `0x514a…aa76` — which reads well and is useless: it
+    cannot be pasted into a block explorer, a copy-trade setup, or back into this desk. Truncated is
+    the right call for the forty places it recurs and the wrong call for all forty, so the full hex
+    is printed once, near the top, on its own line so it survives being copied out of a chat bubble.
+    A book prints every wallet: the union is the subject and a reader checking one needs all of them.
+    """
+    import render
+    addr = "0x514a1234567890abcdef1234567890abcdefaa76"
+    base = {"address": addr, "track": {}, "activity": {"fills": 5885, "coins": 1}, "rank": None,
+            "days": 90, "now_ms": 1790640000000, "archetype": "Careful opportunist", "labels": {},
+            "verdict": "Real edge but no stops", "flags": [], "wallets": []}
+
+    head = render.header(base)
+    assert addr in head, "the full address never appears in the header"
+    assert f"`{addr}`" in head, "the address must be code-formatted so it copies cleanly"
+    # near the top: before the verdict, so a truncated chat preview still carries it
+    assert head.index(addr) < head.index("Real edge but no stops")
+
+    ws = ["0xaaa1111111111111111111111111111111111111",
+          "0xbbb2222222222222222222222222222222222222"]
+    book_head = render.header(dict(base, wallets=ws))
+    for w in ws:
+        assert w in book_head, f"a book header dropped {w}"

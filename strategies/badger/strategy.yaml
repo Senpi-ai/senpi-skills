@@ -7,7 +7,7 @@
 schema_version: 1
 
 id: badger
-version: "1.1.1"
+version: "1.1.2"
 catalog:
   name: "Badger — OI-Divergence Breakout Anticipator"
   emoji: "🦡"
