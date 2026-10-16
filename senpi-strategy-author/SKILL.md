@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.13.0"
+  version: "3.14.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -122,9 +122,9 @@ of an import-stage run. The gate is stage 9, and it takes no `--stage` flag.
 
 ### Funding heads-up — first tool call, never a gate
 
-Before the template offer / Decision 1, read the user's accessible balance ONCE:
-`account_get_portfolio` → `data.portfolio.total_in_hyperliquid` (fall back to
-`total_withdrawable`). Deploy needs a little **over $10 USDC per wallet (~$11.50, to cover
+Before the template offer / Decision 1, read the **deployable** balance ONCE: `account_get_portfolio` → `total_in_hyperliquid` + `total_spot_usd_in_hyperliquid` + EVM stables in `token_balances[]`.
+Never `total_withdrawable`, never `total_balance_usd` — committed capital. **0 is a fact, not a missing read**: no `or` chain.
+Never say "$total free": say what is free, and that freeing the rest means withdrawing from a strategy — their call. [`references/deployable-balance.md`](references/deployable-balance.md). Deploy needs a little **over $10 USDC per wallet (~$11.50, to cover
 the ~$1.50 creation fee)** — `deploy.py create` reserves the fee first, so a wallet funded
 to exactly $10 still refuses with `[E_FUNDS_BELOW_FLOOR]`. That floor is also how a strategy is **tested**: there is no paper-trading mode, and a scan re-run on a timer is a model call per tick, not a simulation — [`references/shadow-testing.md`](references/shadow-testing.md).
 
@@ -200,7 +200,7 @@ For each: ask the question, offer the options as plain choices, then map the ans
    involved a cohort, leaderboard, or "rotate/refresh."
 7. **Exit & Risk — "How should it exit, and what's the risk appetite?"** Offer the DSL presets:
    `let_winners_run` (wide; rides to +100%, protect both sides) · `balanced` (default) ·
-   `mean_reversion` (tight, locks early — for faders) · `scalp` (HFT) · `parabolic_runner` (scalpel).
+   `mean_reversion` (tight, locks early — for faders) · `scalp` (HFT) · `parabolic_runner` (scalpel). Pick by horizon, not the default: `references/time-cuts-by-horizon.md`.
    Then set guard rails (`drawdown_halt_pct`, `daily_loss_limit_pct`) sized to the style, and cadence
    (`interval_seconds`). **Never hand-roll stops — copy a preset from
    `senpi-strategy-author/references/dsl-presets.yaml`** (full path — it lives in THIS skill, not the

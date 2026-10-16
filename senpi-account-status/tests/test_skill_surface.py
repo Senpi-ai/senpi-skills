@@ -206,6 +206,21 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
         self.assertIn("open positions are NOT auto-closed", section)
         self.assertIn("expires **14 days", section)   # the one trial number that IS published
 
+    def test_a_lapsed_plan_pauses_the_strategies_too(self):
+        # "a running strategy uses no credits" was read as "a strategy needs no plan": agents told
+        # users no subscription was needed, and the strategies stopped when the trial ended
+        section = _flat(_section(_split(SKILL)[1], PLANS))
+        for needle in (
+            "A lapsed plan pauses everything, not just chat",
+            "a renewal payment fails",
+            "every strategy on it stops",
+            "a stop-loss already resting on the exchange still triggers",
+            "never tell them a subscription is not needed",
+        ):
+            self.assertIn(needle, section, needle)
+        self.assertIn('"no subscription is needed"', _flat(_section(_split(SKILL)[1])))  # Never say
+        self.assertIn("what happens when my trial ends?", _flat(_split(SKILL)[0]))  # the router finds it
+
     def test_the_meter_section_still_defers_the_balance_to_the_page(self):
         # the catalog being quotable must not leak into the balance: "what is left" is still theirs
         section = _flat(_section(_split(SKILL)[1]))

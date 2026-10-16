@@ -1,0 +1,218 @@
+# ── HORNET CONCENTRATED · hornet's supply-chain momentum as TWO bets at 10x ──
+# Net-new Runtime 3.0 strategy (NOT a port). A 16-name semis basket on Hyperliquid
+# XYZ (HIP-3 DEX) grouped into supply-chain sub-groups (equipment / logic / memory).
+# THE EDGE: requires the SECTOR to confirm as a COMPLEX before taking any name —
+# "the chain bids together or not at all." A cross-asset BREADTH GATE (fraction of
+# the universe whose 4h trend is bullish) decides LONG-only / SHORT-only / WAIT;
+# only then are names scored in the gate direction. Flat 18% margin / 4x. DSL exits
+# Flat 45% margin / 10x across 2 slots (hornet: 18% / 4x across 3). Every DSL distance
+# is RE-DERIVED to the same PRICE as hornet's — 2.00% stop, rungs at 5.00/7.50/12.50/
+# 18.80/25.00% — plus one extra rung at 2.50% that 4x could not afford to lock. NO clock
+# closes anything (house default; hornet's 48h timeout is deliberately dropped — see the
+# exit block for the cost that carries). Every market read passes dex="xyz".
+name: hornet-concentrated-main
+group: hornet-concentrated
+version: 1.0.0
+description: >
+  HORNET — semiconductor / AI-capex supply-chain momentum on Hyperliquid XYZ. A
+  16-name semis basket grouped into equipment (ASML/AMAT/MRVL), logic (NVDA/AMD/
+  AVGO/TSM/QCOM/ARM/INTC/SMH) and memory (MU/SNDK/SMSN/SKHX/WDC). The edge over a
+  per-name momentum agent: it requires the sector to confirm as a complex first.
+  Each tick it computes sector breadth (fraction of the universe whose 4h trend is
+  bullish) and applies a breadth gate: breadth >= 0.55 -> only LONGs eligible;
+  breadth <= 0.35 -> only SHORTs eligible; chop in between -> emit nothing. Eligible
+  names are scored in the gate direction (base 3 + 4h trend + 1h confirm + |momentum|
+  tier + 4h-leader agreement + a supply-chain-gradient bonus when the equipment
+  sub-group leads — early-cycle confirmation); floor minScore 5. Emits the top 1-2.
+  Flat sizing 18% margin / 4x. DSL is the ONLY exit — Phase 1 15% max_loss, Phase 2
+  wide ladder (first lock at +10% ROE), hard_timeout 48h (equity perps reconcile
+  against an internal oracle over the Fri-Sun gap where drift accumulates).
+
+strategy:
+  wallet: "${HORNET_CONCENTRATED_WALLET}"
+  slots: 2                               # 45% per open leaves no room for a third — measured
+  margin_pct: 18                          # baseline %; scan emits the flat marginPct per signal
+  default_leverage: 10                    # fallback; scan emits 10x (clamped [1,maxLeverage]) per signal
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: hornet_concentrated_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # 5-min cadence
+    timeout_seconds: 240                   # ~1 candle read/name (16) + per-candidate SM + account
+    default_signal_validity_seconds: 600   # 2x tick; rule action, a fresh re-score arrives next tick
+    state_history_max_count: 100           # dedup map + per-tick scan-results history
+    inputs:
+      universe: ["xyz:ASML", "xyz:AMAT", "xyz:MRVL", "xyz:NVDA", "xyz:AMD", "xyz:AVGO", "xyz:TSM", "xyz:QCOM", "xyz:ARM", "xyz:INTC", "xyz:SMH", "xyz:MU", "xyz:SNDK", "xyz:SMSN", "xyz:SKHX", "xyz:WDC"]  # validated live vs HL xyz meta 2026-06-30
+      subGroups:                           # name -> supply-chain sub-group (drives the gradient bonus)
+        "xyz:ASML": equipment
+        "xyz:AMAT": equipment
+        "xyz:MRVL": equipment
+        "xyz:NVDA": logic
+        "xyz:AMD": logic
+        "xyz:AVGO": logic
+        "xyz:TSM": logic
+        "xyz:QCOM": logic
+        "xyz:ARM": logic
+        "xyz:INTC": logic
+        "xyz:SMH": logic
+        "xyz:MU": memory
+        "xyz:SNDK": memory
+        "xyz:SMSN": memory
+        "xyz:SKHX": memory
+        "xyz:WDC": memory
+      dex: "xyz"                           # HIP-3 DEX — xyz: prefix mandatory on every read
+      minScore: 5                          # per-name score floor
+      longBreadthPct: 0.55                 # breadth >= -> LONG-only eligible (the core gate)
+      shortBreadthPct: 0.35                # breadth <= -> SHORT-only eligible
+      momStrongPct: 1.0                    # |1h momentum| tier: strong (+2)
+      momModeratePct: 0.5                  # |1h momentum| tier: moderate (+1)
+      minTraderCount: 10                   # 4h-board headcount floor: a lean whose leading side has fewer traders is refused
+      marginPctBase: 45                    # PERCENT of withdrawable (0,100]; flat
+      leverage: 10                         # clamped to [1,maxLeverage] in scan.py
+      maxLeverage: 10                      # RAISES scan.py's default ceiling of 5. Without this
+                                           # the clamp would hold the book at 5x while every card
+                                           # here claims 10x — a dead setting, the #677 shape.
+      maxEmit: 2                           # emit the top 1-2 by score
+      recentSignalTtlSeconds: 240          # race-window dedup
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      subGroup: { type: string, required: false }
+      reasons: { type: array, required: false }
+      sectorBreadth: { type: number, required: false }
+      gateDir: { type: string, required: false }
+      equipmentLeading: { type: boolean, required: false }
+      trend4h: { type: string, required: false }
+      trend4hStrength: { type: number, required: false }
+      trend1h: { type: string, required: false }
+      momentum1hPct: { type: number, required: false }
+      smDirection: { type: string, required: false }
+      smTiltPct: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: hornet_concentrated_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied breadth gate + scoring + dedup
+    scanners: [hornet_concentrated_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # momentum entries must fill — maker-only rests unfilled (CREATE_ORDER_RESTING)
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: hornet_concentrated_signals
+
+# ── EXIT (DSL — the ONLY exit) ────────────────────────────────────────────────
+# Equity two-phase shape (matches bobcat): Phase 1 max_loss 15% + retrace 8; Phase 2
+# wide-by-design ladder (T0 +10%/lock 0 through T5 +100%/lock 85) so a real sector
+# move rides multi-day. ALL THREE CLOCKS DISABLED — the house default, and a deliberate
+# departure from hornet, which caps holds at 48h. THE COST, stated rather than assumed:
+# hornet's timeout exists because an equity perp reconciles against an internal oracle
+# across the Friday-close -> Sunday-reopen window, where drift accumulates with no external
+# price discovery. With no clock, a position CAN camp through that gap, and the only
+# backstops are the ratchet floor and the 2.00%-of-price stop resting at the venue — which
+# at 10x is 20% of margin, so a gap through it costs 2.5x what the same gap costs hornet.
+# There is no CLOSE_POSITION scanner here, so that stop is the only hard floor.
+# order_type FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST happen). interval 60s
+# (REDUCE_ONLY-spam mitigation when runtime position state lags HL).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # exit closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: false                       # declared-off, not defaulted (17 packages left it implicit)
+      interval_in_minutes: 2880
+    weak_peak_cut:
+      enabled: false
+      interval_in_minutes: 60
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 60
+    phase1:
+      # Trailing DISABLED fleet-wide: the phase-1 floor trails HIGH-WATER, so after a small
+      # favourable move it can sit BELOW entry and close a winner at a loss. With it off,
+      # max_loss_pct is the SOLE floor beneath entry and the runtime rests it on the exchange.
+      enabled: false
+      max_loss_pct: 12                   # = 1.20% of price at 10x
+      retrace_threshold: 12
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      # 1.1.0 — THIS IS THE LADDER THE LIVE BOOK RUNS, and 1.0.0's was wrong.
+      #
+      # 1.0.0 re-derived every rung to preserve the PARENT hornet's price distances (2.50 /
+      # 5.00 / 7.50 / 12.50 / 18.75 / 25.00% at 10x). That rule is right for a concentrated
+      # variant in general — it keeps the fork comparable to the template it varies — but it
+      # was anchored on the wrong parent. This package was derived from a LIVE FORK that
+      # already had its own measured ladder (Hornet v1.1.2 base, DSL from Camel Concentrated),
+      # and the derivation discarded it in favour of the template's. The result was the fork's
+      # SIZING (45% at 10x, 2 slots) wearing the TEMPLATE's exits: concentrated risk with
+      # loose protection, a combination nobody chose.
+      #
+      # What that cost, in price terms at 10x:
+      #     first lock armed at 2.50% instead of 1.50%   (67% later)
+      #     first lock kept   20% instead of 40%         (half as much)
+      #     stop sat at       2.00% instead of 1.20%     (67% wider)
+      #   and it compounded: at ~5.6% the fork keeps 65%, 1.0.0 at 5.00% kept 25%.
+      #
+      # Independently measured on the live book 2026-10-13: arming the lock at 1.5% of price
+      # and keeping 60% was worth +$755 over 245 trades, i.e. the arm point below is the
+      # measured one and 2.50% was not. See project_exit_study_m418867_oct13.
+      #
+      # Reconstructed from the running book rather than copied on trust — four positions, each
+      # reproducing these rungs and contradicting 1.0.0's: SKHX short 1204.2 -> floor 1157.4
+      # (tier 3, lock 65), AMAT short 489.61 -> 470.22 (tier 3), MRVL long 269.55 -> 271.18
+      # (tier 1, lock 40), WDC long 391.61 -> 394.02 (tier 1); and the max-loss floor on an
+      # ASML short at entry 1700.6 observed at 1721.1, which is 12 ROE / 10x and not 20.
+      tiers:
+        - { trigger_pct: 15,  lock_hw_pct: 40 }   # 1.50% of price — the measured arm point
+        - { trigger_pct: 28,  lock_hw_pct: 45 }   # 2.80%
+        - { trigger_pct: 56,  lock_hw_pct: 65 }   # 5.60%
+        - { trigger_pct: 100, lock_hw_pct: 80 }   # 10.00%
+        - { trigger_pct: 180, lock_hw_pct: 90 }   # 18.00%
+
+# ── RISK guard rails (minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 259200           # 72h (in [3600,604800])
+  guard_rails:
+    daily_loss_limit_pct: 18               # one stop = 12% ROE x 45% = 5.40% of account, so this
+                                           # is >3 stops. hornet's 15% would halt after ONE.
+    max_entries_per_day: 4
+    # 1.1.0 — THE CAP LIFTS ON A PROFITABLE DAY. Gate 5 stays OPEN at the cap whenever
+    # today_snapshot.pnl.delta_since_open > 0 (strict: exactly zero does NOT bypass). The cap
+    # therefore only ever constrains a day that is already down, which is the only kind of day
+    # it has ever constrained in practice: on the one live day the cap was reached (2026-10-09,
+    # a 4-entry day that netted -35.34), the strategy's next 99 emits were all refused by SLOTS
+    # at 2/2 rather than by this gate, and all 99 were attempts to re-buy the two names that had
+    # just lost money. Lifting the cap on a winning day costs nothing measured and removes a
+    # brake that was never the binding constraint when things were going well.
+    bypass_max_entries_per_day_on_profit: true
+    max_consecutive_losses: 3
+    cooldown_seconds: 3600                  # 60m post-loss cooldown
+    drawdown_halt_pct: 30                  # 3.3 stops (hornet: 20% = 13.9 of its 1.44% stops)
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 14400       # 4h per-asset cooldown
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
