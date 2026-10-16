@@ -79,8 +79,11 @@ class ProtectionProtocolIsResident(unittest.TestCase):
         self.assertIn("ABOVE", body)
         # the consequence, not just the rule — this is why it is worth the lines
         self.assertIn("UNPROTECTED", body)
-        # the mark must come from the venue at call time, not from entry or an earlier quote
-        self.assertIn("strategy_get_clearinghouse_state", body)
+        # the mark must come from the venue at call time, not from entry or an earlier quote — and from
+        # the tool that returns one (clearinghouse positions carry entryPx, no mark)
+        self.assertIn("strategy_get_asset_trading_limits", body)
+        # percentage is entry-based, so it is not the escape from a mark that is already past the stop
+        self.assertIn("measured from ENTRY", body)
         # re-sending the same price is the one move that cannot work
         self.assertIn("Re-sending the same price", body)
 

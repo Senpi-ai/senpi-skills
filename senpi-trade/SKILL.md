@@ -170,10 +170,12 @@ Never pick the coins yourself and open them here.
    stop sits BELOW the mark and a short's ABOVE; a take-profit is the mirror. The venue refuses the wrong
    side (`SL trigger price 56.695 >= current price 56.180 for LONG position - would execute immediately`),
    and on `edit_position` **the size change commits first**, so a refused stop leaves the position open and
-   UNPROTECTED — the error says so in its own last line. Read the mark from
-   `strategy_get_clearinghouse_state` at the moment you build the call, never from entry, a percentage you
-   applied in your head, or a price quoted earlier in the conversation. Re-sending the same price is the one
-   thing that cannot work; recompute the side or switch to `percentage`, which lets the engine pick it.
+   UNPROTECTED — the error says so in its own last line. Read the mark price from
+   `strategy_get_asset_trading_limits` (wallet + coin) at the moment you build the call, never from entry, a
+   percentage you applied in your head, or a price quoted earlier in the conversation.
+   Re-sending the same price is the one thing that cannot work; recompute it from the mark. `percentage`
+   picks the side but is measured from ENTRY, so once the mark is already past that level it is refused
+   too — say so, and let the user choose between closing and a stop on the right side of the mark.
 
 Then **replay the full spec, get an explicit "yes"**, and place.
 
