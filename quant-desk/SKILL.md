@@ -158,8 +158,8 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
 
    Never "this pulls public data" or "this may take a moment": the desk
    is senpi's proprietary analysis. Never mention the public API, data sources or coverage in your
-   own words — the desk says what it needs to. **Our machinery stays ours: no script name, flag or
-   skill id ever reaches the reader** — not `desk.py`, not `--days`, not `senpi-strategy-discover`.
+   own words — the desk says what it needs to. **Our machinery stays ours: in what you write, no script
+   name, flag or skill id ever reaches the reader** — not `desk.py`, not `--days`, not `senpi-strategy-discover`.
    Say the thing in plain words and then do it ("I can look further back — how far?", "I can help you
    pick a strategy"), never the identifier that does it. Run the installed copy
    (`/data/.openclaw/skills/quant-desk/scripts/desk.py`), never a backup folder: the header line carries the
