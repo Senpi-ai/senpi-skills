@@ -1,6 +1,6 @@
 # quant-desk — methodology
 
-> **This document describes the engine as of quant-desk 1.45.0.** Nine formulas in it were stale
+> **This document describes the engine as of quant-desk 1.48.0.** Nine formulas in it were stale
 > between 1.9.0 and 1.14.0 while SKILL.md sent the agent here for them, so an agent asked "how is my
 > cost score computed?" answered with the pre-1.9.0 rule, confidently. If you change a formula in
 > `scripts/`, change it here in the same commit — `test_methodology_matches_the_engine` fails if the
@@ -186,7 +186,8 @@ breakout_momentum; buys weakness → contrarian_fade; one coin ≥ 50% of volume
 Crypto tiers come from live open interest on the main dex: **majors** = top 3 by OI, **large caps** =
 the next 12, **alts** = the rest. **Memecoins** = every 1000×-denominated `k…` name plus a short documented
 list (a taxonomy, never a trading whitelist). xyz assets use senpi-market-pulse's own groups verbatim
-(equities, indices, commodities, FX/macro).
+(equities, indices, commodities, FX/macro). Any other builder's dex (`km:`, `flx:`, `hyna:` …) is
+**other dexes**, never alts. Outcome (prediction) contracts, `#NNNNN`, are not perps and are not read.
 
 ## The strategy read (`strategy_read.py`)
 

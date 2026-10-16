@@ -8,7 +8,7 @@ Buys oversold BOUNCES and sells overbought FADES on liquid crypto majors. Each t
      the pure `scoring.oversold_bounce` CROSS detector. Emit a conviction-banded,
      capped signal for every confirmed cross (LONG on an oversold cross-up, SHORT
      on an overbought cross-down), sized by band. NEVER closes — the DSL owns every
-     exit (tight, because reversions fail fast).
+     exit (a fixed stop and a gains-only ratchet; no clock cuts).
 
 Read-only + single-pass — emits `marginPct` (a PERCENT in (0,100]) + `leverage`
 intents; the runtime sizes the dollars, owns cooldowns/risk gates, and trails the
@@ -116,7 +116,7 @@ def _held(ctx):
 
 def scan(inputs, ctx):
     now = time.time()
-    max_slots = int(scoring._f(inputs.get("maxSlots"), 5))
+    max_slots = int(scoring._f(inputs.get("maxSlots"), 4))
     ttl = scoring._f(inputs.get("recentSignalTtlSeconds"), 14400)
 
     st = (ctx.state.last() or {}) if ctx.state else {}
