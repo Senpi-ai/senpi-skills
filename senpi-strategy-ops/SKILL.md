@@ -33,7 +33,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.27.1"
+  version: "3.27.9"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -71,7 +71,8 @@ registered**, which collides on the next deploy.
 NEW wallet whose scanner state starts empty — needed only when `update` refuses `E_UPDATE_WALLET_CHANGED` (below).
 "Relaunch", "restart", "redeploy", "fix it" → the read-only `deploy.py verify` on the id they run (`status.py`
 lists their fork). VERIFIED = nothing to relaunch; "my edit isn't live" / "it isn't trading" → `status.py <id>`,
-its ✎ / ⏸ rows. A step verify marks `RUNS THE DEPLOY VERB` needs their yes first: `runtime <id>` starts trading
+its ✎ / ⏸ rows; healthy but has never traded → its binding gate, threshold and universe count, never "being
+selective" ([`references/liveness-verification.md`](references/liveness-verification.md)). A step verify marks `RUNS THE DEPLOY VERB` needs their yes first: `runtime <id>` starts trading
 the wallet it adopts, `create --budget` funds a NEW one (say the amount). PAUSED has no resume: tell the user,
 run nothing. Close only on "close" / "tear down" in their own words, or a yes to your sentence that every
 position closes at market — "stop" or "pause" gets that sentence too: the only stop is a close.

@@ -167,13 +167,14 @@ def build(mcp, only_pkg=None, deep=True):
         # strategy. Explain it by type: copy-trading (follows a trader, run by the copy engine) or manual
         # (managed in the app). Only an autonomous PACKAGE strategy (skillName, no trader) is expected to
         # have a runtime — a missing one there is the real anomaly.
-        positions, paused, drift = None, None, None
+        positions, paused, drift, reason = None, None, None, None
         if rt and _cli.runtime_running(rt):
             health = "running"
             entry = health_by_name.get(_cli.runtime_name(rt))  # from the single fleet-wide status --json
             if entry:  # upgrade process-level "running" to the runtime's own verdict (+ positions)
                 health = _cli.health_verdict(entry) or "running"
                 positions = _cli.active_positions(entry)
+                reason = "; ".join(_cli.scanner_reasons(entry)) or None  # the runtime's words, for quoting
                 # The runtime's own entry gate — separate from health, because a paused runtime is
                 # healthy: it ticks, it manages what it holds, and it opens nothing.
                 paused = _cli.risk_pause(entry)
@@ -203,7 +204,7 @@ def build(mcp, only_pkg=None, deep=True):
                      "name": name, "name_source": name_source,
                      "strategyId": _cli.strategy_id_of(s), "wallet": wallet,
                      "status": _cli.strategy_status(s), "funded": _cli.strategy_funded(s),
-                     "positions": positions, "paused": paused, "config_drift": drift,
+                     "positions": positions, "paused": paused, "config_drift": drift, "reason": reason,
                      "runtime": _cli.runtime_name(rt) if rt else None, "health": health})
     # runtimes with no matching OPEN strategy (orphans — trading nothing / on a gone wallet)
     orphans = [{"runtime": _cli.runtime_name(r), "wallet": _cli.runtime_wallet(r),
@@ -274,6 +275,8 @@ def main(argv):
             hold = f"  ⏸ {r['paused']['eligibility']}" if r.get("paused") else ""
             print(f"  {_ICON.get(r['health'], ' ')} {r['health']:<15} {_name_cell(r):<22} "
                   f"{r['wallet'][:10]}…  {_funded(r):>8}  [{(r['strategyId'] or '')[:8]}]{pos}{rt}{hold}")
+            if r.get("reason"):
+                print(f"      ↳ {r['reason']}")
     if any(r.get("name_source") != "strategyName" for r in rows):
         print("\nℹ `*` after a name means the strategy record carried NO name of its own — what's shown "
               "is its package id (every instance of that package renders the same), not a name this "

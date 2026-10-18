@@ -113,11 +113,16 @@ list shows the id the deploy verb derives from the package (`<owner>-<template>`
 `ignas-phalanx`). Their own words win: `--name "Shield Wall"` → `shield-wall`. A second fork of the same
 template needs a name that tells them apart — ask.
 
-## 4. The question
+## 4. The question — and the two other routes
 
 *"Run it as-is, or shift one of these first? Say **go** and it deploys as-is."* A bare "go", "deploy",
 "yes" or "as-is" = the defaults, under their name. A status check — "did you finish?", "how's it going?" —
 is not a yes: answer it and wait. Never a gate, never re-asked; the budget question comes after the answer.
+
+**Arrived with one name, not from the picker** (a quick action, a typed template name)? They were shown one
+template, not a choice. Beside the question, one line each, once: **a different signal** →
+`senpi-strategy-discover` ranks the whole catalog (never a shortlist from memory); **their own** →
+`senpi-strategy-author`, a peer, not a consolation. Variants are §1b and the concentration-sibling line, not repeated here.
 
 ## 5. Fee load and the design budget
 
@@ -126,6 +131,16 @@ scanner turning a $200 book pays more in fees than it wins or loses on direction
 budget (`min_budget` is the floor; the catalog card says what the design assumes). **Deploying below the
 design budget needs the user's explicit yes after hearing what degrades**; the `[W_BUDGET_*]` warn after
 the fact is not that consent.
+
+**"What does it need?" is answered with the calculated minimum — never the $10 wallet floor.** The floor is
+what the *platform* accepts; the calculated minimum is what the *design* needs, and below it the smallest
+slot cannot reach the engine's bumped notional, so the strategy **no-trades**: it funds, it installs, it
+scans, and it never opens. `min_budget.py` is the arithmetic —
+`max($10, $12 / (marginPct/100 × min_leverage) + $1.50)` per wallet — so a 15%-margin, 3× sleeve needs
+$30 (the card rounds 28.17 up to the next step), not $11.50, and quoting the floor hands the user a funded strategy that cannot trade. Quote the
+calculated figure (`minBudget` on the deploy report, `min_budget` on the catalog card), and if neither is to
+hand, do that division before naming a number. **Never describe a below-minimum deploy as "tight, but it'll
+trade."**
 
 ## 6. Guardrails are consent, both ways
 

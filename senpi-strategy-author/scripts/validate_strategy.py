@@ -83,6 +83,32 @@ _NONE_IN_DATA = re.compile(r'"(\w+)":\s*(?:th\[[^\]]+\]|None)\s*(?:,|\})')
 _STRIPS_NONE = re.compile(r'if\s+v\s+is\s+not\s+None')
 
 
+def undeclared_signal_data_offenders(scan_src, schema):
+    """Keys in a signal's `data` that `signal_data_schema` does not declare.
+
+    The scaffold refuses the whole candidate for an undeclared key, so the scanner logs a healthy
+    EMIT and nothing reaches the venue. Declaring it is the fix, not removing it — penguin carries
+    `leverage` in `data` and declares it. Only a literal `"data": {...}` is read: one built from a
+    variable is left alone rather than guessed at, because a check that refuses a working strategy
+    is worse than no check."""
+    if not schema:
+        return []
+    try:
+        tree = ast.parse(scan_src)
+    except SyntaxError:
+        return []
+    out = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        for key, value in zip(node.keys, node.values):
+            if isinstance(key, ast.Constant) and key.value == "data" and isinstance(value, ast.Dict):
+                out.update(k.value for k in value.keys
+                           if isinstance(k, ast.Constant) and isinstance(k.value, str)
+                           and k.value not in schema)
+    return sorted(out)
+
+
 def null_signal_field_offenders(scan_src, scoring_src, schema):
     """Fields emitted into a signal's `data` that can be None while declared as a typed schema
     field. Returns [(field, declared_type), ...]. Empty when the scanner strips Nones at emit."""
@@ -469,7 +495,7 @@ def smart_money_mentions(pkg: Path):
 
 
 def _runtime_docs(pkg: Path):
-    """Every parsed runtime.yaml in the package (flat or nested)."""
+    """(path, doc) for every parsed runtime.yaml in the package (flat or nested)."""
     out = []
     for rt in pkg.rglob("runtime.yaml"):
         try:
@@ -477,7 +503,7 @@ def _runtime_docs(pkg: Path):
         except Exception:  # noqa: BLE001
             continue
         if isinstance(d, dict):
-            out.append(d)
+            out.append((rt, d))
     return out
 
 
@@ -750,7 +776,7 @@ def validate(pkg: Path) -> list:
     for scan_py in pkg.rglob("scanners/scan.py"):
         scoring_py = scan_py.with_name("scoring.py")
         scoring_src = scoring_py.read_text() if scoring_py.is_file() else ""
-        for rt_doc in _runtime_docs(pkg):
+        for _, rt_doc in _runtime_docs(pkg):
             for sc in (rt_doc.get("scanners") or []):
                 if not isinstance(sc, dict) or sc.get("type") != "external_scanner":
                     continue
@@ -761,6 +787,25 @@ def validate(pkg: Path) -> list:
                         f"None — OMIT it when it doesn't apply (a null fails schema validation and the "
                         f"runtime drops the whole candidate silently). Build data as "
                         f"`{{k: v for k, v in {{...}}.items() if v is not None}}`.")
+    # undeclared `data` keys — each scanner against ITS OWN file, resolved as the runtime does
+    # (runtime.yaml dir / path / entrypoint): barracuda ships two external_scanners on one `path`
+    # (scan.py + close_all.py), and spider's swing + scalp each ship a scanners/scan.py — pairing
+    # by filename alone checks one against the other's schema and invents offenders.
+    for rt, rt_doc in _runtime_docs(pkg):
+        for sc in (rt_doc.get("scanners") or []):
+            if not isinstance(sc, dict) or sc.get("type") != "external_scanner":
+                continue
+            schema = sc.get("signal_data_schema") or {}
+            scan_py = rt.parent / str(sc.get("path") or "scanners") / str(sc.get("entrypoint") or "scan.py")
+            if scan_py.is_file():
+                for key in undeclared_signal_data_offenders(scan_py.read_text(), schema):
+                    errs.append(
+                        f"{scan_py.relative_to(pkg)}: signal `data` carries `{key}`, which "
+                        f"`{sc.get('name', 'this scanner')}`'s `signal_data_schema` does not declare "
+                        f"— the scaffold refuses the whole candidate (`delivery_candidate_invalid`: "
+                        f"data has unknown key '{key}'), so the scanner logs a healthy EMIT and "
+                        f"nothing reaches the venue. Declare `{key}` in `signal_data_schema`, or "
+                        f"stop emitting it.")
     for f in pkg.rglob("*"):
         if f.is_file() and f.suffix in (".py", ".yaml", ".md"):
             t = f.read_text(errors="ignore")

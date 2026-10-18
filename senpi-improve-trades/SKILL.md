@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.18.0"
+  version: "1.19.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -129,6 +129,13 @@ ratchet record or honest `UNKNOWN`. Say **"exit mechanism not recorded on this b
 closed — its live event ring is gone; the durable log is the recovery path") — **never** report it as a bug.
 `meta.telemetry_source` (`available` / `partial` / `unavailable`) and `meta.exit_reason_source_counts` tell you
 exactly how much enrichment landed; surface that honestly.
+
+**A ratchet-sourced exit never names who closed the trade.** On the fallback path the record is a DSL *ladder*
+status, and `CLOSED_OFF_LADDER` means only that the ladder ended for a reason that was not its own stop — the
+runtime closing on signal invalidation or a time cut, the agent calling `close_position`, and the user closing
+on the venue are **indistinguishable** in it. Say **"not closed by its stop"**; never "you closed this",
+"closed by hand" or "manual". And never print the raw status (`MANUALLY_CLOSED`, `CLOSED_EXTERNALLY`,
+`EXCHANGE_SL_HIT`): those are wire values, not words for a reader.
 
 **Closed strategies are recovered ON-CHAIN — the engine handles the trap for you.** `discovery_get_trader_history` returns **empty** once a strategy is closed/torn down — Senpi clears its own index, but the trades are **NOT gone** (Hyperliquid keys fills by wallet **address**, so they survive the close). The engine detects an empty discovery result and **falls back to on-chain HL fills**, rebuilding the real round-trips (`meta.closed_trade_source == "onchain_fills"`, wallets in `meta.onchain_recovered_wallets`); `realized_pnl` then comes from HL's own `closedPnl`. So a closed strategy's trades and realized total come back **real** — an empty discovery result is never "no trades." You do **not** hand-read `strategy_get_pnl_and_account_value_history` for this. If `trades[]` is still empty after the on-chain fallback, the book genuinely never traded (guardrail 9).
 
@@ -606,8 +613,8 @@ from fill shapes and present it as fact.
 who placed it** (`close_position` uses `FEE_OPTIMIZED_LIMIT` too, and a DSL exit set to `order_type: MARKET`
 produces none) — so it can rule the exchange stop *out*, never rule the DSL *in*. A closed trade has no
 *resting* trigger left; read the one that fired from `execution_get_closed_position_details` →
-`orderDetails[].triggerPrice`. And `exit_reason.terminal` of **`MANUAL_CLOSE` is not an answer** — it means
-only "ended for a reason that was not its own stop", so treat it as UNKNOWN (#784 fixes that mapping).
+`orderDetails[].triggerPrice`. And `exit_reason.terminal` of **`CLOSED_OFF_LADDER` is not an answer** — it
+means only "ended for a reason that was not its own stop", so treat it as UNKNOWN.
 
 Label the source in the answer: *"the runtime's close record says …"* reads differently from
 *"the fills are consistent with …"*, and the user is entitled to know which one they are getting.

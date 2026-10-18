@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.32.2"
+  version: "1.34.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -42,8 +42,7 @@ dump when the user asked about their **strategies** — is a failure. The user w
 > **label + mandate/expected-behavior → is it doing its job (against its OWN mandate) → positions as
 > evidence → PnL/ROE (realized + unrealized) → DSL protection posture.** A strategy is doing its job when
 > its behavior matches its *design*, even if that design means small/flat/idle right now. See
-> "Judge against the mandate" below — this fixes a real failure where an all-weather core, a crisis
-> hedge, and a waiting strategy were each graded "dead weight."
+> "Judge against the mandate" below.
 >
 > **The mandate comes from the strategy's own deployed `runtime.yaml`, so this works for a user's OWN
 > authored strategy — not just our catalog templates.** The engine attaches `strategies[].profile`,
@@ -63,8 +62,7 @@ dump when the user asked about their **strategies** — is a failure. The user w
 > `ratchet_stop_list` shows **only** the live ratchet for positions that have already crossed Tier 1 — it
 > does **not** carry the strategy's config DSL exit, so a by-hand read makes every sub-Tier-1 position look
 > "unprotected" when it isn't. The engine reads BOTH the config ladder (`profile.dsl`) and the live tier
-> (`positions[].dsl`) and frames every position correctly; run it. (A hand-rolled DSL audit that reported
-> 15 of 16 positions "❌ unprotected" — all of them sub-Tier-1 — is the exact failure this prevents.)
+> (`positions[].dsl`) and frames every position correctly; run it.
 >
 > **This skill reads. It never changes protection.** A portfolio read, a health check or an "are my
 > positions protected?" answer never calls `ratchet_stop_add` / `ratchet_stop_edit` / `ratchet_stop_delete`
@@ -93,6 +91,9 @@ dump when the user asked about their **strategies** — is a failure. The user w
 >   (`closed_record_newest_utc` is the newest close it holds; a re-read does not skip the wait). Say it
 >   has not reached trade history yet and show the live state from this read instead — open `positions[]`
 >   and `account_value`. Never present older closes as today's, and never invent the missing P&L.
+> - **"What did the trader do?" on a copy-trade (`mirror`) means the COPIED trader, never the user's wallet.**
+>   `mirror_of` / `traderAddress` are masked and discovery rejects them: ask for the full address, then
+>   read `discovery_get_trader_state` / `discovery_get_trader_history` on it.
 > - **"In profit" on an open position is unrealized.** Say it is unrealized, and do not forecast the close.
 
 ## The wallet model (get this exactly right)
@@ -229,8 +230,10 @@ re-derive.
 
 **The interpretation is the part that is yours**, because both of these look identical on every field:
 
-- **Nothing qualified.** Normal, and the right answer for a selective strategy — the entry bar simply
-  has not been met. Judge against the mandate: a slow, high-conviction design is *supposed* to sit.
+- **Nothing qualified.** The entry bar has not been met — name it, never "being selective": the binding
+  gate, its threshold and the universe count from its `runtime.yaml` (`senpi-strategy-ops`
+  `references/liveness-verification.md`, "Healthy, live — and it has never traded"). Then judge against the
+  mandate: a slow, high-conviction design is *supposed* to sit; a gate no readable value can meet is broken.
 - **The scanner is blind.** Its market-data connection broke and every read has failed since, while it
   kept reporting healthy. The tell is a scanner that **used to** produce signals and has produced none
   for hours with no errors.
@@ -340,6 +343,12 @@ trade; only a fill on the strategy wallet (`positions`, `closed`) is. Never narr
 
 For `degraded` corroborated by no activity, or `not_running`, work the ladder yourself and report what you
 found. Only the last step touches their money, and only that one needs their consent:
+
+**Before the ladder: if the row carries `runtime_reason`, say it.** It is the runtime's own words, read off
+`senpi status --json`'s scanner rows (`degradedReason`) — on today's runtime only a crash loop, e.g.
+`jackal_main_signals: 5 crashes in a row, each within 10s of starting` (`senpi status` prints it as
+`crash loop: …`). Quote it in those words: a scanner that cannot stay up is why it has not traded. No
+`runtime_reason` means the runtime gave none — never invent one; the ladder finds it.
 
 1. **`python3 senpi-strategy-ops/scripts/status.py <id>`** — re-ask the runtime. Verdict + position count.
    **Mind the vocabulary:** `status.py` reports the engine's raw words, and they do not line up with this

@@ -202,8 +202,8 @@
       "version": "1.1.2"
     },
     "hydra": {
-      "behaviour": "1c3e373cfd37bc58",
-      "version": "1.2.0"
+      "behaviour": "7b974e1e256719f3",
+      "version": "1.3.0"
     },
     "hyena": {
       "behaviour": "5f401990f11c3d5c",
@@ -238,8 +238,8 @@
       "version": "1.1.2"
     },
     "kingfisher": {
-      "behaviour": "9df500bad4124b1a",
-      "version": "1.2.0"
+      "behaviour": "25345fea95972655",
+      "version": "1.3.0"
     },
     "kite": {
       "behaviour": "460a45e0c46760b9",
@@ -258,8 +258,8 @@
       "version": "1.2.3"
     },
     "lemur": {
-      "behaviour": "7cbfab3e5ba00e23",
-      "version": "1.1.3"
+      "behaviour": "8a2e585dc7f9c995",
+      "version": "1.2.0"
     },
     "lion": {
       "behaviour": "786141f2a7cb024e",
@@ -270,8 +270,8 @@
       "version": "1.1.2"
     },
     "magpie": {
-      "behaviour": "cc32edb1d5d58777",
-      "version": "1.1.2"
+      "behaviour": "732388be1361e160",
+      "version": "1.2.0"
     },
     "manatee": {
       "behaviour": "1bb9de4879af579d",
@@ -406,8 +406,8 @@
       "version": "1.1.1"
     },
     "puffer": {
-      "behaviour": "5a3762e97d750972",
-      "version": "1.0.1"
+      "behaviour": "d2845a4539747f94",
+      "version": "1.1.0"
     },
     "puffin": {
       "behaviour": "5b5d8f66c330c8cf",
@@ -466,12 +466,12 @@
       "version": "1.2.0"
     },
     "salamander": {
-      "behaviour": "b917c0315cba676a",
-      "version": "1.2.2"
+      "behaviour": "89a504e817eaabc4",
+      "version": "1.3.0"
     },
     "salmon": {
-      "behaviour": "8e0fd5aaa24a4a60",
-      "version": "1.2.1"
+      "behaviour": "e931f177368cc412",
+      "version": "1.3.0"
     },
     "scorpion": {
       "behaviour": "a55ad1bd95c9f0ec",
@@ -518,8 +518,8 @@
       "version": "1.2.0"
     },
     "tortoise": {
-      "behaviour": "8703c9008a9e844e",
-      "version": "1.2.0"
+      "behaviour": "6866e93c6e2b8e55",
+      "version": "2.0.0"
     },
     "viper": {
       "behaviour": "6df37315776b09ff",
