@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.33.0"
+  version: "1.34.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -230,8 +230,10 @@ re-derive.
 
 **The interpretation is the part that is yours**, because both of these look identical on every field:
 
-- **Nothing qualified.** Normal, and the right answer for a selective strategy — the entry bar simply
-  has not been met. Judge against the mandate: a slow, high-conviction design is *supposed* to sit.
+- **Nothing qualified.** The entry bar has not been met — name it, never "being selective": the binding
+  gate, its threshold and the universe count from its `runtime.yaml` (`senpi-strategy-ops`
+  `references/liveness-verification.md`, "Healthy, live — and it has never traded"). Then judge against the
+  mandate: a slow, high-conviction design is *supposed* to sit; a gate no readable value can meet is broken.
 - **The scanner is blind.** Its market-data connection broke and every read has failed since, while it
   kept reporting healthy. The tell is a scanner that **used to** produce signals and has produced none
   for hours with no errors.
@@ -341,6 +343,12 @@ trade; only a fill on the strategy wallet (`positions`, `closed`) is. Never narr
 
 For `degraded` corroborated by no activity, or `not_running`, work the ladder yourself and report what you
 found. Only the last step touches their money, and only that one needs their consent:
+
+**Before the ladder: if the row carries `runtime_reason`, say it.** It is the runtime's own words, read off
+`senpi status --json`'s scanner rows (`degradedReason`) — on today's runtime only a crash loop, e.g.
+`jackal_main_signals: 5 crashes in a row, each within 10s of starting` (`senpi status` prints it as
+`crash loop: …`). Quote it in those words: a scanner that cannot stay up is why it has not traded. No
+`runtime_reason` means the runtime gave none — never invent one; the ladder finds it.
 
 1. **`python3 senpi-strategy-ops/scripts/status.py <id>`** — re-ask the runtime. Verdict + position count.
    **Mind the vocabulary:** `status.py` reports the engine's raw words, and they do not line up with this

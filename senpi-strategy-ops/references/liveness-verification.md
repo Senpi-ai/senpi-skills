@@ -194,3 +194,37 @@ status`, which starts nothing.
 Anything less: surface the specific failing field and the remediation, not a generic "looks fine." For
 deeper engine triage (position_tracker → DSL → actions), see
 `senpi-trading-runtime/references/runtime-concepts.md` and `openclaw senpi dsl|action …`.
+
+---
+
+## Healthy, live — and it has never traded
+
+Everything above proves the strategy is **operating**. It does not answer the question a funded user
+actually asked: *why has it not opened anything?* "It's live and being selective" is the end of the
+liveness check, **not** an answer — and repeated back three or four times it reads as a brush-off from a
+system holding their money. `senpi scanner` showing `signals=0` (and `(no signals yet)` on an interval scanner —
+an external one stays at `runs=0` until a tick emits) says *that* it found nothing; it never says *why*. Once liveness is established, answer with the strategy's **own arithmetic**:
+
+1. **Name the binding gate and its threshold**, from that instance's `runtime.yaml` `inputs` (the
+   running recipe — when `status.py` flags `✎ running recipe ≠ disk`, the disk copy is an unapplied edit). "Waiting
+   for a liquidation-unwind signature scoring ≥ 5" is an answer; "being selective" is not.
+2. **State the universe it actually scans, as a count.** The same gate over 4 instruments and over 200 is
+   two different strategies, and the count is the lever the user can act on. A narrow universe crossed
+   with a rare signature is the common shape of a strategy that is *working perfectly* and will realistically
+   never fire — say so plainly, in that arithmetic, rather than leaving them to wait it out.
+3. **Say how often it has fired** — `signalsProduced` on the scanner row, and its `signal.*` events in
+   `openclaw senpi events -r <runtime_id>`. Zero signals since install is a fact worth leading with, not a
+   detail to omit because the runtime is healthy.
+
+Then give the two levers in the user's terms — **widen the universe** or **loosen the binding gate** —
+edited with `senpi-strategy-author` and applied in place with `deploy.py update`; never close and recreate, which costs a
+real creation fee and resets nothing but the book.
+
+> **Selective vs. unreachable.** If no value the scanner can actually read would satisfy the gate, the
+> strategy is not selective — it is **broken**, and no amount of waiting fixes it. Two funded catalog
+> strategies sat ACTIVE for 15 days and ~7,000 clean ticks each on exactly this (a threshold set on the
+> wrong scale; a nested payload shape the venue returns flat), each indistinguishable from patience from
+> every surface above. Before telling a user to keep waiting, read the value the gate tests from the tool
+> the scanner reads and check it can reach the threshold (`senpi-strategy-ops/tests/test_entry_gate_reachability.py`
+> holds both cases). `openclaw senpi validate` does not catch this: a tick that reads data and stands aside
+> is a **PASS** — **UNPROVEN** (exit 2) only means the tick read nothing.
