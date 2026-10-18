@@ -274,8 +274,13 @@
       "version": "1.2.0"
     },
     "manatee": {
+<<<<<<< HEAD
       "behaviour": "d4e6db6ad4ff7b4c",
       "version": "1.5.1"
+=======
+      "behaviour": "1430228d883aa021",
+      "version": "1.6.0"
+>>>>>>> origin/fix/manatee-floor-model
     },
     "mandate": {
       "behaviour": "082b3e3792ef9029",

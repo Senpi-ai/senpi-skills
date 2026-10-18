@@ -7,7 +7,7 @@
 schema_version: 1
 
 id: manatee
-version: "1.5.1"
+version: "1.6.0"
 catalog:
   name: "Manatee — Cross-Asset Mean-Reversion Inventory"
   emoji: "🦭"
@@ -25,11 +25,17 @@ catalog:
   time_horizon: swing
   leverage_max: 1
   max_slots: 19
-  # The computed minimum ($801.50 -> $825) is the budget at which ONE clip clears the venue's
-  # $12 order minimum. It is NOT the budget at which this strategy exists: a clip is 1.5% of
-  # WITHDRAWABLE, which shrinks as the book fills, so at $825 only 3 of the 19 slots ever fund
-  # (~4% gross) and the inventory the card describes never forms. All 19 fund from $1,100.
-  min_budget_floor: 1100
+  # The computed minimum ($801.50 -> $825) is where ONE clip clears the venue's $12 order minimum,
+  # and that IS enough to fill the book: within a tick the clip is 1.5% of the ONE balance read the
+  # scanner takes, so every clip in that tick is the same size and the first tick opens every name
+  # that qualifies. Measured 2026-10-18 on a live $835 deploy: 11 positions in the opening tick.
+  #
+  # What $825 cannot do is keep going. The clip shrinks ACROSS ticks, because the next tick reads a
+  # withdrawable the book has already spent. With all 19 names held (28.5% deployed) the next clip
+  # is 1.07% of the account, so an ADD or a replacement needs $1,119 to clear $12 — and adds are
+  # not a nicety here, they are the engine this strategy was modelled on. A second add round across
+  # a full book needs $1,860. The floor is set at the first of those, rounded up.
+  min_budget_floor: 1200
   assets: []                      # DERIVED each tick: both boards, above a $50M open-interest floor
   tags: [mean-reversion, cross-asset, xyz-equities, derived-universe, long-short, harvester, always-on, dsl-only, no-close, inventory, two-sided, daily-close, buy-the-dip, short-the-rip, liquid-perps, majors]
 
