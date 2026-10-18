@@ -15,6 +15,7 @@ _RT = yaml.safe_load(open(os.path.join(HERE, "..", "main", "runtime.yaml"), enco
 INPUTS = _RT["scanners"][1]["inputs"]
 SCHEMA = _RT["scanners"][1]["signal_data_schema"]
 CLIP = float(INPUTS["marginPct"])
+LEV = int(INPUTS["leverage"])
 
 
 def _bar(t, px):
@@ -67,9 +68,12 @@ def test_string_candle_values_are_read():
 # ── marginPct is a PERCENT; a clip is never rescaled ──
 
 def test_sizing_is_a_percent_and_the_same_for_entry_and_add():
-    assert scoring.sizing_for(INPUTS) == (1, CLIP)
-    assert scoring.sizing_for(INPUTS, add=True) == (1, float(INPUTS["addMarginPct"]))
-    assert CLIP > 1.0   # min_budget resolves a slot only above 1; a sub-1 value reads as a pasted fraction
+    assert scoring.sizing_for(INPUTS) == (LEV, CLIP)
+    assert scoring.sizing_for(INPUTS, add=True) == (LEV, float(INPUTS["addMarginPct"]))
+    assert CLIP > 1.0   # min_budget resolves a slot only above 1; a sub-1 value reads as a pasted
+                        # fraction and validate_strategy REFUSES it. This is why 2.0.0 carries the
+                        # leverage change in SLOTS (19 -> 10) rather than in the clip (1.5 -> 0.75):
+                        # the "same notional on half the margin" version cannot be expressed here.
 
 
 # ── the emitted data{} never carries a null and only declared keys ──
@@ -147,7 +151,7 @@ def test_scan_opens_both_sides_on_the_closed_bar_and_skips_the_band_and_delisted
     out = scan.scan(INPUTS, _ctx({}, {"DOT": 94.0, "UNI": 106.5, "BTC": 98.0, "SOL": 93.0, "XRP": 90.0},
                                 listed=("BTC", "DOT", "UNI", "SOL")))
     got = {o["asset"]: (o["direction"], o["marginPct"], o["leverage"], o["data"]["kind"]) for o in out}
-    assert got == {"DOT": ("LONG", CLIP, 1, "entry"), "UNI": ("SHORT", CLIP, 1, "entry"), "SOL": ("LONG", CLIP, 1, "entry")}
+    assert got == {"DOT": ("LONG", CLIP, LEV, "entry"), "UNI": ("SHORT", CLIP, LEV, "entry"), "SOL": ("LONG", CLIP, LEV, "entry")}
     for o in out:
         assert all(v is not None for v in o["data"].values()) and set(o["data"]) <= set(SCHEMA)
 
@@ -224,7 +228,7 @@ def test_scan_stands_down_on_a_corrupt_clearinghouse_read():
 
 def test_scan_stands_down_when_a_clip_is_under_the_venue_minimum():
     """Free margin x the clip under the $12 minimum: the order would fail, so nothing is emitted."""
-    tiny = 12.0 / (CLIP / 100.0) * 0.5
+    tiny = 12.0 / (CLIP / 100.0 * LEV) * 0.5   # the gate is on NOTIONAL: margin x leverage
     assert scan.scan(INPUTS, _ctx({}, {"DOT": 94.0, "UNI": 106.5}, account=tiny)) == []
     assert len(scan.scan(INPUTS, _ctx({}, {"DOT": 94.0, "UNI": 106.5}, account=tiny * 4)) ) == 2
 
@@ -253,11 +257,12 @@ def test_a_name_skipped_for_margin_is_retried_rather_than_marked_judged():
     assert "DOT" in [o["asset"] for o in scan.scan(INPUTS, _ctx({"SOL": (10, 93.0)}, {"DOT": 94.0}, st, listed=("DOT", "SOL")))]
 
 
-def test_a_round_trip_counts_the_builder_fee_on_both_legs_at_the_worst_tier():
-    """6 bps was the venue's half; the hurdle built on it was half the real one. And the builder fee
-    is VOLUME-TIERED per user (0.05% Bronze -> 0.025% Legend), so the default has to be the worst
-    tier — a new wallet's — not any one wallet's measured rate. A cheaper tier only widens the
-    margin; pricing the gate off a discount nobody new has is how it would understate again."""
+def test_a_round_trip_counts_the_builder_fee_on_both_legs_at_the_widest_rate():
+    """6 bps was the venue's half; the hurdle built on it was half the real one. The fee inputs are
+    a CEILING for an inert gate, never a quote: the venue rate follows the account's HL volume and
+    the builder fee is tiered per account, so no constant is any wallet's real cost. Erring high is
+    the safe direction for a gate whose only job is refusing a harvest too small to clear a round
+    trip — what it must not do is understate."""
     assert scoring.roundtrip_fee_pct(INPUTS) == (1.5 + 5.0 + 4.5 + 5.0) / 100.0
     assert scoring.roundtrip_fee_pct(INPUTS) > 0.15
     # a better tier is strictly cheaper, and must stay so
