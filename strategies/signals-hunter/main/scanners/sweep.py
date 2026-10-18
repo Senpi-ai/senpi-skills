@@ -264,7 +264,7 @@ def _read(c, tool, args, cov, key):
     return data
 
 
-def _whale_open(p, wallet, szi, lifetime_pnl):
+def _whale_open(p, wallet, szi, lifetime_pnl, now_s=None):
     """One proven wallet's position, IF it was opened recently enough and is big enough to be news.
 
     Read from a single sweep. `durationInSeconds` (or `startTime`) is the position's own age as the
@@ -283,7 +283,10 @@ def _whale_open(p, wallet, szi, lifetime_pnl):
     start = _num(p.get("startTime"))
     if not start:
         return None                           # undated: say nothing
-    age = time.time() - start
+    # The RUN's clock, not the wall clock: `gather(now=...)` is how a backfill or a test says
+    # when the reading is from, and an age measured against time.time() instead silently dates
+    # every open to replay time rather than read time.
+    age = (time.time() if now_s is None else now_s) - start
     if age < 0 or age > WHALE_OPEN_MAX_AGE_S:
         return None
     # Corroborate the age against the entry price. `positionValue` is |szi| x mark, so the mark comes
@@ -346,7 +349,7 @@ def universe(c, cov, top_n):
 
 
 # ── 2. the proven cohort (senpi-smart-money's engine, vendored as-is) ─────────
-def cohort(c, cov, metrics):
+def cohort(c, cov, metrics, now_s=None):
     if not c.can_start(COHORT_TIMEOUT_S):
         # said here rather than let through the vendored engine, which would record it as a failed
         # read: nothing was asked of the server, and a cause invented for an empty cohort is exactly
@@ -384,7 +387,7 @@ def cohort(c, cov, metrics):
             szi = _num(p.get("szi")) if isinstance(p, dict) else None
             if p.get("coin") and szi:
                 positions.setdefault(p["coin"], {})[w] = szi
-                o = _whale_open(p, w, szi, c.wallet_pnl.get(w))
+                o = _whale_open(p, w, szi, c.wallet_pnl.get(w), now_s=now_s)
                 if o:
                     opens.setdefault(p["coin"], []).append(o)
     for v in opens.values():
@@ -533,7 +536,7 @@ def gather(call_tool, top_n=UNIVERSE_TOP_N, now=None, deadline_s=FEED_DEADLINE_S
     if metrics:
         src, board_rows = board(c, cov, metrics)
         events = momentum_events(c, cov, metrics, now) + cross_asset(c, cov, metrics)
-        cohort(c, cov, metrics)
+        cohort(c, cov, metrics, now_s=now.timestamp())
     else:
         src, events, board_rows = None, [], []
     return {"generated": now.isoformat(), "asset_metrics": metrics, "events": events,
