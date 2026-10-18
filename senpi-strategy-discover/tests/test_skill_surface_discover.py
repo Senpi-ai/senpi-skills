@@ -26,9 +26,14 @@ def _golden_rules():
 
 def test_proven_templates_answer_is_resident():
     body = " ".join(_body().split())
-    for needle in ("has no backtest", "every live copy of it is a user's own fork",
-                   "SPREAD across live forks"):
+    for needle in ("has no live track record", "every live copy of it is a user's own fork",
+                   "a replay over its stated window, not a result",
+                   "No tool reports how other users' forks did"):
         assert needle in body, needle
+    # 16 catalog cards cite a replay, so "has no backtest" was false; and nothing reports other users'
+    # forks, so "give the spread across live forks" asked for a number the agent can only invent.
+    for banned in ("has no backtest", "spread across live forks"):
+        assert banned not in body.lower(), f"re-introduced: {banned!r}"
 
 
 def test_the_mirror_ranking_rule_is_a_GOLDEN_rule_not_a_buried_edge_case():
@@ -50,7 +55,7 @@ def test_no_per_template_pnl_is_explained_by_forking_in_golden_rules():
     g = _golden_rules()
     for needle in ("no per-template PnL", "their fork"):
         assert needle in g, f"{needle!r} missing from Golden rules"
-    assert "Never put a single performance number beside a template" in g
+    assert "Never put a single live-performance number beside a template" in g
 
 
 def test_copy_trading_is_not_sold_as_the_one_thing_with_a_track_record():
