@@ -5,6 +5,7 @@ The fixture mirrors the MCP response envelopes (`{"success": true, "data": {...}
 names pinned from the MCP source types (market.tools.ts / leaderboard.types.ts / senpi.types.ts).
 No real wallet addresses. Run: python3 -m pytest senpi-signals/scripts -q
 """
+import datetime
 import json
 import os
 import pathlib
@@ -561,11 +562,19 @@ def _whale_tool(pos, coin="BTC"):
     return call
 
 
+_NOW_S = int(datetime.datetime.fromisoformat(NOW).timestamp())
+
+
 def _whale(age_s, notional="12400000", entry="77500"):
-    """A $12.4M short whose startTime is `age_s` ago. `startTime` is Unix SECONDS, absolute — the
-    field the detector actually reads, so the fixture exercises the real code path."""
+    """A $12.4M short whose startTime is `age_s` before NOW. `startTime` is Unix SECONDS, absolute —
+    the field the detector actually reads, so the fixture exercises the real code path.
+
+    Anchored to NOW, not to time.time(): every caller here passes `now=NOW`, and the detector now
+    measures the age against the RUN's clock. Anchoring to wall-clock time made the age tick while
+    the rest of the suite ran, so these assertions needed a 60-second tolerance and failed outright
+    once the suite grew past it (2026-10-18: `assert 1159 < 1140`, red on three unrelated PRs)."""
     return {"szi": "-160.0", "positionValue": notional, "entryPx": entry,
-            "startTime": int(time.time()) - age_s}
+            "startTime": _NOW_S - age_s}
 
 
 FRESH_WHALE = _whale(1080)                     # $12.4M short, opened 18 minutes ago
@@ -581,12 +590,10 @@ def test_a_proven_wallet_opening_size_is_read_from_one_sweep(state_dir):
     assert btc["whale_opens"], "a $12.4M position opened 18 minutes ago was not picked up"
     o = btc["whale_opens"][0]
     assert o["direction"] == "short" and o["notional_usd"] == 12_400_000.0
-    assert 1080 <= o["age_seconds"] < 1140, o["age_seconds"]   # measured from startTime, so it ticks
+    assert o["age_seconds"] == 1080, o["age_seconds"]   # exact: measured from startTime against NOW
     sigs = [s for s in rep["result"]["trade"] + rep["result"]["social"] if s["detector"] == "whale_open"]
     assert sigs, "the open never reached a feed"
     nums = " ".join(sigs[0]["numbers"])
-    # not a fixed minute: the age is measured from startTime and ceil never under-reports, so a
-    # fixture set 1080s back reads as 18 or 19 minutes depending on how long the sweep took
     assert "12.4M" in nums and "SHORT" in nums
     assert re.search(r"(18|19) minutes ago$", nums), nums
     assert sigs[0]["concrete_entity"], "a whale read with no wallet on it is just a number"
