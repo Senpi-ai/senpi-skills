@@ -1,0 +1,46 @@
+# Manatee — Cross-Asset Mean-Reversion Inventory. Single-wallet PACKAGE: this manifest + one
+# runtime.yaml + scanners/ (scan.py does the read-only MCP orchestration; scoring.py is the pure
+# engine). Two-sided inventory of the venue's liquid names on BOTH boards — perps and the xyz board's
+# equities, indices and commodities — judged once per daily close: long a name 5% below its 7-day mean,
+# short one 5% above it, up to two adds while the close keeps moving against the position, a small
+# fixed-size reversion banked by the DSL. NEVER closes from the scanner — the DSL owns every exit.
+schema_version: 1
+
+id: manatee
+version: "1.5.0"
+catalog:
+  name: "Manatee — Cross-Asset Mean-Reversion Inventory"
+  emoji: "🦭"
+  tagline: "Fades the stretches in the most liquid names the venue lists — perpetuals alongside equities, indices and commodities — in both directions, judged once a day at the close: buys a name that closed well below its one-week average, shorts one that closed well above it, adds while the next closes keep going against it, and lets the DSL bank a 1.4% reversion around the clock. Up to 19 positions, one per asset, 1x, closed only by a profit lock or a wide stop. No long or short bias; the signal picks the side."
+  belief_plain: "Liquid markets overshoot in both directions and come back toward their recent average. Manatee takes the other side of the stretch, long or short, scales in as the stretch deepens so its average entry follows the move, and banks a 1.4% reversion when it comes. It picks its own names — everything above a $50 million open-interest floor on either board, read from the venue each day, rather than a fixed list. Two things that list would have got wrong: the very biggest perpetuals were the WEAKEST place to run this, and the equities, indices and commodities on the xyz board were the strongest, carrying the whole result over the window measured. The risk is a one-way market that keeps stretching. Every name carries a wide stop. With one clip per name the book runs about 28% of the account; if every position takes both of its adds it can reach about 85%, and a single name sitting on its stop costs at most 1.35% of the account."
+  thesis: "Modelled on the engine of a large public Hyperliquid vault running a quantitative mean-reversion book: inventory that scales as the move deepens, harvests of about 1.4% over average cost, losses carried rather than taken. The vault leaned long in its last 55 days; Manatee removes the bias and lets the sign of the stretch choose the side, and it derives its own universe rather than inheriting the vault's 19 names, which are a liquidity constraint at its size and not a thesis. Replayed minute by minute over 19 June to 16 October 2026 — every qualifying daily close in the derived top 24, one clip each, a 45-day horizon, exits filled at the DSL floor — 95% of positions closed at the profit lock for about +1.7% and the rest carried to the wide stop. The two boards did not behave alike: the xyz board returned about +1.0% net per clip and the perpetual board about +0.02%, so this is a cross-asset book by evidence rather than by preference. The daily-close discipline is load-bearing: the same rule sampled every four hours lost money after fees."
+  group: multi-asset-whitelist
+  archetype: contrarian_fade
+  sub_style: mean_reversion
+  asset_classes: [btc_eth, major_alts, xyz_equities, indices, commodities, pre_ipo]
+  asset_scope: universe
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 1
+  max_slots: 19
+  # The computed minimum ($801.50 -> $825) is the budget at which ONE clip clears the venue's
+  # $12 order minimum. It is NOT the budget at which this strategy exists: a clip is 1.5% of
+  # WITHDRAWABLE, which shrinks as the book fills, so at $825 only 3 of the 19 slots ever fund
+  # (~4% gross) and the inventory the card describes never forms. All 19 fund from $1,100.
+  min_budget_floor: 1100
+  assets: []                      # DERIVED each tick: both boards, above a $50M open-interest floor
+  tags: [mean-reversion, cross-asset, xyz-equities, derived-universe, long-short, harvester, always-on, dsl-only, no-close, inventory, two-sided, daily-close, buy-the-dip, short-the-rip, liquid-perps, majors]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml         # → runtime name manatee-main, group manatee
+    wallet_env: MANATEE_WALLET
+    funding_share: 1.0

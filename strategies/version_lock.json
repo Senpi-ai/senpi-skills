@@ -273,6 +273,10 @@
       "behaviour": "732388be1361e160",
       "version": "1.2.0"
     },
+    "manatee": {
+      "behaviour": "c68edcad3c390a23",
+      "version": "1.5.0"
+    },
     "mandate": {
       "behaviour": "082b3e3792ef9029",
       "version": "1.3.0"
