@@ -23,15 +23,19 @@ def _close(c):
 def roundtrip_fee_pct(inputs, maker_entry=True):
     """Fees as a PERCENT of notional for one round trip (entry + exit).
 
-    The builder fee is charged on BOTH legs and is the larger half of a maker entry; leaving it out
-    modelled 6 bps against a real ~14.1, so any hurdle built on this was half the true one. At the
-    shipped expectedCapturePct of 3% the gate in build_thesis is inert either way (3% against a
-    0.42% hurdle) — it exists for the case where someone tunes the harvest down, and it is only
-    worth having if the number it compares against is the real one.
+    A CEILING, not a quote. Every rate here is the widest case on the schedule: the venue rate
+    depends on the account's HL volume and the builder fee is volume-tiered per account, so no
+    constant can be any wallet's actual cost and this function does not try to be one. It exists
+    for one job — refusing a harvest target too small to clear a round trip — and for that job
+    erring high is the safe direction. The gate is inert at the shipped 1.4% harvest (1.4% against
+    a 0.48% hurdle) and only bites if someone tunes the harvest down.
+
+    What it must NOT do is understate: omitting the builder fee modelled 6 bps against a real ~14,
+    and every hurdle built on that was half the true one.
     """
     taker = _f(inputs.get("takerFeeBps"), 4.5)
     maker = _f(inputs.get("makerFeeBps"), 1.5)
-    builder = _f(inputs.get("builderFeeBps"), 5.0)   # Bronze, the worst tier — see runtime.yaml
+    builder = _f(inputs.get("builderFeeBps"), 5.0)   # widest on the schedule — see runtime.yaml
     entry = maker if maker_entry else taker
     return (entry + builder + taker + builder) / 100.0
 

@@ -57,17 +57,20 @@ scanners:
       devPct: 5.0                       # at least 5% away from the 7-day mean at the close: below = LONG, above = SHORT
       deepDevPct: 7.0                   # depth bands, for the signal's band label only; every clip is the same size
       extremeDevPct: 10.0
-      # ── fee gate (NOT verified venue rates — set from HL userFees) ──
+      # ── fee gate: a SANITY CEILING, not a quote of your fees ──────────────────────────────
+      #    These are upper bounds used for one purpose: refusing a harvest target too small to clear
+      #    a round trip. They are NOT this wallet's rates and the strategy does not assume a tier.
+      #    Your real cost is lower — the venue rate depends on your HL volume and the builder fee is
+      #    volume-tiered per account — so every number below is the widest case on the schedule.
+      #    The gate is inert at the shipped 1.4% harvest and only bites if someone tunes it down.
       takerFeeBps: 4.5
       makerFeeBps: 1.5
-      builderFeeBps: 5.0                 # charged on BOTH legs; omitting it understated a round trip
-                                         #   by half. The builder fee is VOLUME-TIERED per user —
-                                         #   0.05% at Bronze down to 0.025% at Legend — so this is the
-                                         #   worst case (Bronze, what a new wallet pays), not any one
-                                         #   wallet's measured rate. The gate stays inert: a 1.4%
-                                         #   capture against 3 x 0.16% = 0.48%.
-      feeCoverMultiple: 3.0             # the +3% target must cover a round trip of fees 3x over
-      expectedCapturePct: 1.4           # = the DSL's first trigger (gate stays inert: 3 x 0.137% = 0.41%)
+      builderFeeBps: 5.0                 # the widest builder rate on the schedule, charged on BOTH
+                                         #   legs. Omitting it entirely understated a round trip by
+                                         #   half, which is the error this replaces — not a claim
+                                         #   about what you pay.
+      feeCoverMultiple: 3.0             # the harvest must cover a worst-case round trip 3x over
+      expectedCapturePct: 1.4           # = the DSL's first trigger (inert: 1.4% vs 3 x 0.16% = 0.48%)
       # ── sizing (marginPct is a PERCENT of withdrawable): every entry and every add is one clip ──
       marginPct: 1.5
       addMarginPct: 1.5

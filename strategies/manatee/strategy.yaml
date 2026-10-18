@@ -7,7 +7,7 @@
 schema_version: 1
 
 id: manatee
-version: "1.5.0"
+version: "1.5.1"
 catalog:
   name: "Manatee — Cross-Asset Mean-Reversion Inventory"
   emoji: "🦭"
