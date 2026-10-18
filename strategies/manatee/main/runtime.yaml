@@ -17,8 +17,8 @@ description: >
   up to two, so the average entry follows the move. The DSL alone closes a position, at any hour: a lock that arms
   at +1.4% over the average entry and keeps 95% of it, and a 30% max-loss floor that only a sustained
   one-way move reaches. Modelled on a public mean-reversion vault's observed engine (inventory that
-  scales as the move deepens, fixed-size harvests over average cost), replayed over 27 months in
-  two windows with the exit modelled on 4h bars.
+  scales as the move deepens, fixed-size harvests over average cost), replayed minute by minute over
+  19 June to 16 October 2026 with exits filled at the DSL floor.
 strategy:
   wallet: "${MANATEE_WALLET}"
   slots: 19
@@ -60,8 +60,12 @@ scanners:
       # ── fee gate (NOT verified venue rates — set from HL userFees) ──
       takerFeeBps: 4.5
       makerFeeBps: 1.5
-      builderFeeBps: 4.06                # the wallet's builder fee, charged on BOTH legs — omitting
-                                         #   it understated a round trip by half (6 bps vs 14.1)
+      builderFeeBps: 5.0                 # charged on BOTH legs; omitting it understated a round trip
+                                         #   by half. The builder fee is VOLUME-TIERED per user —
+                                         #   0.05% at Bronze down to 0.025% at Legend — so this is the
+                                         #   worst case (Bronze, what a new wallet pays), not any one
+                                         #   wallet's measured rate. The gate stays inert: a 1.4%
+                                         #   capture against 3 x 0.16% = 0.48%.
       feeCoverMultiple: 3.0             # the +3% target must cover a round trip of fees 3x over
       expectedCapturePct: 1.4           # = the DSL's first trigger (gate stays inert: 3 x 0.137% = 0.41%)
       # ── sizing (marginPct is a PERCENT of withdrawable): every entry and every add is one clip ──

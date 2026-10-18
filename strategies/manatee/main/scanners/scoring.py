@@ -31,7 +31,7 @@ def roundtrip_fee_pct(inputs, maker_entry=True):
     """
     taker = _f(inputs.get("takerFeeBps"), 4.5)
     maker = _f(inputs.get("makerFeeBps"), 1.5)
-    builder = _f(inputs.get("builderFeeBps"), 4.06)
+    builder = _f(inputs.get("builderFeeBps"), 5.0)   # Bronze, the worst tier — see runtime.yaml
     entry = maker if maker_entry else taker
     return (entry + builder + taker + builder) / 100.0
 

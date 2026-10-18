@@ -253,11 +253,17 @@ def test_a_name_skipped_for_margin_is_retried_rather_than_marked_judged():
     assert "DOT" in [o["asset"] for o in scan.scan(INPUTS, _ctx({"SOL": (10, 93.0)}, {"DOT": 94.0}, st, listed=("DOT", "SOL")))]
 
 
-def test_a_round_trip_counts_the_builder_fee_on_both_legs():
-    """6 bps was the venue's half. The hurdle built on it was half the real one."""
-    assert scoring.roundtrip_fee_pct(INPUTS) == (1.5 + 4.06 + 4.5 + 4.06) / 100.0
-    assert scoring.roundtrip_fee_pct(INPUTS) > 0.14
-    # inert at the shipped 3% harvest, by design — but now against the real number
+def test_a_round_trip_counts_the_builder_fee_on_both_legs_at_the_worst_tier():
+    """6 bps was the venue's half; the hurdle built on it was half the real one. And the builder fee
+    is VOLUME-TIERED per user (0.05% Bronze -> 0.025% Legend), so the default has to be the worst
+    tier — a new wallet's — not any one wallet's measured rate. A cheaper tier only widens the
+    margin; pricing the gate off a discount nobody new has is how it would understate again."""
+    assert scoring.roundtrip_fee_pct(INPUTS) == (1.5 + 5.0 + 4.5 + 5.0) / 100.0
+    assert scoring.roundtrip_fee_pct(INPUTS) > 0.15
+    # a better tier is strictly cheaper, and must stay so
+    cheap = {**INPUTS, "builderFeeBps": 2.5}
+    assert scoring.roundtrip_fee_pct(cheap) < scoring.roundtrip_fee_pct(INPUTS)
+    # inert at the shipped harvest, by design — but now against the worst-case number
     assert float(INPUTS["expectedCapturePct"]) > scoring.roundtrip_fee_pct(INPUTS) * float(INPUTS["feeCoverMultiple"])
 
 
