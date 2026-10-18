@@ -186,9 +186,9 @@ python3 scripts/sweep.py --json         # debugging: the backend's JSON as it ca
   rebuild the feed from your own tool calls, and never quote an earlier run as current.
 - **A stale reading says so.** When Senpi's latest scan is more than ~10 minutes old the output adds
   one line with its age; repeat it.
-- **Auth.** `SENPI_AUTH_TOKEN` from env — the agent's own Senpi sign-in. The backend is picked from
-  the agent's environment (`SENPI_MCP_URL`); `SENPI_SIGNALS_URL` overrides it. Senpi Signals needs an
-  active Senpi subscription or free trial; without one the line says so.
+- **Auth.** `SENPI_AUTH_TOKEN` from env — the agent's own Senpi sign-in — sent to Senpi's backend at
+  `https://agents.senpi.ai`. Senpi Signals needs an active Senpi subscription or free trial; without
+  one the line says so.
 - **Focus mode** ("anything notable on OIL / the AI basket / 0x1234?"): `--asset` for one asset (any
   alias: `BTC`, `BTC-PERP`, `xyz:TSLA`, `TSLA`), one call per asset for a basket. A wallet is not a
   Senpi Signals question: read it with `leaderboard_get_trader_positions` /

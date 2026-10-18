@@ -5,7 +5,7 @@
     python3 sweep.py --brief 3             # the short version another skill closes with: top 3 reads, one line each
     python3 sweep.py --asset HYPE          # one asset: its reads, the proven cohort's split, the 4h board, market
     python3 sweep.py --json [--asset X]    # debugging: the backend's JSON as it came
-    (SENPI_AUTH_TOKEN from env; SENPI_SIGNALS_URL to point at another backend)
+    (SENPI_AUTH_TOKEN from env; the backend is https://agents.senpi.ai)
 
 The skill computes nothing. signals-service (agent-bridge) scans the whole Hyperliquid universe every
 few minutes and serves the reads, scores and wording; the browser extension and the Senpi app read the
@@ -32,8 +32,7 @@ import urllib.parse
 import urllib.request
 
 VERSION = "3.0.0"
-PROD_URL = "https://agents.senpi.ai"
-DEV_URL = "https://senpi-agent-bridge.dev.senpi.ai"
+BASE_URL = "https://agents.senpi.ai"
 TIMEOUT_S = 20
 ATTEMPTS = 2           # one retry, for a dropped connection or a 5xx blip; never for a 4xx
 RETRY_SLEEP_S = 1.0
@@ -41,16 +40,6 @@ STALE_NOTE_MIN = 10    # the service marks a reading stale past 10 min (it refre
 
 # exit codes: a caller that only checks the status must never read an outage as a quiet market
 EXIT_OK, EXIT_UNAVAILABLE, EXIT_AUTH, EXIT_UNKNOWN_ASSET = 0, 3, 4, 5
-
-
-def base_url():
-    """SENPI_SIGNALS_URL, else the backend matching the agent's Senpi environment: a dev MCP URL
-    means a dev token, which only the dev backend accepts."""
-    url = os.environ.get("SENPI_SIGNALS_URL", "").strip()
-    if url:
-        return url.rstrip("/")
-    mcp = os.environ.get("SENPI_MCP_URL", "")
-    return DEV_URL if ".dev." in mcp else PROD_URL
 
 
 class Unavailable(Exception):
@@ -77,7 +66,7 @@ def fetch(path, token=None, url=None, opener=urllib.request.urlopen, sleep=time.
     token = token if token is not None else os.environ.get("SENPI_AUTH_TOKEN", "").strip()
     if not token:
         raise Unavailable(AUTH_LINE, EXIT_AUTH, "SENPI_AUTH_TOKEN is not set")
-    req = urllib.request.Request((url or base_url()) + path, headers={
+    req = urllib.request.Request((url or BASE_URL) + path, headers={
         "Authorization": f"Bearer {token}", "Accept": "application/json",
         "User-Agent": f"senpi-signals-skill/{VERSION}"})
     last = ""
@@ -376,7 +365,7 @@ def run(argv=None, fetcher=fetch, out=sys.stdout, err=sys.stderr):
             print(f"_{a.asset} is not a Hyperliquid market Senpi Signals knows._", file=out)
         else:
             print(e.line, file=out)
-        print(f"[senpi-signals] {base_url()}: {e.detail}", file=err)
+        print(f"[senpi-signals] {BASE_URL}: {e.detail}", file=err)
         return e.code
     if a.json:
         print(json.dumps(body, indent=2), file=out)

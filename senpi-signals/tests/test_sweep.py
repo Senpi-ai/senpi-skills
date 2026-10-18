@@ -206,14 +206,14 @@ def test_a_blip_is_retried_once_then_it_is_an_outage():
     assert len(op.requests) == sweep.ATTEMPTS
 
 
-def test_base_url_follows_the_agents_environment(monkeypatch):
-    monkeypatch.delenv("SENPI_SIGNALS_URL", raising=False)
-    monkeypatch.setenv("SENPI_MCP_URL", "https://mcp.prod.senpi.ai/mcp")
-    assert sweep.base_url() == sweep.PROD_URL
-    monkeypatch.setenv("SENPI_MCP_URL", "https://mcp.dev.senpi.ai/mcp")
-    assert sweep.base_url() == sweep.DEV_URL
-    monkeypatch.setenv("SENPI_SIGNALS_URL", "http://localhost:8080/")
-    assert sweep.base_url() == "http://localhost:8080"
+def test_the_backend_is_agents_senpi_ai():
+    assert sweep.BASE_URL == "https://agents.senpi.ai"
+    op = _Opener({"trade": []})
+    sweep.fetch("/v1/signals", token="tok", opener=op)
+    assert op.requests[0].full_url == "https://agents.senpi.ai/v1/signals"
+    src = (SCRIPTS / "sweep.py").read_text(encoding="utf-8")
+    for gone in ("dev.senpi.ai", "SENPI_SIGNALS_URL", "SENPI_MCP_URL"):
+        assert gone not in src, gone
 
 
 # ─────────────────────────────────────────────────────────────── the command line
