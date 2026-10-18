@@ -21,9 +21,10 @@ description: >
   19 June to 16 October 2026 with exits filled at the DSL floor.
 strategy:
   wallet: "${MANATEE_WALLET}"
-  slots: 19
+  slots: 10
   margin_pct: 1.5                    # baseline clip = the scanner's marginPct (PERCENT of withdrawable)
-  default_leverage: 1                    # 1x keeps ROE == price move, so the DSL numbers below are price %
+  default_leverage: 2                    # ROE = 2x the price move, so every DSL number below is DOUBLE its
+                                         #   1.x value and the PRICE ladder is unchanged
   trading_risk: moderate
   enabled: true
 scanners:
@@ -49,7 +50,7 @@ scanners:
       maxNames: 24                      # ~20 clear the floor today; the cap bounds a liquidity surge
       minHistoryBars: 60                # closed daily bars before a name is judged — a fresh listing
                                         #   is unmeasured, and late listings underperformed by ~17%
-      maxSlots: 19
+      maxSlots: 10
       # ── the stretch (both sides), measured on CLOSED daily bars ──
       candleInterval: "1d"
       maBars: 7                         # the one-week mean
@@ -70,11 +71,13 @@ scanners:
                                          #   half, which is the error this replaces — not a claim
                                          #   about what you pay.
       feeCoverMultiple: 3.0             # the harvest must cover a worst-case round trip 3x over
-      expectedCapturePct: 1.4           # = the DSL's first trigger (inert: 1.4% vs 3 x 0.16% = 0.48%)
+      expectedCapturePct: 2.8           # = the DSL's first trigger, in ROE (2.8 ROE = 1.4% of price at 2x)
       # ── sizing (marginPct is a PERCENT of withdrawable): every entry and every add is one clip ──
-      marginPct: 1.5
-      addMarginPct: 1.5
-      leverage: 1
+      marginPct: 1.5                    # unchanged from 1.x — the clip floor in min_budget/validate rejects
+      addMarginPct: 1.5                 #   any marginPct <= 1 as a pasted fraction, so the "same notional on
+      leverage: 2                       #   half the margin" version (0.75 at 2x) is not shippable. SLOTS carry
+                                        #   the adjustment instead: 10 x 3% notional = 30% gross, against 19 x
+                                        #   1.5% = 28.5% at 1x. Same book size, half the margin behind it.
       # ── inventory scaling: one more clip per further addStepPct against an under-water position
       #    (the runtime merges the add; the DSL re-anchors on the new average entry) ──
       maxAddsPerAsset: 2
@@ -82,7 +85,9 @@ scanners:
       # % of ACCOUNT VALUE per name, checked against the LIVE position's marginUsed, not against a
       # tally of what this scanner emitted: an emit tally cannot see a fill that did not happen, nor
       # one that happened twice (FEE_OPTIMIZED_LIMIT can double-fill), and this book adds into losers.
-      maxMarginPctPerAsset: 4.5
+      maxMarginPctPerAsset: 4.5         # 4.5% margin at 2x = 9% NOTIONAL per name; 10 names caps the book at
+                                        #   90% gross, against 85.5% at 1x with 19. A name on its stop costs
+                                        #   4.5% x 60 ROE = 2.7% of the account; all ten = 27%.
       # ── free-margin gate ──
       venueMinNotionalUsd: 12.0         # the engine's bumped minimum order
       freeMarginHeadroom: 0.9           # commit at most 90% of free margin in one tick
@@ -119,24 +124,25 @@ exit:
     # No hard_timeout / weak_peak_cut / dead_weight_cut: the DSL decides every exit.
     phase1:
       enabled: false
-      max_loss_pct: 30.0                # at 1x this is a 30% price floor from the (merged) average entry; it still stops with phase1 disabled
+      max_loss_pct: 60.0                # 60 ROE at 2x = the SAME 30% price floor as 1.x; still stops with phase1 disabled
       retrace_threshold: 30
       consecutive_breaches_required: 1
     phase2:
       enabled: true
-      tiers:                            # at 1x, trigger_pct == price %. Tier 0 is the harvest: +1.4% over average
-                                        #   entry, 95% of it kept. 3.0 was the modelled vault's fixed harvest; replayed
-                                        #   over 814 signal days it resolved a median 8h after entry instead of 30h and
-                                        #   halved the stop count (15 vs 33 on the perp board) at the same net per clip,
-                                        #   so the case for it is turnover and a shorter tail, not a bigger clip.
-        - { trigger_pct: 1.4, lock_hw_pct: 95 }
-        - { trigger_pct: 6,  lock_hw_pct: 90 }
+      tiers:                            # trigger_pct is ROE, so at 2x each number is twice the price move and
+                                        #   every threshold here is exactly double its 1.x value — the PRICE ladder
+                                        #   does not move. Tier 0 is the harvest: 2.8 ROE = +1.4% of price over
+                                        #   average entry, 95% of it kept. 1.4% of price beat the vault's 3.0% not
+                                        #   on size but on turnover and tail: a median 8h to resolution instead of
+                                        #   30h, and 15 stop-outs on the perp board instead of 33, at the same net.
+        - { trigger_pct: 2.8, lock_hw_pct: 95 }
         - { trigger_pct: 12, lock_hw_pct: 90 }
+        - { trigger_pct: 24, lock_hw_pct: 90 }
 risk:
   data_retention_seconds: 604800
   guard_rails:
     daily_loss_limit_pct: 8     # above the replay's worst day (-6%), so a crash day's adds are not halted
-    max_entries_per_day: 40             # 19 names, at most one entry or add each per daily bar
+    max_entries_per_day: 20             # 10 names, at most one entry or add each per daily bar
     bypass_max_entries_per_day_on_profit: true
     max_consecutive_losses: 6
     cooldown_seconds: 300
