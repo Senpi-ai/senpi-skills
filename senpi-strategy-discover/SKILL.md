@@ -86,7 +86,7 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
   turning", "one coin will win", "an AI fund", "something market-neutral" → pass it as `--theme` words,
   then read each candidate's `thesis`/`tags` and rank the fits up. **Do NOT turn a fuzzy worldview into a
   hard `--assets` cut** — only filter on assets when the user concretely names a market.
-- **Not just crypto.** Senpi trades **stocks, commodities, indices, and pre-IPO names 24/7** — about
+- **Not just crypto.** Senpi trades **stocks, commodities, currencies, indices, and pre-IPO names 24/7** — about
   half the volume here isn't crypto. Keep every question, example, and default **asset-agnostic**; never
   assume "a coin."
 - **Stack, don't isolate.** One strategy is one bet. On any pick that isn't already a multi-wallet fund,
@@ -124,7 +124,7 @@ Invoke via the `exec` tool. **Concrete filter flags, plus `--theme` for everythi
 
 ```
 python3 scripts/discover.py
-  [--assets <csv of class-tags btc_eth,major_alts,universe_crypto,xyz_equities,commodities,indices,pre_ipo
+  [--assets <csv of class-tags btc_eth,major_alts,universe_crypto,xyz_equities,commodities,fx,indices,pre_ipo
              and/or named tickers BTC,SOL,NVDA>]
   [--direction long_only|short_only|any]
   [--exclude <csv: copy_trading,stocks,crypto,commodities,pre_ipo,dca,shorting>]
