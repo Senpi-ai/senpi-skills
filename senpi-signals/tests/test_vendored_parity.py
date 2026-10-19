@@ -1,9 +1,8 @@
-"""senpi-signals carries verbatim copies of senpi-smart-money's cohort engine and MCP transport.
+"""senpi-signals carries a verbatim copy of senpi-smart-money's MCP transport, for hyperfeed.py.
 
-Skills install standalone, so the sweep never reaches into another skill's folder at run time: a box
-without senpi-smart-money, or with it at another path, would otherwise exit before a single read. The
-copies must stay byte-identical to the originals, so a fix to either lands in both — this test is what
-fails when one is edited alone.
+Skills install standalone, so a script never reaches into another skill's folder at run time. The copy
+must stay byte-identical to the original, so a fix lands in both — this test is what fails when one is
+edited alone. (The signals themselves come from the Senpi backend; sweep.py makes no MCP call.)
 
 Run: python3 -m pytest senpi-signals/tests -q
 """
@@ -16,7 +15,7 @@ SIGNALS = ROOT / "senpi-signals" / "scripts"
 SMART_MONEY = ROOT / "senpi-smart-money" / "scripts"
 
 
-@pytest.mark.parametrize("name", ["smartmoney.py", "mcp_client.py"])
+@pytest.mark.parametrize("name", ["mcp_client.py"])
 def test_vendored_copy_is_byte_identical(name):
     assert (SIGNALS / name).read_bytes() == (SMART_MONEY / name).read_bytes(), (
         f"senpi-signals/scripts/{name} drifted from senpi-smart-money/scripts/{name}: copy the file across")

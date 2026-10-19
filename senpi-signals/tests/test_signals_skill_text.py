@@ -1,8 +1,9 @@
-"""What the agent reads in senpi-signals/SKILL.md for 2.0: one reading, on demand, nothing to schedule or fund.
+"""What the agent reads in senpi-signals/SKILL.md: Senpi Signals from the backend, on demand, nothing to
+schedule or fund.
 
-2.0 is a one-time job with no compare. The skill runs it when asked and never on a schedule (a cron is a
-model call per firing), never deploys or funds anything for it, and never describes a detector that
-needs an earlier reading as part of the feed."""
+The backend computes Senpi Signals; the skill fetches and presents it, with no local fallback. The skill
+runs it when asked and never on a schedule (a cron is a model call per firing), never deploys or funds
+anything for it, and never claims a change read the feed does not carry."""
 import json
 import re
 from pathlib import Path
@@ -43,11 +44,32 @@ def test_nothing_to_deploy_fund_or_keep():
     assert not (SKILL_DIR / "references" / "scheduling.md").exists()
 
 
-def test_compare_detectors_are_v2_and_never_claimed():
+def test_change_reads_are_never_claimed_beyond_the_read():
     skill = _flat(SKILL)
-    assert "## v2 — compare over periods (not in 2.0)" in skill
     assert "Now, never \"since\"." in skill
-    assert "Never describe the feed as if it carried them." in skill
+    assert "never add a change, a baseline or a time it did not give" in skill
+    assert "Never describe the feed as if it carried more than it does." in skill
+
+
+def test_an_outage_is_never_a_quiet_market_and_the_agent_never_rebuilds_the_feed():
+    """One implementation: the feed the app and the extension show. A rebuild from the agent's own
+    tool calls would show the user numbers the app does not."""
+    skill = _flat(SKILL)
+    assert "Never build Senpi Signals yourself." in skill
+    assert "Never present it as a quiet market, never rebuild the feed from your own tool calls" in skill
+    assert "Requires the agent's Senpi sign-in." in _frontmatter(SKILL)
+    for gone in ("scripts/score.py", "smartmoney.py", "read budget", "Requires a Senpi MCP token"):
+        assert gone not in skill, gone
+
+
+def test_the_skill_text_is_instructions_not_implementation():
+    """SKILL.md is what the agent needs to act. How the backend works lives in the backend's docs."""
+    skill = _flat(SKILL)
+    for gone in ("/v1/signals", "insight=none", "agents.senpi.ai", "SENPI_AUTH_TOKEN", "signals-service",
+                 "net_bias", "share_kind", "contribution_pct_change_15m", "striker_scoring.py",
+                 "credibility multiplier", "Jason's call"):
+        assert gone not in skill, gone
+    assert len(skill.split()) < 2600, len(skill.split())
 
 
 def test_every_run_ends_with_one_question_to_trade_or_build():
@@ -68,7 +90,7 @@ def test_every_run_ends_with_one_question_to_trade_or_build():
     assert "The stop must sit before liquidation." in skill
     assert "It is a new strategy with no track record, and you say so." in skill
     assert "Deploy only on the user's yes." in skill
-    assert "then the closing question (next section) — nothing after it" in skill
+    assert "then the closing question (below) — nothing after it" in skill
     assert "Follow-up: \"how could I play it?\"" not in skill
 
 
@@ -104,20 +126,14 @@ def test_the_offer_carries_all_four_routes_and_every_template_it_names_is_real()
     assert "the minimum budget from the catalog, never from memory" in closing
 
 
-def test_signals_hunter_is_offered_as_this_feeds_own_engine():
-    """The claim that earns route (2) its place: signals-hunter's scanners ARE this skill's scripts.
-    If that stops being true the pitch becomes marketing, so the parity is asserted here too."""
-    import hashlib
+def test_signals_hunter_is_offered_as_this_feeds_own_detectors_with_the_difference_said():
+    """signals-hunter and puffin carry the detector library the backend is built from, but scan from the
+    strategy's own box. The pitch has to say so: a user expecting every line above to become a position
+    is disappointed by a correct run."""
     closing = _closing(_flat(SKILL))
-    assert "byte-identical to the scripts behind" in closing
-    # Both packages the closing offers as "this feed's own engine" — signals-hunter and its
-    # concentrated variant puffin — must actually carry these bytes, or the pitch becomes marketing.
-    for pkg in ("signals-hunter", "puffin"):
-        for f in ("sweep.py", "score.py", "smartmoney.py"):
-            a = (SKILL_DIR / "scripts" / f).read_bytes()
-            b = (SKILL_DIR.parent / "strategies" / pkg / "main" / "scanners" / f).read_bytes()
-            assert hashlib.sha256(a).hexdigest() == hashlib.sha256(b).hexdigest(), (pkg, f)
-    # and the expectation it sets: a correct run acts on fewer reads than the feed prints
+    assert "the same detectors, scores and wording the backend is built from" in closing
+    assert "its reads are close to this feed but not always identical" in closing
+    assert "byte-identical to the scripts behind" not in closing
     assert "acts on fewer reads than the feed shows" in closing
 
 
@@ -225,14 +241,9 @@ def test_the_mispricing_vocabulary_routes_here_and_stays_an_observation():
     assert "Every user has it." in skill
 
 
-def test_a_whale_open_ships_but_an_add_or_a_flip_is_still_v2():
-    """Rule 5 banned every whale read because they all needed history. An OPEN does not — the
-    position dates itself — so the rule has to separate them, or the agent keeps suppressing a
-    detector the feed now carries."""
+def test_a_whale_open_is_dated_but_never_called_an_add_or_a_flip():
+    """Rule 5 bans "since". A whale OPEN dates itself, so the rule separates it, or the agent keeps
+    suppressing a read the feed carries."""
     skill = _flat(SKILL)
-    assert "The one exception, because it dates itself: a whale OPEN" in skill
-    assert "An **add** needs the old size and a **flip** needs the old side" in skill
+    assert "A whale OPEN is the exception, because it dates itself" in skill
     assert "Say *opened*, never *added* or *flipped*" in skill
-    assert "an undated whale position is dropped rather than called fresh" in skill
-    # the v2 list must no longer claim whale reads wholesale
-    assert "whale **adds and flips**, OI surges" in skill

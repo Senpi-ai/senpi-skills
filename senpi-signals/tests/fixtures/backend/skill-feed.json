@@ -1,0 +1,119 @@
+{
+ "as_of": "2026-10-06T18:58:40Z",
+ "stale": false,
+ "engine": "signals/1 skills@04ce9e33",
+ "trade": [
+  {
+   "asset": "SOL",
+   "dex": "main",
+   "detector": "whale_open",
+   "family": "whale",
+   "side": "long",
+   "trade_score": 81.9,
+   "social_score": 80.6,
+   "band": "strong",
+   "credibility": 1,
+   "tradeable": true,
+   "early": "early",
+   "read": "A proven wallet 0x1111…1111, $5.0M in lifetime gains, opened $1.2M LONG 10 minutes ago on SOL — size, on a record, with a time on it.",
+   "news": "A wallet (0x1111…1111) up $5.0M lifetime just opened $1.2M LONG 10 minutes ago on SOL.",
+   "when": "",
+   "numbers": [
+    "$1.2M LONG 10 minutes ago"
+   ],
+   "source": "proven_cohort",
+   "wallet": "0x1111…1111",
+   "feed": {
+    "trade": 1,
+    "news": null
+   }
+  },
+  {
+   "asset": "SOL",
+   "dex": "main",
+   "detector": "sm_divergence",
+   "family": "smart_money",
+   "side": "long",
+   "trade_score": 68.4,
+   "social_score": 59.6,
+   "band": "worth_a_look",
+   "credibility": 1,
+   "tradeable": true,
+   "early": "early",
+   "read": "Smart money long vs the crowd on SOL (crowd per the 4h board), price hasn't moved yet — early.",
+   "news": "Smart money lean LONG on SOL while the crowd leans the other way — 50% of the proven cohort positioned LONG; 1 short vs 4 long among those positioned (80% one-sided) — SMALL SAMPLE (n=5), treat as weak evidence; crowd SHORT per the 4h board.",
+   "when": "",
+   "numbers": [
+    "50% of the proven cohort positioned LONG",
+    "1 short vs 4 long among those positioned (80% one-sided) — SMALL SAMPLE (n=5), treat as weak evidence",
+    "crowd SHORT per the 4h board"
+   ],
+   "source": "proven_cohort",
+   "feed": {
+    "trade": 2,
+    "news": null
+   }
+  },
+  {
+   "asset": "xyz:TSLA",
+   "dex": "xyz",
+   "detector": "momentum_event",
+   "family": "momentum",
+   "side": "long",
+   "trade_score": 62.5,
+   "social_score": 66.4,
+   "band": "context",
+   "credibility": 1,
+   "tradeable": true,
+   "early": "late",
+   "read": "xyz:TSLA: tier 3 Tier 3 (Legendary, $10+): a top trader's 4h PnL moved $12,500,000; largest leg TSLA LONG (Δ $-4,000,000).",
+   "news": "xyz:TSLA: tier 3 Tier 3 (Legendary, $10+): a top trader's 4h PnL moved $12,500,000; largest leg TSLA LONG (Δ $-4,000,000).",
+   "when": "[28min ago]",
+   "numbers": [
+    "tier 3 Tier 3 (Legendary, $10+): a top trader's 4h PnL moved $12,500,000",
+    "largest leg TSLA LONG (Δ $-4,000,000)"
+   ],
+   "source": "momentum_events",
+   "wallet": "0x1111…1111",
+   "feed": {
+    "trade": 3,
+    "news": null
+   }
+  },
+  {
+   "asset": "ETH",
+   "dex": "main",
+   "detector": "momentum_event",
+   "family": "momentum",
+   "side": "short",
+   "trade_score": 46.8,
+   "social_score": 49.2,
+   "band": "context",
+   "credibility": 1,
+   "tradeable": true,
+   "early": "price_unread",
+   "read": "ETH: tier 1: a top trader's 4h PnL moved $-2,200,000; largest leg ETH SHORT (Δ $-2,000,000).",
+   "news": "ETH: tier 1: a top trader's 4h PnL moved $-2,200,000; largest leg ETH SHORT (Δ $-2,000,000).",
+   "when": "[2h ago]",
+   "numbers": [
+    "tier 1: a top trader's 4h PnL moved $-2,200,000",
+    "largest leg ETH SHORT (Δ $-2,000,000)"
+   ],
+   "source": "momentum_events",
+   "wallet": "0xabc",
+   "feed": {
+    "trade": 4,
+    "news": null
+   }
+  }
+ ],
+ "news": [],
+ "coverage": {
+  "board_4h": "ok",
+  "cohort": "ok",
+  "cross_asset": "ok",
+  "momentum": "ok",
+  "universe": "ok"
+ },
+ "not_measured": []
+}

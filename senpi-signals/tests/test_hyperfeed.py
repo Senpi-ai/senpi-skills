@@ -303,37 +303,5 @@ class CliWiring(unittest.TestCase):
         self.assertNotIn("client.call_tool", main_src)
 
 
-class InTheSweep(unittest.TestCase):
-    """The movers section rides in every sweep, and says the right thing about what it cannot do."""
-
-    def _rows(self):
-        return _raw()["data"]["markets"]["markets"]
-
-    def test_block_is_built_from_the_sweeps_own_board_rows(self):
-        import sweep
-        blk = sweep.hyperfeed_block(self._rows(), now="2026-09-27T23:10:00+00:00")
-        self.assertTrue(blk and blk["report"]["movers"])
-        self.assertIn("Hyperfeed Movers", blk["markdown"])
-
-    def test_the_sweep_never_promises_a_baseline_it_cannot_keep(self):
-        """A sweep keeps no history, so "ask again in ~2 minutes" would be a lie there — a second
-        sweep prints the identical line. It must point at the command that owns a ring instead."""
-        import sweep
-        md = sweep.hyperfeed_block(self._rows(), now="2026-09-27T23:10:00+00:00")["markdown"]
-        rot = md.split("*Anything just breaking out?*")[1]
-        self.assertIn("needs two readings minutes apart", rot)
-        self.assertIn("Ask again in a couple of minutes", rot)
-
-    def test_no_rows_and_no_module_both_degrade_to_nothing(self):
-        import sweep
-        self.assertIsNone(sweep.hyperfeed_block([], now=None))
-        saved = sweep.hyperfeed
-        try:
-            sweep.hyperfeed = None          # the vendored scanners ship without it
-            self.assertIsNone(sweep.hyperfeed_block(self._rows(), now=None))
-        finally:
-            sweep.hyperfeed = saved
-
-
 if __name__ == "__main__":
     unittest.main()

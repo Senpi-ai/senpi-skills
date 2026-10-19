@@ -1,283 +1,119 @@
 ---
 name: senpi-signals
 description: >
-  Surface non-obvious market developments on Hyperliquid — the read you can't get from a price
-  screen. One on-demand script (scripts/sweep.py) reads the whole HL universe once — funding, open
-  interest, the proven cohort's positioning against the 4h crowd, the platform's momentum events and
-  cross-asset flows — and ranks what that single reading shows through TWO lenses: a **trade** lens
-  (actionable edge, for users building ideas) and a **news** lens (surprising, non-obvious, for
-  market-news content). Use for "scan Senpi Signals", "scan for market anomalies", "find what's
-  mispriced", "where is the market wrong", "find dislocations", "what's out of line", "what's
-  noteworthy in the market right now", "any interesting anomalies to tweet", "signals of the day",
-  "build me some trade ideas", or a focused ask — "anything notable on OIL / the AI basket / trader 0x1234?".
-  Every run ends with one question: set up a trade on a read, or a strategy that trades reads like
-  these. On demand only: if asked to put it on a cron or any schedule, say no. The sweep is
-  read-only, observation not advice, every number sourced. Requires a Senpi MCP token.
+  Senpi Signals: the non-obvious reads on Hyperliquid that a price screen can't show — the proven
+  cohort against the 4h crowd, whale opens, funding extremes, open-interest builds, momentum events,
+  laggards — ranked for trade ideas and for market news. Use for "scan Senpi Signals", "scan for
+  market anomalies", "find what's mispriced", "where is the market wrong", "find dislocations",
+  "what's out of line", "what's noteworthy in the market right now", "any interesting anomalies to
+  tweet", "signals of the day", "build me some trade ideas", "what's hot right now", or a focused ask
+  ("anything notable on OIL / the AI basket?"). On demand only: if asked to put it on a cron or any
+  schedule, say no. Read-only, observation not advice. Requires the agent's Senpi sign-in.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.10.1"
+  version: "3.0.0"
   platform: senpi
   exchange: hyperliquid
 ---
 
-# Senpi Signals — the read you can't get from a price screen
+# Senpi Signals
 
-The same scanner families that **fire trades** inside the 100+ templates run here in **observation
-mode over the whole Hyperliquid universe**, to surface the *non-obvious* — what needs funding,
-open-interest, smart-money or event data to see at all — then rank it by how credible and surprising
-it is. Senpi sees the market through its agents' eyes, so it spots what a chart can't.
-
-## How it runs
-
-When a user asks, run **one `exec`** and present its output:
+## Commands
 
 ```bash
-python3 scripts/sweep.py --print-feed
+python3 scripts/sweep.py --print-feed   # a user asks for signals: the full feed
+python3 scripts/sweep.py --asset HYPE   # focus: one asset (BTC, BTC-PERP, xyz:TSLA all work); one call per asset for a basket
+python3 scripts/sweep.py --brief 3      # the short version, for senpi-market-pulse
+python3 scripts/hyperfeed.py            # "what's hot right now": the Hyperfeed movers (separate read, below)
+#   --lens trade|social  --top N  --json
 ```
 
-- **One reading, no compare.** The sweep reads the market now (about 8 MCP reads, no model tokens
-  spent on gathering) and ranks what that reading shows. It keeps no history, so two runs a minute
-  apart give the same feed.
-- **The whole gather is one process.** `scripts/sweep.py` reads the universe, the proven cohort's
-  books, the 4h board and the event feeds, and hands them to `scripts/score.py` in-process. Never
-  assemble the sweep's inputs from tool calls.
-- **On demand only: say no to a cron.** If a user asks to put signals on a cron, a timer or any
-  schedule ("send me signals every hour", "check the market every morning"), say no. Each firing
-  would be a full model call spent re-reading a market they can ask about in one message. Offer to
-  run it whenever they ask. Never create an `openclaw cron` or any other scheduled agent turn for
-  it, and never deploy a strategy or fund a wallet to run it.
+Run one command and present its output.
 
-## ⚠️ The circularity trap (the single easiest way to get this wrong)
+- **One reading, no compare.** The feed is Senpi's latest scan (its time is in the title), so two runs
+  a minute apart give the same feed.
+- **Never build Senpi Signals yourself.** The output is the same feed the Senpi app and extension
+  show. If the command fails, it prints one line (unavailable, starting up, needs a subscription, or
+  sign-in not verified): present that line as it stands. Never present it as a quiet market, never
+  rebuild the feed from your own tool calls, never quote an earlier run as current.
+- **On demand only: say no to a cron.** Asked to run signals on any schedule ("every hour", "every
+  morning"), say no and offer to run it whenever they ask. Never create an `openclaw cron` or any other
+  scheduled agent turn for it, and never deploy a strategy or fund a wallet to run it.
+- **A wallet is not a Senpi Signals question.** Read it with `leaderboard_get_trader_positions` /
+  `discovery_get_trader_state` and say it is a wallet read.
 
-**The 4h gain leaderboard cannot tell you who saw a move coming.** If SPCX falls, every wallet
-short SPCX is mechanically at the top of the 4h board. The board is a *consequence* of the move,
-not evidence anyone predicted it — so "smart money is short SPCX" read off 4h gains is just the
-price move handed back to you.
+## Presenting the feed
 
-**A notional lean carries the same bug one level down.** `net_bias` = net/gross **notional**. If a
-name falls 10% and *nobody trades at all*, every short's notional grows and every long's shrinks,
-so the lean drifts toward the winning side on price alone.
+Show the rendered feed as it is — legend, sections, badges, split — and don't rewrite or relabel it.
+Then at most a few sentences on what stands out, then the closing question (below) — nothing after it.
 
-**Headcount is immune, because price cannot change it, and the sweep uses it for direction**
-(`smart_share_kind: "cohort_pct"`): a wallet either holds the position or it doesn't.
+- **Talk about the market, not the tool.** No notes on detectors, coverage, read counts or what the
+  feed leaves out.
+- **Repeat the feed's own warning lines as they stand**: `Not measured this run: …` and the stale
+  reading line. A source that wasn't measured is not one that found nothing.
+- **"Nothing notable" is a correct answer.** Never pad it.
+- **Trade feed for users, news feed for content.** The news feed includes thin markets, flagged.
 
-So: **smart-money *direction* comes from the proven cohort — never the leaderboard.** The sweep
-declares `smart_source: proven_cohort` (the ≥$1M-lifetime-realized cohort's **headcount**) and
-carries the 4h board's number alongside as `hot_4h_share` — *what's winning right now*, momentum /
-survivorship-biased. **Never call the board number "smart money is long/short"** — label it "what's
-hot in the last 4h", and treat it as *color (fwiw)*, never a standalone headline. When the two
-disagree, **that gap is itself the story** — report both, correctly labeled.
+## Rules
 
-## Two lenses, two audiences (why every signal gets two scores)
+1. **Number integrity.** Every figure comes from this run's output or a live read you made. Never
+   estimate or round misleadingly.
+2. **Observation, not advice.** No "buy / sell", no price targets, no returns language. When users ask
+   for "**mispriced**", "**dislocated**" or "**out of line**", it means a
+   **gap between two things the sweep actually read** (the cohort against the 4h crowd, funding
+   against positioning, a laggard against its basket), **never a fair-value judgment**: "the cohort
+   is 78% short HYPE while the 4h board is long", never "HYPE is overpriced".
+3. **The sweep is read-only.** It never trades and never implies Senpi is taking the trade. Acting on a
+   read happens only in the closing step (below), on the user's explicit yes to a specific order or
+   strategy.
+4. **Smart money is the proven cohort only** — wallets with ≥ $1M lifetime realized PnL. The **4h
+   leaderboard** is what's winning right now (a consequence of the move, survivorship included): call
+   it "hot in the last 4h", never smart money. When the two disagree, that gap is the story.
+5. **Now, never "since".** Never claim a change the read does not state: no "just shifted", "up 10%
+   since this morning", "a whale **added**". A change read (an OI surge) is presented as its line words
+   it — never add a change, a baseline or a time it did not give. Never describe the feed as if it
+   carried more than it does. **A whale OPEN is the exception, because it dates itself:** "$12.4M
+   short, opened 18 minutes ago". Say *opened*, never *added* or *flipped*. The only other time words
+   allowed are the sources' own windows: the 4h board, the 24h move, a momentum event's time.
+6. **Always state the side** — LONG or SHORT, or "side unresolved". A funding extreme has no side: it
+   is a carry read.
+7. **A headcount % always travels with the positioned split.** "44% of the proven traders are short"
+   alone invites "so 56% are long" — most hold no position at all. Give `N short vs N long`, and the
+   SMALL SAMPLE flag when the feed prints it.
+8. **Assume the reader knows nothing about Hyperliquid.** Gloss "the proven traders", "the 4h
+   leaderboard" and "4h window" the first time. Never a bare ticker: one clause on what the asset is
+   ("ZEC, a privacy coin"), and price context on positioning reads. Funding is a % of position size a
+   year, never of margin.
+9. **Lead with what's robust.** A thin read (few traders, small market) is color, never the headline.
+   Never upgrade "leans short (1.23%)" to "smart money is short." See
+   [`references/worked-examples.md`](references/worked-examples.md).
+10. **Public data only.** Wallets are "a top trader (0x12…)", never a real person's identity.
 
-The same signals serve two jobs, so `score.py` scores each one **twice** and returns **two ranked
-feeds** from one sweep (`--lens both`, the default):
+What each read means, and the glossary: [`references/detectors.md`](references/detectors.md).
 
-- **`trade_score` — for users building ideas.** Rewards an actionable *edge*: a clear side, price
-  *confirming* it, and enough liquidity to act on. A funding extreme is *carry, not a directional
-  edge*, so it scores **low** here.
-- **`social_score` — for market-news content.** Rewards *surprise*: non-obvious, a good story,
-  credible. A wild funding level *is* content even if it's not tradeable, so the news bar is lower
-  and thin markets are included-but-flagged, not dropped.
+## Hyperfeed Movers — "what's hot right now?"
 
-Credibility is a *multiplier* (a thin book can't out-shout a deep one), and no more than ~2 signals
-per detector family reach either feed. Give a **user** the trade feed; content uses the news feed.
+A different question from Senpi Signals: who is winning in the last few minutes, from the live 4h
+leaderboard. Run `scripts/hyperfeed.py` when asked what's pumping or moving now, and offer it after the
+feed when the 4h board is the story.
 
-## Golden rules (never violate)
-
-1. **Number integrity.** Every figure you post came from a live MCP/on-chain read **this run**, and
-   you can name the call it came from. Never estimate, round misleadingly, or state a number you
-   can't back.
-2. **Observation, not advice.** Describe *what the data shows* — never "buy / sell / long this", no
-   price targets, **no returns or outcome language.** It's a market observation, not a call.
-   This is where "**mispriced**" / "**dislocated**" / "**out of line**" land — the words users ask in.
-   Here they mean one thing: a **gap between two things the sweep actually read** (the cohort against
-   the 4h crowd, funding against positioning, a laggard against its basket), **never a fair-value
-   judgment** — the sweep carries no model of what anything is worth. "The cohort is 78% short HYPE
-   while the 4h board is long", never "HYPE is overpriced".
-3. **The sweep is read-only.** Running it never opens or closes a position, never changes a strategy,
-   never trades, and never implies Senpi is taking the trade. It reports. Acting on a read happens only
-   in the closing step (below), on the user's explicit yes to a specific order or strategy.
-4. **Public data only.** On-chain wallet addresses are public — frame as "a top trader (0x12…)".
-   Never attach a real person's identity.
-5. **Now, never "since".** The feed is a snapshot of where things stand, with nothing earlier of
-   ours to compare against. Never claim a move since an earlier time: no "just shifted", "up 10%
-   since this morning", "a whale **added**". A change measured against an earlier reading — whale
-   adds and flips, OI surges, funding flips, conviction jumps, positioning trends, base-unit flow —
-   is not in this feed. Never describe the feed as if it carried them.
-
-   **The one exception, because it dates itself: a whale OPEN.** A proven wallet's position reports
-   its own age, so "$12.4M short, opened 18 minutes ago" is a fact about the position, not a diff
-   against a sweep of ours. An **add** needs the old size and a **flip** needs the old side — those
-   are still v2. Say *opened*, never *added* or *flipped*, and never date a position the feed did
-   not date: an undated whale position is dropped rather than called fresh.
-
-   The only other time words allowed are the sources' own
-   windows: the 4h board, the 24h price move, a momentum event's time.
-6. **Derive the universe, don't hardcode.** The sweep pulls it from `market_list_instruments` (a
-   liquidity floor + top-N by volume). Identity baskets (e.g. "the AI names") are the only allowed
-   hardcode, and only in focus mode.
-7. **Always state the side.** Every directional signal names **LONG or SHORT**. If you can't resolve
-   it, say "side unresolved" — never omit it. A funding extreme is the one signal with no side by
-   design: it is a carry read, so say that rather than inventing a direction.
-8. **Anchor *and define* every reference — assume the reader knows nothing about HL.** Never a bare
-   "N traders", "the leaderboard", or "4h window"; gloss each the first time (full glossary in
-   [`references/detectors.md`](references/detectors.md)):
-   - **who the proven traders are** — "the ~150 most-profitable wallets on Hyperliquid by lifetime
-     realized PnL (≥ $1M) — the *proven money*".
-   - **express headcounts as a % of the cohort** — "**44% of the proven traders are short CASHCAT**",
-     not "44 traders". Keep this headcount-% **distinct** from the *PnL-concentration* %.
-   - **⚠️ ALWAYS pair that % with the POSITIONED SPLIT.** "44% are short" silently invites "so 56% are
-     on the other side" — but most of that 56% hold **no position in the name at all**. Only
-     **`N short vs N long`** among the positioned answers the directional question: 43%-short is a
-     **rout** at 429-vs-40 and **noise** at 429-vs-380. `score.py` prints the split, the
-     one-sidedness and "SMALL SAMPLE" below ~10 positioned — **repeat that in any copy.**
-   - **which board + window** — `leaderboard_get_markets` = Hyperliquid's **live 4-hour rolling**
-     board; `discovery_*` = historical track record (the proven cohort). Say which.
-9. **Weight signals by their actual size — lead with what's robust.** A thin signal (few traders, low
-   % concentration, tiny market) is *color*, never the headline. **Never upgrade "leans short (1.23%)"
-   into "smart money is short."** See [`references/worked-examples.md`](references/worked-examples.md) (WLFI).
-10. **The bar: sized and legible, or cut it.** A signal clears the bar only when it is sized (enough
-    positioned traders, a real funding extreme, a liquid book) and you can say it plainly. Never a
-    bare ticker — one clause on what the asset is, and price context on positioning signals. Better
-    six that clear the bar than a padded ten.
-
-## Output conventions
-
-`score.py` renders the feed — the "How to read this" block, the title, the two badged sections
-(*Tradeable dislocations* and *Market news*), the badges (🔥 ≥ 80 · 🟠 65–79 · 🟡 under 65; ⭐ top;
-⚑ named wallet), the positioned split and the ranking. **Present that block as canonical** and
-narrate *around* it; don't replace it with free prose or relabel its sections. The rules above
-govern your narration, not the rendered feed.
-
-- **Talk about the market, never about the engine.** Present the feed, then at most a few sentences
-  on what stands out, then the closing question (next section) — nothing after it. Never narrate
-  coverage lines, read counts, detector names, why a detector is quiet, or what the feed leaves out.
-  That includes closing notes and caveats. Wrong: *"Note: this run has no history, so whale moves
-  aren't included."*
-- **Coverage is honest, not narrated.** A source that could not be read is named in the feed's last
-  line (`Not measured this run: …`); repeat that line as it stands and add nothing. A detector that
-  was never fed must never be reported as one that looked and found nothing. If a source failed, one
-  plain clause is the most a user hears ("the smart-money read failed this run").
-- **Name a divergence only when the feed carries one.** Never add a section for something the feed
-  doesn't have.
-- **Funding is a percent of position size, never of margin.** `-494%/yr` means shorts pay longs about
-  494% of the position's size a year at the current rate. Never restate it as a multiple of margin.
-
-## Running the sweep
-
-```bash
-python3 scripts/sweep.py --print-feed   # what you run for a user: prints only the feed (+ one line if a source failed)
-python3 scripts/sweep.py --brief 3      # the short version senpi-market-pulse closes with: top 3 trade reads, one line each
-python3 scripts/sweep.py                # debugging: run JSON, coverage lines, reads=<n>
-#   --out-dir DIR  --top-n 120  --top 6  --lens both|trade|social  --now <ISO>
-```
-
-- **The read budget per sweep:** 1 `market_list_instruments` · 1 `discovery_get_top_traders` · 3
-  `discovery_get_trader_state` · 1 `leaderboard_get_markets` · 1 `leaderboard_get_momentum_events` ·
-  1 `market_get_cross_asset_flows` = **~8 reads**, no model tokens. Every read fails soft: a dead
-  service degrades its detector and is named in the feed's not-measured line.
-- **The time budget per sweep.** The whole run is bounded: **45s** on `--brief` (it closes another
-  skill's answer, on that skill's budget) and **100s** on `--print-feed`. A read is not started once
-  what is left cannot pay for it, so a slow upstream costs a lens, never the answer — the market
-  reads go first, the proven cohort (the slowest, and the only one that can spend the whole budget
-  alone) goes last. A lens dropped for time is named in the not-measured line like any other, and its
-  `[coverage]` line says it was never started, which is not the same fact as a read that failed.
-- **Auth.** `SENPI_AUTH_TOKEN` + `SENPI_MCP_URL` from env. `discovery_*` needs a **user-scoped**
-  token — an app-scoped one returns nothing and the cohort lens goes dark. A dark cohort lens is not
-  by itself a token problem: the `[coverage] cohort:` line quotes the read that failed, so read it
-  before naming a cause.
-- **Dependencies.** The sweep carries verbatim copies of senpi-smart-money's cohort engine
-  (`scripts/smartmoney.py`) and its stdlib MCP transport (`scripts/mcp_client.py`), so it runs with
-  only this skill installed. `tests/test_vendored_parity.py` fails if either copy drifts.
-- **Focus mode** ("anything notable on OIL / the AI basket / 0x1234?") scopes the same reading to the
-  ask, or pulls the named asset / wallet directly (`market_get_asset_data`,
-  `leaderboard_get_trader_positions`). A quiet "nothing notable" is a correct answer.
-- The full detector library, the scoring rubric and every field the sweep declares per asset:
-  [`references/detectors.md`](references/detectors.md).
-
-## Hyperfeed Movers — "what's hot RIGHT NOW?"
-
-A different question from the sweep, and it gets its own read. The sweep ranks the **>= $1M
-lifetime-realized cohort** over days. These ask about the last few minutes:
-
-> *"What's pumping right now?"* · *"Where are traders making money on Hyperliquid right now?"*
-> *"What's the Hyperfeed telling us?"* · *"Analyze what's hot this minute"* · *"Anything moving?"*
-
-**Every sweep already prints it.** `sweep.py` reads `leaderboard_get_markets` for its own 4h-board
-lens, so the movers section is built from those same rows — no second call, and it can never disagree
-with the board read above it. It lands at the end of `signals.md`, which means a user sees it without
-knowing it exists, and the brief carries the top three as one line. That is deliberate: this is the
-question people actually ask, and a section you have to request is one most people never see.
-
-**The sweep carries Tier A only**, and that is a constraint rather than a shortcut — a sweep is ONE
-READING (its out dir holds `current.json` and `signals.md` and nothing else, enforced by
-`test_a_sweep_is_one_reading_so_a_second_sweep_compares_nothing`). Rotations need a stored baseline,
-which would make the sweep keep history. So for those run **`python3 scripts/hyperfeed.py`** twice, a
-couple of minutes apart — it owns its own ring (`--json` for structure, `--xyz-banned` for Penguin's
-crypto-only universe). **No cron, no background sampling** — the only thing that ever fills that ring
-is a run somebody asked for.
-
-**Never call this layer smart money.** It is `leaderboard_get_markets`: who is winning *right now*
-over a 4h rolling window, survivorship included. senpi-signals' smart money is the lifetime-realized
-cohort, and the two are regularly on **opposite sides of the same name in the same answer**. Say
-Hyperfeed, the 4h leaders, or top traders. (senpi-market-pulse carries this rule too.)
-
-### The two tiers, and why the section always tells you which one answered
-
-The scoring is **Penguin's own**, vendored byte-identical (`scripts/striker_scoring.py`, locked by
-`tests/test_striker_scoring_vendor_parity.py`). But that detector is **stateful**: every one of its
-six reasons — FIRST_JUMP, IMMEDIATE_MOVER, CONTRIB_EXPLOSION, HIGH_VELOCITY, DEEP_CLIMBER, CLIMBING —
-is a delta against a scan the live runtime took **90 seconds** earlier. A skill answering a question
-has no such history, and the tempting fix is the trap: "+42 ranks" measured against a baseline from
-eleven hours ago is a *different claim* in identical words.
-
-So:
-
-- **Tier A — the snapshot. Always available, needs no history at all.** Ranked by
-  `contribution_pct_change_15m`, which the **feed computes**, not us — a real 15-minute momentum
-  number. Penguin's stateless gates are applied so the names shown are ones it would look at: rank
-  outside the top 10 (a top-10 name has no jump room left), the 4h move agreeing with the leaders'
-  direction, a rising 15m contribution, and the >= 10-trader floor. **This is a complete answer to
-  "what's hot this minute."** Give it and stop; do not apologise for the absence of Tier B.
-- **Tier B — the rotations. Needs a second read, minutes apart.** Penguin's verbatim scorer against
-  the freshest baseline, reported with its real score and real reasons. The baseline age is printed
-  every time and banded: **LIVE** (<= 5 min, comparable to the scanner's own cadence) · **WIDE**
-  (<= 30 min, scored but labelled a wider window, never presented as the same signal) · **STALE**
-  (> 30 min — **not scored at all**, and the block says so).
-
-**A STALE baseline is never quietly scored at a wider window.** That is the one rule in this section
-that is not a preference. When it fires, the honest offer is the one the block already prints — *ask
-again in ~2 minutes and this run becomes the baseline* — and a user asking "what's hot right now" is
-very likely to ask again anyway. Never offer to schedule a cron to fill it.
-
-**No rotation is a real read, not a failure.** Most reads find none; it is what the strategy waits
-through. Say it plainly rather than reaching for the next-best name.
-
-**If the feed read fails**, the block says `unavailable` and invents nothing. Report that and stop —
-never substitute a price screen or a remembered board for a Hyperfeed read.
-
-### Handing off from it
-
-A user who just saw a name at the top of this block is one question away from wanting it traded.
-That is the family question below, and **Penguin (crypto) or Pelican (all assets) are the two that
-trade this exact detector** — the block they just read is literally their scoring. Offer them by name
-when the handoff comes, with the honest cost in the same breath.
-
-## v2 — compare over periods (not in 2.0)
-
-Everything that needs an earlier reading — whale **adds and flips**, OI surges, funding flips,
-conviction jumps, the cohort's positioning trend and base-unit flow — is v2. (A whale **open** is
-not among them: the position carries its own age, so it ships in 2.3.) Where that history lives is v2's decision,
-kept on Senpi's side rather than on a user's box, so nothing here schedules, deploys or funds anything.
+- **Never call it smart money.** Say Hyperfeed, the 4h leaders, or top traders. It is often on the
+  opposite side of the proven cohort in the same name.
+- **One run answers "what's hot this minute"** (Tier A). Give it and stop.
+- **Rotations (Tier B) need a second run a couple of minutes later.** The block labels the baseline
+  LIVE, WIDE or STALE; a STALE one is never scored, so offer "ask again in ~2 minutes". Never offer a
+  cron to fill it.
+- **No rotation is a real read**, and `unavailable` means report that and stop.
+- **Penguin (crypto) and Pelican (all assets)** trade this exact detector: offer them by name when a
+  user wants it traded, with the cost in the same breath.
 
 ## How every run ends — one question
 
 After the feed and your few sentences, end the turn with **one question**, and nothing after it:
 
 > **Want to act on any of these?** I can set up a **single trade** on one read — you see the size, the
-> stop and the liquidation price before anything is placed. Or run it as a strategy, five ways:
+> stop and the liquidation price before anything is placed. Or run it as a strategy:
 > **(1) Signals Hunter** — trades the smart-money signals;
 > **(2) Puffin** — same smart money engine, one position at a time, higher risk/reward (one stop-out
 > ≈ 19-23% of the account);
@@ -285,96 +121,66 @@ After the feed and your few sentences, end the turn with **one question**, and n
 > **(4) Trade the Hyperfeed momentum** — e.g. **Penguin** (crypto) or **Pelican** (all assets), which
 > chase live Hyperfeed rotations.
 
-Offer **all four** strategy routes, every time. Athena was the only one named for a while, which sent
-every user who wanted a strategy to the same place regardless of what they had just read. The order is
-deliberate: the template that trades THIS feed comes first.
+**This is a major entry point.** Ask it every time, in full, with all four routes. Offer **all four**
+strategy routes, every time.
 
-**This is a major entry point.** For most users it is the first time a read becomes a position, so the
-question is the product, not a footer. Ask it every time, in full, with all four routes.
+Routes (1)-(3) trade the reads above. Route (4) deliberately does **not**, which is why its label
+names **the Hyperfeed** rather than these signals. The label is the disclosure: Hyperfeed momentum is
+a different source from the smart-money cohort above, so it is offered AS a different signal, never as
+another way to trade what they just read.
 
-Routes (1)-(3) trade the reads above. Route (4) deliberately does **not**, and that is why its label
-names **the Hyperfeed** rather than these signals: "want to act on any of these?" answered with a
-template that cannot act on them is a promise the deploy will not keep. The label is the disclosure —
-Hyperfeed momentum is a different source from the smart-money cohort above, and the user must be able
-to see that before a template is named. Offering a different
-signal is fine and often right — the user may want the shape of the trade rather than these particular
-reads — but it is offered AS a different signal, never as another way to trade what they just read.
-
-- **A trade on one read → senpi-trade.** Take the side the read names. Before any order, show the
-  margin and its share of the account, the leverage, the stop price and the liquidation price. The
-  stop must sit before liquidation. Place nothing until the user says yes to that exact order. A
-  funding extreme names no side, so it is never a one-trade setup.
-- **(1) Signals Hunter → senpi-strategy-ops.** `signals-hunter` runs **this** detector library on an
-  hourly clock — `sweep.py`, `score.py` and `smartmoney.py` are byte-identical to the scripts behind
-  the feed the user just read, held that way by a parity test. So it is the literal answer to "can I
-  just trade these?": it scores the same whole-book sweep and opens what clears its score floor, long
-  or short. Its floor is deliberately higher than the feed's TRADE floor, so it acts on fewer reads
-  than the feed shows. Say that — a user who expects every line above to become a position will be
-  disappointed by a correct run.
-- **(2) Puffin → senpi-strategy-ops.** `puffin` is the SAME vendored engine and the same
-  reads as `signals-hunter`, pointed at **one position at a time**: a score floor of 85 rather than 65,
-  75-90% of the wallet at 10x rather than 20-25% at 5x, and a 15-minute clock rather than an hour. It is
-  the aggressive answer to "can I just trade these?", and its trade-off is not subtle, so name it in the
-  same breath as the upside: there is no second position to average against the first, one stop-out
-  costs about **19-23% of the account**, and at 10x a single round trip pays roughly **0.8-0.9% of the
-  wallet in fees** — about 27% a month at one completed trade a day, before direction earns anything.
-  Offer it when the user asks for size, conviction or "the aggressive one" — never as the default, and
-  never to someone funding a first strategy. `signals-hunter` stays the default answer for this feed.
-- **(3) Fork Athena → senpi-strategy-ops.** `athena` for the smart-money hedge fund: its Phalanx sleeve
-  follows the same proven cohort these reads come from, and its Aegis sleeve reads the tape to hedge
-  the regime. `athena-x` is the same two sleeves at conviction size (25% at 5x rather than 15% at 3x)
-  — offer it only when the user asks for size, and name the trade-off rather than just the numbers.
-- **(4) Trade the Hyperfeed momentum → senpi-strategy-ops, or senpi-strategy-discover.** Some users want
-  the shape of the trade rather than these particular reads. Name which signal the template actually
-  trades in the same sentence as the template. The worked example is `penguin`: it chases recent
-  high-conviction smart-money wins — a coin jumping 15+ places up the top-50 rows of the 4h leaderboard
-  of what winning traders are piling into, fresh and volume-confirmed — and commits one position at up to 10x
-  to it. That is Orca's detector rather than this feed's, and a user who arrived from these reads has to
-  hear that. It also runs with all four risk guard rails off, so nothing halts a losing run but its own
-  stop, where `puffin` halts at a 50% drawdown or three consecutive losses. When the user wants
-  something else entirely rather than this example, hand off to **senpi-strategy-discover** and let the
-  picker rank the whole catalog against what they describe — never improvise a shortlist from memory.
-- **Roll your own → senpi-strategy-author.** Not one of the four offered routes any more (Jason's
-  call, 2026-09-27: the question got long and the four templates carry it), but still the right answer
-  the moment a user asks for something none of them do — offer it then, without being asked twice.
-  The read is the brief: the asset, the side, what the
-  read is and its numbers. Build with the author's guardrails — a DSL stop on every position, leverage
-  3x or less, few trades, and the minimum budget plus the wallet-creation fee stated before anything is
-  funded. It is a new strategy with no track record, and you say so. Offer it as a real peer of the
-  three templates, not a consolation prize: a user who wants something none of them do should be
-  building, not talked into the nearest fork.
-- **Ops runs the walkthrough first, then asks the budget.** Read the minimum budget from the catalog,
-  never from memory.
-- **Narrowing by the read.** When the user picks one read rather than a route, the template built on
-  that kind of read is the quick start, with designing one from scratch as its peer:
+- **A trade on one read → senpi-trade.** Take the side the read names. Show the margin and its share
+  of the account, the leverage, the stop price and the liquidation price. The stop must sit before
+  liquidation. Place nothing until the user says yes to that exact order. A funding extreme names no
+  side, so it is never a one-trade setup.
+- **(1) Signals Hunter → senpi-strategy-ops.** `signals-hunter` uses the same detectors, scores and
+  wording the backend is built from, on an hourly clock. It runs its own scan, so its reads are close
+  to this feed but not always identical, and its score floor is higher, so it acts on fewer reads than
+  the feed shows. Say so.
+- **(2) Puffin → senpi-strategy-ops.** `puffin` is the same engine on one position: score floor 85,
+  75-90% of the wallet at up to 10x, a 15-minute clock. Name the cost with the upside: no second
+  position to average against the first, one stop-out costs about **19-23% of the account**, and a
+  round trip pays roughly **0.8-0.9% of the wallet in fees**. Offer it when the user asks for size or
+  "the aggressive one" — never as the default, and never for a first strategy. `signals-hunter` stays
+  the default answer for this feed.
+- **(3) Fork Athena → senpi-strategy-ops.** `athena`: its Phalanx sleeve follows the proven cohort,
+  its Aegis sleeve hedges the regime. `athena-x` is the same at conviction size (25% at 5x rather than
+  15% at 3x) — only when the user asks for size, with the trade-off named.
+- **(4) Trade the Hyperfeed momentum → senpi-strategy-ops, or senpi-strategy-discover.** Name the
+  signal the template trades in the same sentence as the template. `penguin` chases a coin jumping 15+
+  places up the top-50 rows of the 4h leaderboard, one position at up to 10x — Orca's detector rather
+  than this feed's — and runs with its risk guard rails off. For anything else, hand off to
+  **senpi-strategy-discover**; never improvise a shortlist from memory.
+- **Roll your own → senpi-strategy-author.** Not in the offer, but the answer as soon as a user wants
+  something none of the four do. The read is the brief (asset, side, numbers). Guardrails: a stop on
+  every position, 3x or less, few trades, minimum budget plus wallet-creation fee stated before
+  funding. It is a new strategy with no track record, and you say so.
+- **Ops runs the walkthrough, then asks the budget.** Read the minimum budget from the catalog, never
+  from memory.
+- **When the user picks one read**, start from the template built on that kind of read:
 
   | The read | Start from |
   |---|---|
-  | Any of them, traded as a feed | **Signals Hunter** (`signals-hunter`) — this same engine on a clock |
-  | Any of them, but one position at a time | **Puffin** (`puffin`) — the same engine, score floor 85, 10x on one name; state the per-stop and fee cost |
-  | A whale open or add | **Signals Hunter** (`signals-hunter`); note it parks `whale_open` as non-tradeable and acts on whale *moves* |
-  | Smart money vs the crowd | **Athena** (`athena`), with a hedge, or **Phalanx** (`phalanx`), the cohort sleeve alone |
-  | A funding extreme | **Pangolin** (`pangolin`), which fades the crowd paying to hold, or **Camel** (`camel`), which collects the carry on two books |
-  | A momentum event | **Meerkat** (`meerkat`) |
-  | A laggard behind BTC | **Mantis** (`mantis`) |
+  | Any, traded as a feed | `signals-hunter` |
+  | Any, one position at a time | `puffin` (state the per-stop and fee cost) |
+  | A whale open | `signals-hunter` (it acts on whale *moves*, not opens) |
+  | Smart money vs the crowd | `athena`, or `phalanx` (the cohort sleeve alone) |
+  | A funding extreme | `pangolin` (fades the crowd paying) or `camel` (collects the carry) |
+  | A momentum event | `meerkat` |
+  | A laggard behind BTC | `mantis` |
 
-  From scratch → senpi-strategy-author, under route (5)'s guardrails above.
-- **Every template is a starting point the user makes their own.** It deploys under their name, as-is
-  or with levers moved. Never promise or imply results, and never call a template proven. Deploy only on
-  the user's yes.
+- **Every template is a starting point the user makes their own.** Never promise or imply results,
+  and never call a template proven. Deploy only on the user's yes.
 - **No, or no answer → stop.** Don't repeat the offer.
-- **Never in public copy.** The question and everything after it are a private, interactive step;
-  anything written for posting stays observation-only.
-- **The brief carries no question.** `--brief` output is another skill's closing section; that skill
-  asks its own question.
+- **Never in public copy.** The question and everything after it are private; anything written for
+  posting stays observation-only.
 
 ## Where it lives
 
-Every user has it. A chat chip runs the full sweep ("Scan Senpi Signals for market anomalies"), and
-**senpi-market-pulse** closes every pulse with the brief (`--brief 3`) and an offer to run the full sweep.
+Every user has it. A chat chip runs the full feed, and **senpi-market-pulse** closes every pulse with
+the brief and an offer to run the full feed.
 
 ## The short version (`--brief N`)
 
-`python3 scripts/sweep.py --brief 3` runs the same sweep and prints only a title and the top N trade
-reads, one line each: badge, score, asset and the read. No legend, no news feed, nothing about the
-engine, plus the one not-measured line when a source failed. A quiet market prints one plain line.
+`python3 scripts/sweep.py --brief 3` prints a title and the top N trade reads, one line each. It is
+another skill's closing section, so it carries no question of its own.
