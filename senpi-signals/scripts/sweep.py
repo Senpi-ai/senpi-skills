@@ -31,7 +31,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-VERSION = "3.0.0"
+VERSION = "2.11.0"
 BASE_URL = "https://agents.senpi.ai"
 TIMEOUT_S = 20
 ATTEMPTS = 2           # one retry, for a dropped connection or a 5xx blip; never for a 4xx
