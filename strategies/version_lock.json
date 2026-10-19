@@ -441,6 +441,10 @@
       "behaviour": "762076eaa2663326",
       "version": "1.2.2"
     },
+    "relativity-xyz": {
+      "behaviour": "28a6d57549ef210b",
+      "version": "1.0.0"
+    },
     "remora": {
       "behaviour": "723bdc73ce59c8b2",
       "version": "1.3.1"

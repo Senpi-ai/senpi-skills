@@ -99,6 +99,7 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   volatility_squeeze: { gloss: "Waits for volatility to compress relative to the asset's OWN history, then trades the expansion when it releases." }
   pullback:      { gloss: "Buys the dip within an uptrend." }
   mean_reversion: { gloss: "Buys oversold / sells overbought, betting price reverts to its mean (works in chop, not just trends)." }
+  regime_aware_dispersion: { gloss: "Trades the SPREAD between winners and losers rather than the market's direction — long the strongest names, short the weakest — with a benchmark's own trend deciding which side it may take." }
   market_structure: { gloss: "Trades SMC/ICT/Wyckoff structure: break-of-structure, liquidity sweeps, fair-value gaps." }
   chart_pattern: { gloss: "Scans for classic chart patterns (double bottom/top, higher-high structure) and trades the direction the pattern points." }
   session_open: { gloss: "Positions into a session open on the clock — reads pre-open drift/volume and carries into the open, rather than reacting after." }
