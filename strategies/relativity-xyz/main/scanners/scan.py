@@ -12,7 +12,7 @@ Per tick:
   4. SCORE    -- scoring.score_candidate on each regime-allowed leg.
   5. EMIT     -- the best maxNewEntriesPerTick, bounded by free slots.
 
-Read-only, single-pass, synchronous. Promoted from a live fork (M418867, 15-19 Oct 2026).
+Read-only, single-pass, synchronous. Promoted from a live fork (15-19 Oct 2026).
 
 TWO DEPARTURES from that fork, both plumbing rather than signal:
 

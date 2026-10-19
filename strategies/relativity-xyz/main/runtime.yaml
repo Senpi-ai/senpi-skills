@@ -7,7 +7,7 @@
 # tape turns. Conviction-scaled leverage 5/7/10x. Exit by the DSL only — no clocks.
 #
 # PROMOTED FROM A LIVE FORK, and the honest provenance belongs here rather than only in a
-# PR: this is M418867's relativity-xyz, funded 15 Oct 2026 and measured through 19 Oct.
+# PR: it was funded on 15 Oct 2026 and measured through 19 Oct.
 # Four days. Over that window the wallet took $800 of funding and returned +$138.62
 # (+17.3%), but 49% of that came on the last day alone and most of it was still open
 # mark-to-market, so "four good days" is the whole claim. It is not a backtest, there is
@@ -147,7 +147,12 @@ exit:
       enabled: false
       interval_in_minutes: 360
     phase1:
-      enabled: true
+      enabled: false                  # the fork had this true with retrace_threshold: 100, which is
+                                      #   an inert trail anyway (a 100% retrace never fires). Every
+                                      #   catalog template runs it false: phase-1 trailing ratchets
+                                      #   a stop INTO a loss and was dropped fleet-wide. max_loss_pct
+                                      #   below still stops with phase1 disabled — the floor is a
+                                      #   resting exchange stop, not a phase-1 feature.
       max_loss_pct: 15
       retrace_threshold: 100
       consecutive_breaches_required: 1

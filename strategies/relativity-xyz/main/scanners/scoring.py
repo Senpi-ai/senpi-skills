@@ -5,8 +5,8 @@ for LONG (relative leader) and SHORT (relative laggard), with an index regime ga
 shift momentum boost. The caller (scan.py) builds the universe, fetches candles,
 and determines the regime; this module does the numbers.
 
-PORTED VERBATIM from the live fork that produced the measured run (M418867,
-relativity-xyz, 15-19 Oct 2026). The scoring math is the thing being promoted, so it is
+PORTED VERBATIM from the live fork that produced the measured run
+(15-19 Oct 2026). The scoring math is the thing being promoted, so it is
 copied rather than rewritten -- see tests/test_engine.py, which pins every branch.
 
 ONE KNOWN DEAD TERM, left in place deliberately. The funding-squeeze bonus requires

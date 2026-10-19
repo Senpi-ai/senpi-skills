@@ -30,7 +30,10 @@ catalog:
   # $800. Nothing below the tested size has any evidence behind it.
   min_budget_floor: 300
   assets: []                      # DERIVED each tick from the live xyz board
-  tags: [xyz, equities, commodities, indices, dispersion, relative-strength, cross-sectional, regime-aware, long-short, momentum, aggressive, high-leverage, dsl-only, no-close]
+  tags: [xyz, equities, stocks, commodities, indices, non-crypto, cross-asset, dispersion,
+         spread, relative-strength, leaders-laggards, winners-losers, cross-sectional,
+         regime-aware, regime-gated, sp500, index-gated, long-short, momentum, aggressive,
+         high-leverage, dsl-only, no-close]
 
 requires:
   runtime: ">=3.0.0"
