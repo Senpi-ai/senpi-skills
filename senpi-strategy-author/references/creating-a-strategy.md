@@ -539,7 +539,8 @@ Counting calls bounds the work a tick *intends* to do. It does nothing about a s
 never returns, and that is the failure that actually strands scanners: no output, no error, no
 timeout line, the runtime alive and the scan silent for hours.
 
-Observed 2026-09-19: a hand-authored scanner made the SAME reads as `senpi-signals/scripts/sweep.py`
+Observed 2026-09-19: a hand-authored scanner made the SAME reads as the signals engine's `sweep.py`
+(today `strategies/signals-hunter/main/scanners/sweep.py`)
 with the SAME limits — universe top-120, one cohort page, board 500, momentum 50 — and produced
 **zero completed ticks in 2h49m**, while the sweep runs the identical gather in about a minute. The
 limits were never the difference. The sweep budgets its reads; the scanner did not:
@@ -557,7 +558,7 @@ time it fires you have lost the tick and learned nothing about which read hung.
 So, for any scanner that makes more than a couple of reads:
 
 - **Per-read timeout**, with one retry. Pass it to `call_tool` if the host accepts a `timeout=`
-  keyword; `sweep.py`'s `Client.mcp_call` shows how to detect that once and fall back cleanly.
+  keyword; `Client.mcp_call` in that `sweep.py` shows how to detect that once and fall back cleanly.
 - **A whole-tick deadline** checked between reads, comfortably under `timeout_seconds`, so the scan
   returns `[]` on its own terms instead of being killed mid-flight.
 - **Cheap reads first, the expensive lens last.** `sweep.py` reads market and leaderboard before the

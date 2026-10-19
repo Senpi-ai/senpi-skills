@@ -247,8 +247,8 @@ def _by_path(name, path):
 
 
 def _quant_addresses():
-    """quant-desk's copy, loaded by FILE PATH. Never put quant-desk/scripts on sys.path here: it ships a
-    `score.py` that shadows senpi-signals' in the shared CI run (see .github/workflows/tests.yml)."""
+    """quant-desk's copy, loaded by FILE PATH under its own name, so this never puts quant-desk/scripts
+    (which ships a generic `score.py`) on sys.path for the rest of the shared run."""
     return _by_path("quant_desk_addresses_parity", CW_COPIES[2])
 
 
