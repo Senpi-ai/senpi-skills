@@ -50,7 +50,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.48.0"
+VERSION = "1.49.0"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -1173,7 +1173,18 @@ def main(argv=None):
     else:
         addr = a.address.strip()
         if not ADDR_RE.match(addr):
-            print(json.dumps({"error": "not a Hyperliquid address — expected 0x followed by 40 hex characters"})); return 2
+            # The likelier cause is US, not them: an address typed out again from the request instead of
+            # copied loses or doubles a character, and the count then reads as the reader's mistake.
+            # Say what was actually wrong: a bare 40-hex string or one non-hex character is not a length fault.
+            has_0x = addr[:2].lower() == "0x"
+            body = addr[2:] if has_0x else addr
+            got = f"{len(body)} characters" + ("" if has_0x else " and no 0x")
+            if re.search(r"[^0-9a-fA-F]", body):
+                got += ", not all hex"
+            print(json.dumps({"error": "not a Hyperliquid address — expected 0x followed by 40 hex "
+                                       f"characters, got {got}. Before telling the reader their address is "
+                                       "wrong, copy it again from their own message, character for "
+                                       "character, and re-run: retyping it is the likelier cause."})); return 2
         addr = addr.lower()
     # Whose book this is comes from the address book, not from how the request was phrased. An
     # UNKNOWN address is the reader's own (see `resolve_whose`): the flagship path is a trader pasting

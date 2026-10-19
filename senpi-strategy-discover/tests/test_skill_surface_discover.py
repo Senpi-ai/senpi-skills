@@ -9,12 +9,62 @@ import re
 SKILL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "SKILL.md")
 
 
-def test_proven_templates_answer_is_resident():
+def _body():
     text = open(SKILL, encoding="utf-8").read()
     m = re.match(r"^---\n.*?\n---\n", text, re.S)
-    body = text[m.end():] if m else text
-    for needle in ("has no backtest", "mirror-only"):
+    return text[m.end():] if m else text
+
+
+def _golden_rules():
+    """Just the Golden rules section — the part an agent is most likely to actually apply.
+    Whitespace-collapsed, so a needle never fails merely because the prose wrapped."""
+    b = _body()
+    i = b.index("## Golden rules")
+    j = b.index("\n## ", i + 1)
+    return " ".join(b[i:j].split())
+
+
+def test_proven_templates_answer_is_resident():
+    body = " ".join(_body().split())
+    for needle in ("has no live track record", "every live copy of it is a user's own fork",
+                   "a replay over its stated window, not a result",
+                   "No tool reports how other users' forks did"):
         assert needle in body, needle
+    # 16 catalog cards cite a replay, so "has no backtest" was false; and nothing reports other users'
+    # forks, so "give the spread across live forks" asked for a number the agent can only invent.
+    for banned in ("has no backtest", "spread across live forks"):
+        assert banned not in body.lower(), f"re-introduced: {banned!r}"
+
+
+def test_the_mirror_ranking_rule_is_a_GOLDEN_rule_not_a_buried_edge_case():
+    """Measured 2026-10-18: over three days, 38 conversations asked a best-strategy question and were
+    answered with a mirror ranking — and senpi-strategy-discover had RUN in 14 of them. The rule
+    existed the whole time, 350+ lines deep in a Special-paths list. Placement was the defect, so
+    placement is what this pins: it has to sit where the agent reads it, not where we can point at it
+    afterwards."""
+    g = _golden_rules()
+    assert "discovery_get_top_strategies" in g, "the mirror-only ranker must be named in Golden rules"
+    for needle in ("COPY-TRADING wallets only", "bait-and-switch"):
+        assert needle in g, f"{needle!r} must be in Golden rules, not buried further down"
+
+
+def test_no_per_template_pnl_is_explained_by_forking_in_golden_rules():
+    """The reason is the product argument: a template has no track record BECAUSE every deployment is
+    the user's own fork. Stating the conclusion without the cause is what let agents reach for a mirror
+    leaderboard to fill the gap."""
+    g = _golden_rules()
+    for needle in ("no per-template PnL", "their fork"):
+        assert needle in g, f"{needle!r} missing from Golden rules"
+    assert "Never put a single live-performance number beside a template" in g
+
+
+def test_copy_trading_is_not_sold_as_the_one_thing_with_a_track_record():
+    """Removed 2026-10-18. That sentence licensed exactly the answer we do not want: it invited the
+    agent to present mirroring as the evidence-backed option next to an 'unproven' template."""
+    b = " ".join(_body().split()).lower()
+    for banned in ("the one thing on senpi with a track record",
+                   "copy-trading is the one thing"):
+        assert banned not in b, f"re-introduced: {banned!r}"
 
 
 def test_skill_says_the_fee_math_on_micro_specs_and_links_the_public_source():
