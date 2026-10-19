@@ -61,6 +61,10 @@ _CASES = [
     # ── manatee (2026-10-15): the two-sided large-cap mean-reversion inventory, judged at the daily close ──
     ("manatee",   _intent(), "mean reversion large caps long and short inventory"),
     ("manatee",   _intent(), "buy the dip and short the rip in the majors"),
+    # ── relativity-xyz (2026-10-19): cross-sectional dispersion on the xyz board, index regime gate ──
+    ("relativity-xyz", _intent(), "long-short equities dispersion relative-strength"),
+    ("relativity-xyz", _intent(), "commodities indices cross-asset"),
+    ("relativity-xyz", _intent(), "relative-strength leaders-laggards"),
     # ── concentrated signals variant (2026-09-25): one slot, score floor 85, 10x ──
     ("puffin",   _intent(), "one signal at a time all in high conviction"),
     ("puffin",   _intent(), "concentrated single position high leverage"),

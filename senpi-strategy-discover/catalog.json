@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-10-18",
+  "_updated": "2026-10-19",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -3969,6 +3969,69 @@
       "sort_order": 12
     },
     {
+      "id": "relativity-xyz",
+      "name": "Relativity XYZ — Cross-Asset Dispersion",
+      "emoji": "🌌",
+      "varies": null,
+      "tagline": "Ranks every liquid name on Senpi's stock, commodity and index board by how much it is beating or lagging the rest, then buys the leaders and sells the laggards — with the S&P's own trend deciding which side it is allowed to take. Four positions, leverage scaled to conviction up to 10x, closed only by a profit ratchet or a stop. Fast and aggressive.",
+      "belief_plain": "On any given day some names run and others lag, and that spread is tradeable on its own — you do not need a view on the market's direction, only on who is winning relative to everyone else. Relativity XYZ measures that spread across stocks, commodities and indices every five minutes and takes the other side of it: long the strongest, short the weakest. What keeps it out of trouble is the index gate — when the S&P's last four-hour bar is falling it will only short, when it is rising it will only go long, and it only takes both sides when the index is quiet. The risk is real and worth saying plainly: this runs up to 10x leverage on four positions at once, its stop is tight (a 1.5–3% move against a position closes it), and it is built to trade often rather than to wait. It is an aggressive strategy, not a core holding. One number to know before funding it: trading this often at this leverage costs roughly 0.75% of the account per day in fees at 5x, and up to about 1.5% at 10x, if it uses its full daily allowance — so the positions have to beat that before anything is left over.",
+      "version": "1.0.0",
+      "thesis": "Promoted from a live fork rather than a backtest, and the window is short: four days on one wallet (15–19 October 2026), +17.3% on $800 funded, with roughly half of that arriving on the final day and most of it still open at the time of measurement. That is encouraging and it is not evidence of an edge — four days cannot distinguish a working rule from a good tape, and in that window the book was four correlated technology longs rather than the balanced long/short spread the design describes. Treat it as a strategy worth forward-testing at small size. The mechanism is sound and simple: dispersion plus a regime filter, pure price action, no leaderboard and no smart-money proxy. There is no per-template performance record and there cannot be one — every deployment becomes the user's own fork, with their own universe, sizing and exit ladder.",
+      "tags": [
+        "xyz",
+        "equities",
+        "stocks",
+        "commodities",
+        "indices",
+        "non-crypto",
+        "cross-asset",
+        "dispersion",
+        "spread",
+        "relative-strength",
+        "leaders-laggards",
+        "winners-losers",
+        "cross-sectional",
+        "regime-aware",
+        "regime-gated",
+        "sp500",
+        "index-gated",
+        "long-short",
+        "momentum",
+        "aggressive",
+        "high-leverage",
+        "dsl-only",
+        "no-close"
+      ],
+      "group": "multi-asset-universe",
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural / Neutral",
+      "sub_style": "regime_aware_dispersion",
+      "sub_style_label": "Trades the SPREAD between winners and losers rather than the market's direction — long the strongest names, short the weakest — with a benchmark's own trend deciding which side it may take.",
+      "asset_classes": [
+        "xyz_equities",
+        "commodities",
+        "indices"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "intraday",
+      "cadence_seconds": 300,
+      "min_budget": 300,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 4,
+      "branch": "main",
+      "sort_order": 13
+    },
+    {
       "id": "rotator",
       "name": "Rotator — Scheduled Conviction Rebalance",
       "emoji": "🔁",
@@ -4014,7 +4077,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 13
+      "sort_order": 14
     },
     {
       "id": "salmon",
@@ -4060,7 +4123,7 @@
       ],
       "max_slots": 4,
       "branch": "main",
-      "sort_order": 14
+      "sort_order": 15
     },
     {
       "id": "starling",
@@ -4111,7 +4174,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 15
+      "sort_order": 16
     },
     {
       "id": "swift",
@@ -4163,7 +4226,7 @@
       ],
       "max_slots": 4,
       "branch": "main",
-      "sort_order": 16
+      "sort_order": 17
     },
     {
       "id": "viper",
@@ -4212,7 +4275,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 17
+      "sort_order": 18
     },
     {
       "id": "weaver",
@@ -4265,7 +4328,7 @@
       ],
       "max_slots": 5,
       "branch": "main",
-      "sort_order": 18
+      "sort_order": 19
     },
     {
       "id": "asia-ai",
