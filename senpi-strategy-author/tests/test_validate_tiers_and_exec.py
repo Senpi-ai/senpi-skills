@@ -68,9 +68,10 @@ def test_an_order_type_the_runtime_does_not_know_is_an_error_naming_the_fallback
     assert len(errs) == 1 and "falls back to MARKET" in errs[0] and "'fee_optimized'" in errs[0]
 
 
-def test_a_limit_open_is_an_error_the_runtime_cannot_price(tmp_path):
+def test_a_limit_open_is_an_error_that_names_the_market_fallback(tmp_path):
     errs = _exec_errors(_package(tmp_path, order_type="LIMIT", options=False))
-    assert len(errs) == 1 and "limitPrice" in errs[0]
+    assert len(errs) == 1 and "limitPrice" in errs[0] and "runs the entry as MARKET" in errs[0]
+    assert "venue rejects every open" in errs[0], "boxes on a runtime before #394 still get the rejection"
 
 
 def test_fee_options_under_market_warn_and_do_not_error(tmp_path):

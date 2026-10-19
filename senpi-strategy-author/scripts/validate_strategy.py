@@ -679,19 +679,20 @@ def validate(pkg: Path) -> list:
                 # checked nowhere before the executor — and the executor does not refuse an unknown one,
                 # it falls back to MARKET with a warning: full taker fees on every entry while the recipe
                 # says otherwise. A LIMIT open needs a price the runtime's open action never supplies.
-                if ot is not None and (not isinstance(ot, str) or ot not in OPEN_ORDER_TYPES):
+                if ot == "LIMIT":
+                    errs.append(
+                        f"instance {name}: [exec] action {aname!r} opens with `params.order_type: LIMIT` — the "
+                        f"runtime's open action never supplies the `limitPrice` a LIMIT order needs. A runtime "
+                        f"with senpi-trading-runtime#394 runs the entry as MARKET instead (full taker fees on "
+                        f"every entry while the recipe says otherwise); an older one sends it unpriced and the "
+                        f"venue rejects every open. Use `FEE_OPTIMIZED_LIMIT` for a maker-first entry, or `MARKET`")
+                elif ot is not None and (not isinstance(ot, str) or ot not in OPEN_ORDER_TYPES):
                     errs.append(
                         f"instance {name}: [exec] action {aname!r} has `params.order_type: {ot!r}` — not an "
                         f"order type the runtime knows ({', '.join(OPEN_ORDER_TYPES)}). It would not fail: the "
                         f"runtime logs a warning and falls back to MARKET, so every entry pays full taker fees "
                         f"while the recipe says otherwise. Write `FEE_OPTIMIZED_LIMIT` (a maker window, then "
                         f"taker) or `MARKET`")
-                elif ot == "LIMIT":
-                    errs.append(
-                        f"instance {name}: [exec] action {aname!r} opens with `params.order_type: LIMIT` — a "
-                        f"LIMIT order needs a `limitPrice`, and the runtime's open action never supplies one, "
-                        f"so the order cannot be placed as written. Use `FEE_OPTIMIZED_LIMIT` for a maker-first "
-                        f"entry, or `MARKET`")
                 folo = params.get("fee_optimized_limit_options")
                 if ot == "FEE_OPTIMIZED_LIMIT" and isinstance(folo, dict) and folo.get("ensure_execution_as_taker") is False:
                     errs.append(
@@ -833,8 +834,8 @@ WARN_STOP_PRICE_PCT = 1.0
 # direction, took the money, and nothing said so before the user funded it.
 WARN_FEE_PCT_PER_DAY = 0.5
 # The order types the runtime's open path accepts (its constants/order-types.ts VALID_OPEN_ORDER_TYPES).
-# Anything else is not refused by the runtime: it logs a warning and falls back to MARKET.
-OPEN_ORDER_TYPES = ("MARKET", "LIMIT", "FEE_OPTIMIZED_LIMIT")
+# Anything else is not refused by the runtime: it logs a warning and falls back to MARKET (`LIMIT` included).
+OPEN_ORDER_TYPES = ("MARKET", "FEE_OPTIMIZED_LIMIT")
 FEE_RATE_PER_SIDE = 0.0005
 
 _PRESETS_FILE = Path(__file__).resolve().parent.parent / "references" / "dsl-presets.yaml"
