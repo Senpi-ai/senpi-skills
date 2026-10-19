@@ -682,9 +682,10 @@ def validate(pkg: Path) -> list:
                 if ot == "LIMIT":
                     errs.append(
                         f"instance {name}: [exec] action {aname!r} opens with `params.order_type: LIMIT` — the "
-                        f"runtime's open action never supplies the `limitPrice` a LIMIT order needs, so it runs "
-                        f"the entry as MARKET instead: full taker fees on every entry while the recipe says "
-                        f"otherwise. Use `FEE_OPTIMIZED_LIMIT` for a maker-first entry, or `MARKET`")
+                        f"runtime's open action never supplies the `limitPrice` a LIMIT order needs. A runtime "
+                        f"with senpi-trading-runtime#394 runs the entry as MARKET instead (full taker fees on "
+                        f"every entry while the recipe says otherwise); an older one sends it unpriced and the "
+                        f"venue rejects every open. Use `FEE_OPTIMIZED_LIMIT` for a maker-first entry, or `MARKET`")
                 elif ot is not None and (not isinstance(ot, str) or ot not in OPEN_ORDER_TYPES):
                     errs.append(
                         f"instance {name}: [exec] action {aname!r} has `params.order_type: {ot!r}` — not an "
