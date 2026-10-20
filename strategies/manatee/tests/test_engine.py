@@ -157,10 +157,38 @@ def test_scan_opens_both_sides_on_the_closed_bar_and_skips_the_band_and_delisted
 
 
 def test_scan_acts_once_per_closed_bar():
+    """Once per bar for a name that actually TRADED. The book is shown held from the second tick on:
+    with an empty book the emit would read as never-opened and earn its one retry (see
+    test_an_emit_the_action_layer_never_opened_is_retried_once_in_the_same_bar)."""
     st = _State()
     assert len(scan.scan(INPUTS, _ctx({}, {"DOT": 94.0}, st))) == 1
-    assert scan.scan(INPUTS, _ctx({}, {"DOT": 94.0}, st)) == []                   # same closed bar: already acted
-    assert len(scan.scan(INPUTS, _ctx({}, {"DOT": 94.0}, st, bar_t=21))) == 1     # a new closed bar: judged again
+    held = {"DOT": (20, 94.0)}                                                       # the emit filled
+    assert scan.scan(INPUTS, _ctx(held, {"DOT": 94.0}, st)) == []                    # same closed bar: already acted
+    assert len(scan.scan(INPUTS, _ctx(held, {"DOT": 91.0}, st, bar_t=21))) == 1      # a new closed bar: judged again
+
+
+def test_an_emit_the_action_layer_never_opened_is_retried_once_in_the_same_bar():
+    """`acted` is marked on EMIT, not on fill. A clearinghouse blip between emit and open would
+    otherwise cost the whole daily bar (the WLD miss, 2026-10-20)."""
+    st = _State()
+    assert len(scan.scan(INPUTS, _ctx({}, {"DOT": 94.0}, st))) == 1    # emitted
+    assert st.last()["acted"].get("DOT") is not None
+    # the open never happened: DOT is still absent from the book on the next tick
+    assert len(scan.scan(INPUTS, _ctx({}, {"DOT": 94.0}, st))) == 1    # one more attempt
+    assert scan.scan(INPUTS, _ctx({}, {"DOT": 94.0}, st)) == []        # and only one
+    assert st.last()["retried"].get("DOT") == st.last()["acted"].get("DOT")
+
+
+def test_a_name_that_filled_and_was_harvested_is_not_re_entered_in_the_same_bar():
+    """The retry must never fire for a position that actually traded: re-entering inside one daily
+    bar is the 4h-sampled behaviour the replay showed loses money after fees."""
+    st = _State()
+    assert len(scan.scan(INPUTS, _ctx({}, {"DOT": 94.0}, st))) == 1          # emitted
+    assert scan.scan(INPUTS, _ctx({"DOT": (20, 94.0)}, {"DOT": 94.0}, st)) == []   # filled: on the book
+    assert st.last()["entries"]["DOT"]["filled"] is True
+    # the DSL harvests it and DOT leaves the book, still inside the same closed bar
+    assert scan.scan(INPUTS, _ctx({}, {"DOT": 94.0}, st)) == []
+    assert st.last()["acted"].get("DOT") is not None                         # the bar stays spent
 
 
 def test_scan_adds_once_per_bar_only_while_the_move_deepens_against_an_under_water_position():
