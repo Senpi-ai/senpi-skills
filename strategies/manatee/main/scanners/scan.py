@@ -13,6 +13,9 @@ of withdrawable.
 THE DAILY CLOCK: the scanner ticks every few minutes but acts on a name at most once per closed
 daily bar (state `acted[name] = that bar's open time`), so the first tick after 00:00 UTC does the
 day's work and the rest of the day is quiet. The in-progress bar (the MCP's last row) is dropped.
+One exception: `acted` is marked on EMIT, so a signal the action layer never opened would spend
+the bar on a position that does not exist. A name never once seen on the book gets exactly ONE
+more attempt inside the same bar; a name that filled and was harvested does not.
 
 FREE-MARGIN GATE: every signal in one tick is sized off the same balance read, so the scanner reads
 free margin (withdrawable) once, prices each clip as the runtime will ((marginPct/100) x withdrawable
@@ -215,7 +218,8 @@ def scan(inputs, ctx):
 
     st = (ctx.state.last() or {}) if ctx.state else {}
     acted = dict(st.get("acted", {}) or {})       # bare -> key of the closed bar already acted on
-    entries = dict(st.get("entries", {}) or {})   # bare -> {px, adds, side, t}
+    entries = dict(st.get("entries", {}) or {})   # bare -> {px, adds, side, t, filled?}
+    retried = dict(st.get("retried", {}) or {})   # bare -> bar key whose unfilled emit was retried
 
     acct = _account(ctx)
     if acct is None:
@@ -244,9 +248,27 @@ def scan(inputs, ctx):
     universe += [spelling.get(h, (h, 0.0))[0] for h in held if h not in {_bare(n) for n in universe}]
     if not universe:
         print("[manatee.scan] no instrument clears the OI floor — nothing to trade", file=sys.stderr)
-    for bare in list(entries):            # a name that is no longer held starts fresh next time
-        if bare not in held:
-            del entries[bare]
+    # `acted` is marked when a signal is EMITTED, not when it fills. If the action layer never opened
+    # the position (clearinghouse unreadable, order refused), the bar would otherwise be spent on a
+    # position that does not exist — and this scanner judges a name once per CLOSED DAILY bar, so a
+    # single failed open costs the whole day. Un-mark it for ONE more attempt, but only for a name
+    # never once observed on the book: a name that actually traded and was harvested must stay spent,
+    # because re-entering inside the same bar is the 4h-sampled behaviour the replay showed loses
+    # money after fees. The retry key is held OUTSIDE `entries` because PASS 2 overwrites that record
+    # on re-emit, which would wipe an in-record counter and retry the same name forever.
+    for bare in list(entries):
+        rec = entries[bare]
+        if bare in held:
+            rec["filled"] = True              # observed on the book at least once
+            continue
+        if rec.get("filled") or int(rec.get("adds", 0)) > 0:
+            del entries[bare]                 # it traded: this bar stays spent
+            continue
+        bar = acted.get(bare)
+        if bar is not None and retried.get(bare) != bar:
+            retried[bare] = bar               # exactly one retry per name per closed bar
+            acted.pop(bare, None)
+        del entries[bare]
 
     # one clip, expressed against the SAME base as the cap: marginPct is a share of withdrawable,
     # the cap is a share of account value, and withdrawable shrinks as the book fills.
@@ -326,7 +348,7 @@ def scan(inputs, ctx):
 
     if ctx.state is not None:
         try:
-            ctx.state.append({"acted": acted, "entries": entries})
+            ctx.state.append({"acted": acted, "entries": entries, "retried": retried})
         except Exception as exc:  # noqa: BLE001
             print(f"[manatee.scan] state append failed: {exc!r}", file=sys.stderr)
     return out
