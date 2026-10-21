@@ -31,7 +31,7 @@ Two consequences worth saying out loud, because both surprise people:
 
 1. The floor tracks the **high-water** ROE — the best the trade ever reached — not where it is now.
 2. Below the first `trigger_pct` nothing is locked; the only floor is `phase1.max_loss_pct`
-   (`phase1.enabled: false` fleet-wide, so the trailing floor does not apply).
+   (`phase1.enabled: false` fleet-wide, so the trailing floor does not apply; `max_loss_pct` is still an exchange stop from entry).
 
 ## The template
 
