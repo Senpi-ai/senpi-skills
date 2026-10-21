@@ -65,6 +65,10 @@ blind to the open positions is the core failure this skill exists to prevent.
 
 ## Guardrail 1b — give-back, worked
 
+Hold-to-now is hindsight — unknowable at exit time. **High-water is not:** it happened *during* the hold, and
+the floor that failed to capture it is a config choice. So give-back is fair game where "it kept going up"
+is not.
+
 The AVAX trade peaked
 **+20.56% ROE** and exited **+7.67%** — kept 37%.
 
@@ -80,6 +84,8 @@ to apply.
 
 ## Guardrail 3 — account value is not P&L
 
+The engine deliberately emits **no** per-week or projection field.
+
 **Account value ≠ P&L — never narrate the value curve as trades.** The engine sources closed trades from on-chain fills, so you should not need `strategy_get_pnl_and_account_value_history` for a trade review at all.
 
 ## Guardrail 4 — no chasing, worked
@@ -87,6 +93,11 @@ to apply.
 "HYPE ran +18% and you weren't in it"
 is only interesting if HYPE is *in the strategy's mandate* and the miss reveals a gate that's too tight —
 otherwise it's just an asset the strategy was never designed to trade.
+
+## Guardrail 5 — judged against its own mandate
+
+A market-neutral book "underperforming" a raging bull tape is doing its
+job.
 
 ## Guardrail 6 — honest sourcing: the sourcing and attribution rules in full
 

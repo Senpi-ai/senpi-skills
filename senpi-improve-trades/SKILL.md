@@ -43,7 +43,7 @@ binds on a follow-up; when a row names a reference, read it first.
 | make more gains | `strategies` + `telemetry` | `guardrails.md` §2–3 |
 | shaken out, how my exits fire, why did it close, what is locked now | `strategies` + `telemetry`; `senpi dsl closes` / `inspect` (guardrail 6b) | `exit-records.md`, `sources.md` |
 | what my limits blocked | `telemetry` | `output-shape.md` |
-| where am I leaking, fees, maker vs taker | `telemetry` | hard rule 0; `output-shape.md`, `sources.md` |
+| where am I leaking, fees, maker vs taker | `telemetry` | `guardrails.md` hard rule 0; `output-shape.md`, `sources.md` |
 | walk me through my [asset] trade | *(none — `explain` CLI)* | `exit-records.md` |
 | why is [strategy] losing | `strategies` + `telemetry` | `guardrails.md` §8; guardrail 5: judge it against its own mandate, all its wallets together, flat-by-design is not a loss |
 | nothing to review, an empty result | read `meta.book_state` first | `no_strategies` → `senpi-market-pulse`, then `senpi-strategy-discover`; no critique of an empty account ("Nothing to review?" below) |
@@ -114,9 +114,7 @@ trades by hand. It is their claim: call them "your wallets" or "the wallets you 
 imply Senpi checked who controls them. The engine adds every one to the review set and returns it in
 `external_wallets[]` (the
 `timing` step and `all`) — its own read, never folded into `pnl_summary`, `strategies[]`,
-`dsl_close_reason_mix`, `timing_summary` or `leaks`, which stay Senpi-only. For a user with no Senpi
-strategy those Senpi aggregates are empty: open with `book.rows` as always (see "One book"), and the
-detail is `external_wallets[]`.
+`dsl_close_reason_mix`, `timing_summary` or `leaks`, which stay Senpi-only.
 
 - **Access line, verbatim** — the answer to "can you close / trade / set a stop on it":
   > Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it.
@@ -182,12 +180,15 @@ The detailed guardrails below explain each; these five are the floor.
 > "review my trades / did I sell too early / what did
 > I miss / master my week / how could I make more gains" question, run this engine **before** reaching for
 > raw `discovery_get_trader_history` / `market_get_prices` / `execution_get_closed_position_details`. Those
-> return un-attributed dumps that invite exactly the failure modes below. And **never use `audit_*`** for closed trades — those tools are
+> return un-attributed dumps that invite exactly the failure modes below (skipping the current-price
+> comparison, guessing the exit mechanism). And **never use `audit_*`** for closed trades — those tools are
 > deprecated; the engine sources closed trades from `discovery_get_trader_history`.
 
 ## Your wallets — unknown reads and fix depth
 
-The long tail of "Your wallets" above.
+The long tail of "Your wallets" above. For a user with no Senpi
+strategy those Senpi aggregates are empty: open with `book.rows` as always (see "One book"), and the
+detail is `external_wallets[]`.
 
 - **Unknown is never empty.**
   - `external_wallets: null` (`meta.external_wallets_status: "unavailable"`) → "I couldn't load your
@@ -253,8 +254,8 @@ strategy."* Then:
 
 ## Quick actions — the data and the lever per intent
 
-Each intent's step(s) are in the Router; the engine output that answers each is in
-`references/output-shape.md`. This is the **actionable lever** (the fix) per intent.
+The **actionable lever** (the fix) per intent; its step(s) are in the Router, its data in
+`references/output-shape.md`.
 
 | Intent (what the user asks) | Actionable lever |
 |---|---|
@@ -408,8 +409,8 @@ These are non-negotiable. The live failure behind each, and the worked examples:
 
 ### 1. TOTAL PnL leads; `if_held` is NEUTRAL context, symmetric, never the verdict
 
-**Lead with `pnl_summary.total`** (realized closed + unrealized open) — NOT `realized_pnl_total` alone (hard
-rule 1, including the "at least $X" floor). Then give the aggregate exit counts (`timing_summary`: `exits_ahead` / `exits_held_higher` / flat). Only after
+**Lead with `pnl_summary.total`** (realized closed + unrealized open) — NOT `realized_pnl_total` alone.
+(Hard rule 1 has the "at least $X" floor.) Then give the aggregate exit counts (`timing_summary`: `exits_ahead` / `exits_held_higher` / flat). Only after
 the aggregate may you mention a single trade, and only as *one data point*, never the headline.
 
 `if_held_delta_usd` / `if_all_reclosed_now_total` are **NEUTRAL context, symmetric both ways — never a grade:**
@@ -429,15 +430,11 @@ about current OPEN positions or live drawdown; don't read it as "the book is ble
 
 ### 1b. Peak-to-exit GIVE-BACK is the counterfactual that *is* diagnostic
 
-Hold-to-now is hindsight — unknowable at exit time. **High-water is not:** it happened *during* the hold, and
-the floor that failed to capture it is a config choice. So give-back is fair game where "it kept going up"
-is not.
-
 Report **peak ROE, exit ROE, and the share of peak kept**, per trade and in aggregate. Habitually keeping a small share of peak means a lock too
 low or a first rung arming too late — a named lever.
 
-Keep **floor vs fill** separate: the gap between the floor and the fill is execution slippage, not
-calibration.
+Keep **floor vs fill** separate: on AVAX the floor was +8.23% and it filled +7.67%, which is 0.55 ROE points of
+execution slippage, not calibration.
 
 ### 2. It's the strategy, not you — fixes route to the strategy config
 
@@ -449,8 +446,10 @@ say "you should have held" or "you sold too early." When the counterfactual favo
 lever — IF you decide to act at all — is the **strategy config** (the DSL preset / entry gates), reported in
 strategy terms; `held_higher` is not itself a defect.
 The engine gives you the exact lever: each trade's `exit_reason` (which DSL tier or hard stop fired) and each
-strategy's `dsl` ladder (`hard_stop_roe_pct`, `arm_at_roe_pct`, the `tiers[]`). Route the fix to
-**`senpi-strategy-author` / `senpi-strategy-ops`** to apply. Frame every improvement as a strategy tune, never a user scolding.
+strategy's `dsl` ladder (`hard_stop_roe_pct`, `arm_at_roe_pct`, the `tiers[]`). A fix reads like *"Kodiak's
+SOL exit locked at tier 2 (+41% high-water) then trailed out; if you want it to ride further, that's the
+phase-2 tier ladder, not anything you did"* — and it routes to **`senpi-strategy-author` / `senpi-strategy-ops`**
+to apply. Frame every improvement as a strategy tune, never a user scolding.
 
 **Config vs live state — do NOT confuse "not armed yet" with "not configured / unprotected."** Judge what a
 strategy HAS from its **`dsl` ladder config** (`profile.dsl`: `hard_stop_roe_pct`, `arm_at_roe_pct`, `tiers[]`),
@@ -479,7 +478,7 @@ figure of any kind. The only dollar figures you may state are:
 - the engine's **counterfactuals** (`if_held_delta_usd`, `if_all_reclosed_now_total`) — clearly labeled as
   *"if held to now"* context.
 
-The engine deliberately emits **no** per-week or projection field. If you feel the urge to annualize, weekly-ize,
+If you feel the urge to annualize, weekly-ize,
 or forecast a dollar figure, stop — that urge is the exact failure mode this skill exists to kill.
 
 **Account value ≠ P&L — never narrate the value curve as trades.** The engine sources closed trades from on-chain fills, so you should not need `strategy_get_pnl_and_account_value_history` for a trade review at all. If you ever look at it: `accountValueHistory` is a series of account **snapshots**, not trades — never narrate "$135 → $133 → $143 → …" as individual round-trips. A curve ending at **`$0` after a `strategy_close` / `strategy_withdraw_funds` is capital RETURNED to the main wallet (a withdrawal), not a loss** — the realized result is realized PnL, not the value drop. If realized PnL (e.g. −$21) and the value drop (e.g. −$175) disagree, the difference **is the withdrawal** — reconcile, never report the drop as a loss.
@@ -496,8 +495,7 @@ otherwise it's just an asset the strategy was never designed to trade.
 ### 5. Inherit the portfolio rules — mandate, multi-wallet, idle-by-design
 
 - **Judge each strategy against its OWN mandate** (`strategies[].mandate`, from the deployed `runtime.yaml`),
-  not a generic momentum benchmark. A market-neutral book "underperforming" a raging bull tape is doing its
-  job. Realized PnL is *evidence for the mandate verdict*, not the headline.
+  not a generic momentum benchmark. Realized PnL is *evidence for the mandate verdict*, not the headline.
 - **A strategy is ALL its wallets.** A multi-wallet strategy (long+short, core+ballast, multi-sleeve) is ONE
   strategy — **never** recommend closing / repurposing a single sleeve ("close the duplicate wallet"). One
   sleeve of a long/short book is a **naked directional position**, the opposite of the design.
@@ -548,8 +546,8 @@ Translate `closeReason`, never paste the enum: `exchange_sl_hit`, `dsl_breach`, 
 phase-scoped.** State the configured
 interval and the actual hold, or the reason is not explained: *"held 5.03h against a 300-minute
 `weak_peak_cut` with `min_value` 5.0 — it never cleared +5% ROE in that window, so the slot was freed."*
-Never say it "detected the position rolling over" or "cut early before the hard stop" — that invents a
-mechanism.
+Saying it "detected the position rolling over" or "cut early before the hard stop" invents a mechanism —
+a real review did exactly that on a position whose hold time (5.03h vs a 300m timer) was the giveaway.
 
 **A LIVE position — `senpi dsl inspect <asset> --json`** returns the full `DslState`, which already holds
 every number users ask for. Quote these rather than computing anything: `floorPrice` / `tierFloorPrice`
@@ -558,6 +556,10 @@ every number users ask for. Quote these rather than computing anything: `floorPr
 
 Two more: **`senpi dsl positions --json`** (what is under DSL management at all — the answer to "is this
 protected?") and **`senpi explain <asset>`** (the stitched opened → dsl → closed narrative).
+
+**If the gateway is down**, `senpi dsl closes` exits non-zero and prints *"start it with: openclaw gateway
+run"*. **Say that.** An unreadable record is an unreadable record — do not fall back to guessing a mechanism
+from fill shapes and present it as fact.
 
 **If the record cannot be read, say so.** Fill shapes corroborate, they never substitute: a burst of
 `crossed` close fills at one timestamp fits `exchange_sl_hit`, but a maker fill shows the **order type, not
@@ -632,7 +634,8 @@ manufacture a setup/config critique to seem useful.**
   naked"). Authored + template strategies **ship a DSL exit by construction** (rules 2 & 8) — don't tell the
   user to "verify" protection that exists by design, and never pair it with "until you manually exit."
 - **Never give generic execution / config-tuning advice** — slippage, market-vs-limit, leverage. It's out of
-  scope for a *trade review*, and nudging toward MARKET / higher-slippage fills **raises fees**. `slippage: 0`
+  scope for a *trade review*, it second-guesses a strategy that was just set up, and nudging toward MARKET /
+  higher-slippage fills **raises fees** — the biggest killer of returns. `slippage: 0`
   is not a defect to "fix." If the user explicitly asks about execution, hand it to `senpi-strategy-author` / `senpi-strategy-ops`;
   don't free-style a number.
 
@@ -643,10 +646,8 @@ doing right now."* **Improve-trades answers *"how did my closed trades do, what 
 I get better."*** Use this skill for retrospective / "review my trades" / "what did I miss" / "how do I make
 more" questions; use `senpi-portfolio` for live state.
 
-- **`senpi-market-pulse`** → the movers narrative (what moved this window and why). The engine's
-  `book_vs_market.top_movers` is the hook; market-pulse is the depth.
-- **`senpi-smart-money`** → the whale read ("compare my trades to the best whales"). The engine surfaces
-  `smart_money_pct` per mover; smart-money does the trader-level comparison.
+- **`senpi-market-pulse`** → the movers narrative (what moved this window and why).
+- **`senpi-smart-money`** → the whale read ("compare my trades to the best whales").
 - **`senpi-portfolio`** → live positions, balances, and the current mandate/DSL posture.
 
 Don't re-implement these — call them and weave their output into the four-part contract below.

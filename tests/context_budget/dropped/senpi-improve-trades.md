@@ -1,63 +1,67 @@
 # senpi-improve-trades 1.20.1: dropped, reworded and moved-out-of-core sentences
 
 The restructure moved SKILL.md from 63,956 (1.19.1) to 54,319 (1.20.0) est chars; 1.20.1 puts rules back in
-core word for word and moves more of them into the 5.7 follow-up replay, at 55,435. Every other sentence of
+core word for word and moves more of them into the 5.7 follow-up replay, at 55,569. Every other sentence of
 the 1.19.1 SKILL.md is still in `SKILL.md` or moved verbatim to a `references/*.md` file (the conservation
 script checks this). This lists what was reworded or split, every imperative that left core, and where each
 rule sits on a 5.7 follow-up, so reviewers need not read the diff.
 
 ## Reworded (the old wording no longer exists)
 
+Each entry says why the base wording could not stay. Rules got their base wording back in 1.20.1 (see
+"Imperatives that left core"); what is left here is either not a rule, or a rule whose words are unchanged
+except a pointer that would now point at nothing.
+
+Not rules (headings, descriptions, justification and examples):
+
 - "Quick actions this skill handles" → heading is now "Quick actions — the data and the lever per intent".
   Its Step(s) column moved to the Router at the top; its Data column moved to `references/output-shape.md`.
 - "Each intent maps to the **minimal engine step(s)** to run (fastest for a narrow ask — see "Run it in
-  steps"), a specific engine output (its data), and a specific **actionable lever** (the fix)." → split into
-  three places, so the sentence now says the steps are in the Router and the data in output-shape.md. Its
-  second sentence ("Run only the step(s) the ask needs; route every fix through the depth choice at the end —
-  never auto-act.") is kept verbatim, in the Router.
-- "**For a NARROW ask, run only the minimal step(s)** from the Quick-actions "Step(s)" column (e.g." → "from
-  the Router (e.g." because that column moved there.
+  steps"), a specific engine output (its data), and a specific **actionable lever** (the fix)." → a
+  description of the table, split into three places: the intro now says the steps are in the Router and the
+  data in output-shape.md. Its second sentence ("Run only the step(s) the ask needs; route every fix through
+  the depth choice at the end — never auto-act.") is kept verbatim, in the Router.
 - "What the engine gives you" (heading) and "**Full field-by-field catalog + the `exit_reason.terminal` enum:
   [`references/output-shape.md`](references/output-shape.md).**" → the paragraph moved to output-shape.md
-  "Reading order" (it summarizes rules that stay in core: One book, hard rule 1, the outlier sample). The link
-  now reads "below".
-- "Don't re-implement these — call them and weave their output into the four-part contract above." →
-  "below": the output contract now follows Composition, at the end of the file.
-- Guardrail 1b: "Keep **floor vs fill** separate: on AVAX the floor was +8.23% and it filled +7.67%, which is
-  0.55 ROE points of execution slippage, not calibration." → core keeps the rule without the numbers ("the
-  gap between the floor and the fill is execution slippage, not calibration"). The AVAX version is in
-  guardrails.md.
-- Guardrail 2: "A fix reads like *"Kodiak's SOL exit locked at tier 2 …"* — and it routes to
-  **`senpi-strategy-author` / `senpi-strategy-ops`** to apply." → core keeps "Route the fix to
-  `senpi-strategy-author` / `senpi-strategy-ops` to apply." The Kodiak example is in guardrails.md.
-- Guardrail 1: the "Degraded-read honesty" paragraph moved (it restated hard rule 1 word for word in meaning).
-  Core now says "NOT `realized_pnl_total` alone (hard rule 1, including the "at least $X" floor)".
+  "Reading order" (a summary of rules that stay in core, see "Rules stated twice" below).
 - Guardrail 6b: the `senpi dsl closes` field table became one sentence naming the same three fields, and the
-  `DslState` field list became one sentence naming the same fields. Full tables are in exit-records.md.
-  "Translate `closeReason`, never paste the enum:" is word for word again (1.20.1) and is now followed by
-  the five reasons inline and a pointer to exit-records.md for the meanings. "**The three above are TIMERS, not reactions to price, and none is
-  phase-scoped.**" now names the three (`hard_timeout`, `weak_peak_cut`, `dead_weight_cut`), because the list
-  above it moved. "Saying it "detected the position rolling over" or "cut early before the hard stop" invents a
-  mechanism — a real review did exactly that…" → core says "Never say it "detected the position rolling over"
-  or "cut early before the hard stop" — that invents a mechanism." The incident is in exit-records.md.
-- Guardrail 8: "This is the split that stops the worst live-run failure." moved to guardrails.md. The next
-  sentence ("The engine enumerates strategies of *all* statuses …") is unchanged.
+  `DslState` field list became one sentence naming the same fields (glossary; full tables in
+  exit-records.md). "Translate `closeReason`, never paste the enum:" is word for word and is followed by the
+  five reasons inline (a test keeps them equal to exit-records.md's vocabulary) and a pointer to
+  exit-records.md for the meanings.
+- Guardrail 8: "This is the split that stops the worst live-run failure." moved to guardrails.md
+  (rationale). The next sentence ("The engine enumerates strategies of *all* statuses …") is unchanged.
 - "The nine guardrails" intro: "Each fixes a real failure from live agent responses to these prompts." moved
-  to guardrails.md. Core now says "The live failure behind each, and the worked examples:
+  to guardrails.md (rationale). Core now says "The live failure behind each, and the worked examples:
   `references/guardrails.md`."
 - "The one pending upgrade — authoritative fee $" section: its imperative sentence stays in core verbatim
   ("That per-order join is the future upgrade; it's intentionally **not** called per-trade (rate-limit risk), so
   until it's wired, quote the maker ratio as a fee-tier signal, never a fee dollar total.") with
   "`execution_quality` reports the maker-vs-taker **rate** today, not fee dollars." under "**Fee $:**" in Quick
-  actions. The rest of the section is in sources.md.
+  actions. The rest of the section (engine notes) is in sources.md.
 - Sources: "**Telemetry is read ONLY from the current book.** … A closed strategy's exit reasons therefore come
   from the ratchet record or honest `UNKNOWN` …" kept; the CPU-starvation explanation between them moved to
   sources.md, so "therefore" now follows the bold rule directly.
-
 - Hard rule 0b "The venue caps leverage per asset and **clips silently**: `strategy_create_custom_strategy`'s
   own schema warns "EXCEEDING THE ASSET CAP DOES NOT ERROR", so a strategy asking `default_leverage: 10` opens
-  PONS at **3x**." → core keeps the rule and its clause ("**clips silently**: `default_leverage` is a request,
-  not what opened"); the schema quote and the PONS example are verbatim in `guardrails.md` ("Hard rule 0b").
+  PONS at **3x**." → the rule is "**Never take leverage from the config — read what the position ACTUALLY
+  opened at.**", unchanged. This sentence is its justification and example: core keeps the one clause
+  ("**clips silently**: `default_leverage` is a request, not what opened", CLAUDE.md's one-clause rule, in the
+  replay); the schema quote and the PONS example are verbatim in `guardrails.md` ("Hard rule 0b").
+
+Rules whose words are unchanged except a pointer (the base pointer names something that moved):
+
+- "**For a NARROW ask, run only the minimal step(s)** from the Quick-actions "Step(s)" column (e.g." → "from
+  the Router (e.g." because that column moved there.
+- "Don't re-implement these — call them and weave their output into the four-part contract above." →
+  "below": the output contract now follows Composition, at the end of the file.
+- Guardrail 6b: "**The three above are TIMERS, not reactions to price, and none is phase-scoped.**" →
+  "**`hard_timeout`, `weak_peak_cut` and `dead_weight_cut` are TIMERS, …**": the list "above" is the
+  glossary that moved to exit-records.md, so core names the three.
+- Guardrail 1: "**Lead with `pnl_summary.total`** (realized closed + unrealized open) — NOT
+  `realized_pnl_total` alone." is word for word again (1.20.1); the pointer "(Hard rule 1 has the "at least $X"
+  floor.)" follows it in place of the "Degraded-read honesty" paragraph, which restated hard rule 1 (see
+  "Rules stated twice").
 - guardrails.md "See the "Sources — onchain vs runtime" note above." and guardrail 9's "**What TO say instead
   — branch on `meta.book_state` (see "Nothing to review?" above):**" → "… in SKILL.md": both sections stayed in
   SKILL.md.
@@ -87,8 +91,8 @@ rule sits on a 5.7 follow-up, so reviewers need not read the diff.
 (The heading is the one `.github/scripts/check_conservation.py` reads.) Sorted by the maintainer's rule —
 every imperative's own words stay in SKILL.md:
 
-- **Back in SKILL.md, word for word** (1.20.1) — 6 rules; the reference copies stay and a test keeps both
-  the same (`DUPLICATED`):
+- **Back in SKILL.md, word for word** (1.20.1) — 11 rules and 2 reason clauses; the reference copies stay and a
+  test keeps both the same (`DUPLICATED`):
   - One book rule 2 (it was a shortened form): "`value_read: "partial"` → a strategy whose value covers
     only some of its wallets: say "(1 of 2 wallets)" from `wallets_loaded` / `wallet_count`."
   - Guardrail 3 (only its first half was in core): "**Account value ≠ P&L — never narrate the value curve as
@@ -108,15 +112,33 @@ every imperative's own words stay in SKILL.md:
     **runtime id**, which is the key the event log is addressed by. Get it from the runtime registry
     (`installed_runtimes.json`, the same source the engine reads for mandates — each entry's `id`) or from
     `openclaw senpi runtime list`."
+  - Guardrail 6b (it was in exit-records.md only): "**If the gateway is down**, `senpi dsl closes` exits
+    non-zero and prints *"start it with: openclaw gateway run"*. **Say that.** An unreadable record is an
+    unreadable record — do not fall back to guessing a mechanism from fill shapes and present it as fact."
+  - Guardrail 1b, in place of "the gap between the floor and the fill is execution slippage, not
+    calibration": "Keep **floor vs fill** separate: on AVAX the floor was +8.23% and it filled +7.67%, which
+    is 0.55 ROE points of execution slippage, not calibration."
+  - Guardrail 2, in place of "Route the fix to … to apply.": "A fix reads like *"Kodiak's SOL exit locked at
+    tier 2 (+41% high-water) then trailed out; if you want it to ride further, that's the phase-2 tier
+    ladder, not anything you did"* — and it routes to **`senpi-strategy-author` / `senpi-strategy-ops`** to
+    apply."
+  - Guardrail 6b, in place of "Never say it "detected …" — that invents a mechanism.": "Saying it "detected
+    the position rolling over" or "cut early before the hard stop" invents a mechanism — a real review did
+    exactly that on a position whose hold time (5.03h vs a 300m timer) was the giveaway."
+  - Guardrail 1's lead sentence (see "Reworded").
+  - Reason clauses (CLAUDE.md keep-the-reason rule): guardrail 9 "It's out of scope for a *trade review*, it
+    second-guesses a strategy that was just set up, and nudging toward MARKET / higher-slippage fills
+    **raises fees** — the biggest killer of returns." and "Use this skill FIRST" "Those return un-attributed
+    dumps that invite exactly the failure modes below (skipping the current-price comparison, guessing the
+    exit mechanism)." (in the replay).
 
 ### Moved to references (not rules) — maintainer OK requested as one group
 
 None of these tells the agent what to do or never do beyond what SKILL.md says in its own words: each is
-an incident, a note on what the engine already does, a field glossary, or an exit-code edge case (the
-long tail named as movable). Each is quoted with its reference and the replayed Router row that opens it.
+an incident, a note on what the engine already does, a field glossary, a rationale or an example. Each is quoted with its reference and the replayed Router row that opens it.
 
-- Incident — `guardrails.md` "Hard rule 0", opened by the rows "sell too early / late", "what did I miss",
-  "make more gains" and "why is [strategy] losing" (and the nine-guardrails pointer): "A live review
+- Incident — `guardrails.md` "Hard rule 0", opened by router row "where am I leaking, fees, maker vs taker"
+  (its Read-first cell names "`guardrails.md` hard rule 0" since 1.20.1): "A live review
   headlined **+$410.14** on a trade whose net was **+$310.23** ($99.92 of fees), and it never mentioned fees
   at all." Hard rule 0 itself is in core.
 - Engine notes — `sources.md`, opened by the rows "shaken out, how my exits fire, why did it close, what is
@@ -151,11 +173,22 @@ long tail named as movable). Each is quoted with its reference and the replayed 
   - 1.20.1: "One package is one strategy: …" (see "Split across files" above).
 - Glossary — `exit-records.md`, opened by the rows "shaken out, … why did it close …" and "walk me through
   my [asset] trade": "**`weak_peak_cut`** — never reached `min_value` ROE inside the window."
-- Exit-code edge case — `exit-records.md`, same rows: "**If the gateway is down**, `senpi dsl closes` exits
-  non-zero and prints *"start it with: openclaw gateway run"*. **Say that.** An unreadable record is an
-  unreadable record — do not fall back to guessing a mechanism from fill shapes and present it as fact."
-  Core keeps the rule in its own words: "**If the record cannot be read, say so.** Fill shapes corroborate,
-  they never substitute".
+- 1.20.1 review round, to make room for the rules above (none carries a rule; each is quoted with its
+  reference and the row that opens it):
+  - `guardrails.md` "Guardrail 1b", rows "sell too early / late" (§1b): "Hold-to-now is hindsight —
+    unknowable at exit time. **High-water is not:** it happened *during* the hold, and the floor that failed
+    to capture it is a config choice. So give-back is fair game where "it kept going up" is not." (why
+    give-back is diagnostic; the heading and "Report **peak ROE, exit ROE, and the share of peak kept**"
+    stay)
+  - `guardrails.md` "Guardrail 3", row "make more gains" (§2–3): "The engine deliberately emits **no**
+    per-week or projection field." (engine note; "Never invent a forward number" stays)
+  - `guardrails.md` "Guardrail 5", row "why is [strategy] losing" (§8, guardrail 5): "A market-neutral book
+    "underperforming" a raging bull tape is doing its job." (example of "Judge each strategy against its
+    OWN mandate", which stays)
+  - `output-contract.md` "Composition — what the engine hands each skill", row "master my week, …": "The
+    engine's `book_vs_market.top_movers` is the hook; market-pulse is the depth." and "The engine surfaces
+    `smart_money_pct` per mover; smart-money does the trader-level comparison." (engine notes; which skill to
+    compose stays)
 
 ### Rules stated twice at b1916b12 — SKILL.md keeps the other statement in its original words
 
@@ -207,10 +240,11 @@ None.
 ## Where each rule is on a 5.7 follow-up
 
 At `b1916b12` 5.7 kept head 0–11,896 + tail 60,031–end of SKILL.md on every follow-up (the word "total"
-near the end switched it to head+tail). The file is head-only now: 5.7 keeps its first ~15,940 chars
+near the end switched it to head+tail). The file is head-only now: 5.7 keeps its first ~15,870 chars
 (`openclaw_measure.replay_57`). The Router, the follow-up rule, "Still true on every follow-up", One book,
 Your wallets, HARD RULES 0–5, "these five are the floor" and "Use this skill FIRST" replay (One book and
-Your wallets did not at `b1916b12`); the smallest margin before the cut is ~215 chars.
+Your wallets did not at `b1916b12`); 5.7 keeps 15,866 chars, and the smallest margin before the cut is 214
+chars (`test_every_replayed_rule_keeps_a_margin_before_the_57_cut` holds every replayed rule to ≥150).
 `test_improve_trades_skill_layout.py` pins them and the mode. The base-replayed rules now past the cut (all
 still in SKILL.md, word for word):
 
@@ -229,7 +263,20 @@ still in SKILL.md, word for word):
 | "Never pick for the user, and never act unprompted." | in the replay (copied word for word) |
 | "quote the maker ratio as a fee-tier signal, never a fee dollar total" | `references/sources.md` (a copy of the **Fee $:** paragraph), opened by router row "where am I leaking, fees, maker vs taker"; "Still true" replays "The maker ratio is a fee-tier signal, never a fee dollar total." |
 | Composition: "Don't re-implement these — call them and weave their output into the four-part contract below." | `references/output-contract.md` (a whole copy of Composition), opened by router row "master my week, …" |
-| Hard rule 0's incident ("A live review headlined **+$410.14** …") — not a rule | hard rule 0 replays; the incident is in `references/guardrails.md` |
+| Output contract 3: "**`strategies[]` (the CURRENT book only) is the sole verdict surface.**" | `references/output-contract.md`, router row "master my week, …"; guardrail 8's closed-strategy sentence replays |
+| Output contract 4: "**no guaranteed-gain language**" | `references/output-contract.md`, router row "master my week, …"; hard rule 5 replays "No fabricated forward numbers (no $/week)." |
+| Sources: "`meta.telemetry_source` … and `meta.exit_reason_source_counts` tell you exactly how much enrichment landed; surface that honestly." | `references/sources.md`, router rows "shaken out, …" and "where am I leaking, fees, maker vs taker" |
+| Composition: "Use this skill for retrospective / … questions; use `senpi-portfolio` for live state." | `references/output-contract.md`, router row "master my week, …" |
+| "Use this skill FIRST" reason "(skipping the current-price comparison, guessing the exit mechanism)" | in the replay (back in core, 1.20.1) |
+| Hard rule 0's incident ("A live review headlined **+$410.14** …") — not a rule | hard rule 0 replays; the incident is in `references/guardrails.md`, router row "where am I leaking, fees, maker vs taker" |
+
+Rules that replayed in 1.20.0 but not at `b1916b12`, now past the cut again (moved down to make room, word
+for word; both are first-turn cases):
+
+| Rule | On a follow-up |
+|---|---|
+| Your wallets "**`external_no_trades`** — saved wallets, no Senpi strategy, nothing closed in the window: say it in one line and offer a longer `--window`. Never pitch a strategy." | past the cut ("Your wallets — unknown reads and fix depth"); the Router row "nothing to review, an empty result" replays and sends the agent to `meta.book_state` ("Nothing to review?", whose `external_no_trades` row says the same) |
+| Your wallets "For a user with no Senpi strategy those Senpi aggregates are empty: open with `book.rows` as always (see "One book"), and the detail is `external_wallets[]`." | past the cut (same section); One book rule 1 ("Open with `book.rows` …") replays |
 
 The copies are byte for byte (`test_sections_copied_into_a_reference_are_byte_identical`,
 `test_the_fee_paragraph_copy_in_sources_is_byte_identical`), and a test checks that the replayed Router rows
@@ -254,8 +301,11 @@ name the file that holds them.
   The full rules and menus stay where they were.
 - "## Your wallets — unknown reads and fix depth": the "Unknown is never empty" and "Open positions" bullets
   of Your wallets and "Fix depth on a saved wallet", moved below HARD RULES and "Use this skill FIRST" so
-  those replay; the text is unchanged. 1.20.1: the `external_no_trades` bullet (a first-turn case; the
-  `meta.book_state` table says it too) moved there as well, word for word.
+  those replay; the text is unchanged. 1.20.1: the `external_no_trades` bullet and the "For a user with no
+  Senpi strategy …" sentence (first-turn cases) moved there as well, word for word.
 - 1.20.1: `references/output-contract.md` — whole copies of Composition, the output contract and "Fix depth
   on a saved wallet"; `references/sources.md` — whole copies of "Sources — onchain vs runtime" and the
-  **Fee $:** paragraph. A "**Fee rate (hard rule 0):**" label in Quick actions for the tier ladder.
+  **Fee $:** paragraph. A "**Fee rate (hard rule 0):**" label in Quick actions for the tier ladder. The Quick
+  actions intro now reads "The **actionable lever** (the fix) per intent; its step(s) are in the Router, its
+  data in `references/output-shape.md`." (pointers only). The fee row's Read-first cell names
+  "`guardrails.md` hard rule 0".

@@ -5,6 +5,12 @@ OpenClaw 5.7 a follow-up turn keeps only the first ~15.9k chars of `SKILL.md`, a
 `SKILL.md` is the rule; a test keeps each copy the same as its section there. Read this before a full
 review ("master my week", "suggest improvements") and when the user picks a fix depth.
 
+## Composition — what the engine hands each skill
+
+Moved from `SKILL.md` Composition (engine notes, not rules): The engine's
+`book_vs_market.top_movers` is the hook; market-pulse is the depth. The engine surfaces
+`smart_money_pct` per mover; smart-money does the trader-level comparison.
+
 ## Copy: SKILL.md "Composition — this skill orchestrates, it doesn't re-implement"
 
 This is the counterpart to `senpi-portfolio`. Portfolio answers *"where is my money / how are my strategies
@@ -12,10 +18,8 @@ doing right now."* **Improve-trades answers *"how did my closed trades do, what 
 I get better."*** Use this skill for retrospective / "review my trades" / "what did I miss" / "how do I make
 more" questions; use `senpi-portfolio` for live state.
 
-- **`senpi-market-pulse`** → the movers narrative (what moved this window and why). The engine's
-  `book_vs_market.top_movers` is the hook; market-pulse is the depth.
-- **`senpi-smart-money`** → the whale read ("compare my trades to the best whales"). The engine surfaces
-  `smart_money_pct` per mover; smart-money does the trader-level comparison.
+- **`senpi-market-pulse`** → the movers narrative (what moved this window and why).
+- **`senpi-smart-money`** → the whale read ("compare my trades to the best whales").
 - **`senpi-portfolio`** → live positions, balances, and the current mandate/DSL posture.
 
 Don't re-implement these — call them and weave their output into the four-part contract below.
