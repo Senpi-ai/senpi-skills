@@ -1,9 +1,10 @@
-# senpi-improve-trades 1.20.0: dropped, reworded and moved-out-of-core sentences
+# senpi-improve-trades 1.20.1: dropped, reworded and moved-out-of-core sentences
 
-The restructure moved SKILL.md from 63,956 to 54,066 est chars. Every other sentence of the 1.19.1 SKILL.md is
-still in `SKILL.md` or moved verbatim to a `references/*.md` file (the conservation script checks this). This
-lists what was reworded or split, every imperative that left core, and the rules 5.7 no longer keeps on a
-follow-up, so reviewers need not read the diff.
+The restructure moved SKILL.md from 63,956 (1.19.1) to 54,319 (1.20.0) est chars; 1.20.1 puts rules back in
+core word for word and moves more of them into the 5.7 follow-up replay, at 55,435. Every other sentence of
+the 1.19.1 SKILL.md is still in `SKILL.md` or moved verbatim to a `references/*.md` file (the conservation
+script checks this). This lists what was reworded or split, every imperative that left core, and where each
+rule sits on a 5.7 follow-up, so reviewers need not read the diff.
 
 ## Reworded (the old wording no longer exists)
 
@@ -26,10 +27,6 @@ follow-up, so reviewers need not read the diff.
   0.55 ROE points of execution slippage, not calibration." → core keeps the rule without the numbers ("the
   gap between the floor and the fill is execution slippage, not calibration"). The AVAX version is in
   guardrails.md.
-- Guardrail 4: ""HYPE ran +18% and you weren't in it" is only interesting if HYPE is *in the strategy's
-  mandate* and the miss reveals a gate that's too tight — otherwise it's just an asset the strategy was never
-  designed to trade." → core keeps the test in general terms ("A missed mover is only interesting if it is in
-  the strategy's mandate and the miss reveals a gate that's too tight"). The HYPE example is in guardrails.md.
 - Guardrail 2: "A fix reads like *"Kodiak's SOL exit locked at tier 2 …"* — and it routes to
   **`senpi-strategy-author` / `senpi-strategy-ops`** to apply." → core keeps "Route the fix to
   `senpi-strategy-author` / `senpi-strategy-ops` to apply." The Kodiak example is in guardrails.md.
@@ -37,8 +34,8 @@ follow-up, so reviewers need not read the diff.
   Core now says "NOT `realized_pnl_total` alone (hard rule 1, including the "at least $X" floor)".
 - Guardrail 6b: the `senpi dsl closes` field table became one sentence naming the same three fields, and the
   `DslState` field list became one sentence naming the same fields. Full tables are in exit-records.md.
-  "Translate `closeReason`, never paste the enum:" now names the five reasons inline and points to
-  exit-records.md for the meanings. "**The three above are TIMERS, not reactions to price, and none is
+  "Translate `closeReason`, never paste the enum:" is word for word again (1.20.1) and is now followed by
+  the five reasons inline and a pointer to exit-records.md for the meanings. "**The three above are TIMERS, not reactions to price, and none is
   phase-scoped.**" now names the three (`hard_timeout`, `weak_peak_cut`, `dead_weight_cut`), because the list
   above it moved. "Saying it "detected the position rolling over" or "cut early before the hard stop" invents a
   mechanism — a real review did exactly that…" → core says "Never say it "detected the position rolling over"
@@ -76,99 +73,167 @@ follow-up, so reviewers need not read the diff.
   → the rule stays in SKILL.md, the why is in sources.md.
 - "…from raw MCP calls.** The engine is the entire point — it computes the timing table, the exit reasons, the
   mandate reads, …" → the rule stays in SKILL.md, the why is in sources.md.
+- 1.20.1: "**The fee rate is NOT a constant — never quote one from memory.** Senpi's builder fee falls with the
+  user's points tier: …" → the first sentence stays in hard rule 0; the tier ladder sentence ("Senpi's
+  builder fee falls with the user's points tier: **0.05% Bronze → … → 0.025% Legend**.") is word for word
+  under "Quick actions", labelled "**Fee rate (hard rule 0):**", past the 5.7 cut (it is data, not a rule).
+- 1.20.1: "**A Senpi strategy is one row with all its wallets.** One package is one strategy: its instances are
+  its wallets, …" → the bold rule stays in One book; "One package is one strategy: its instances are its
+  wallets, grouped by the package they were deployed under (`skill_name`); a wallet with no package stamp is
+  its own row." (how the engine groups wallets) is word for word in `one-book.md` "Which wallets make one row".
 
 ## Imperatives that left core
 
-Each of these is still stated in core in other words; the maintainer's rule is that the words stay too, so
-each one needs the maintainer's OK.
+(The heading is the one `.github/scripts/check_conservation.py` reads.) Sorted by the maintainer's rule —
+every imperative's own words stay in SKILL.md:
 
+- **Back in SKILL.md, word for word** (1.20.1) — 6 rules; the reference copies stay and a test keeps both
+  the same (`DUPLICATED`):
+  - One book rule 2 (it was a shortened form): "`value_read: "partial"` → a strategy whose value covers
+    only some of its wallets: say "(1 of 2 wallets)" from `wallets_loaded` / `wallet_count`."
+  - Guardrail 3 (only its first half was in core): "**Account value ≠ P&L — never narrate the value curve as
+    trades.** The engine sources closed trades from on-chain fills, so you should not need
+    `strategy_get_pnl_and_account_value_history` for a trade review at all."
+  - Guardrail 4, in place of the paraphrase "A missed mover is only interesting if it is in the strategy's
+    mandate …": ""HYPE ran +18% and you weren't in it" is only interesting if HYPE is *in the strategy's
+    mandate* and the miss reveals a gate that's too tight — otherwise it's just an asset the strategy was
+    never designed to trade."
+  - Guardrail 6b, in place of "Translate `closeReason`, never paste the enum (…)": "Translate
+    `closeReason`, never paste the enum:".
+  - "Run it in steps", in place of the Router's short form (which stays as the Router cell): "**Scope the
+    ask.** When the user names a trade count — "improve my last 10", "review my last 20 trades" — **pass
+    `--last N`**: it's a GLOBAL bound (the N most-recent closed trades across the whole book), so the review
+    stays about what they asked instead of the entire 7-day book."
+  - Quick action 4, which SKILL.md did not state (it only pointed to exit-records.md): "You need the
+    **runtime id**, which is the key the event log is addressed by. Get it from the runtime registry
+    (`installed_runtimes.json`, the same source the engine reads for mandates — each entry's `id`) or from
+    `openclaw senpi runtime list`."
 
-- Guardrail 6 bullets "**Name your source (onchain vs runtime).** …" and "**Exit attribution is
-  telemetry-first, ratchet-fallback.** …" → guardrails.md. Core keeps the same rules in "Sources — onchain vs
-  runtime" (never mix the sources; say "exit mechanism not recorded on this build"; surface
-  `meta.telemetry_source` / `meta.exit_reason_source_counts`), "Use this skill FIRST" (never `audit_*`) and
-  6b ("Never infer a mechanism").
-- Guardrail 9 "**What TO say instead — branch on `meta.book_state`** …" (three bullets) → guardrails.md. Core
-  keeps the same branch in the `meta.book_state` table ("Diagnose the strategy they already have. Never pitch
-  another one."), the `no_strategies` section (pivot to market-pulse then discover; "Idle cash is an option,
-  never a loss") and guardrail 9's first bullet ("Zero exposure on a new autonomous strategy is normal, not a
-  leak").
-- One book rules 2, 3 and 6, the partial and gate long tail → one-book.md: "`value_read: "partial"` → … say
-  "(1 of 2 wallets)" …"; "A subtotal over only some of its wallets says so …" (the engine already writes
-  `book.total.line` that way, and core says to quote it verbatim); "`order` holds only wallets with a value …"
-  (engine behaviour).
-- 6b "**If the gateway is down**, `senpi dsl closes` exits non-zero and prints *"start it with: openclaw gateway
-  run"*. **Say that.** …" → exit-records.md (an exit-code edge case). Core keeps "**If the record cannot be
-  read, say so.** Fill shapes corroborate, they never substitute".
-- "**Scope the ask.** … **pass `--last N`** …" → sources.md. Core keeps the imperative verbatim in the Router
-  ("**pass `--last N`** when the ask names a count").
+### Moved to references (not rules) — maintainer OK requested as one group
 
-### Every moved line, quoted
+None of these tells the agent what to do or never do beyond what SKILL.md says in its own words: each is
+an incident, a note on what the engine already does, a field glossary, or an exit-code edge case (the
+long tail named as movable). Each is quoted with its reference and the replayed Router row that opens it.
 
-The conservation check's own list (28 moved lines carrying never / always / must / do not / only /
-verbatim, quoted as 23 entries), grouped by the reference that holds each now and the router row that
-reaches it. It overlaps the summary above and is the complete set.
+- Incident — `guardrails.md` "Hard rule 0", opened by the rows "sell too early / late", "what did I miss",
+  "make more gains" and "why is [strategy] losing" (and the nine-guardrails pointer): "A live review
+  headlined **+$410.14** on a trade whose net was **+$310.23** ($99.92 of fees), and it never mentioned fees
+  at all." Hard rule 0 itself is in core.
+- Engine notes — `sources.md`, opened by the rows "shaken out, how my exits fire, why did it close, what is
+  locked now" and "where am I leaking, fees, maker vs taker":
+  - "**Telemetry is read ONLY from the current book.** The event-log ring lives on-disk with a running
+    runtime, so the engine shells `openclaw senpi events` **only for ACTIVE/PAUSED strategies** — a *closed*
+    strategy's ring is torn down with its runtime." (the bold rule is in core, and in the replay)
+  - "Same fail-open contract as `all`: each step returns valid JSON with `meta.warnings` on partial data and
+    never crashes on a missing/corrupt state file (it recomputes)."
+  - "To keep the model-context payload small (the raw ledger on a big multi-strategy account is tens of
+    thousands of tokens and blows the delivery timeout), the engine emits only the top handful of trades by
+    biggest realized PnL + biggest hold-to-now delta — the ones a coach actually cites." (the outlier-sample
+    rule is in core)
+  - "(The telemetry step still event-fetches every *current* strategy regardless of `--last` — those events
+    also feed `missed_signals`/leaks — but a **closed** strategy is never probed, which is what removes the
+    heavy fan-out on a large, churned book.)"
+  - "`all` (the default with no step) composes every slice into one dict — the same output the engine always
+    produced."
+- Engine notes — `one-book.md`, opened by the row "the wallet picked from `book.deep_dive.question`" (the
+  Reference index sends a partial subtotal and the comparison there too):
+  - "A subtotal over only some of its wallets says so ("1 of 2 wallets"); one whose wallets all failed is
+    "unknown", never $0; with no saved wallets the line has no read-only clause." (what `book.total.line`
+    already says — `_book_total` in `review.py` writes it; core says to quote that line verbatim)
+  - "The engine computes it — of the closes measurable against today's price, the share that got out ahead
+    of the later move (hindsight context, never a grade: guardrail 2) — only when 2+ wallets have
+    `min_closes` (8) measurable closes, and it names any wallet whose trades it couldn't read or that hit the
+    fill ceiling." (the comparison's gate; core keeps "quote `book.comparison.line`", "never compare wallets
+    yourself" and hard rule 2)
+  - "`order` holds only wallets with a value, an open position, trades to review or a value that couldn't
+    load — an empty $0 wallet stays in the table, never in the question." (who the engine puts in the
+    question; core asks it verbatim)
+  - 1.20.1: "One package is one strategy: …" (see "Split across files" above).
+- Glossary — `exit-records.md`, opened by the rows "shaken out, … why did it close …" and "walk me through
+  my [asset] trade": "**`weak_peak_cut`** — never reached `min_value` ROE inside the window."
+- Exit-code edge case — `exit-records.md`, same rows: "**If the gateway is down**, `senpi dsl closes` exits
+  non-zero and prints *"start it with: openclaw gateway run"*. **Say that.** An unreadable record is an
+  unreadable record — do not fall back to guessing a mechanism from fill shapes and present it as fact."
+  Core keeps the rule in its own words: "**If the record cannot be read, say so.** Fill shapes corroborate,
+  they never substitute".
 
-#### `references/exit-records.md` — reached by router rows "shaken out / how my exits fire / why did it close / what is locked now" and "walk me through my [asset] trade"
+### Rules stated twice at b1916b12 — SKILL.md keeps the other statement in its original words
 
-- Translate `closeReason`, never paste the enum:
-- **`weak_peak_cut`** — never reached `min_value` ROE inside the window.
-- **Say that.** An unreadable record is an unreadable record — do not fall back to guessing a mechanism from fill shapes and present it as fact.
+These are rules, but the 1.19.1 file said each of them twice, and the other statement is still in SKILL.md
+word for word (no paraphrase stands in for it). The second copy is in a reference.
 
-#### `references/guardrails.md` — reached by the router rows that name `guardrails.md` (sell too early, what did I miss, make more gains, why is it losing) and "The nine guardrails" pointer
+- Guardrail 1 → `guardrails.md`: "Realized-only is half the ledger: it calls a book riding open winners a
+  "loser" and penalizes hold-strategies." and "**Degraded-read honesty (same principle as `undetermined ≠
+  all-clear`):** if `pnl_summary.unrealized_partial` is true (some current wallets read, some didn't),
+  `total` is a **FLOOR** — headline it as *"at least $X (N of M wallets readable)"*, never as a complete
+  total." Hard rule 1 says both: "Realized-only is half the ledger — it calls a book riding open winners a
+  "loser" and penalizes hold-strategies." and "Say **"at least $X (N of M wallets readable)"**, never
+  present it as the finished total."
+- Guardrail 6 → `guardrails.md`: "**Name your source (onchain vs runtime).** Closed trades + every onchain
+  fact come from **`discovery`** (`discovery_get_trader_history`) — **never `audit_*`** (deprecated). …" and
+  "**Exit attribution is telemetry-first, ratchet-fallback.** … When it's `UNKNOWN` — no telemetry event and
+  no ratchet record — say *"exit mechanism not recorded on this build"* (or, for a closed strategy, *"…its
+  event ring is gone"*), **never guess** the mechanism. …" Core: "Sources — onchain vs runtime" (both
+  bullets, "Say **"exit mechanism not recorded on this build"** …", "`meta.telemetry_source` … surface that
+  honestly"), "Use this skill FIRST" ("**never use `audit_*`** for closed trades") and 6b's heading ("Never
+  infer a mechanism").
+- "Nothing to review?" → `guardrails.md`: "**The mistake to avoid:** telling someone whose funded strategy is
+  silently blocked to "go find a strategy that fits the market." They don't need another strategy — they
+  need to know why the one they already paid for is idle." Core: the `strategies_no_trades` row ("Diagnose
+  **the strategy they already have**. **Never pitch another one.**").
+- Guardrail 9 → `guardrails.md`: "**What TO say instead** …": "**Do not pitch another strategy to someone
+  whose strategy hasn't traded.**" and "Either way, next moves are **options, not obligations**, and idle
+  embedded cash is an **opportunity to deploy if they want**, never a "$0/day leak."" (with the two branch
+  bullets). Core: the `meta.book_state` table, the `no_strategies` section ("Say the truth in one line, then
+  pivot", "**Offer, never push.**", "Idle cash is an **option**, never a loss", "no "your idle cash is a
+  $0/day leak" framing") and guardrail 9 ("Say that and stop", "Zero exposure on a new autonomous strategy
+  is normal, not a leak").
+- Guardrail 8 → `guardrails.md`: "Concretely: if you're about to say "you have 13 wallets, kill/merge 11 of
+  them," stop — check `meta.current_strategy_count`. …" Core: "**Never** build a "you have N wallets,
+  consolidate them" narrative out of closed/historical deployments. The live book =
+  `meta.current_strategy_count`."
+- "What the engine gives you" → `output-shape.md` "Reading order": "**Open with `book`** (the one list, then
+  `book.total.line`); within the Senpi detail, **lead with `pnl_summary.total`** (realized+unrealized); the
+  PROCESS counts are in `timing_summary`; per-strategy verdicts in `strategies[]` (CURRENT book only); the
+  telemetry streams (`dsl_close_reason_mix` / `blocked_summary` / `leaks` / `execution_quality`) are real
+  only when `telemetry_availability.streams_computed` is true; `trades[]` is a curated outlier sample (counts
+  from the aggregates, never `len(trades)`)." A one-paragraph summary of One book rule 1, hard rule 1,
+  guardrail 8, hard rule 3 / guardrail 6 and the outlier-sample paragraph, each still in core.
 
-- A live review headlined **+$410.14** on a trade whose net was **+$310.23** ($99.92 of fees), and it never mentioned fees at all.
-- **The mistake to avoid:** telling someone whose funded strategy is silently blocked to "go find a strategy that fits the market." They don't need another strategy — they need to know why the one they already paid for is idle.
-- Realized-only is half the ledger: it calls a book riding open winners a "loser" and penalizes hold-strategies.
-- **Degraded-read honesty (same principle as `undetermined ≠ all-clear`):** if `pnl_summary.unrealized_partial` is true (some current wallets read, some didn't), `total` is a **FLOOR** — headline it as *"at least $X (N of M wallets readable)"*, never as a complete total.
-- **Account value ≠ P&L — never narrate the value curve as trades.** The engine sources closed trades from on-chain fills, so you should not need `strategy_get_pnl_and_account_value_history` for a trade review at all.
-- "HYPE ran +18% and you weren't in it" is only interesting if HYPE is *in the strategy's mandate* and the miss reveals a gate that's too tight — otherwise it's just an asset the strategy was never designed to trade.
-- **Name your source (onchain vs runtime).** Closed trades + every onchain fact come from **`discovery`** (`discovery_get_trader_history`) — **never `audit_*`** (deprecated).
-- When it's `UNKNOWN` — no telemetry event and no ratchet record — say *"exit mechanism not recorded on this build"* (or, for a closed strategy, *"…its event ring is gone"*), **never guess** the mechanism.
-- **Do not pitch another strategy to someone whose strategy hasn't traded.**
-- Either way, next moves are **options, not obligations**, and idle embedded cash is an **opportunity to deploy if they want**, never a "$0/day leak."
+## Rules still outside SKILL.md — needs maintainer OK
 
-#### `references/one-book.md` — reached by router row "the wallet picked from `book.deep_dive.question`" and the One book pointers
+None.
 
-- `value_read: "partial"` → a strategy whose value covers only some of its wallets: say "(1 of 2 wallets)" from `wallets_loaded` / `wallet_count`. *(After review a short form is back in core, One book rule 2: "`value_read: "partial"` → say "(1 of 2 wallets)" from `wallets_loaded` / `wallet_count`.")*
-- A subtotal over only some of its wallets says so ("1 of 2 wallets"); one whose wallets all failed is "unknown", never $0; with no saved wallets the line has no read-only clause.
-- **Comparison: quote `book.comparison.line` after the table when it is non-null.** The engine computes it — of the closes measurable against today's price, the share that got out ahead of the later move (hindsight context, never a grade: guardrail 2) — only when 2+ wallets have `min_closes` (8) measurable closes, and it names any wallet whose trades it couldn't read or that hit the fill ceiling.
-- `order` holds only wallets with a value, an open position, trades to review or a value that couldn't load — an empty $0 wallet stays in the table, never in the question.
-
-#### `references/output-shape.md` — reached by router rows "what my limits blocked" and "where am I leaking"; "when an engine field's meaning is unclear"
-
-- **Open with `book`** (the one list, then `book.total.line`); within the Senpi detail, **lead with `pnl_summary.total`** (realized+unrealized); the PROCESS counts are in `timing_summary`; per-strategy verdicts in `strategies[]` (CURRENT book only); the telemetry streams (`dsl_close_reason_mix` / `blocked_summary` / `leaks` / `execution_quality`) are real only when `telemetry_availability.streams_computed` is true; `trades[]` is a curated outlier sample (counts from the aggregates, never `len(trades)`).
-
-#### `references/sources.md` — reached by router rows "why did it close" and "where am I leaking, fees", and the Sources section pointer
-
-- **Telemetry is read ONLY from the current book.** The event-log ring lives on-disk with a running runtime, so the engine shells `openclaw senpi events` **only for ACTIVE/PAUSED strategies** — a *closed* strategy's ring is torn down with its runtime.
-- Same fail-open contract as `all`: each step returns valid JSON with `meta.warnings` on partial data and never crashes on a missing/corrupt state file (it recomputes).
-- **`trades[]` is a curated OUTLIER SAMPLE, not the whole book.** To keep the model-context payload small (the raw ledger on a big multi-strategy account is tens of thousands of tokens and blows the delivery timeout), the engine emits only the top handful of trades by biggest realized PnL + biggest hold-to-now delta — the ones a coach actually cites.
-- (The telemetry step still event-fetches every *current* strategy regardless of `--last` — those events also feed `missed_signals`/leaks — but a **closed** strategy is never probed, which is what removes the heavy fan-out on a large, churned book.)
-- `all` (the default with no step) composes every slice into one dict — the same output the engine always produced.
-
-## Rules that no longer replay on 5.7 follow-ups
+## Where each rule is on a 5.7 follow-up
 
 At `b1916b12` 5.7 kept head 0–11,896 + tail 60,031–end of SKILL.md on every follow-up (the word "total"
-near the end switched it to head+tail). The file is now head-only: 5.7 keeps its first ~15,900 chars
-(`openclaw_measure.replay_57`). The Router, the follow-up rule, One book, Your wallets, HARD RULES 0–5,
-"these five are the floor" and "Use this skill FIRST" all replay; One book and Your wallets did not replay at
-`b1916b12`. `test_improve_trades_skill_layout.py` pins them and the mode. These base-replayed imperatives are
-past the cut now (all still in SKILL.md, word for word); what the agent still sees on a follow-up:
+near the end switched it to head+tail). The file is head-only now: 5.7 keeps its first ~15,940 chars
+(`openclaw_measure.replay_57`). The Router, the follow-up rule, "Still true on every follow-up", One book,
+Your wallets, HARD RULES 0–5, "these five are the floor" and "Use this skill FIRST" replay (One book and
+Your wallets did not at `b1916b12`); the smallest margin before the cut is ~215 chars.
+`test_improve_trades_skill_layout.py` pins them and the mode. The base-replayed rules now past the cut (all
+still in SKILL.md, word for word):
 
-| No longer replayed | Still replayed instead |
+| Rule past the cut | On a follow-up |
 |---|---|
-| "Sources — onchain vs runtime": "Never mix them, and never reconstruct one from the other"; discovery owns the onchain facts; telemetry "never becomes the trade list and never re-derives a price or PnL"; "Telemetry is read ONLY from the current book" | "Still true on every follow-up": "Sources. Discovery owns the trade list and its onchain facts; telemetry (current book only) owns exit reasons and blocked signals: never mix them or rebuild one from the other." |
-| "A ratchet-sourced exit never names who closed the trade … never "you closed this" … never print the raw status" | "Still true…": "A ratchet-sourced exit never names who closed it: "not closed by its stop", never the raw status." |
-| Telemetry unavailable: "Say **"exit mechanism not recorded on this build"** … — **never** report it as a bug." | "Still true…": "No telemetry: "exit mechanism not recorded on this build", never a bug." |
-| The output contract: "Process-framed, NEVER "premature / left on the table."" | HARD RULE 2: "NEVER say "you exited too early / N% premature / left $X on the table"". |
-| "Discuss individual reversals only after the aggregate, and only as evidence." | "Still true…": "Reversals only after the aggregate, as evidence." |
-| Closed strategies: "never as a live strategy to act on"; "do **not** give them a verdict, do **not** flag their missing mandate, and do **not** spin them into a "consolidate N wallets" recommendation" | "Still true…": "Closed strategies are history: no verdict, no "consolidate"." |
-| "`book.deep_dive.question` (when non-null) comes last of all — after the detail and the steps the request needs, never here." | One book rule 6 ("ask `book.deep_dive.question` verbatim", at the end of the answer). |
-| The fix-depth menus' option descriptions ("I lay out the diagnosis + the plain-terms fix, and stop." and the others); "Never pick for the user, and never act unprompted." | "Still true…": "Fix depth. End every improvement with "How deep do you want me to go?" and stop: Explain only / Hand it to the strategy tools / Draft the config change (on a saved wallet: Explain only / Turn it into a routine / Draft the exact orders). Never pick the fix depth for the user." (the question and every option name, word for word; a test keeps them equal to the menus); the Router: "route every fix through the depth choice at the end — never auto-act". |
-| "quote the maker ratio as a fee-tier signal, never a fee dollar total" | "Still true…": "The maker ratio is a fee-tier signal, never a fee dollar total." |
-| Composition: "Don't re-implement these — call them and weave their output into the four-part contract below." | Nothing in the replay (a first-turn rule about which skills to call). |
-| Hard rule 0's incident ("A live review headlined **+$410.14** … it never mentioned fees at all.") | Hard rule 0 itself replays; the incident is in `guardrails.md`. |
+| Sources: "Two sources, two jobs. Never mix them, and never reconstruct one from the other." and "**Telemetry is read ONLY from the current book.**" | in the replay (both copied word for word into "Still true on every follow-up") |
+| Sources: discovery **owns** the onchain facts; telemetry "**never** becomes the trade list and **never** re-derives a price or PnL" | `references/sources.md` (a whole copy of "Sources — onchain vs runtime"), opened by router rows "shaken out, how my exits fire, why did it close, what is locked now" and "where am I leaking, fees, maker vs taker"; "Still true" replays "Discovery owns the trade list and its onchain facts; telemetry owns exit reasons and blocked signals" |
+| "**A ratchet-sourced exit never names who closed the trade.**" and "Say **"not closed by its stop"**; never "you closed this", "closed by hand" or "manual"." | in the replay (copied word for word) |
+| "And never print the raw status (`MANUALLY_CLOSED`, `CLOSED_EXTERNALLY`, `EXCHANGE_SL_HIT`): those are wire values, not words for a reader." | `references/sources.md`, same rows; "Still true" replays "Never the raw status." |
+| Telemetry unavailable: "Say **"exit mechanism not recorded on this build"** … — **never** report it as a bug." | `references/sources.md`, same rows; "Still true" replays "No telemetry: "exit mechanism not recorded on this build", never a bug." |
+| Output contract: "Process-framed, NEVER "premature / left on the table."" | in the replay (hard rule 2, in its own words: "NEVER say "you exited too early / N% premature / left $X on the table,""); whole in `references/output-contract.md`, opened by router row "master my week, analyze my strategies and trades, suggest improvements" |
+| "Discuss individual reversals only after the aggregate, and only as evidence." | in the replay (copied word for word) |
+| Closed strategies: "never as a live strategy to act on"; "do **not** give them a verdict, do **not** flag their missing mandate, and do **not** spin them into a "consolidate N wallets" recommendation" | in the replay as guardrail 8's own sentence "**Never** give a closed strategy a "doing its job / consolidate / kill / fix" verdict."; the output-contract sentences in `references/output-contract.md`, router row "master my week, …" |
+| "`book.deep_dive.question` (when non-null) comes last of all — after the detail and the steps the request needs, never here." | in the replay (One book rule 6, in its own words: "as the last thing in the answer, after every step the request needs") |
+| The fix-depth menus with their option descriptions | `references/output-contract.md` (both menus, word for word), opened by router row "the user picks a fix depth" (new); "Still true" replays the question and every option name |
+| "Never pick for the user, and never act unprompted." | in the replay (copied word for word) |
+| "quote the maker ratio as a fee-tier signal, never a fee dollar total" | `references/sources.md` (a copy of the **Fee $:** paragraph), opened by router row "where am I leaking, fees, maker vs taker"; "Still true" replays "The maker ratio is a fee-tier signal, never a fee dollar total." |
+| Composition: "Don't re-implement these — call them and weave their output into the four-part contract below." | `references/output-contract.md` (a whole copy of Composition), opened by router row "master my week, …" |
+| Hard rule 0's incident ("A live review headlined **+$410.14** …") — not a rule | hard rule 0 replays; the incident is in `references/guardrails.md` |
+
+The copies are byte for byte (`test_sections_copied_into_a_reference_are_byte_identical`,
+`test_the_fee_paragraph_copy_in_sources_is_byte_identical`), and a test checks that the replayed Router rows
+name the file that holds them.
 
 ## Added (new text, not in 1.19.1)
 
@@ -178,12 +243,19 @@ past the cut now (all still in SKILL.md, word for word); what the agent still se
   clauses ("raises fees", "un-attributed dumps").
 - The Router and the follow-up rule ("**On a follow-up, answer only what is new** — never re-send the `book`
   table, `book.total.line`, the TOTAL PnL headline or a figure already shown …"), per the placement rules for
-  a SKILL.md over 16k. The Router's Run cells are the old Step(s) cells, verbatim.
+  a SKILL.md over 16k. The Router's Run cells are the old Step(s) cells, verbatim. 1.20.1: the "master my
+  week" row reads `output-contract.md` first, and a new row "the user picks a fix depth" points to it.
 - One-line pointers to the new references, and the reference index at the end of the file.
-- "Still true on every follow-up" after the Router: a short restatement of the Sources and output-contract
-  rules that no longer replay (previous section), and the fix-depth menus by their question and option
-  names. The full rules and menus stay where they were.
+- "Still true on every follow-up" after the Router. 1.20.1: it carries the rules above word for word where
+  it can (Sources' first sentence, "Telemetry is read ONLY from the current book", the ratchet sentences,
+  reversals, guardrail 8's closed-strategy sentence, "Never pick for the user, and never act unprompted."),
+  with short restatements for the rest ("No telemetry: …, never a bug", "Never the raw status.", the maker
+  ratio) and the fix-depth menus by their question and option names (a test keeps them equal to the menus).
+  The full rules and menus stay where they were.
 - "## Your wallets — unknown reads and fix depth": the "Unknown is never empty" and "Open positions" bullets
   of Your wallets and "Fix depth on a saved wallet", moved below HARD RULES and "Use this skill FIRST" so
-  those replay; the text is unchanged. 5.7 keeps only its heading and the "Unknown is never empty" lead-in;
-  the rest is past the cut (none of it replayed at `b1916b12`: it sat in the middle of the file).
+  those replay; the text is unchanged. 1.20.1: the `external_no_trades` bullet (a first-turn case; the
+  `meta.book_state` table says it too) moved there as well, word for word.
+- 1.20.1: `references/output-contract.md` — whole copies of Composition, the output contract and "Fix depth
+  on a saved wallet"; `references/sources.md` — whole copies of "Sources — onchain vs runtime" and the
+  **Fee $:** paragraph. A "**Fee rate (hard rule 0):**" label in Quick actions for the tier ladder.

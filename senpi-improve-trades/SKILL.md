@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.20.0"
+  version: "1.20.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -38,7 +38,7 @@ binds on a follow-up; when a row names a reference, read it first.
 | The ask | Run (`review.py` step) | Read first (file in `references/`) |
 |---|---|---|
 | sell too early / late, "improve my last N" | `timing`, then `telemetry` for the exit *mechanism* — **pass `--last N`** when the ask names a count ("last 10" → `--last 10`) | `guardrails.md` §1, §1b |
-| master my week, analyze my strategies and trades, suggest improvements | **all steps in order** (`timing`→`strategies`→`telemetry`→`market`) | — |
+| master my week, analyze my strategies and trades, suggest improvements | **all steps in order** (`timing`→`strategies`→`telemetry`→`market`) | `output-contract.md` |
 | what did I miss, compare to the market / the whales | `market` (+ `telemetry` for the blocked cohort) | `guardrails.md` §4; whales: compose `senpi-smart-money` |
 | make more gains | `strategies` + `telemetry` | `guardrails.md` §2–3 |
 | shaken out, how my exits fire, why did it close, what is locked now | `strategies` + `telemetry`; `senpi dsl closes` / `inspect` (guardrail 6b) | `exit-records.md`, `sources.md` |
@@ -49,18 +49,20 @@ binds on a follow-up; when a row names a reference, read it first.
 | nothing to review, an empty result | read `meta.book_state` first | `no_strategies` → `senpi-market-pulse`, then `senpi-strategy-discover`; no critique of an empty account ("Nothing to review?" below) |
 | a saved wallet | review, master my week: the same steps; leaks, what did I miss: hand off to `quant-desk` | "Your wallets" below |
 | the wallet picked from `book.deep_dive.question` | go deep on that one | One book, rule 6; `one-book.md` |
+| the user picks a fix depth | *(none)* | `output-contract.md` (both menus) |
 
 **Still true on every follow-up** (in full further down):
-- **Sources.** Discovery owns the trade list and its onchain facts; telemetry (current book only) owns
-  exit reasons and blocked signals: never mix them or rebuild one from the other. No telemetry: "exit
-  mechanism not recorded on this build", never a bug. A ratchet-sourced exit never names who closed it:
-  "not closed by its stop", never the raw status. ("Sources")
-- **Shape.** Reversals only after the aggregate, as evidence. Closed strategies are history: no verdict,
-  no "consolidate". The maker ratio is a fee-tier signal, never a fee dollar total. ("The output
-  contract"; the maker ratio: "Quick actions")
+- **Sources.** Two sources, two jobs. Never mix them, and never reconstruct one from the other. Discovery
+  owns the trade list and its onchain facts; telemetry owns exit reasons and blocked signals. **Telemetry is
+  read ONLY from the current book.** No telemetry: "exit mechanism not recorded on this build", never a bug.
+  **A ratchet-sourced exit never names who closed the trade.** Say **"not closed by its stop"**; never "you
+  closed this", "closed by hand" or "manual". Never the raw status. ("Sources")
+- **Shape.** Discuss individual reversals only after the aggregate, and only as evidence. **Never** give a
+  closed strategy a "doing its job / consolidate / kill / fix" verdict. The maker ratio is a fee-tier
+  signal, never a fee dollar total. ("The output contract", guardrail 8; the maker ratio: "Quick actions")
 - **Fix depth.** End every improvement with "How deep do you want me to go?" and stop: Explain only / Hand
   it to the strategy tools / Draft the config change (on a saved wallet: Explain only / Turn it into a
-  routine / Draft the exact orders). Never pick the fix depth for the user.
+  routine / Draft the exact orders). Never pick for the user, and never act unprompted.
 
 ## One book — every wallet first-class
 
@@ -73,9 +75,7 @@ valued by its own idle cash — the read senpi-portfolio makes — so the manage
 strategies) is portfolio's `managed_usd`. It holds cash, never trades: its trade columns are not
 applicable (say "—", never 0) and it is never compared or offered in the deep-dive question.
 
-**A Senpi strategy is one row with all its wallets.** One package is one strategy: its instances are
-its wallets, grouped by the package they were deployed under (`skill_name`); a wallet with no package
-stamp is its own row. The row is the strategy (`strategy_wallets[]` lists its instances, `wallet_count`
+**A Senpi strategy is one row with all its wallets.** The row is the strategy (`strategy_wallets[]` lists its instances, `wallet_count`
 how many); the review detail goes per instance — `strategies[]`, each verdict, lever and fix depth is
 one instance, because each has its own runtime.yaml and its fix can differ. Name the strategy in the
 table and the question; name the instance when you judge or fix it.
@@ -86,8 +86,9 @@ table and the question; name the instance when you judge or fix it.
    aggregates and append the saved wallets. Then the detail: the Senpi aggregates (`pnl_summary.total`
    leads them, hard rule 1) and `external_wallets[]`.
 2. **`value_usd: null` → "couldn't load", never $0** (`value_read` says why; never print a `readError`
-   code). `no_hl_activity: true` → "no Hyperliquid activity yet". `value_read: "partial"` → say "(1 of 2
-   wallets)" from `wallets_loaded` / `wallet_count`.
+   code). `no_hl_activity: true` → "no Hyperliquid activity yet". `value_read: "partial"` → a strategy
+   whose value covers only some of its wallets: say "(1 of 2 wallets)" from `wallets_loaded` /
+   `wallet_count`.
 3. **One book total: quote `book.total.line` verbatim.** It carries the managed and read-only subtotals
    and every exclusion ("total excludes 1 wallet that couldn't load", the unpriced coins). Never build a
    "Combined" row, never sum the wallets yourself, and never present it as Senpi performance: Senpi
@@ -133,8 +134,6 @@ detail is `external_wallets[]`.
   Hyperliquid wallet") belong to `quant-desk` (scored, priced leaks over 90 days) — hand them off. This
   skill keeps the leaks of Senpi strategies. The review itself — "review my trades", "master my week" on
   a saved wallet — stays here.
-- **`external_no_trades`** — saved wallets, no Senpi strategy, nothing closed in the window: say it
-  in one line and offer a longer `--window`. Never pitch a strategy.
 
 ## HARD RULES (never violate — obey these even if you skim the rest)
 
@@ -144,9 +143,7 @@ detail is `external_wallets[]`.
    `closedPnl` — **GROSS**. Quote `pnl_summary.realized_net` for the closed book and show the fee line; when
    `fees` is `null` say *"gross — fees not netted"*. `fee` already INCLUDES
    `builderFee` — never add them.
-   **The fee rate is NOT a constant — never quote one from memory.** Senpi's builder fee falls with the
-   user's points tier: **0.05% Bronze → 0.047% Silver → 0.045% Gold → 0.04% Platinum → 0.035% Diamond →
-   0.03% Apex → 0.025% Legend**. Read the user's own rate with **`user_get_senpi_points`**
+   **The fee rate is NOT a constant — never quote one from memory.** Read the user's own rate with **`user_get_senpi_points`**
    (their tier + fee), or the whole table with **`get_loyalty_tiers`**. Quote the *measured* fee from the
    trade whenever you can; when you must state a rate, state theirs.
 0b. **Never take leverage from the config — read what the position ACTUALLY opened at.** The venue caps
@@ -206,6 +203,8 @@ The long tail of "Your wallets" above.
   (`FULL` / `PARTIAL` / `NONE`) and `stopOrders[]`; a `WAITING_TO_ACTIVATE` trailing stop protects
   nothing yet. `null` → couldn't load, never "flat". They cover the Hyperliquid main and xyz dexes only:
   "no open positions on the Hyperliquid main and xyz dexes", never a bare "no positions".
+- **`external_no_trades`** — saved wallets, no Senpi strategy, nothing closed in the window: say it
+  in one line and offer a longer `--window`. Never pitch a strategy.
 
 ### Fix depth on a saved wallet — advice they apply on Hyperliquid
 
@@ -277,6 +276,10 @@ join is the future upgrade; it's intentionally **not** called per-trade (rate-li
 wired, quote the maker ratio as a fee-tier signal, never a fee dollar total. (`pnl_summary.fees` and the
 trade rows do carry fee $.)
 
+**Fee rate (hard rule 0):** Senpi's builder fee falls with the
+user's points tier: **0.05% Bronze → 0.047% Silver → 0.045% Gold → 0.04% Platinum → 0.035% Diamond →
+0.03% Apex → 0.025% Legend**.
+
 **Quick action 4 — the `explain` command in full.** For "walk me through / explain my BTC trade," the agent
 runs the native lifecycle command directly (it's not in `review.py` — it's the runtime CLI):
 
@@ -284,8 +287,11 @@ runs the native lifecycle command directly (it's not in `review.py` — it's the
 openclaw senpi explain <ASSET> --runtime <id> --json      # e.g. openclaw senpi explain BTC --runtime kodiak-main --json
 ```
 
-A closed strategy has no ring → `explain` returns nothing; that's expected,
-say so, don't call it a bug. Where the runtime id comes from and the output shape: `references/exit-records.md`.
+You need the
+**runtime id**, which is the key the event log is addressed by. Get it from the runtime registry
+(`installed_runtimes.json`, the same source the engine reads for mandates — each entry's `id`) or from
+`openclaw senpi runtime list`. A closed strategy has no ring → `explain` returns nothing; that's expected,
+say so, don't call it a bug. The output shape: `references/exit-records.md`.
 
 ## Sources — onchain vs runtime (the split that keeps you honest)
 
@@ -361,6 +367,10 @@ non-null — once, never mid-review (One book, rule 6).
 what an earlier one fetched instead of re-pulling. **For a NARROW ask, run only the minimal step(s)** from
 the Router (e.g. "did I sell too early" → just `timing`; "where am I leaking" → just
 `telemetry`) — faster, and each step self-heals its prerequisites so it also works standalone.
+
+**Scope the ask.** When the user names a trade count — "improve my last 10", "review my last 20 trades" —
+**pass `--last N`**: it's a GLOBAL bound (the N most-recent closed trades across the whole book), so the review
+stays about what they asked instead of the entire 7-day book.
 
 **`trades[]` is a curated OUTLIER SAMPLE, not the whole book.** When `trades_sample` is present, `trades_sample.total` is the real
 count. **Take every COUNT and $ TOTAL from the aggregates** (`timing_summary`, `pnl_summary`,
@@ -472,15 +482,16 @@ figure of any kind. The only dollar figures you may state are:
 The engine deliberately emits **no** per-week or projection field. If you feel the urge to annualize, weekly-ize,
 or forecast a dollar figure, stop — that urge is the exact failure mode this skill exists to kill.
 
-**Account value ≠ P&L — never narrate the value curve as trades.** If you ever look at it: `accountValueHistory` is a series of account **snapshots**, not trades — never narrate "$135 → $133 → $143 → …" as individual round-trips. A curve ending at **`$0` after a `strategy_close` / `strategy_withdraw_funds` is capital RETURNED to the main wallet (a withdrawal), not a loss** — the realized result is realized PnL, not the value drop. If realized PnL (e.g. −$21) and the value drop (e.g. −$175) disagree, the difference **is the withdrawal** — reconcile, never report the drop as a loss.
+**Account value ≠ P&L — never narrate the value curve as trades.** The engine sources closed trades from on-chain fills, so you should not need `strategy_get_pnl_and_account_value_history` for a trade review at all. If you ever look at it: `accountValueHistory` is a series of account **snapshots**, not trades — never narrate "$135 → $133 → $143 → …" as individual round-trips. A curve ending at **`$0` after a `strategy_close` / `strategy_withdraw_funds` is capital RETURNED to the main wallet (a withdrawal), not a loss** — the realized result is realized PnL, not the value drop. If realized PnL (e.g. −$21) and the value drop (e.g. −$175) disagree, the difference **is the withdrawal** — reconcile, never report the drop as a loss.
 
 ### 4. No chasing — one window is noise; weigh mandate + turnover
 
 Do **not** recommend abandoning a strategy's mandate to buy last window's winners. A `book_vs_market.gap` (a
 mover the book didn't hold) is a **question to ask of the strategy's design**, not an order to go buy it. One
 window is noise; weigh the strategy's mandate, the durability of the regime, and — critically — **turnover
-cost** (fees compound on every rotation; chasing is how books bleed). A missed mover is only interesting if it
-is *in the strategy's mandate* and the miss reveals a gate that's too tight.
+cost** (fees compound on every rotation; chasing is how books bleed). "HYPE ran +18% and you weren't in it"
+is only interesting if HYPE is *in the strategy's mandate* and the miss reveals a gate that's too tight —
+otherwise it's just an asset the strategy was never designed to trade.
 
 ### 5. Inherit the portfolio rules — mandate, multi-wallet, idle-by-design
 
@@ -530,8 +541,8 @@ is *in the strategy's mandate* and the miss reveals a gate that's too tight.
 Each row is the answer *and* the details: `closeReason` (why it closed), `phase` + `currentTierIndex` (which
 rung was governing), `currentROE` (the ROE it closed at — already at the REAL leverage, so quote it).
 
-Translate `closeReason`, never paste the enum (`exchange_sl_hit`, `dsl_breach`, `hard_timeout`,
-`weak_peak_cut`, `dead_weight_cut` — what each means: `references/exit-records.md`).
+Translate `closeReason`, never paste the enum: `exchange_sl_hit`, `dsl_breach`, `hard_timeout`,
+`weak_peak_cut`, `dead_weight_cut` (what each means: `references/exit-records.md`).
 
 **`hard_timeout`, `weak_peak_cut` and `dead_weight_cut` are TIMERS, not reactions to price, and none is
 phase-scoped.** State the configured
@@ -681,5 +692,7 @@ Never pick for the user, and never act unprompted.
 - `references/one-book.md` — before narrating a partial subtotal, the comparison or the deep-dive question.
 - `references/sources.md` — before explaining where a trade, an exit reason or a fee $ came from, or why a
   closed strategy's trades came back from the chain.
+- `references/output-contract.md` — before a full review or a fix-depth pick: the output contract,
+  Composition and both fix-depth menus, word for word.
 - `references/output-shape.md` — when an engine field's meaning is unclear.
 - `references/event-log.md` — the telemetry event shapes the engine reads (`signal.outcome` reason codes).

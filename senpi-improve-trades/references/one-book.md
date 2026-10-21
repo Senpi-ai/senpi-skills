@@ -4,6 +4,12 @@ The rules are under "One book — every wallet first-class" in `SKILL.md` (one l
 `book.total.line` verbatim, origin-aware protection, the comparison and the deep-dive question asked once,
 at the end). This is the detail behind three of them.
 
+## Which wallets make one row
+
+One package is one strategy: its instances are
+its wallets, grouped by the package they were deployed under (`skill_name`); a wallet with no package
+stamp is its own row.
+
 ## A row or subtotal over only some of its wallets
 
 - `value_read: "partial"` → a strategy whose value covers only some of its wallets: say "(1 of 2 wallets)" from `wallets_loaded` /
