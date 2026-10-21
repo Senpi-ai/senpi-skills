@@ -1,6 +1,0 @@
-{
-  "_doc": "Read by tests/test_context_budgets.py. absolute_56k: SKILL.md files allowed over the 56,000 est-char ceiling until their restructure lands, each capped at its recorded size (measured at b1916b12). It only shrinks: an entry is deleted when its file is back under 56,000, and the test refuses new entries. Delete the whole section with the last entry; an absent section means no exceptions.",
-  "absolute_56k": {
-    "senpi-improve-trades/SKILL.md": 63956
-  }
-}

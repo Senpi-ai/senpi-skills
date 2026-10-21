@@ -5,10 +5,9 @@ Migration:    docs/superpowers/plans/2026-10-16-openclaw-10.3-migration/handoffs
 (both in the senpi-personal-agents workspace, not this repo).
 
 Checks, all measured the way OpenClaw measures (tests/context_budget/openclaw_measure.py):
-  1. Every */SKILL.md <= 56,000 est chars (hard). OpenClaw 10.4 refuses a SKILL.md read over the
-     model's cap whole (64,000 for the fleet's GLM/Gemini models) and SKILL.md reads cannot be paged.
-     The only exceptions are the `absolute_56k` entries in tests/context_budget_allowlist.json,
-     which can only shrink and go away.
+  1. Every */SKILL.md <= 56,000 est chars (hard, no exceptions). OpenClaw 10.4 refuses a SKILL.md
+     read over the model's cap whole (64,000 for the fleet's GLM/Gemini models) and SKILL.md reads
+     cannot be paged. There is no allowlist: a file over the ceiling is restructured, not excused.
   2. SKILL.md and references/*.md over 16,000 get a warning, never a failure: 16,000 is the 5.7
      follow-up-turn replay cap, an optional goal worth reaching only where it is low-hanging.
      What a skill over it must keep inside 5.7's replay is asserted per skill on
@@ -20,7 +19,6 @@ Checks, all measured the way OpenClaw measures (tests/context_budget/openclaw_me
 Print the current numbers: python3 tests/test_context_budgets.py
 """
 import glob
-import json
 import os
 import sys
 import warnings
@@ -31,8 +29,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "con
 import openclaw_measure as om  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ALLOWLIST_PATH = os.path.join(REPO, "tests", "context_budget_allowlist.json")
-ALLOWLIST_REL = "tests/context_budget_allowlist.json"
+# The allowlist that held the over-ceiling files until their restructures landed. It must not come back.
+RETIRED_ALLOWLIST_REL = "tests/context_budget_allowlist.json"
 
 # ---- Constants: pinned to OpenClaw 2026.5.7 (prod) and 2026.10.4 (migration target). ----------
 # Re-derive all of them on any OpenClaw bump or any change to the senpi-agent skills config.
@@ -60,12 +58,6 @@ CATALOG_CEILING = 30_000
 # keeping it in the reserve errs on the safe side.
 BUNDLED_RESERVE_CHARS = 28_815 - 26_267
 
-# The only files ever allowed over SKILL_MD_CEILING, at their size on b1916b12. The allowlist file
-# may hold a subset of these at or below these sizes, nothing else.
-GRANDFATHERED_OVER_CEILING = {
-    "senpi-improve-trades/SKILL.md": 63_956,
-}
-
 RESTRUCTURE_FIX = (
     "Fix: move rationale, worked examples and long-tail cases into references/<topic>.md (those are "
     "paged on 10.x, not refused) and leave every imperative in SKILL.md, per the placement rules in "
@@ -92,64 +84,24 @@ def _references():
     return out
 
 
-def _allowlist():
-    if not os.path.exists(ALLOWLIST_PATH):
-        return {}
-    with open(ALLOWLIST_PATH, encoding="utf-8") as f:
-        return json.load(f)
-
-
-def _absolute_allowlist():
-    # Absent or empty section = strict: no file may exceed the ceiling.
-    return _allowlist().get("absolute_56k") or {}
-
-
 # ---- 1. Absolute SKILL.md ceiling ------------------------------------------------------------
 
 @pytest.mark.parametrize("path", _skill_mds(), ids=_rel)
 def test_skill_md_under_absolute_ceiling(path):
     rel = _rel(path)
     size = om.estimate_file_chars(path)
-    allowed = _absolute_allowlist().get(rel)
-    if allowed is None:
-        assert size <= SKILL_MD_CEILING, (
-            f"{rel} is {size:,} est chars; the ceiling is {SKILL_MD_CEILING:,}. OpenClaw 10.4 refuses "
-            f"a SKILL.md over the model's 64,000 cap whole and the agent cannot page it, so the skill "
-            f"would not load at all. {RESTRUCTURE_FIX} There is no allowlist for new files: "
-            f"{ALLOWLIST_REL} absolute_56k only shrinks."
-        )
-    else:
-        assert size <= allowed, (
-            f"{rel} is {size:,} est chars, above its recorded {allowed:,} in {ALLOWLIST_REL} "
-            f"(absolute_56k). This file is only allowed over the {SKILL_MD_CEILING:,} ceiling until its "
-            f"restructure lands, and it may not grow meanwhile. Cut it back to {allowed:,} or less, or "
-            f"restructure it under {SKILL_MD_CEILING:,}. Do not raise the entry. {RESTRUCTURE_FIX}"
-        )
+    assert size <= SKILL_MD_CEILING, (
+        f"{rel} is {size:,} est chars; the ceiling is {SKILL_MD_CEILING:,}. OpenClaw 10.4 refuses "
+        f"a SKILL.md over the model's 64,000 cap whole and the agent cannot page it, so the skill "
+        f"would not load at all. {RESTRUCTURE_FIX} The ceiling has no exceptions."
+    )
 
 
-def test_absolute_allowlist_only_shrinks():
-    section = _absolute_allowlist()
-    for rel, recorded in sorted(section.items()):
-        path = os.path.join(REPO, rel)
-        cap = GRANDFATHERED_OVER_CEILING.get(rel)
-        assert cap is not None, (
-            f"{ALLOWLIST_REL} absolute_56k lists {rel}, which was never over the {SKILL_MD_CEILING:,} "
-            f"ceiling. The section only shrinks: remove the entry and bring {rel} under "
-            f"{SKILL_MD_CEILING:,}. {RESTRUCTURE_FIX}"
-        )
-        assert isinstance(recorded, int) and recorded <= cap, (
-            f"{ALLOWLIST_REL} absolute_56k records {rel} at {recorded!r}; it may not exceed {cap:,} "
-            f"(its size when the gate landed). Lower the entry back to {cap:,} or less."
-        )
-        assert os.path.isfile(path), (
-            f"{ALLOWLIST_REL} absolute_56k lists {rel}, which no longer exists. Remove the entry."
-        )
-        size = om.estimate_file_chars(path)
-        assert size > SKILL_MD_CEILING, (
-            f"{rel} is now {size:,} est chars, under the {SKILL_MD_CEILING:,} ceiling. Remove its entry "
-            f"from {ALLOWLIST_REL} absolute_56k in this PR so the ceiling holds it from now on "
-            f"(delete the whole section once it is empty)."
-        )
+def test_the_ceiling_has_no_allowlist():
+    assert not os.path.exists(os.path.join(REPO, RETIRED_ALLOWLIST_REL)), (
+        f"{RETIRED_ALLOWLIST_REL} exists again. The 56,000 ceiling has no exceptions (migration gate "
+        f"U4): delete the file and restructure the SKILL.md that is over it. {RESTRUCTURE_FIX}"
+    )
 
 
 # ---- 2. 16,000: optional goal, warning only ----------------------------------------------------
@@ -203,7 +155,7 @@ def main():
         size = om.estimate_file_chars(path)
         flag = ""
         if size > SKILL_MD_CEILING and path.endswith("SKILL.md"):
-            flag = "  OVER CEILING" + (" (allowlisted)" if _rel(path) in _absolute_allowlist() else "")
+            flag = "  OVER CEILING"
         elif size > OPTIONAL_GOAL:
             flag = "  > 16k (optional goal)"
         print(f"{size:>10,}  {_rel(path)}{flag}")
