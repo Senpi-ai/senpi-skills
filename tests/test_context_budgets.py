@@ -77,8 +77,18 @@ def _rel(path):
     return os.path.relpath(path, REPO).replace(os.sep, "/")
 
 
+# 15 skills on b1916b12. An empty discovery would skip every parametrized test and leave the
+# catalog check measuring only the reserve, a silent green.
+MIN_SKILL_DIRS = 10
+
+
 def _skill_dirs():
     return om.repo_skill_dirs(REPO)
+
+
+def test_skill_discovery_finds_the_skills():
+    assert len(_skill_dirs()) >= MIN_SKILL_DIRS, (
+        f"repo_skill_dirs found {len(_skill_dirs())} skills under {REPO}; expected at least {MIN_SKILL_DIRS}")
 
 
 def _skill_mds():
