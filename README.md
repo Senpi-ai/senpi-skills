@@ -60,7 +60,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | Skill | Ver | Role |
 |---|---|---|
 | **Analyze** | | |
-| [`senpi-portfolio`](senpi-portfolio/) | 1.34.1 | All-wallet portfolio, positions, DSL protection, per-strategy mandate reads; every wallet — Senpi and the ones you added — in one list by value, managed and read-only subtotals |
+| [`senpi-portfolio`](senpi-portfolio/) | 1.34.2 | All-wallet portfolio, positions, DSL protection, per-strategy mandate reads; every wallet — Senpi and the ones you added — in one list by value, managed and read-only subtotals |
 | [`senpi-market-pulse`](senpi-market-pulse/) | 1.10.0 | Daily cross-asset market read (crypto, equities, commodities, macro, funding regime); the positions check includes your saved wallets, read-only |
 | [`senpi-smart-money`](senpi-smart-money/) | 1.7.0 | Where the most-profitable wallets are positioned vs. the crowd; the alignment check includes your saved wallets, read-only |
 | [`senpi-signals`](senpi-signals/) | 2.11.0 | Non-obvious market developments (funding extremes, proven cohort vs the 4h crowd, momentum events, cross-asset laggards), ranked through a trade lens and a news lens — read from Senpi's backend, the same Senpi Signals the app and the browser extension show; on demand, no cron |
@@ -70,10 +70,10 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | [`senpi-account-status`](senpi-account-status/) | 1.5.0 | Points, loyalty tier, fees, referrals — and the AI-credits usage meter: chat + tool turns spend plan credits; not trading money; the balance is the meter in the app header, which no tool reads. Carries the plan catalog (Starter/Pro/Advanced/Quant), the free-credit milestone ladder, and what a lapsed plan pauses (the agent and every strategy on it) |
 | **Run a strategy** | | |
 | [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.51.0 | Conversational picker — rank the catalog against your worldview; holdings context includes your saved wallets (read-only, never a budget) |
-| [`senpi-strategy-author`](senpi-strategy-author/) | 3.14.8 | Build/edit a DSL-protected strategy package, one decision at a time |
-| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.27.9 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
+| [`senpi-strategy-author`](senpi-strategy-author/) | 3.14.9 | Build/edit a DSL-protected strategy package, one decision at a time |
+| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.27.10 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
 | [`senpi-trade`](senpi-trade/) | 1.9.0 | Direct trade or mirror a specific trader — manual positions + copy trading, one decision at a time |
-| [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.1.8 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
+| [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.1.9 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
 | **Move money / positioning** | | |
 | [`senpi-deposit-withdraw-transfer`](senpi-deposit-withdraw-transfer/) | 1.6.2 | The money-movement rails (funds in via the funding card — deposit address or in-card USDC purchase; out via the app); top-ups prechecked against perps and traced to Spot when they fail, withdrawals at the exact available figure, fees stated before money moves |
 | [`senpi-why`](senpi-why/) | 1.4.1 | "Why Senpi / vs. other tools" — the positioning answer |

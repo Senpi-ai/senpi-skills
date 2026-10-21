@@ -263,14 +263,19 @@ every `OPEN_POSITION`; if `risk` is absent, none are evaluated.
 | Field | Constraints |
 |---|---|
 | `data_retention_seconds` | integer, 3600–604800 |
-| `guard_rails.daily_loss_limit_pct` | ≥ 0 |
+| `guard_rails.daily_loss_limit_pct` | ≥ 0. **Latches:** once breached it stays CLOSED until 00:00 UTC, even if PnL recovers intraday |
 | `guard_rails.max_entries_per_day` | integer ≥ 1 |
 | `guard_rails.bypass_max_entries_per_day_on_profit` | bool (default false) |
 | `guard_rails.max_consecutive_losses` | integer ≥ 1 |
 | `guard_rails.cooldown_seconds` | min 60 |
-| `guard_rails.drawdown_halt_pct` | 0–100 |
-| `guard_rails.drawdown_reset_on_day_rollover` | bool (default false) |
+| `guard_rails.drawdown_halt_pct` | 0–100. **Latches:** once breached it stays CLOSED even if drawdown recovers (release: next row) |
+| `guard_rails.drawdown_reset_on_day_rollover` | bool (default false). `true`: reset the PnL peak at UTC midnight AND release a latched drawdown halt then. `false`: the peak carries ~24h and a latched drawdown halt **never auto-resets** — tell the user and wait for their decision |
 | `guard_rails.per_asset_cooldown_seconds` | min 300 |
+
+The two halt latches are saved in the strategy's state dir and survive gateway restarts and updates; editing a
+threshold does not release one, removing the rail drops it. A latched halt is the user's call — never clear it or
+resume entries without their explicit approval. Release rules, status fields and events:
+`senpi-strategy-author/references/risk-gates.md` → *Halt latch*.
 
 ---
 
