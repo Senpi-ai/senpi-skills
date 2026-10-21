@@ -24,16 +24,12 @@ SKILL_DIR = os.path.join(HERE, "..")
 REFS = os.path.join(SKILL_DIR, "references")
 sys.path.insert(0, os.path.join(HERE, "..", "..", "tests", "context_budget"))
 import openclaw_measure as om  # noqa: E402
+from layout import assert_replayed, norm as _norm  # noqa: E402
 
 
 def _read(path):
     with open(path, encoding="utf-8") as f:
         return f.read()
-
-
-def _norm(text):
-    # Whitespace runs and blockquote markers at line starts do not change what the model reads.
-    return " ".join(re.sub(r"(?m)^[ \t]*>[ \t]?", "", text).split())
 
 
 SKILL = _read(os.path.join(SKILL_DIR, "SKILL.md"))
@@ -106,14 +102,7 @@ REPLAY_NEEDLES = (
 
 
 def test_follow_up_rules_survive_the_57_replay():
-    replayed = _norm(om.replay_57(SKILL))
-    lost = [n for n in REPLAY_NEEDLES if _norm(n) not in replayed]
-    mode, kept, _ = om.replay_57_layout(SKILL)
-    assert not lost, (
-        f"5.7 keeps only the first {kept:,} chars of SKILL.md on a follow-up ({mode}); these rules are past "
-        f"it: {lost}. Make room above them: move long-tail text that sits above them further down SKILL.md "
-        f"(it stays in core) or into references/ if it holds no rule. Do not drop a rule to make room."
-    )
+    assert_replayed(SKILL, REPLAY_NEEDLES)
 
 
 def test_the_router_names_a_reference_that_exists_for_each_topic():

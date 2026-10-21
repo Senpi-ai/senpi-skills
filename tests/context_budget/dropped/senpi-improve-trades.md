@@ -57,6 +57,14 @@ follow-up, so reviewers need not read the diff.
   from the ratchet record or honest `UNKNOWN` …" kept; the CPU-starvation explanation between them moved to
   sources.md, so "therefore" now follows the bold rule directly.
 
+- Hard rule 0b "The venue caps leverage per asset and **clips silently**: `strategy_create_custom_strategy`'s
+  own schema warns "EXCEEDING THE ASSET CAP DOES NOT ERROR", so a strategy asking `default_leverage: 10` opens
+  PONS at **3x**." → core keeps the rule and its clause ("**clips silently**: `default_leverage` is a request,
+  not what opened"); the schema quote and the PONS example are verbatim in `guardrails.md` ("Hard rule 0b").
+- guardrails.md "See the "Sources — onchain vs runtime" note above." and guardrail 9's "**What TO say instead
+  — branch on `meta.book_state` (see "Nothing to review?" above):**" → "… in SKILL.md": both sections stayed in
+  SKILL.md.
+
 ## Split across files (each part kept verbatim, the line just no longer exists in one file)
 
 - "*"… here are the strategies built for that."* A strategy matched to the current regime is a far better
@@ -122,7 +130,7 @@ reaches it. It overlaps the summary above and is the complete set.
 
 #### `references/one-book.md` — reached by router row "the wallet picked from `book.deep_dive.question`" and the One book pointers
 
-- `value_read: "partial"` → a strategy whose value covers only some of its wallets: say "(1 of 2 wallets)" from `wallets_loaded` / `wallet_count`.
+- `value_read: "partial"` → a strategy whose value covers only some of its wallets: say "(1 of 2 wallets)" from `wallets_loaded` / `wallet_count`. *(After review a short form is back in core, One book rule 2: "`value_read: "partial"` → say "(1 of 2 wallets)" from `wallets_loaded` / `wallet_count`.")*
 - A subtotal over only some of its wallets says so ("1 of 2 wallets"); one whose wallets all failed is "unknown", never $0; with no saved wallets the line has no read-only clause.
 - **Comparison: quote `book.comparison.line` after the table when it is non-null.** The engine computes it — of the closes measurable against today's price, the share that got out ahead of the later move (hindsight context, never a grade: guardrail 2) — only when 2+ wallets have `min_closes` (8) measurable closes, and it names any wallet whose trades it couldn't read or that hit the fill ceiling.
 - `order` holds only wallets with a value, an open position, trades to review or a value that couldn't load — an empty $0 wallet stays in the table, never in the question.
@@ -164,6 +172,10 @@ past the cut now (all still in SKILL.md, word for word); what the agent still se
 
 ## Added (new text, not in 1.19.1)
 
+- After review: the Router's "compare to the market" row also reads "/ the whales" and names
+  `senpi-smart-money` (the old Quick-actions row "Compare me to the whales / the market"); the Shape line
+  points to "Quick actions" for the maker ratio; guardrail 9 and "Use this skill FIRST" keep their reason
+  clauses ("raises fees", "un-attributed dumps").
 - The Router and the follow-up rule ("**On a follow-up, answer only what is new** — never re-send the `book`
   table, `book.total.line`, the TOTAL PnL headline or a figure already shown …"), per the placement rules for
   a SKILL.md over 16k. The Router's Run cells are the old Step(s) cells, verbatim.

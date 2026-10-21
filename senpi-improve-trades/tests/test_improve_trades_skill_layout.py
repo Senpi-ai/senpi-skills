@@ -23,6 +23,7 @@ SKILL_DIR = os.path.join(HERE, "..")
 SKILL = os.path.join(SKILL_DIR, "SKILL.md")
 sys.path.insert(0, os.path.join(HERE, "..", "..", "tests", "context_budget"))
 import openclaw_measure as om  # noqa: E402
+from layout import assert_replayed, norm as _norm  # noqa: E402
 
 
 def _skill():
@@ -30,24 +31,8 @@ def _skill():
         return f.read()
 
 
-def _norm(text):
-    # Whitespace runs and blockquote markers at line starts do not change what the model reads.
-    return " ".join(re.sub(r"(?m)^[ \t]*>[ \t]?", "", text).split())
-
-
-def _replayed():
-    return _norm(om.replay_57(_skill()))
-
-
 def _assert_replayed(needles):
-    replayed = _replayed()
-    lost = [n for n in needles if _norm(n) not in replayed]
-    mode, kept, _ = om.replay_57_layout(_skill())
-    assert not lost, (
-        f"5.7 keeps only the first {kept:,} chars of SKILL.md on a follow-up ({mode}); these rules are past "
-        f"it: {lost}. Make room above them: move long-tail text that sits above them further down SKILL.md "
-        f"(it stays in core) or into references/ if it holds no rule. Do not drop a rule to make room."
-    )
+    assert_replayed(_skill(), needles)
 
 
 def test_the_57_replay_stays_head_only():
@@ -68,6 +53,7 @@ def test_the_follow_up_rule_and_the_router_survive_the_57_replay():
         "Run only the step(s) the ask needs; route every fix through the depth choice at the end — never auto-act.",
         "| sell too early / late", "| nothing to review, an empty result |", "| a saved wallet |",
         "| the wallet picked from `book.deep_dive.question` |",
+        "| what did I miss, compare to the market / the whales |", "whales: compose `senpi-smart-money`",
         "`no_strategies` → `senpi-market-pulse`, then `senpi-strategy-discover`",
         "guardrail 5: judge it against its own mandate, all its wallets together, flat-by-design is not a loss",
         "**Still true on every follow-up**",
@@ -76,6 +62,7 @@ def test_the_follow_up_rule_and_the_router_survive_the_57_replay():
         "\"not closed by its stop\", never the raw status",
         "Never pick the fix depth for the user.",
         "The maker ratio is a fee-tier signal, never a fee dollar total.",
+        "the maker ratio: \"Quick actions\")",
         "**Fix depth.** End every improvement with \"How deep do you want me to go?\" and stop: Explain only",
         "(on a saved wallet: Explain only / Turn it into a routine / Draft the exact orders).",
     ))
@@ -111,6 +98,7 @@ def test_the_r1_rules_survive_the_57_replay():
         "**A Senpi strategy is one row with all its wallets.**",
         "Never reorder it, never re-section by origin",
         "**One book total: quote `book.total.line` verbatim.**",
+        "`value_read: \"partial\"` → say \"(1 of 2 wallets)\" from `wallets_loaded` / `wallet_count`.",
         "never compare wallets yourself",
         "ask `book.deep_dive.question` verbatim",
         "never imply Senpi checked who controls them",
@@ -137,7 +125,9 @@ def test_the_hard_rules_survive_the_57_replay():
         "never a strategy pitch. No fabricated forward numbers (no $/week).",
         "these five are the floor.",
         "**Use this skill FIRST — before any raw MCP.**",
+        "Those return un-attributed dumps that invite exactly the failure modes below.",
         "**never use `audit_*`** for closed trades",
+        "**clips silently**: `default_leverage` is a request, not what opened.",
     ))
 
 
@@ -165,7 +155,10 @@ def test_the_rules_past_the_replay_stay_in_skill_md():
                    "do **not** give them a verdict, do **not** flag their missing mandate",
                    "Never pick for the user, and never act unprompted.",
                    "quote the maker ratio as a fee-tier signal, never a fee dollar total.",
-                   "**Unknown is never empty.**", "never a bare \"no positions\""):
+                   "**Unknown is never empty.**", "never a bare \"no positions\"",
+                   # guardrail 9 keeps its reason clause (CLAUDE.md: one justification clause per rule).
+                   "It's out of scope for a *trade review*, and nudging toward MARKET / higher-slippage fills "
+                   "**raises fees**."):
         assert needle in sk, needle
 
 
@@ -176,6 +169,8 @@ DUPLICATED = {
         "the ROE it closed at — already at the REAL leverage, so quote it",
         "the full `DslState`, which already holds every number users ask for. Quote these rather than "
         "computing anything:",
+        # guardrail 6b's timer rule; the reference words its subject "The three above".
+        "are TIMERS, not reactions to price, and none is phase-scoped.**",
     ),
 }
 
@@ -211,11 +206,18 @@ def test_moved_examples_live_in_their_reference():
     assert "`min_closes` (8)" in o and "an empty $0 wallet stays in the table, never in the question" in o
 
 
-def test_new_references_never_call_a_saved_wallet_connected_or_verified():
+# senpi-portfolio/tests/test_your_wallets_wording.py, SECTION_BANNED + its "own book" ban, read whole here.
+OWNERSHIP_BANNED = (r"(?i)\bverified\b|\bproo?f\b|\bprov(e|ed|en)\b|\bsignature\b|\b(you|they) own\b"
+                    r"|\bowned by\b|\bowning\b|\b(your|their) own (saved )?wallets?\b|\b(your|their) own book\b")
+
+
+def test_new_references_never_call_a_saved_wallet_connected_verified_or_owned():
     """senpi-portfolio's wording test reads SKILL.md and output-shape.md only; the new files get the same
-    two bans here."""
+    bans here: connect(ed), verified, and the proven / owned / "your own wallet" section bans."""
     for name in ("guardrails.md", "exit-records.md", "one-book.md", "sources.md"):
         with open(os.path.join(SKILL_DIR, "references", name), encoding="utf-8") as f:
-            text = f.read()
+            text = " ".join(f.read().split())
         assert not re.search(r"(?i)connect(?!ion)", text), name
         assert not re.search(r"(?i)(?<![a-z])verified", text), name
+        m = re.search(OWNERSHIP_BANNED, text)
+        assert not m, f"{name}: …{text[max(0, m.start() - 50):m.end() + 30]}…"

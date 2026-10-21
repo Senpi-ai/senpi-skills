@@ -39,7 +39,7 @@ binds on a follow-up; when a row names a reference, read it first.
 |---|---|---|
 | sell too early / late, "improve my last N" | `timing`, then `telemetry` for the exit *mechanism* — **pass `--last N`** when the ask names a count ("last 10" → `--last 10`) | `guardrails.md` §1, §1b |
 | master my week, analyze my strategies and trades, suggest improvements | **all steps in order** (`timing`→`strategies`→`telemetry`→`market`) | — |
-| what did I miss, compare to the market | `market` (+ `telemetry` for the blocked cohort) | `guardrails.md` §4 |
+| what did I miss, compare to the market / the whales | `market` (+ `telemetry` for the blocked cohort) | `guardrails.md` §4; whales: compose `senpi-smart-money` |
 | make more gains | `strategies` + `telemetry` | `guardrails.md` §2–3 |
 | shaken out, how my exits fire, why did it close, what is locked now | `strategies` + `telemetry`; `senpi dsl closes` / `inspect` (guardrail 6b) | `exit-records.md`, `sources.md` |
 | what my limits blocked | `telemetry` | `output-shape.md` |
@@ -56,7 +56,8 @@ binds on a follow-up; when a row names a reference, read it first.
   mechanism not recorded on this build", never a bug. A ratchet-sourced exit never names who closed it:
   "not closed by its stop", never the raw status. ("Sources")
 - **Shape.** Reversals only after the aggregate, as evidence. Closed strategies are history: no verdict,
-  no "consolidate". The maker ratio is a fee-tier signal, never a fee dollar total. ("The output contract")
+  no "consolidate". The maker ratio is a fee-tier signal, never a fee dollar total. ("The output
+  contract"; the maker ratio: "Quick actions")
 - **Fix depth.** End every improvement with "How deep do you want me to go?" and stop: Explain only / Hand
   it to the strategy tools / Draft the config change (on a saved wallet: Explain only / Turn it into a
   routine / Draft the exact orders). Never pick the fix depth for the user.
@@ -85,7 +86,8 @@ table and the question; name the instance when you judge or fix it.
    aggregates and append the saved wallets. Then the detail: the Senpi aggregates (`pnl_summary.total`
    leads them, hard rule 1) and `external_wallets[]`.
 2. **`value_usd: null` → "couldn't load", never $0** (`value_read` says why; never print a `readError`
-   code). `no_hl_activity: true` → "no Hyperliquid activity yet".
+   code). `no_hl_activity: true` → "no Hyperliquid activity yet". `value_read: "partial"` → say "(1 of 2
+   wallets)" from `wallets_loaded` / `wallet_count`.
 3. **One book total: quote `book.total.line` verbatim.** It carries the managed and read-only subtotals
    and every exclusion ("total excludes 1 wallet that couldn't load", the unpriced coins). Never build a
    "Combined" row, never sum the wallets yourself, and never present it as Senpi performance: Senpi
@@ -148,8 +150,7 @@ detail is `external_wallets[]`.
    (their tier + fee), or the whole table with **`get_loyalty_tiers`**. Quote the *measured* fee from the
    trade whenever you can; when you must state a rate, state theirs.
 0b. **Never take leverage from the config — read what the position ACTUALLY opened at.** The venue caps
-   leverage per asset and **clips silently**: `strategy_create_custom_strategy`'s own schema warns
-   "EXCEEDING THE ASSET CAP DOES NOT ERROR", so a strategy asking `default_leverage: 10` opens PONS at **3x**.
+   leverage per asset and **clips silently**: `default_leverage` is a request, not what opened.
    **ROE = price move % x ACTUAL leverage** — read it from `DslState.leverage` (`senpi dsl inspect <asset>
    --json`), the clearinghouse position, or `strategy_get_asset_trading_limits`, never from runtime.yaml.
    **Say so when they differ** — the venue cap is a fact about the user's exposure, not a footnote.
@@ -183,7 +184,8 @@ The detailed guardrails below explain each; these five are the floor.
 > targeted reads in guardrail 6b.) For any
 > "review my trades / did I sell too early / what did
 > I miss / master my week / how could I make more gains" question, run this engine **before** reaching for
-> raw `discovery_get_trader_history` / `market_get_prices` / `execution_get_closed_position_details`. And **never use `audit_*`** for closed trades — those tools are
+> raw `discovery_get_trader_history` / `market_get_prices` / `execution_get_closed_position_details`. Those
+> return un-attributed dumps that invite exactly the failure modes below. And **never use `audit_*`** for closed trades — those tools are
 > deprecated; the engine sources closed trades from `discovery_get_trader_history`.
 
 ## Your wallets — unknown reads and fix depth
@@ -618,8 +620,9 @@ manufacture a setup/config critique to seem useful.**
 - **Never re-raise DSL / "might run naked" alarms** ("verify the DSL is configured… without DSL positions run
   naked"). Authored + template strategies **ship a DSL exit by construction** (rules 2 & 8) — don't tell the
   user to "verify" protection that exists by design, and never pair it with "until you manually exit."
-- **Never give generic execution / config-tuning advice** — slippage, market-vs-limit, leverage. `slippage: 0` is not a defect to
-  "fix." If the user explicitly asks about execution, hand it to `senpi-strategy-author` / `senpi-strategy-ops`;
+- **Never give generic execution / config-tuning advice** — slippage, market-vs-limit, leverage. It's out of
+  scope for a *trade review*, and nudging toward MARKET / higher-slippage fills **raises fees**. `slippage: 0`
+  is not a defect to "fix." If the user explicitly asks about execution, hand it to `senpi-strategy-author` / `senpi-strategy-ops`;
   don't free-style a number.
 
 ## Composition — this skill orchestrates, it doesn't re-implement

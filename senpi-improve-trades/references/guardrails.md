@@ -30,7 +30,8 @@ The builder fee is per tier, not a constant. Two wallets on different tiers show
 
 ## Hard rule 0b — leverage: the PONS failure
 
-The venue clipped a `default_leverage: 10` request on PONS to 3x. A review that used the config's 10x on that PONS trade stated "~15% ROE" and "~49% of margin" in one
+The venue clipped a `default_leverage: 10` request on PONS to 3x. `strategy_create_custom_strategy`'s own schema warns
+"EXCEEDING THE ASSET CAP DOES NOT ERROR", so a strategy asking `default_leverage: 10` opens PONS at **3x**. A review that used the config's 10x on that PONS trade stated "~15% ROE" and "~49% of margin" in one
 answer; at its real 3x it was -5.094% x 3 = **-15.3%**, exactly the `max_loss_pct: 15.0` floor.
 
 ## Nothing to review — the mistake to avoid
@@ -94,7 +95,7 @@ These restate the "Sources — onchain vs runtime" section of `SKILL.md`, which 
 - **Name your source (onchain vs runtime).** Closed trades + every onchain fact come from **`discovery`**
   (`discovery_get_trader_history`) — **never `audit_*`** (deprecated). Exit reason, blocked signals, leaks and
   maker/taker come from **telemetry** (the event log) and *enrich* those discovery trades. See the "Sources —
-  onchain vs runtime" note above.
+  onchain vs runtime" note in SKILL.md.
 - **Exit attribution is telemetry-first, ratchet-fallback.** `exit_reason.source` tells you which: `telemetry`
   (native `close_reason`), `ratchet` (the reconstructed record), or `unknown`. When it's `UNKNOWN` — no
   telemetry event and no ratchet record — say *"exit mechanism not recorded on this build"* (or, for a closed
@@ -126,7 +127,7 @@ higher-slippage fills **raises fees** — the biggest killer of returns.
 
 The `meta.book_state` table in `SKILL.md` governs; this is the same branch in words.
 
-- **What TO say instead — branch on `meta.book_state` (see "Nothing to review?" above):**
+- **What TO say instead — branch on `meta.book_state` (see "Nothing to review?" in SKILL.md):**
   - **`strategies_no_trades`** (deployed, hasn't fired): there's nothing to review *yet*; the strategies
     trade on their own signals — idle-by-design for a fresh deploy. If they ask **why**, diagnose the
     strategy they have. **Do not pitch another strategy to someone whose strategy hasn't traded.**
