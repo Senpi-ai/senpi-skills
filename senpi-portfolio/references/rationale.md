@@ -84,3 +84,8 @@ directly.)
   the numbers didn't tie out. Re-run the step fresh and reconcile BEFORE you say a word — above all before
   any close / rebalance recommendation. Recommending action on a strategy that turns out to be already
   closed is exactly the failure this guards against.
+
+## Skill Attribution (moved from SKILL.md)
+
+Guide/analysis skill — it *reads* the account and *recommends*; it does not place a trade or move
+funds. Attribution happens downstream when the execution tools / strategy skills act on a CTA.

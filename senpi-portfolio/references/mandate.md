@@ -61,7 +61,22 @@ SKILL.md's strategy-first rule, whole:
 This is the SAME read whether the strategy is one of ours or user-authored — every deployed strategy has a
 `runtime.yaml`.
 
-**Present each group as one strategy**; never present its wallets/instances as separate strategies.
+SKILL.md "A strategy is ALL its wallets", word for word (the unit every verdict is about):
+
+**This is the most important rule in this skill.** A single strategy can deploy as **MULTIPLE instances
+on SEPARATE wallets** — **ox** = `core`+`ballast` (risk-parity), **cougar** = `long`+`short`
+(market-neutral), **cub** = `long`+`short`+`preipo` (multi-sleeve dispersion). `strategy_list` returns
+**each instance/wallet as its own row**, so the raw list looks like several separate strategies. **It is
+not.** A multi-wallet strategy (long+short, core+ballast, multi-sleeve) is **ONE strategy across N
+wallets/instances** — the wallets are the *legs of one design*, not independent bets.
+
+**Lead and reason at the `strategy_groups[]` level, not `strategies[]`.** The engine re-unites the
+per-wallet rows into **`strategy_groups[]`** — one entry per real strategy, with `is_multi_wallet`,
+`instances[]` (the per-wallet detail), and `totals` summed across every wallet. **Present each group as
+one strategy**; never present its wallets/instances as separate strategies. (`strategies[]` is still
+there for per-wallet detail and the bucket math — but the *unit of analysis and recommendation* is the
+group.) When `meta.has_multi_wallet_strategy` is true, at least one strategy spans multiple wallets —
+be especially careful.
 
 For a **hedge, market-neutral, all-weather, or contrarian** strategy, **being counter is the DESIGN.** A
 market-neutral book is *supposed* to be short the names the crowd is long; a hedge is *supposed* to lean

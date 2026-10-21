@@ -54,7 +54,7 @@ book total, or verdicts and figures already shown unless the user asks for them 
 | a read failed: `meta.degraded`, `meta.warnings`, `reconciles: false`, a `null` figure | re-run that step | `references/output-contract.md` ("Resilience") |
 | run this on a schedule | — | say the cost first: every firing is a full model call; at most twice a day, after a yes ("Run it in steps") |
 | close / pause / keep / top up ONE wallet of a strategy | — | the no-no below: whole strategy only |
-| a yes to CTA 1 / CTA 2, or a digit (after the CTAs: that CTA; after the idle menu: that option) | the levers / the ready options | `references/output-contract.md` (the menu) |
+| a yes to CTA 1 / CTA 2, or a digit (after the CTAs: that CTA; after the idle menu: that option), or a question about a menu option or its numbers | the levers / the ready options | `references/output-contract.md` (the menu) |
 
 **Still true on every follow-up** (in full further down):
 - **A failed read is not $0 or flat.** App-scoped token → can't read the account; failed clearinghouse
@@ -63,7 +63,8 @@ book total, or verdicts and figures already shown unless the user asks for them 
   wallet or the CTAs. A `timeout` open may have filled: check positions, never suggest a retry.
   ("Resilience")
 - **Acting on a CTA:** Confirm before any change; never trade unprompted. Propose; never deploy without
-  confirmation. (The menu and its numbers: `references/output-contract.md`.)
+  confirmation. CTA 2: -15% SL is 15% ROE; up to 10x, never a flat 10x; say rotations, never "pumps".
+  (The menu and its numbers: `references/output-contract.md`.)
 - **There is no restart verb; close → redeploy is a last resort, asked first.** ("Liveness")
 
 > **Source of truth for position facts — read before you answer, even mid-trade.** This engine is the
@@ -219,14 +220,6 @@ These three buckets are the **managed** money — Senpi's. The wallets the user 
 they are `read-only` rows in the one wallet list and the read-only subtotal beside `grand_total_usd`
 (see "One wallet list — every wallet first-class").
 
-## The analyst's bar
-
-You are a sharp portfolio analyst. A hidden engine pulls every wallet in real time and classifies
-every dollar into the right bucket; **your job is the analysis** — but the analysis leads at the
-**strategy** level: for each strategy, *is it doing the job it was deployed to do?* Positions are
-evidence for that verdict, not the headline. The bar is high: a flat list of balances — or a positions
-dump when the user asked about their **strategies** — is a failure. The user wants a read.
-
 ## A strategy is ALL its wallets (present + reason at `strategy_groups[]`)
 
 **This is the most important rule in this skill.** A single strategy can deploy as **MULTIPLE instances
@@ -259,7 +252,10 @@ The detail is in `references/why-not-trading.md` and `references/runtime-health.
 question needs before you answer. These hold always:
 
 - Every evaluated signal carries a `senpi.outcome.reason_code`, so **say which one, how many, and whether
-  the user needs to do anything** — never "I'm not sure why."
+  the user needs to do anything** — never "I'm not sure why." **Two rules before you answer.** Count the
+  signals rather than describing one, and name the assets that were skipped, because "3 eligible entries
+  were skipped" is the part the user actually feels. And lead with whether they need to act: for most of
+  these the honest answer is *nothing*, and saying so is the useful reply.
 - **Never call it healthy on the strength of `health=healthy`.**
 - `status: ACTIVE` only means the strategy *record* exists and is funded — it does **not** mean a runtime
   is actually running it. For `not_running`: Report it as **⛔ NOT RUNNING / UNPROTECTED — funded but no
@@ -271,7 +267,14 @@ question needs before you answer. These hold always:
   **⚠ RUNNING — NO ENTRY SCANNERS**, not a clean "running."
 - When `runtime_registered` (or `not_running` / `running_blind`) is `null`, the registry read did not
   answer — say **"could not verify on this host,"** never "running" and never "not running." This is the
-  honest bar: **only `live` means "confirmed working."**
+  honest bar: **only `live` means "confirmed working."** `unverified` (the registry read itself failed):
+  Say **"could not verify on this host"** — never "protected," "not protected," "running," or "not
+  running." **`null` is not `false`.**
+- Every runtime field `null` on every strategy, with a `meta.warnings` line naming `openclaw senpi runtime
+  list --json`: **That whole-fleet pattern means the runtime on this box is too old for this skill's
+  registry read, not that the strategies are broken.** Say so in those words, quote the warning, and do
+  not diagnose the strategies from it: no strategy may be called running, not-running, protected or
+  unprotected off that run. The fix is a runtime upgrade on the box, not a redeploy of the strategies.
 - `recovering` (one errored scan): **Do not warn on it.** Do not put a ⚠ on the strategy, and do not send
   the user to a diagnostic.
 - `degraded` (two or more errored scans, or `running_blind`): This is the one that always deserved the
@@ -279,7 +282,8 @@ question needs before you answer. These hold always:
 - `unknown`: Say **"runtime liveness unverified — not confirmed running"** — never upgrade to
   "healthy/protected" or downgrade to "broken." A runtime *process* that exists (`status: running`) is not
   a health verdict and never reaches `live` on its own.
-- Corroborate before you assert (the grid: `references/runtime-health.md`). `degraded`, book live:
+- Corroborate before you assert (the grid: `references/runtime-health.md`). `live`, trading: **They
+  agree.** Clean. Say so. `degraded`, book live:
   **They disagree.** The last scans errored; the book is live and managed. Say *"running — some scans
   errored"*, never *"your strategy is broken."* Confirm with `status.py <id>` before going further.
   `live`, not trading: **They disagree.** Do **not** give a clean all-clear — a scanner can read `healthy`
@@ -302,8 +306,8 @@ question needs before you answer. These hold always:
 - `status.py`: A thorough health check does not stop at the verdict: for a strategy that is `not_running`,
   `degraded` or `unknown` — **never for `recovering`** —
   **`python3 senpi-strategy-ops/scripts/status.py <id>`** re-asks the runtime directly and returns its
-  verdict **beside a position count**, which is the corroboration above. Run it yourself and give the answer. **It is your tool, not a step you hand the
-  user** — never write "worth running …" into a portfolio answer; either run it, or say what you know
+  verdict **beside a position count**, which is the corroboration above. Run it yourself and give the
+  answer. **It is your tool, not a step you hand the user** — never write "worth running …" into a portfolio answer; either run it, or say what you know
   without it. **Mind the vocabulary:** `status.py` reports the engine's raw words, and they do not line up
   with this skill's. Its **`degraded`** is this skill's **`recovering`** (one errored tick); its
   **`unhealthy`** is this skill's **`degraded`** (the real fault). Reference the right tool to *confirm* —
@@ -313,15 +317,19 @@ question needs before you answer. These hold always:
   invent one; the ladder finds it.
 - **When it IS genuinely broken, act — don't hand the user a to-do.** For `degraded` corroborated by no
   activity, or `not_running`, work the ladder yourself and report what you found (the ladder:
-  `references/runtime-health.md`). Only the last step touches their money, and only that one needs their
-  consent: **`close.py` → redeploy** — **last resort, and ask first.** It is a market exit of every open
+  `references/runtime-health.md`). Its step 3: **Re-run the deploy** — a deploy interrupted by a gateway
+  restart does not resume on its own, and re-running reconciles rather than duplicating. This is the fix
+  for `not_running` after a broken deploy. Only the last step touches their money, and only that one needs
+  their consent: **`close.py` → redeploy** — **last resort, and ask first.** It is a market exit of every open
   position and a fresh wallet. Never reach for it to clear an error you have not diagnosed. **There is no
   restart verb.**
 - No signals, scanner healthy: **Nothing qualified.** The entry bar has not been met — name it, never
   "being selective": the binding gate, its threshold and the universe count from its `runtime.yaml`
   (`senpi-strategy-ops` `references/liveness-verification.md`, "Healthy, live — and it has never traded").
-- **Do not offer "close and relaunch" for `withdrawable_unavailable`.** Do not send anyone to redeploy
-  over a row marked "no". ("do they act?" in `references/why-not-trading.md`.)
+- **Do not offer "close and relaunch" for `withdrawable_unavailable`.** Wait, then support. Do not send
+  anyone to redeploy over a row marked "no". ("do they act?" in `references/why-not-trading.md`.)
+- `position_open_failed` (the exchange rejected the order): Give the exchange's own message, which rides
+  the outcome.
 - `timeout`: **Not a rejection — the order may have filled.** Check live positions before saying anything,
   and never suggest retrying until you have.
 - A copy-trade (`strategy_kind: "mirror"`) has no runtime by design — none of the liveness verdicts apply
@@ -334,8 +342,7 @@ question needs before you answer. These hold always:
 
 > **NEVER, for a mirror:** add a DSL / ratchet; set a stop via `edit_position` on its positions; "redeploy it
 > via `senpi-strategy-ops`"; call it "running unprotected / not running"; or call it "redundant with strategy X,
-> close it." Those are **custom-strategy** remedies — applied to a mirror they break the copy-trade the user
-> deliberately set up. A mirror is an intentional copy of a trader, judged on the trader + the multiplier + its
+> close it." A mirror is an intentional copy of a trader, judged on the trader + the multiplier + its
 > strategy-level SL/TP.
 
 **Fees are read, never estimated.** A P&L claim about a strategy — "it is up", "it is not losing" —
@@ -354,7 +361,9 @@ riding the same move a trend-follower would."
 
 **Get the mandate first, then judge.** Before you call any strategy good or bad, know what it was *for* —
 and get that from the **source of truth, not memory.** The engine already does the lookup
-(`strategies[].profile`; its fields: `references/mandate.md`).
+(`strategies[].profile`, its `profile.description` read from the deployed `runtime.yaml`; its fields:
+`references/mandate.md`). Judge against *that* declared job — the SAME whether the strategy is one of
+ours or one the user wrote themselves.
 
 **Lead the per-strategy read with `profile.description` — state the strategy's job in the user's terms,
 then judge against it.**
@@ -530,11 +539,7 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
 
 ## One wallet list — row details
 
-The long tail of the one list (see "One wallet list — every wallet first-class" above).
-
-**Saved wallets.** Their raw reads are `external_wallets: {status, wallets}` (each `state` verbatim), returned from
-every step (`money`, `strategies`, `positions`) and from `all`, with `meta.no_strategy_path` on each;
-their rows in `book.wallets` carry the columns.
+**Saved wallets** (their raw reads, `external_wallets`: `references/output-fields.md`).
 
 - **Trade history** on a saved wallet ("how did my trades on it go", "where am I leaking on it") →
   `senpi-improve-trades` (review) or `quant-desk` (score and leaks). This skill reads balances and open
@@ -585,25 +590,14 @@ wallet, its cash legs (`embedded_wallet`).
 
 **Asked to run this on a schedule? Say the cost first.** An `openclaw cron` job is an agent turn — every firing is a full model call over the whole conversation, so "every hour" is 24 model calls a day and "every 5 minutes" is 288. Offer at most once or twice a day, state the cost, and get a yes before creating it. Never a cron to watch a strategy: the runtime supervises it at zero model cost, and this skill reads it on demand.
 
-Run the read as **fast, resumable STEPS** and **narrate each slice the moment it returns** — each step a
-separate `exec` call, so no single call hangs (why: `references/output-contract.md`).
+Run the read as **fast, resumable STEPS** (`money` → `strategies` → `positions`; what each returns:
+`references/output-contract.md`) and **narrate each slice the moment it returns** — each step a
+separate `exec` call, so no single call hangs.
 
-```sh
-python3 scripts/portfolio.py money        # 1. the FAST money map: embedded idle + each wallet's value → the three buckets (narrate FIRST)
-python3 scripts/portfolio.py strategies   # 2. per-strategy detail: mandate + DSL ladder + protected + closed/realized + strategy_groups[]
-python3 scripts/portfolio.py positions    # 3. position-level: per-position market (market_24h_pct/vs_market) + exposure + signals
-python3 scripts/portfolio.py all          # one-shot fallback: the full composed dict (same output as before)
-```
-
-**Narrate each slice as it returns — never wait for all steps.** The steps share a state file
-(`<tempdir>/senpi-portfolio/state.json`, overridable with `--state`), so a later step reuses what an earlier
-one fetched instead of re-pulling. **For a NARROW ask, run only the minimal step:**
-the router at the top names it. The full read's narration order, step by step, is in
-`references/output-contract.md`.
-
-`--no-market` applies to every step (skips the `positions` market fan-out). Each step fails open like
-`all` (valid JSON, `meta.warnings` on partial data) and also works standalone — the contract:
-`references/output-fields.md`.
+**Narrate each slice as it returns — never wait for all steps.** **For a NARROW ask, run only the
+minimal step:** the router at the top names it. The full read's narration order, step by step, is in
+`references/output-contract.md`; the shared state file, `--no-market` and the fail-open contract are
+in `references/output-fields.md`.
 
 ## How to run the engine
 
@@ -634,9 +628,19 @@ See "A strategy is ALL its wallets."
    labeled by *where*) and the read-only subtotal, with `book.totals.excludes_note` when present. Keep it
    tight; this is the money map, not the analysis.
 2. **Per-strategy verdict (the real value).** For **each `strategy_groups[]` entry** (one per real
-   strategy — never one per wallet), in this order: `references/output-contract.md`. Flag any position
-   fighting the tape *for a directional-momentum mandate* / near `liq_px` / oversized.
-3. **Portfolio-level read**, then 4. **the two CTAs** (both in `references/output-contract.md`).
+   strategy — never one per wallet), in this order:
+   1. **Label + mandate.** 2. **Is it doing its job — against its OWN mandate.** 3. **Positions as
+   evidence — across ALL the strategy's instances.** Flag any position fighting the tape *for a
+   directional-momentum mandate* / near `liq_px` / oversized. 4. **PnL — realized + unrealized, summed
+   across the strategy.** 5. **DSL protection — ladder + live tiers.** State the group's `protected`
+   posture (⟹ **all** instances ship a DSL exit), then **how its DSL works** from `group.dsl` /
+   `profile.dsl` (hard stop at `hard_stop_roe_pct`, ratchet arms at `arm_at_roe_pct`, the tier ladder),
+   then **each open position's live tier** from `positions[].dsl`. 6. **Any lever is
+   WHOLE-STRATEGY.** (Each in full: `references/output-contract.md`.)
+3. **Portfolio-level read.** Net exposure (net long/short and by sector), concentration (largest
+   position), idle drag (capital sitting in cash), and the overall posture — is this book hedged,
+   directional, mostly in cash? Compare the net tilt to where the broader market is.
+4. **The two CTAs** (the menu in full: `references/output-contract.md`).
 
 Formatting: group by strategy (a `strategy_groups[]` entry = one strategy; show its instances as its
 sleeves, not as peers); show `Δ%` and leveraged return; emoji sparingly (🟢/🔴 for green/red books).
@@ -720,12 +724,6 @@ Read the file before doing what its line names; each is short enough to keep who
 - `output-fields.md` — quoting an engine field you have not used: every field the engine returns.
 - `analysis-framework.md` — a positions read: money map, positions vs the market, exposure.
 - `rationale.md` — a user disputes a hard rule: the live failures behind them.
-
-## Skill Attribution
-
-Guide/analysis skill — it *reads* the account and *recommends*; it does not place a trade or move
-funds. Attribution happens downstream when the execution tools / strategy skills act on a CTA.
-
 
 ## Install — both scripts are required
 
