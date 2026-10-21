@@ -108,6 +108,7 @@ def test_removal_is_pointed_to_in_the_portfolio_and_quant_desk_sections():
 # wallets) but never where a saved wallet is described.
 SECTIONS = (
     ("senpi-portfolio/SKILL.md", "## One wallet list — every wallet first-class", None),
+    ("senpi-portfolio/SKILL.md", "## One wallet list — row details", None),
     ("senpi-improve-trades/SKILL.md", "## One book — every wallet first-class",
      "## Your wallets (read-only, traded by hand)"),
     ("senpi-improve-trades/SKILL.md", "## Your wallets (read-only, traded by hand)", None),

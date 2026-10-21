@@ -43,7 +43,7 @@ progress line goes to stderr), so that step's cost does not grow with the number
    2. **Is it doing its job — against its OWN mandate.** Not vs a momentum benchmark, and **not vs the 4h
       leaderboard.** A hedge flat in calm, an all-weather core steady-not-flashy, a market-neutral book
       counter to the crowd, a selective strategy waiting with no position — all **working as designed**.
-      See "Judge each strategy against its OWN mandate" and "Counter to smart money is not a defect."
+      See "Judge each strategy against its OWN mandate" and "Counter to smart money is not a defect." (both in SKILL.md)
    3. **Positions as evidence — across ALL the strategy's instances.** The open positions (from every
       instance in the group) that *show* it's on-mandate: direction, leveraged return
       (`return_on_equity_pct`), and **vs the market** (`market_24h_pct`, `vs_market`) — "short ETH, +11%
@@ -60,7 +60,7 @@ progress line goes to stderr), so that step's cost does not grow with the number
       position's live tier** from `positions[].dsl` — "armed at Tier N, locked L% of peak" or, for a
       sub-Tier-1 position, "protected from entry, ratchet arms at +X% — currently +Y%." **Never say a
       live position has "no DSL" because it lacks a ratchet record** (sub-Tier-1 positions have none by
-      design). See "DSL — how it works per strategy, and which position is in which tier."
+      design). See "DSL — how it works per strategy, and which position is in which tier." (SKILL.md)
    6. **Any lever is WHOLE-STRATEGY.** If you suggest close / pause / adjust-config / top-up, it applies
       to the **entire strategy (all its wallets)** — never one sleeve. And the lever is the STRATEGY,
       not a hand-picked position the scanner will just re-open. See the HARD rule (SKILL.md, "The job, and the

@@ -39,7 +39,7 @@ book total, or verdicts and figures already shown unless the user asks for them 
 | The ask | Step to run | Read first |
 |---|---|---|
 | *"how much idle / where's my money / balance across wallets / grand total / my wallets"*, a wallet they added | `money` | "One wallet list" below |
-| *"are my strategies protected? / do they have a stop-loss? / how are my strategies doing / analyze my strategies / what's their DSL / mandate"* | `strategies` | `references/dsl.md` (protection), `references/mandate.md` (verdicts) |
+| *"are my strategies protected? / do they have a stop-loss? / how are my strategies doing / analyze my strategies / what's their DSL / mandate"* | `strategies` | `references/dsl.md` (protection), `references/mandate.md` (verdicts), `references/runtime-health.md` (liveness) |
 | "is it running / health check / degraded / not running / could not verify" | `strategies` | `references/runtime-health.md` |
 | "why hasn't it traded / why didn't it open X / no signals" | `strategies` | `references/why-not-trading.md` |
 | a copy-trade (`strategy_kind: "mirror"`) | `strategies` | `references/mirror-strategies.md` |
@@ -53,7 +53,7 @@ book total, or verdicts and figures already shown unless the user asks for them 
 | what a JSON field means | — | `references/output-fields.md` |
 | run this on a schedule | — | say the cost first: every firing is a full model call; at most twice a day, after a yes ("Run it in steps") |
 | close / pause / keep / top up ONE wallet of a strategy | — | the no-no below: whole strategy only |
-| a yes to CTA 1 / CTA 2, or a digit | the levers / the ready options | `references/output-contract.md` (the menu) |
+| a yes to CTA 1 / CTA 2, or a digit (after the CTAs: that CTA; after the idle menu: that option) | the levers / the ready options | `references/output-contract.md` (the menu) |
 
 **Still true on every follow-up** (in full further down):
 - **Say where idle sits.** `total_withdrawable` is idle in strategy wallets, NOT embedded idle cash.
@@ -61,8 +61,9 @@ book total, or verdicts and figures already shown unless the user asks for them 
   fund strategies. ("The wallet model")
 - **A failed read is not $0 or flat.** App-scoped token → can't read the account; failed clearinghouse
   read → positions may be incomplete; realized PnL that didn't load → *unavailable*, never `$0`;
-  `totals.reconciles == false` → stop, re-run, then trust per-wallet figures. Never skip a wallet or
-  the CTAs. ("Resilience")
+  `totals.reconciles == false` → stop, re-run, then trust per-wallet figures. A full read never skips a
+  wallet or the CTAs. A `timeout` open may have filled: check positions, never suggest a retry.
+  ("Resilience")
 - **Acting on a CTA:** confirm before any change, never trade unprompted; propose, never deploy without
   confirmation. CTA 2: -15% SL is 15% ROE; up to 10x, never a flat 10x; say rotations, never "pumps".
 - **There is no restart verb; close → redeploy is a last resort, asked first.** ("Liveness")
@@ -123,9 +124,7 @@ wallet appended after the money map. Origin is the kind column (`kind`: `managed
 The rest of this section is about the **read-only rows** — the user's **saved wallets**, Hyperliquid
 wallets they added in Your wallets by pasting the address, and trade by hand. A saved wallet is their
 claim: call them "your wallets" or "the wallets you added", and never imply Senpi checked who controls
-them. Their raw reads are `external_wallets: {status, wallets}` (each `state` verbatim), returned from
-every step (`money`, `strategies`, `positions`) and from `all`, with `meta.no_strategy_path` on each;
-their rows in `book.wallets` carry the columns.
+them. Their raw reads: "row details" below.
 
 - **Quote the access line verbatim** — every wallet carries it as `access`, and it is the whole answer to
   "can you trade it / close it / set a stop on it":
@@ -299,7 +298,12 @@ ladder, the minimum-runtime pattern) is in `references/why-not-trading.md` and
   is a market exit of every open position and a fresh wallet. Never reach for it to clear an error you
   have not diagnosed. **There is no restart verb.**
 - **Do not offer "close and relaunch" for `withdrawable_unavailable`.** Do not send anyone to redeploy
-  over a row marked "no".
+  over a row marked "no". ("do they act?" in `references/why-not-trading.md`.)
+- `timeout`: **Not a rejection — the order may have filled.** Check live positions before saying anything,
+  and never suggest retrying until you have.
+- `degraded`, book live: *"running — some scans errored"*, never *"your strategy is broken."* `unknown`:
+  "runtime liveness unverified — not confirmed running". `status.py`'s `degraded` is our `recovering`,
+  its `unhealthy` our `degraded`.
 - A copy-trade (`strategy_kind: "mirror"`) has no runtime by design — none of the liveness verdicts apply
   to it:
 
@@ -533,6 +537,10 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
 ## One wallet list — row details
 
 The long tail of the one list (see "One wallet list — every wallet first-class" above).
+
+**Saved wallets.** Their raw reads are `external_wallets: {status, wallets}` (each `state` verbatim), returned from
+every step (`money`, `strategies`, `positions`) and from `all`, with `meta.no_strategy_path` on each;
+their rows in `book.wallets` carry the columns.
 
 - **Trade history** on a saved wallet ("how did my trades on it go", "where am I leaking on it") →
   `senpi-improve-trades` (review) or `quant-desk` (score and leaks). This skill reads balances and open
