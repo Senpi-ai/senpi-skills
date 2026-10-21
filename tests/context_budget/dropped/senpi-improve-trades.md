@@ -1,6 +1,6 @@
 # senpi-improve-trades 1.20.0: dropped, reworded and moved-out-of-core sentences
 
-The restructure moved SKILL.md from 63,956 to 53,821 est chars. Every other sentence of the 1.19.1 SKILL.md is
+The restructure moved SKILL.md from 63,956 to 54,066 est chars. Every other sentence of the 1.19.1 SKILL.md is
 still in `SKILL.md` or moved verbatim to a `references/*.md` file (the conservation script checks this). This
 lists what was reworded or split, every imperative that left core, and the rules 5.7 no longer keeps on a
 follow-up, so reviewers need not read the diff.
@@ -157,7 +157,7 @@ past the cut now (all still in SKILL.md, word for word); what the agent still se
 | "Discuss individual reversals only after the aggregate, and only as evidence." | "Still true…": "Reversals only after the aggregate, as evidence." |
 | Closed strategies: "never as a live strategy to act on"; "do **not** give them a verdict, do **not** flag their missing mandate, and do **not** spin them into a "consolidate N wallets" recommendation" | "Still true…": "Closed strategies are history: no verdict, no "consolidate"." |
 | "`book.deep_dive.question` (when non-null) comes last of all — after the detail and the steps the request needs, never here." | One book rule 6 ("ask `book.deep_dive.question` verbatim", at the end of the answer). |
-| The fix-depth menu ("**Explain only** — I lay out the diagnosis + the plain-terms fix, and stop." and the two other depths); "Never pick for the user, and never act unprompted." | The Router: "route every fix through the depth choice at the end — never auto-act"; "Still true…": "Never pick the fix depth for the user." The menu itself does not replay. |
+| The fix-depth menus' option descriptions ("I lay out the diagnosis + the plain-terms fix, and stop." and the others); "Never pick for the user, and never act unprompted." | "Still true…": "Fix depth. End every improvement with "How deep do you want me to go?" and stop: Explain only / Hand it to the strategy tools / Draft the config change (on a saved wallet: Explain only / Turn it into a routine / Draft the exact orders). Never pick the fix depth for the user." (the question and every option name, word for word; a test keeps them equal to the menus); the Router: "route every fix through the depth choice at the end — never auto-act". |
 | "quote the maker ratio as a fee-tier signal, never a fee dollar total" | "Still true…": "The maker ratio is a fee-tier signal, never a fee dollar total." |
 | Composition: "Don't re-implement these — call them and weave their output into the four-part contract below." | Nothing in the replay (a first-turn rule about which skills to call). |
 | Hard rule 0's incident ("A live review headlined **+$410.14** … it never mentioned fees at all.") | Hard rule 0 itself replays; the incident is in `guardrails.md`. |
@@ -169,7 +169,9 @@ past the cut now (all still in SKILL.md, word for word); what the agent still se
   a SKILL.md over 16k. The Router's Run cells are the old Step(s) cells, verbatim.
 - One-line pointers to the new references, and the reference index at the end of the file.
 - "Still true on every follow-up" after the Router: a short restatement of the Sources and output-contract
-  rules that no longer replay (previous section). The full rules stay where they were.
+  rules that no longer replay (previous section), and the fix-depth menus by their question and option
+  names. The full rules and menus stay where they were.
 - "## Your wallets — unknown reads and fix depth": the "Unknown is never empty" and "Open positions" bullets
   of Your wallets and "Fix depth on a saved wallet", moved below HARD RULES and "Use this skill FIRST" so
-  those replay; the text is unchanged.
+  those replay; the text is unchanged. 5.7 keeps only its heading and the "Unknown is never empty" lead-in;
+  the rest is past the cut (none of it replayed at `b1916b12`: it sat in the middle of the file).

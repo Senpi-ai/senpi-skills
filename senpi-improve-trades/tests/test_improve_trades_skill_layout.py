@@ -76,7 +76,33 @@ def test_the_follow_up_rule_and_the_router_survive_the_57_replay():
         "\"not closed by its stop\", never the raw status",
         "Never pick the fix depth for the user.",
         "The maker ratio is a fee-tier signal, never a fee dollar total.",
+        "**Fix depth.** End every improvement with \"How deep do you want me to go?\" and stop: Explain only",
+        "(on a saved wallet: Explain only / Turn it into a routine / Draft the exact orders).",
     ))
+
+
+def _menu_options(block):
+    # The bold option names of a "> - **Name** — what it does" menu, in order.
+    return re.findall(r"(?m)^>\s*-\s*\*\*(.+?)\*\*\s+—", block)
+
+
+def test_the_replayed_fix_depth_line_copies_the_full_menus():
+    # Copy must match: the "Still true" line is the menus further down with the descriptions left out.
+    # Rename an option in either place and this fails until both read the same.
+    raw = _skill()
+    contract = raw.split("## The output contract", 1)[1]
+    question = re.search(r"(?m)^> \*\*(How deep do you want me to go\?)\*\*$", contract)
+    assert question, "the output contract's fix-depth menu lost its question line"
+    senpi = _menu_options(contract[question.end():].split("\n\n", 1)[0])
+    saved_section = raw.split("### Fix depth on a saved wallet", 1)[1].split("\n## ", 1)[0]
+    saved = _menu_options(saved_section)
+    assert len(senpi) == 3 and len(saved) == 3, (senpi, saved)
+    line = (f"**Fix depth.** End every improvement with \"{question.group(1)}\" and stop: "
+            f"{' / '.join(senpi)} (on a saved wallet: {' / '.join(saved)}).")
+    card = raw.split("**Still true on every follow-up**", 1)[1].split("\n\n", 1)[0]
+    assert _norm(line) in _norm(card), (
+        f"The 'Still true on every follow-up' Fix depth line must name the menus further down word for word: "
+        f"{line!r}")
 
 
 def test_the_r1_rules_survive_the_57_replay():

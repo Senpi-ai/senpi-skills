@@ -56,8 +56,10 @@ binds on a follow-up; when a row names a reference, read it first.
   mechanism not recorded on this build", never a bug. A ratchet-sourced exit never names who closed it:
   "not closed by its stop", never the raw status. ("Sources")
 - **Shape.** Reversals only after the aggregate, as evidence. Closed strategies are history: no verdict,
-  no "consolidate". Never pick the fix depth for the user. The maker ratio is a fee-tier signal, never a
-  fee dollar total. ("The output contract")
+  no "consolidate". The maker ratio is a fee-tier signal, never a fee dollar total. ("The output contract")
+- **Fix depth.** End every improvement with "How deep do you want me to go?" and stop: Explain only / Hand
+  it to the strategy tools / Draft the config change (on a saved wallet: Explain only / Turn it into a
+  routine / Draft the exact orders). Never pick the fix depth for the user.
 
 ## One book — every wallet first-class
 
