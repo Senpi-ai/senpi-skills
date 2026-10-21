@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.35.0"
+  version: "1.35.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -51,21 +51,19 @@ book total, or verdicts and figures already shown unless the user asks for them 
 | score / rate / grade my trading | `quant-desk` on these wallets | — |
 | "where am I leaking / did a stop fail / exit quality", trade history | `senpi-improve-trades` | — |
 | what a JSON field means | — | `references/output-fields.md` |
+| a read failed: `meta.degraded`, `meta.warnings`, `reconciles: false`, a `null` figure | re-run that step | `references/output-contract.md` ("Resilience") |
 | run this on a schedule | — | say the cost first: every firing is a full model call; at most twice a day, after a yes ("Run it in steps") |
 | close / pause / keep / top up ONE wallet of a strategy | — | the no-no below: whole strategy only |
 | a yes to CTA 1 / CTA 2, or a digit (after the CTAs: that CTA; after the idle menu: that option) | the levers / the ready options | `references/output-contract.md` (the menu) |
 
 **Still true on every follow-up** (in full further down):
-- **Say where idle sits.** `total_withdrawable` is idle in strategy wallets, NOT embedded idle cash.
-  Never add a wallet's `main` + `xyz` views (shared collateral). Only embedded idle's Hyperliquid legs
-  fund strategies. ("The wallet model")
 - **A failed read is not $0 or flat.** App-scoped token → can't read the account; failed clearinghouse
   read → positions may be incomplete; realized PnL that didn't load → *unavailable*, never `$0`;
   `totals.reconciles == false` → stop, re-run, then trust per-wallet figures. A full read never skips a
   wallet or the CTAs. A `timeout` open may have filled: check positions, never suggest a retry.
   ("Resilience")
-- **Acting on a CTA:** confirm before any change, never trade unprompted; propose, never deploy without
-  confirmation. CTA 2: -15% SL is 15% ROE; up to 10x, never a flat 10x; say rotations, never "pumps".
+- **Acting on a CTA:** Confirm before any change; never trade unprompted. Propose; never deploy without
+  confirmation. (The menu and its numbers: `references/output-contract.md`.)
 - **There is no restart verb; close → redeploy is a last resort, asked first.** ("Liveness")
 
 > **Source of truth for position facts — read before you answer, even mid-trade.** This engine is the
@@ -74,14 +72,12 @@ book total, or verdicts and figures already shown unless the user asks for them 
 > Never answer from session memory, an earlier read this conversation, or a raw order/trade response.
 > These rules hold even inside a trading flow:
 > - **A successful open/close order is NOT proof of the resulting position.** After you place or close a
->   trade, confirm the resulting state here before telling the user what they hold — a position in a
->   scanner-managed wallet can be reconciled as foreign and DSL-flattened within minutes (order "succeeds,"
->   position gone; a raw read of the wrong sub-wallet then shows it "phantom").
+>   trade, confirm the resulting state here before telling the user what they hold.
 > - **"What happened to my [asset] / my closed trades"** → read the authoritative CLOSED record
 >   (`closed.recent[]` / `closed.realized_pnl` here, or hand to `senpi-improve-trades` for why-it-closed).
 >   Never narrate a closed-position story from memory.
 > - **Quote a close with its UTC date and time from `closed_at_utc`, never from a raw epoch** such as
->   `closed_time` — a bare number read by eye is how an older close gets called today's.
+>   `closed_time`.
 > - **The closed record can arrive hours after a close.** A close the user saw may not be in `closed` yet
 >   (`closed_record_newest_utc` is the newest close it holds; a re-read does not skip the wait). Say it
 >   has not reached trade history yet and show the live state from this read instead — open `positions[]`
@@ -99,10 +95,7 @@ stamp is its own row.
 
 Every wallet the user has is ONE list, `book.wallets`, ordered by value: the Senpi main wallet, each
 Senpi strategy (one row across ALL its wallets — `strategy_wallets[]` are its sleeves, never rows of
-their own) and each wallet the user added in Your wallets. A strategy row's wallets are grouped by
-the same key in every step — the package they were deployed under (`skill_name`; a wallet with none
-is its own row, `strategy_group` names the key) — so the `money` step and the `strategies` step list
-the same rows. The engine sorts it (`book.order_rule`:
+their own) and each wallet the user added in Your wallets. The engine sorts it (`book.order_rule`:
 largest first; ties by label, then address; a wallet that couldn't load last). **Keep the engine's
 order and never re-section by origin** — no Senpi block followed by a saved-wallets block, no saved
 wallet appended after the money map. Origin is the kind column (`kind`: `managed` = Senpi runs it,
@@ -114,8 +107,7 @@ wallet appended after the money map. Origin is the kind column (`kind`: `managed
   on the exchange, `FULL` / `PARTIAL` / `NONE`). The Senpi main wallet holds cash only
   (`not_applicable`): "—" in the positions, protection and PnL columns.
 - **One book total — quote `book.totals.line`.** It reads: the book total, then the managed subtotal
-  with the money map's three buckets inside it, then the read-only subtotal. `book.totals.managed_usd` is
-  `grand_total_usd` (the same number; `reconciles` and the three buckets are about it alone).
+  with the money map's three buckets inside it, then the read-only subtotal.
   `book.totals.read_only_usd` is the wallets the user added — never idle, never deployable, never in the
   managed subtotal. `book.totals.excludes_note` names every wallet that couldn't load and every coin
   without a price; it is part of the total — never quote the total without it.
@@ -164,23 +156,14 @@ Then the two CTAs (managed wallets only; how to route each: "Mandatory closing")
 > strategies" (or "how are my strategies doing"), do **not** answer with a positions dump and do **not**
 > grade every strategy against a generic momentum benchmark. Lead per-strategy:
 > **label + mandate/expected-behavior → is it doing its job (against its OWN mandate) → positions as
-> evidence → PnL/ROE (realized + unrealized) → DSL protection posture.** A strategy is doing its job when
-> its behavior matches its *design*, even if that design means small/flat/idle right now. See
-> "Judge against the mandate" below.
+> evidence → PnL/ROE (realized + unrealized) → DSL protection posture.**
 
 > **Use this skill FIRST — before any raw MCP.** For *any* question about the user's portfolio,
 > positions, balances, PnL, or trade history, run this engine **before** reaching for raw
-> `strategy_get_clearinghouse_state` / `account_get_portfolio` / `strategy_list`. Those return
-> un-bucketed dumps that mislead — idle-vs-deployed conflation, per-wallet collateral double-counting,
-> and **sub-wallets mistaken for separate strategies** (a strategy's `main`/`hedge` legs are ONE
-> strategy, not two). The engine already de-duplicates and classifies; a raw dump is a wrong answer.
+> `strategy_get_clearinghouse_state` / `account_get_portfolio` / `strategy_list`.
 >
 > **This includes DSL / "are my positions protected?" questions — do NOT hand-roll them.** Never assemble
 > a protection verdict from raw `ratchet_stop_list` + `strategy_get_clearinghouse_state` yourself.
-> `ratchet_stop_list` shows **only** the live ratchet for positions that have already crossed Tier 1 — it
-> does **not** carry the strategy's config DSL exit, so a by-hand read makes every sub-Tier-1 position look
-> "unprotected" when it isn't. The engine reads BOTH the config ladder (`profile.dsl`) and the live tier
-> (`positions[].dsl`) and frames every position correctly; run it.
 >
 > **This skill reads. It never changes protection.** A portfolio read, a health check or an "are my
 > positions protected?" answer never calls `ratchet_stop_add` / `ratchet_stop_edit` / `ratchet_stop_delete`
@@ -191,7 +174,7 @@ Then the two CTAs (managed wallets only; how to route each: "Mandatory closing")
 > about it unless I ask" stands across sessions; a status question ("how's it going?", "did you finish?",
 > "run a health check") is never a yes.
 
-### HARD rule — the no-no (this is a real failure that broke live strategies)
+### HARD rule — the no-no
 
 > **Never recommend closing / keeping / topping-up / repurposing a SINGLE wallet or instance of a
 > multi-wallet strategy.** Close / keep / deploy / top-up is a **WHOLE-STRATEGY decision — all its
@@ -204,6 +187,23 @@ cougar" / "top up cub") and act on **all its wallets together** — never a sing
 
 Every user has **one main (embedded) wallet**. Funds flow: **embedded wallet → strategy sub-wallet →
 positions.** Each strategy is an isolated sub-wallet; **no strategy trades from the embedded wallet.**
+
+### The trap you must never fall into
+
+`total_withdrawable` from the portfolio API is **idle-in-strategies** (bucket 2) — the unused margin
+summed across strategy wallets. **It is NOT idle cash in the embedded wallet.** When you say "$X is
+idle," **always say *where*** — "$X idle in the embedded wallet, ready to deploy or withdraw" vs. "$Y
+sitting in strategy wallets waiting for signals."
+
+### Cross-DEX: main and xyz are ONE wallet, not two
+
+A strategy wallet's clearinghouse state has a `main` (crypto) view and an `xyz` (equities/metals)
+view. **These are two views of one wallet, not two separate pools.** The `withdrawable` (idle cash) is
+**shared** and reported *identically* in both views — so it is counted **once**, never summed. The
+engine already de-duplicates this (how: `references/output-fields.md`). **Never add the two views' account
+values or withdrawables yourself** — that double-counts the shared collateral.
+
+### The three buckets
 
 Every dollar is in exactly one of **three buckets** — and the #1 mistake is conflating them:
 
@@ -218,21 +218,6 @@ Every dollar is in exactly one of **three buckets** — and the #1 mistake is co
 These three buckets are the **managed** money — Senpi's. The wallets the user added sit outside them:
 they are `read-only` rows in the one wallet list and the read-only subtotal beside `grand_total_usd`
 (see "One wallet list — every wallet first-class").
-
-### Cross-DEX: main and xyz are ONE wallet, not two
-
-A strategy wallet's `main` (crypto) and `xyz` (equities/metals) views share one idle cash; the engine
-de-duplicates them (how: `references/output-fields.md`). **Never add the two views' account
-values or withdrawables yourself** — that double-counts the shared collateral.
-
-### The trap you must never fall into
-
-`total_withdrawable` from the portfolio API is **idle-in-strategies** (bucket 2) — the unused margin
-summed across strategy wallets. **It is NOT idle cash in the embedded wallet.** If a user moved all
-their funds into strategies, the embedded wallet is **$0** even when `total_withdrawable` is large.
-The engine computes these as two separate fields precisely so you don't mix them. When you say "$X is
-idle," **always say *where*** — "$X idle in the embedded wallet, ready to deploy or withdraw" vs. "$Y
-sitting in strategy wallets waiting for signals." They are not the same money and not the same thing.
 
 ## The analyst's bar
 
@@ -264,16 +249,14 @@ be especially careful.
 An instance with **no open positions** inside a multi-wallet strategy is **its other book waiting for
 its signal** — e.g. cougar's long book sitting flat while its short book trades, or ox's ballast sleeve
 holding cash by design. The engine names these in `strategy_groups[].flat_instances`. **It is NOT idle
-capital to redeploy elsewhere, and never "dead money."** That capital is *committed to the strategy* —
-it's the dry powder the other half of the design needs to do its job. Only truly-free
+capital to redeploy elsewhere, and never "dead money."** Only truly-free
 `idle_in_embedded` (and, with care, a *whole* strategy's idle) is redeployable — a flat sleeve of a
 live multi-wallet strategy is not.
 
 ## Liveness and "why hasn't it traded?" — the rules that always apply
 
-The detail (every reason code, the `runtime_health` states, the corroboration grid, the broken-strategy
-ladder, the minimum-runtime pattern) is in `references/why-not-trading.md` and
-`references/runtime-health.md`; read the one the question needs before you answer. These hold always:
+The detail is in `references/why-not-trading.md` and `references/runtime-health.md`; read the one the
+question needs before you answer. These hold always:
 
 - Every evaluated signal carries a `senpi.outcome.reason_code`, so **say which one, how many, and whether
   the user needs to do anything** — never "I'm not sure why."
@@ -282,30 +265,72 @@ ladder, the minimum-runtime pattern) is in `references/why-not-trading.md` and
   is actually running it. For `not_running`: Report it as **⛔ NOT RUNNING / UNPROTECTED — funded but no
   runtime; no scanner, no DSL, no guardrails**, and tell the user to redeploy it via `senpi-strategy-ops`.
   **Never** call a `not_running` strategy "alive and waiting," "scanner is live," or "DSL-protected" —
-  that is a false all-clear (a funded strategy sat exactly like this while the user believed it was
-  protected and running).
+  that is a false all-clear.
+- `running_blind: true` is a third, previously-invisible state: the runtime IS registered and ticking, but its
+  entry scanners never wired (`running — NO ENTRY SCANNERS`), so it **cannot produce entry signals** — report
+  **⚠ RUNNING — NO ENTRY SCANNERS**, not a clean "running."
 - When `runtime_registered` (or `not_running` / `running_blind`) is `null`, the registry read did not
   answer — say **"could not verify on this host,"** never "running" and never "not running." This is the
-  honest bar: **only `live` means "confirmed working."** `recovering` (one errored scan): **Do not warn on
-  it.**
-- `status.py`: **It is your tool, not a step you hand the user** — never write "worth running …" into a
-  portfolio answer; either run it, or say what you know without it.
-- `risk_pause`: **Never send the user to redeploy over it** — a fresh wallet market-exits the book and
-  starts the same gate again from zero. A latched drawdown halt with `drawdown_reset_on_day_rollover:
-  false` never lets go on its own — it waits for the user's decision, and you never clear it or resume
-  entries without their explicit approval.
-- The broken-strategy ladder's last step: **`close.py` → redeploy** — **last resort, and ask first.** It
-  is a market exit of every open position and a fresh wallet. Never reach for it to clear an error you
-  have not diagnosed. **There is no restart verb.**
+  honest bar: **only `live` means "confirmed working."**
+- `recovering` (one errored scan): **Do not warn on it.** Do not put a ⚠ on the strategy, and do not send
+  the user to a diagnostic.
+- `degraded` (two or more errored scans, or `running_blind`): This is the one that always deserved the
+  warning. Say **"⚠ runtime degraded — running but not healthy,"** not a clean all-clear.
+- `unknown`: Say **"runtime liveness unverified — not confirmed running"** — never upgrade to
+  "healthy/protected" or downgrade to "broken." A runtime *process* that exists (`status: running`) is not
+  a health verdict and never reaches `live` on its own.
+- Corroborate before you assert (the grid: `references/runtime-health.md`). `degraded`, book live:
+  **They disagree.** The last scans errored; the book is live and managed. Say *"running — some scans
+  errored"*, never *"your strategy is broken."* Confirm with `status.py <id>` before going further.
+  `live`, not trading: **They disagree.** Do **not** give a clean all-clear — a scanner can read `healthy`
+  and still be blind. Say it is running but has not found a trade, and use "No signals at all" in
+  `why-not-trading.md`. **When the two disagree, say which one you are trusting and why.** If the money
+  is moving, that is the headline and the field is the footnote — do not report the field and bury the
+  evidence.
+- `hours_since_last_close` / `meta.quiet_strategies`: **Say "has not CLOSED a trade in Xh", never "has not
+  traded"**: a position carries no open time, so an entry taken since that close is invisible here. Quiet
+  while **holding** means fully allocated, not stuck — check slots and entry gates first, and note every
+  guard rail halts ENTRIES only, so a gate counter is moot while every slot is full.
+- **`risk_pause`** (beside `runtime_health`, never instead of it) — the runtime's OWN entry gate says
+  `CLOSED` or `COOLDOWN`: the strategy is **healthy and paused by its own rule** (daily entry cap, daily
+  loss halt, drawdown halt, a cooldown). Name the gate and quote its `reason` verbatim ("Max Entries/Day —
+  Max entries: 4/4 entries today"), say when it lets go (`reset`: daily gates at 00:00 UTC, cooldowns on
+  their own; a latched drawdown halt with `drawdown_reset_on_day_rollover: false` never lets go on its own —
+  it waits for the user's decision, and you never clear it or resume entries without their explicit
+  approval), and that nothing is broken. **Never send the user to redeploy over it** — a fresh wallet
+  market-exits the book and starts the same gate again from zero.
+- `status.py`: A thorough health check does not stop at the verdict: for a strategy that is `not_running`,
+  `degraded` or `unknown` — **never for `recovering`** —
+  **`python3 senpi-strategy-ops/scripts/status.py <id>`** re-asks the runtime directly and returns its
+  verdict **beside a position count**, which is the corroboration above. Run it yourself and give the answer. **It is your tool, not a step you hand the
+  user** — never write "worth running …" into a portfolio answer; either run it, or say what you know
+  without it. **Mind the vocabulary:** `status.py` reports the engine's raw words, and they do not line up
+  with this skill's. Its **`degraded`** is this skill's **`recovering`** (one errored tick); its
+  **`unhealthy`** is this skill's **`degraded`** (the real fault). Reference the right tool to *confirm* —
+  never re-derive its analysis here.
+- **Before the ladder: if the row carries `runtime_reason`, say it.** Quote it in those words: a scanner
+  that cannot stay up is why it has not traded. No `runtime_reason` means the runtime gave none — never
+  invent one; the ladder finds it.
+- **When it IS genuinely broken, act — don't hand the user a to-do.** For `degraded` corroborated by no
+  activity, or `not_running`, work the ladder yourself and report what you found (the ladder:
+  `references/runtime-health.md`). Only the last step touches their money, and only that one needs their
+  consent: **`close.py` → redeploy** — **last resort, and ask first.** It is a market exit of every open
+  position and a fresh wallet. Never reach for it to clear an error you have not diagnosed. **There is no
+  restart verb.**
+- No signals, scanner healthy: **Nothing qualified.** The entry bar has not been met — name it, never
+  "being selective": the binding gate, its threshold and the universe count from its `runtime.yaml`
+  (`senpi-strategy-ops` `references/liveness-verification.md`, "Healthy, live — and it has never traded").
 - **Do not offer "close and relaunch" for `withdrawable_unavailable`.** Do not send anyone to redeploy
   over a row marked "no". ("do they act?" in `references/why-not-trading.md`.)
 - `timeout`: **Not a rejection — the order may have filled.** Check live positions before saying anything,
   and never suggest retrying until you have.
-- `degraded`, book live: *"running — some scans errored"*, never *"your strategy is broken."* `unknown`:
-  "runtime liveness unverified — not confirmed running". `status.py`'s `degraded` is our `recovering`,
-  its `unhealthy` our `degraded`.
 - A copy-trade (`strategy_kind: "mirror"`) has no runtime by design — none of the liveness verdicts apply
-  to it:
+  to it. Its `name` is **"copy of `mirror_of`"** — never call it "unnamed." High leverage or a lopsided
+  book is worth *surfacing* ("this copies `mirror_of` at 20x — a sharp adverse move liquidates fast; it has
+  [no] strategy-level stop"), but the fix is **never** a DSL or a per-position stop. To add/tighten a
+  downside cap, take profit, or size down → set `stopLossPercentage` / `takeProfitPercentage` or lower
+  `mirrorMultiplier` **via `senpi-trade`** (it wraps `strategy_update`). To stop copying → unsubscribe /
+  close the mirror **via `senpi-trade`**.
 
 > **NEVER, for a mirror:** add a DSL / ratchet; set a stop via `edit_position` on its positions; "redeploy it
 > via `senpi-strategy-ops`"; call it "running unprotected / not running"; or call it "redundant with strategy X,
@@ -315,20 +340,17 @@ ladder, the minimum-runtime pattern) is in `references/why-not-trading.md` and
 
 **Fees are read, never estimated.** A P&L claim about a strategy — "it is up", "it is not losing" —
 quotes the wallet's **signed** fees from its fills (`totalFees` / the closed-trade history), net of
-them, with the fee figure beside the PnL. "About $7 on 41 trades" is a guess, and it once turned a −$3
-wallet into a +$1.69 one in the user's ear. If the fee read fails, say the number is gross and why.
+them, with the fee figure beside the PnL. If the fee read fails, say the number is gross and why.
 
 **Paper is not live.** A `senpi validate` tick, a scanner signal, a simulation or an estimate is not a
 trade; only a fill on the strategy wallet (`positions`, `closed`) is. Never narrate a shadow run as
-"live", "running" or "a trade" — the user then manages a position that does not exist.
+"live", "running" or "a trade".
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
 This is the core of the analysis. Every strategy was deployed to do a *specific* job. "Is it working?"
 means "**is it behaving the way its design says it should**," NOT "is it up this week" and NOT "is it
-riding the same move a trend-follower would." Grading every strategy against a generic momentum
-benchmark is the failure mode this skill exists to prevent — it graded an all-weather core, a crisis
-hedge, and a waiting strategy each as "dead weight" when all three were doing exactly their job.
+riding the same move a trend-follower would."
 
 **Get the mandate first, then judge.** Before you call any strategy good or bad, know what it was *for* —
 and get that from the **source of truth, not memory.** The engine already does the lookup
@@ -345,8 +367,8 @@ If `profile` is `null` (no registry entry AND not in the catalog — e.g. the re
 the strategy isn't one of our templates; see `meta.profile_source`), say the mandate is unknown and
 judge conservatively on behavior — do **not** default to a momentum yardstick.
 
-**Anti-patterns — these exact misreads happened live; never repeat them** (why each is on-mandate:
-`references/mandate.md`):
+**Anti-patterns — these exact misreads happened live; never repeat them:** (why each is on-mandate:
+`references/mandate.md`)
 
 - **A risk-parity / all-weather core is NOT "misaligned" or "dead weight."** Judge it on drawdown control
   and steadiness, not on whether it caught this week's move.
@@ -362,9 +384,7 @@ yardstick, not to excuse everything.
 
 ### "Counter to smart money / the crowd" is NOT a defect for a hedge / neutral / all-weather / contrarian mandate
 
-For a **hedge, market-neutral, all-weather, or contrarian** strategy, **being counter is the DESIGN.** A
-market-neutral book is *supposed* to be short the names the crowd is long; a hedge is *supposed* to lean
-against the prevailing move; a contrarian book is *supposed* to fade the consensus. **Judge it against
+For a **hedge, market-neutral, all-weather, or contrarian** strategy, **being counter is the DESIGN.** **Judge it against
 its own `mandate` / `profile.description`, NOT against alignment with the 4h leaderboard / Predators
 view.** Do **not** recommend closing a hedge/neutral/all-weather strategy because it's "fighting the
 whales" or "on the wrong side of smart money" — that IS its job. (For a *directional momentum* strategy,
@@ -372,8 +392,7 @@ fighting the tape is a real red flag — but only for a strategy whose mandate i
 
 ### Don't tear down a deliberate book to chase a short-window signal
 
-The **leaderboard / Predators view is a ~4h momentum window, not a portfolio mandate.** A strategy can be
-"behind the current 4h rotation" and still be doing exactly its multi-week job. **Never recommend a
+The **leaderboard / Predators view is a ~4h momentum window, not a portfolio mandate.** **Never recommend a
 wholesale close+redeploy of a deliberate book to chase what's hot on a 4h screen.** Before proposing any
 close+redeploy, weigh **turnover cost** (fees compound on churn) and **regime durability** (is this a
 lasting shift or a 4h blip?). A deliberate, on-mandate strategy is not "underperforming" because it
@@ -381,8 +400,7 @@ didn't catch this afternoon's move.
 
 ### Recommend at the STRATEGY level, not cherry-picked positions
 
-For an **autonomous strategy the scanner owns entries and exits** — it opens and closes positions every
-tick per its DSL and signal logic. **Hand-closing an individual position it will simply re-open on the
+For an **autonomous strategy the scanner owns entries and exits**. **Hand-closing an individual position it will simply re-open on the
 next tick is futile** (and pays fees twice). The levers that actually change anything are at the
 **STRATEGY** level: **close it, pause it, adjust its config, or top up the whole strategy** — not its
 individual positions. So frame recommendations as strategy-level actions ("pause cougar," "tighten
@@ -392,33 +410,27 @@ directly.)
 
 ## Golden rules
 
-- **Run the engine; never hand-pull balances.** `python3 scripts/portfolio.py` enumerates the
-  embedded wallet + every strategy sub-wallet, pulls live clearinghouse state per wallet, and
-  classifies the buckets. Read its JSON.
+- **Run the engine; never hand-pull balances.** Read its JSON.
 - **Numbers come from the engine; other strategies come from discover.** Never state a win rate, a
   winners/losers count or a long/short split the `closed` block did not print — `recent[]` is the
   last five trades, not the record, and a rate read off it is a guess. If the user asks what to run
   instead, hand off to **senpi-strategy-discover** and quote the returned record's `risk_level`;
   never name a template, or call one aggressive or conservative, from memory.
-- **Real-time, always.** The engine forces a fresh fetch (no 12h cache) and reads each strategy's
-  live clearinghouse state. Never report balances from earlier in the conversation — re-run.
+- **Real-time, always.** Never report balances from earlier in the conversation — re-run.
 - **Always say which wallet / which bucket.** Every dollar figure gets a location. "Idle" is
   meaningless without "idle *where*."
 - **Lead at the strategy level, judged against the mandate.** For each strategy: state its
   **mandate** (the engine attaches it as `strategies[].profile` — its **`profile.description`, read from
   the deployed `runtime.yaml`**; use catalog facets like `belief_plain`/`archetype` when present), then
-  whether it's **doing its job against that mandate**, *then* positions as evidence. This is the SAME
-  read whether the strategy is one of ours or user-authored — every deployed strategy has a
-  `runtime.yaml`. See "Judge each strategy against its OWN mandate" above.
+  whether it's **doing its job against that mandate**, *then* positions as evidence. See "Judge each
+  strategy against its OWN mandate" above.
 - **Analyze, don't dump.** Positions are *evidence*, not the headline. For every position, compare it to
   the market (`market_24h_pct`, `vs_market`): is this short *working* because the asset is falling, or
   *fighting* a rally? Read net exposure, concentration, idle drag. See `references/analysis-framework.md`.
 - **Use leveraged return, not raw price %.** Cite `return_on_equity_pct` (uPnL / margin), the number
-  that actually reflects the position — a 1% price move at 10x is a 10% return on margin.
-- **Report realized PnL + closed trades, not only open ones.** Each strategy carries a `closed` block —
-  `realized_pnl` (total booked PnL over the recent history pull), the record over that pull
-  (`trade_count`, `winners`, `losers`, `win_rate_pct`, `longs`, `shorts`, `unknown_side`) and `recent[]` (last few
-  closed trades: asset, direction, realized pnl, `closed_at_utc`). Quote the record; never work a win rate
+  that actually reflects the position.
+- **Report realized PnL + closed trades, not only open ones.** Each strategy carries a `closed` block
+  (its fields: `references/output-fields.md`). Quote the record; never work a win rate
   or a long/short split out of `recent[]`. A strategy flat right now may have *already booked* real
   gains; report both realized and unrealized. If `closed.realized_pnl` is `null`, the history read
   failed (see `meta.warnings`) — say realized PnL is unavailable, don't imply zero. For dating a close,
@@ -438,17 +450,13 @@ directly.)
 - **Don't infer "wiped out" from a low balance.** Check `total_funded` / `total_withdrawn` — a
   strategy can show a small balance because profits were withdrawn (`netFunded` can be negative). That
   is not a loss.
-- **"Current / my strategies" = ACTIVE only — never CLOSED.** The engine filters
-  `strategy_list(status=["ACTIVE"])`, starts each analysis turn from a clean state, and expires the shared
-  cache after a short window — so a strategy CLOSED since a prior run can't linger as a ghost. If
-  you ever reach for `strategy_list` directly, pass `status: ["ACTIVE"]` — a bare call returns CLOSED/PAUSED
+- **"Current / my strategies" = ACTIVE only — never CLOSED.** If you ever reach for `strategy_list` directly, pass `status: ["ACTIVE"]` — a bare call returns CLOSED/PAUSED
   too and they must not be presented as current. Mention PAUSED strategies only if relevant, clearly
   labeled "paused," never as active.
 - **If the engine's own signals disagree, STOP and re-run — do NOT narrate through it.** A `reconciles:
   false` in `totals`, or the `money` and `strategies` steps reporting a different strategy count/set, means
   the numbers didn't tie out. Re-run the step fresh and reconcile BEFORE you say a word — above all before
-  any close / rebalance recommendation. Recommending action on a strategy that turns out to be already
-  closed is exactly the failure this guards against.
+  any close / rebalance recommendation.
 - **The live clearinghouse is the source of truth for whether a strategy holds capital — over the `status`
   field AND over what anyone asserts about the wallet.** The engine reconciles this: a strategy whose live
   wallet holds **$0 account value, no positions, no idle** is flagged **`empty: true`** (`empty_reason`:
@@ -458,12 +466,9 @@ directly.)
 - **Don't cave to a claim the wallet contradicts, and NEVER fabricate account history to agree.** If the
   user says a strategy is "closed / has no funds" but its `account_value > 0`, it is **live** — say so with
   the number ("wolf is live — $X in the wallet, flat right now, waiting for its signal"). Do not abandon a
-  correct reading, and do not invent a story to justify agreeing (a "strategy-grinder cascade," a "close at
-  14:58," "funds returned to embedded"). Verify first, then correct the record.
+  correct reading, and do not invent a story to justify agreeing. Verify first, then correct the record.
 - **Live capital = clearinghouse `account_value`, NEVER `total_funded` / `budget` / `status`.**
-  `total_funded` / `total_withdrawn` are **lifetime history**, not a current balance. A strategy with
-  `total_funded: 3000` and `account_value: 0` has **$0 now**; one with `account_value: 3000` has **$3K now**
-  regardless of what it was funded. Never present `total_funded` (or a configured budget) as current idle /
+  `total_funded` / `total_withdrawn` are **lifetime history**, not a current balance. Never present `total_funded` (or a configured budget) as current idle /
   reserved money — read `idle_withdrawable` / `account_value` from the live clearinghouse.
 - **A flat strategy that still holds idle margin (`account_value > 0`, no positions) is NOT empty** — it's
   funded and waiting for a signal (or the flat sleeve of a multi-wallet pair); report it as **live**. Only
@@ -471,9 +476,7 @@ directly.)
 - **Present active strategies as known state, not a fresh discovery.** Pull the data quietly and state
   what's running as established fact ("Your two active strategies are…"). Don't narrate the lookup
   ("let me check… oh, I see you have…") — that reads like you didn't already know your own book.
-- **Deployed strategies are already risk-managed — don't prescribe a stop-loss they already have.** Every
-  strategy deployed from a Senpi template runs a built-in DSL exit (trailing stop) + risk guard-rails,
-  enforced every tick. Never tell a user to "add a 10–15% SL via `strategy_update`" on a deployed
+- **Deployed strategies are already risk-managed — don't prescribe a stop-loss they already have.** Never tell a user to "add a 10–15% SL via `strategy_update`" on a deployed
   strategy — it already has one. To *verify* protection, read `profile.dsl` (the ladder) + each
   `positions[].dsl` (the live tier) — see "DSL — how it works per strategy, and which position is in
   which tier"; never infer "no stop" from the absence of a resting stop order (DSL exits are
@@ -498,30 +501,21 @@ hold always:
 
 ### HARD rule — NEVER say a live position has "no active DSL / no monitoring"
 
-This is the failure this section exists to prevent. An **empty ratchet record on a sub-Tier-1 position is
-NOT "unprotected"** — `ratchet_stop_list` only returns a record **once a position crosses Tier 1**, so a
-position at, say, +6% ROE correctly has **no ratchet record yet**. It is protected **two ways**: the
-phase1 hard stop (active from entry) and the phase2 ratchet that will arm at Tier 1. **Never read "no
+An **empty ratchet record on a sub-Tier-1 position is NOT "unprotected"** (why: `references/dsl.md`).
+**Never read "no
 ratchet record" as "no DSL."** Say **"protected; profit-ratchet arms at Tier 1 (+X%)"** — never
 "unprotected / unmonitored / no stop." (The engine already frames every `armed: false` position this way
 in `dsl.note`; do not override it with an "unprotected" reading.)
 
-- **An ERRORED or empty DSL query is "unknown," never "unprotected."** `ratchet_stop_list` can fail
-  (e.g. `SERR031` auth, or the DSL engine lagging behind a just-opened position) or come back empty. That
-  is a **data gap**, not evidence of missing protection — treat it exactly like `dsl:null`. The engine
-  fails open here (config framing stands alone, plus a `meta.warnings` note); a by-hand call has no such
-  fallback, which is why hand-rolling produces false "unprotected" verdicts. Never turn a failed read into
+- **An ERRORED or empty DSL query is "unknown," never "unprotected."** That
+  is a **data gap**, not evidence of missing protection — treat it exactly like `dsl:null`. Never turn a failed read into
   a risk finding.
-- **A strategy with a null name is still a real strategy.** `strategyName` is optional on
-  `strategy_create_custom_strategy` and absent entirely from `strategy_create`, so it comes back null for
-  many strategies — identify and analyze them by `strategyId` + wallet, never skip, mislabel ("Unnamed"),
+- **A strategy with a null name is still a real strategy** (why so many are: `references/output-fields.md`)
+  — identify and analyze them by `strategyId` + wallet, never skip, mislabel ("Unnamed"),
   or double-count them for lacking a display name. (If you *created* it this session, you already know its
   name — don't re-derive it as "unknown.")
-- **Only `name_source: "strategyName"` means `name` is really its name.** Anything else is a stand-in the
-  engine substituted: `"tradingStrategyName"` is the **package id** (identical on every sleeve of a
-  package — all three cub sleeves read `cub`), `"name"` is a defensive flat-payload alias, and `null`
-  means it has no name at all. When
-  `name_source != "strategyName"`, call it by `strategy_id` + wallet and say which package it came from —
+- **Only `name_source: "strategyName"` means `name` is really its name.** (The other values:
+  `references/output-fields.md`.) When `name_source != "strategyName"`, call it by `strategy_id` + wallet and say which package it came from —
   never "the cub strategy", and never tell one sleeve from another by that string.
 - **A raw position (no runtime, `protected: false`) is "no ratchet," not "no stop."** A one-off
   position the user placed by hand carries its protection as resting orders, which this engine does not
@@ -611,17 +605,13 @@ the router at the top names it. The full read's narration order, step by step, i
 `all` (valid JSON, `meta.warnings` on partial data) and also works standalone — the contract:
 `references/output-fields.md`.
 
-Every step and `all` print the same `book` (the one wallet list and the book total), so the list never
-depends on which step answered.
-
 ## How to run the engine
 
 ```
 python3 scripts/portfolio.py [money|strategies|positions|all] [--no-market] [--state PATH]
 ```
 
-`all` is the default when no step is given — it composes every slice into one dict (the same output the
-engine always produced). Prefer the **steps** above for a full read (they stream and don't trip the
+Prefer the **steps** above for a full read (they stream and don't trip the
 timeout); use `all` only when a single blocking call is fine.
 
 Returns `{book, totals, embedded_wallet, external_wallets, strategies, strategy_groups, exposure, signals, meta}`:
@@ -643,9 +633,10 @@ See "A strategy is ALL its wallets."
    subtotal (`grand_total_usd`, broken into idle-in-embedded / idle-in-strategies / deployed — each
    labeled by *where*) and the read-only subtotal, with `book.totals.excludes_note` when present. Keep it
    tight; this is the money map, not the analysis.
-2. **Per-strategy verdict (the real value)**, one per `strategy_groups[]` entry, then 3. the
-   **portfolio-level read**, then 4. **the two CTAs** — the full order is in
-   `references/output-contract.md`.
+2. **Per-strategy verdict (the real value).** For **each `strategy_groups[]` entry** (one per real
+   strategy — never one per wallet), in this order: `references/output-contract.md`. Flag any position
+   fighting the tape *for a directional-momentum mandate* / near `liq_px` / oversized.
+3. **Portfolio-level read**, then 4. **the two CTAs** (both in `references/output-contract.md`).
 
 Formatting: group by strategy (a `strategy_groups[]` entry = one strategy; show its instances as its
 sleeves, not as peers); show `Δ%` and leveraged return; emoji sparingly (🟢/🔴 for green/red books).

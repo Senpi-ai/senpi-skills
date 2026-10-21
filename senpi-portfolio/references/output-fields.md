@@ -135,3 +135,40 @@ unreadable runtime costs you the runtime fields, which come back `null` + a warn
 existing guardrail (the three-bucket taxonomy, `protected`, the mandate reads, multi-wallet grouping, the
 DSL ladder + live tiers) holds identically across the steps and `all`. Every step and `all` print the
 same `book` (the one wallet list and the book total), so the list never depends on which step answered.
+
+## Engine notes moved from SKILL.md
+
+The rules in these lines stay in SKILL.md; this is what the engine does behind them.
+
+A strategy row's wallets are grouped by
+the same key in every step — the package they were deployed under (`skill_name`; a wallet with none
+is its own row, `strategy_group` names the key) — so the `money` step and the `strategies` step list
+the same rows. The engine sorts it (`book.order_rule`:
+
+`book.totals.managed_usd` is
+  `grand_total_usd` (the same number; `reconciles` and the three buckets are about it alone).
+
+- **Run the engine; never hand-pull balances.** `python3 scripts/portfolio.py` enumerates the
+  embedded wallet + every strategy sub-wallet, pulls live clearinghouse state per wallet, and
+  classifies the buckets. Read its JSON.
+- **Real-time, always.** The engine forces a fresh fetch (no 12h cache) and reads each strategy's
+  live clearinghouse state. Never report balances from earlier in the conversation — re-run.
+- **Report realized PnL + closed trades, not only open ones.** Each strategy carries a `closed` block —
+  `realized_pnl` (total booked PnL over the recent history pull), the record over that pull
+  (`trade_count`, `winners`, `losers`, `win_rate_pct`, `longs`, `shorts`, `unknown_side`) and `recent[]` (last few
+  closed trades: asset, direction, realized pnl, `closed_at_utc`).
+- **"Current / my strategies" = ACTIVE only — never CLOSED.** The engine filters
+  `strategy_list(status=["ACTIVE"])`, starts each analysis turn from a clean state, and expires the shared
+  cache after a short window — so a strategy CLOSED since a prior run can't linger as a ghost.
+- **A strategy with a null name is still a real strategy.** `strategyName` is optional on
+  `strategy_create_custom_strategy` and absent entirely from `strategy_create`, so it comes back null for
+  many strategies — identify and analyze them by `strategyId` + wallet, never skip, mislabel ("Unnamed"),
+  or double-count them for lacking a display name. (If you *created* it this session, you already know its
+  name — don't re-derive it as "unknown.")
+- **Only `name_source: "strategyName"` means `name` is really its name.** Anything else is a stand-in the
+  engine substituted: `"tradingStrategyName"` is the **package id** (identical on every sleeve of a
+  package — all three cub sleeves read `cub`), `"name"` is a defensive flat-payload alias, and `null`
+  means it has no name at all.
+
+`all` is the default when no step is given — it composes every slice into one dict (the same output the
+engine always produced). Prefer the **steps** above for a full read (they stream and don't trip the

@@ -68,7 +68,30 @@ progress line goes to stderr), so that step's cost does not grow with the number
 3. **Portfolio-level read.** Net exposure (net long/short and by sector), concentration (largest
    position), idle drag (capital sitting in cash), and the overall posture — is this book hedged,
    directional, mostly in cash? Compare the net tilt to where the broader market is.
-4. **The two CTAs** (next section).
+4. **The two CTAs** (the last section).
+
+## Resilience — a copy of SKILL.md "Resilience"
+
+Read when a step's read failed. SKILL.md holds the rules; this copy is word for word, so a follow-up
+that only has the router still reaches them.
+
+- **Token app-scoped / no wallet data** → `meta.degraded`. Say you can't read the account with this
+  token (it needs a USER-scoped token); don't report an empty portfolio as "$0."
+- **A strategy's clearinghouse read failed** → it's in `meta.warnings`; that wallet's positions may be
+  incomplete. Say so rather than implying it's flat.
+- **A strategy's closed-history read failed** → `closed.realized_pnl` is `null` + a `meta.warnings`
+  entry (`trader_history … failed/returned no data`). Report realized PnL as **unavailable** for that
+  strategy — never as `$0`.
+- **`totals.reconciles == false`** → the per-wallet sum and the portfolio aggregate disagree; the engine
+  also appends a `TOTALS DO NOT RECONCILE` entry to `meta.warnings` quoting both figures and the gap.
+  STOP and re-run first (see above); if it persists, surface it and trust the per-wallet (live) figures.
+- **Never** report `total_withdrawable` as embedded idle, never skip a wallet, never skip the CTAs (on `meta.no_strategy_path` the saved-wallets closing replaces them).
+
+SKILL.md "The three buckets", word for word:
+
+These three buckets are the **managed** money — Senpi's. The wallets the user added sit outside them:
+they are `read-only` rows in the one wallet list and the read-only subtotal beside `grand_total_usd`
+(see "One wallet list — every wallet first-class").
 
 ## The two CTAs — a copy of SKILL.md "Mandatory closing"
 

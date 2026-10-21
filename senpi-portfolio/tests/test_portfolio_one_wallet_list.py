@@ -343,9 +343,10 @@ def test_skill_presents_one_list_and_never_a_separate_saved_section():
     assert "its own \"Your wallets (read-only)\" section" not in sk
     assert "after the money map, never summed into it" not in sk
     for needle in ("Keep the engine's order", "never re-section by origin", "`book.wallets`",
-                   "`book.totals.line`", "`book.totals.managed_usd` is `grand_total_usd`",
-                   "`book.totals.excludes_note`", "kind column"):
+                   "`book.totals.line`", "`book.totals.excludes_note`", "kind column"):
         assert needle in sk, needle
+    # the managed_usd glossary line is an engine note: moved to output-fields.md in 1.35.1
+    assert "`book.totals.managed_usd` is `grand_total_usd`" in _ref("output-fields.md")
 
 
 def _ref(name):
@@ -354,8 +355,8 @@ def _ref(name):
 
 def test_skill_steps_and_output_contract_lead_with_the_one_list():
     sk = _skill()
-    steps = sk.split("## Run it in steps", 1)[1].split("## How to run the engine", 1)[0]
-    assert "`book`" in steps
+    # "every step prints the same `book`" is an engine note: moved to output-fields.md in 1.35.1
+    assert "Every step and `all` print the same `book`" in _ref("output-fields.md")
     contract = sk.split("## Output contract", 1)[1].split("## Mandatory closing", 1)[0]
     assert "1. **One wallet list + the book total.**" in contract
     ret = sk.split("## How to run the engine", 1)[1].split("## Output contract", 1)[0]
@@ -523,7 +524,9 @@ def test_every_step_groups_a_strategys_wallets_by_the_same_key():
 
 def test_skill_says_the_book_groups_by_the_same_key_in_every_step():
     sec = _skill().split("## One wallet list — every wallet first-class", 1)[1].split("## Run it in steps", 1)[0]
-    assert "the same key in every step" in sec and "`skill_name`" in sec
+    assert "grouped by the package they were deployed under (`skill_name`)" in sec
+    # the "same key in every step" engine note moved to output-fields.md in 1.35.1
+    assert "the same key in every step" in _ref("output-fields.md")
 
 
 # ── R1 re-review: the deep-dive offer counts only wallets with something to go deeper on ───────────
