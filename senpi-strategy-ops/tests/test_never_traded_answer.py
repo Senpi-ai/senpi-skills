@@ -91,7 +91,8 @@ class TheNeverTradedAnswerIsTaught(unittest.TestCase):
     def test_portfolio_says_the_same_thing(self):
         """senpi-portfolio interprets the same quiet scanner; it called "nothing qualified" the right answer
         for a selective strategy, which is the sentence this guard exists to stop."""
-        portfolio = " ".join((OPS.parent / "senpi-portfolio" / "SKILL.md").read_text().split())
+        # senpi-portfolio 1.35.0 moved this to its references/why-not-trading.md (SKILL.md routes there)
+        portfolio = " ".join((OPS.parent / "senpi-portfolio" / "references" / "why-not-trading.md").read_text().split())
         bullet = portfolio[portfolio.index("- **Nothing qualified.**"):portfolio.index("- **The scanner is blind.**")]
         self.assertIn('never "being selective"', bullet)
         self.assertIn("liveness-verification.md", bullet)

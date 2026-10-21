@@ -333,7 +333,12 @@ def test_skill_forbids_write_suggestions_on_external_wallets():
     sec = _skill().split("## One wallet list — every wallet first-class", 1)[1].split("## ", 1)[0]
     for needle in ("`close.py`", "`edit_position`", "`close_position`", "`strategy_*`", "`ratchet_stop_*`"):
         assert needle in sec, needle
-    assert "senpi-improve-trades" in sec and "quant-desk" in sec      # trade history is handed off
+    # Trade history is handed off: by the router at the top, and in full in "One wallet list — row details".
+    router = _skill().split("## Follow-ups first — the router", 1)[1].split(" ## ", 1)[0]
+    assert "senpi-improve-trades" in router and "quant-desk" in router
+    details = _skill().split("## One wallet list — row details", 1)[1].split(" ## ", 1)[0]
+    assert "**Trade history** on a saved wallet" in details
+    assert "senpi-improve-trades" in details and "quant-desk" in details
 
 
 def test_cta_one_never_routes_a_saved_wallet_to_a_write_tool():
