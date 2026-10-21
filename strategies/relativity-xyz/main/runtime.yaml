@@ -1,0 +1,204 @@
+# ── RELATIVITY XYZ · Cross-sectional dispersion + index regime flip (xyz board) ───────
+#
+# Ranks the live xyz: perp universe (equities, commodities, indices) by 24h relative
+# strength every 5 minutes. The index's last CLOSED 4h bar gates the regime: risk-off →
+# shorts only, risk-on → longs only, neutral → both. When that bar flips from negative to
+# positive, long candidates get a +2 shift boost so the book rotates the same tick the
+# tape turns. Conviction-scaled leverage 5/7/10x. Exit by the DSL only — no clocks.
+#
+# PROMOTED FROM A LIVE FORK, and the honest provenance belongs here rather than only in a
+# PR: it was funded on 15 Oct 2026 and measured through 19 Oct.
+# Four days. Over that window the wallet took $800 of funding and returned +$138.62
+# (+17.3%), but 49% of that came on the last day alone and most of it was still open
+# mark-to-market, so "four good days" is the whole claim. It is not a backtest, there is
+# no per-template track record, and every user who deploys this gets their own fork.
+name: relativity-xyz-main
+group: relativity-xyz
+version: 1.0.0
+description: >-
+  RELATIVITY XYZ — regime-aware cross-sectional dispersion on the xyz board (equities,
+  commodities, indices). Ranks the universe by 24h excess return vs the universe mean every
+  5 minutes. The index's closed 4h bar sets the regime: risk-off (< -1.5%) shorts only,
+  risk-on (> +2%) longs only, neutral both. Scoring: relative strength (1-3) + 4h trend
+  (+2) + 1h trend (±1) + own 24h (±1) + RSI guard (-2) + shift boost (+2) + funding squeeze
+  (+1, see the retune note). Conviction-scaled leverage: 5x base, 7x at score ≥8, 10x at
+  ≥10, clamped to each asset's venue cap. 4 slots, 25% of withdrawable per clip. Exit is
+  a 15% ROE floor plus a ratchet from +8% ROE; no hard timeout, no weak-peak cut.
+
+strategy:
+  wallet: "${RELATIVITY_XYZ_WALLET}"
+  slots: 4
+  margin_pct: 25                     # PERCENT of withdrawable per clip, not a fraction
+  default_leverage: 5
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: relativity_xyz_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300
+    timeout_seconds: 180
+    default_signal_validity_seconds: 600
+    state_history_max_count: 100
+    inputs:
+      # ── the regime gate ──
+      regimeAsset: "xyz:SP500"        # read, never traded: a gate that is also a position
+                                      #   is reading its own exposure
+      riskOffThreshold: -1.5          # index closed-4h % below this ⇒ shorts only
+      riskOnThreshold: 2.0            # above this ⇒ longs only; between ⇒ both legs
+      # ── universe ──
+      universeMaxNames: 40
+      minVolumeUsdM: 5.0              # the xyz board is thinner than the perp board
+      volFloorPctOfMedian: 0.2
+      # ── scoring ──
+      rsThresholdPct: 2.5             # excess return that counts as a real leader/laggard
+      minScore: 5
+      rsiOverbought: 80               # blow-off guard on longs (-2)
+      rsiOversold: 20                 # capitulation guard on shorts (-2)
+      fundingSqueezeThreshold: 0.005  # ⚠ UNREACHABLE AS SHIPPED, and kept that way on
+                                      #   purpose. Measured on xyz:SP500 over 168 hourly
+                                      #   rows (19 Oct 2026): max |funding| 0.0000523,
+                                      #   median 0.0000063 — this gate is 96x the observed
+                                      #   maximum, so the +1 never fires. The measured run
+                                      #   carried it; lowering it to ~0.00003 would turn a
+                                      #   dead term live and change every score, which is a
+                                      #   retune to be measured, not a typo to patch.
+      # ── sizing ──
+      marginPct: 25
+      maxLeverage: 10
+      leverageTierBase: 5             # score < 8
+      leverageTierMid: 7              # score ≥ 8
+      leverageTierHigh: 10            # score ≥ 10
+      # ── emission ──
+      maxSlots: 4
+      maxNewEntriesPerTick: 2
+      recentSignalTtlSeconds: 180
+      # ── free-margin gate: every signal in a tick is priced off ONE balance read ──
+      venueMinNotionalUsd: 12.0
+      freeMarginHeadroom: 0.9         # commit at most 90% of free margin in one tick     # a name just signalled is suppressed this long. In
+                                      #   the fork this input was read and never used; see
+                                      #   scan.py's header.
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      leverage: { type: number }
+      marginPct: { type: number }
+      reasons: { type: array, required: false }
+      regime: { type: string, required: false }
+      shiftDetected: { type: boolean, required: false }
+      excess: { type: number, required: false }
+      own24h: { type: number, required: false }
+      rsi: { type: number, required: false }
+      trend4h: { type: string, required: false }
+      trend1h: { type: string, required: false }
+      funding: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: relativity_xyz_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [relativity_xyz_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true   # the fork spelled this key `ensure_execution_asTaker`,
+                                          #   which the runtime does not read — so entries rested
+                                          #   with no taker fallback and a missed fill was silent.
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: relativity_xyz_signals
+
+# ── EXIT — DSL only. No hard timeout, no weak-peak cut, no dead-weight cut: a clock is
+#    not a thesis, and every exit here is either the floor or the ratchet.
+#
+#    READ THE LADDER IN PRICE, NOT ROE. trigger_pct and max_loss_pct are ROE, so the price
+#    move each one needs is the number ÷ leverage. At this strategy's 5x base / 10x top:
+#      max_loss 15 ROE  → a 3.0% price move at 5x, 1.5% at 10x
+#      tier 0 (+8 ROE)  → 1.6% at 5x, 0.8% at 10x, and locks 30% of high-water
+#    So the first lock arms inside ordinary intraday noise on an equity, and the stop is
+#    tight. That is the design — it is a fast ratchet, not a wide trend trade.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: false
+    weak_peak_cut:
+      enabled: false
+      interval_in_minutes: 180
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 360
+    phase1:
+      enabled: false                  # the fork had this true with retrace_threshold: 100, which is
+                                      #   an inert trail anyway (a 100% retrace never fires). Every
+                                      #   catalog template runs it false: phase-1 trailing ratchets
+                                      #   a stop INTO a loss and was dropped fleet-wide. max_loss_pct
+                                      #   below still stops with phase1 disabled — the floor is a
+                                      #   resting exchange stop, not a phase-1 feature.
+      max_loss_pct: 15
+      retrace_threshold: 100
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8,   lock_hw_pct: 30 }
+        - { trigger_pct: 18,  lock_hw_pct: 50 }
+        - { trigger_pct: 35,  lock_hw_pct: 68 }
+        - { trigger_pct: 60,  lock_hw_pct: 80 }
+        - { trigger_pct: 100, lock_hw_pct: 90 }
+
+# ── RISK guard rails ──────────────────────────────────────────────────────────────────
+#  WHAT THIS BOOK CAN HOLD. Four clips at 25% of WITHDRAWABLE, and withdrawable shrinks as
+#  each one is taken, so the clips land at ~25% / 19% / 14% / 11% of the account — about
+#  69% committed as margin. At 5x that is ~3.4x the account in notional, at 10x ~6.9x. The
+#  live fork measured 3.4x. One name on its 15% ROE floor costs 15% of its own clip, so the
+#  largest costs ~3.8% of the account and all four together ~10%.
+#
+#  drawdown_halt_pct 20 with drawdown_reset_on_day_rollover TRUE is the fork's setting and
+#  is preserved here so the template matches what was measured. Understand what it means:
+#  the halt is NOT latched, so it permits a 20% drawdown, resets at the day boundary, and
+#  permits another. Every other catalog template that carries a halt this wide latches it.
+risk:
+  data_retention_seconds: 259200
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 6            # ⚠ LOWERED from the fork's 8 — the one number changed
+                                      #   for risk rather than correctness. At 8/day, 25%
+                                      #   margin and 10x the book turns over 20x the account
+                                      #   daily: ~2.0%/day in fees, ~60% a month, before
+                                      #   direction. The measured fork never came close — 4
+                                      #   entries in 4 days, ~0.12%/day — so 8 shipped a
+                                      #   regime nothing had tested. 6 is the floor that still
+                                      #   works: it must exceed the 4 slots or a stopped-out
+                                      #   slot cannot refill until 00:00 UTC and the strategy
+                                      #   reads as dead. At 6/day: ~1.5%/day at 10x, ~0.75% at
+                                      #   the 5x base. That cost is in the card.
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 5
+    cooldown_seconds: 2700
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 7200
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

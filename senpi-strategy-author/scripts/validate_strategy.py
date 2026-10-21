@@ -37,8 +37,10 @@ _SIZING_PARENTS = {"strategy", "inputs"}
 
 
 def margin_fraction_offenders(doc, path="", parent=None):
-    """Slot-size keys whose value is a fraction (0,1] where a PERCENT (0,100] is required
+    """Slot-size keys whose value is a fraction (0,1) where a PERCENT (0,100] is required
     (`marginPct: 0.10` meant 10 — 100× too small, so every order lands under the min notional).
+    Exactly 1 passes: it is a legal 1%, and "fixing" it to 100 sizes the slot at all of withdrawable
+    (the runtime's `findMarginPctFraction` lets 1 through for the same reason).
     Scoped to `_SIZING_KEYS` under `_SIZING_PARENTS`; an emitted per-signal value is checked at the
     live stage instead, where the real number is visible rather than inferred. Kept identical to
     senpi-strategy-ops `_pkg.margin_fraction_offenders`. Returns [(dotted_key, value), ...]."""
@@ -47,7 +49,7 @@ def margin_fraction_offenders(doc, path="", parent=None):
         for k, v in doc.items():
             kp = f"{path}.{k}" if path else str(k)
             if parent in _SIZING_PARENTS and str(k).lower() in _SIZING_KEYS \
-                    and isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v <= 1:
+                    and isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v < 1:
                 out.append((kp, v))
             else:
                 out.extend(margin_fraction_offenders(v, kp, str(k).lower()))
@@ -79,6 +81,32 @@ def candle_key_bug(text):
 # does not apply to this signal must be OMITTED, not set to None. (ibis shipped 100% dead on this.)
 _NONE_IN_DATA = re.compile(r'"(\w+)":\s*(?:th\[[^\]]+\]|None)\s*(?:,|\})')
 _STRIPS_NONE = re.compile(r'if\s+v\s+is\s+not\s+None')
+
+
+def undeclared_signal_data_offenders(scan_src, schema):
+    """Keys in a signal's `data` that `signal_data_schema` does not declare.
+
+    The scaffold refuses the whole candidate for an undeclared key, so the scanner logs a healthy
+    EMIT and nothing reaches the venue. Declaring it is the fix, not removing it — penguin carries
+    `leverage` in `data` and declares it. Only a literal `"data": {...}` is read: one built from a
+    variable is left alone rather than guessed at, because a check that refuses a working strategy
+    is worse than no check."""
+    if not schema:
+        return []
+    try:
+        tree = ast.parse(scan_src)
+    except SyntaxError:
+        return []
+    out = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        for key, value in zip(node.keys, node.values):
+            if isinstance(key, ast.Constant) and key.value == "data" and isinstance(value, ast.Dict):
+                out.update(k.value for k in value.keys
+                           if isinstance(k, ast.Constant) and isinstance(k.value, str)
+                           and k.value not in schema)
+    return sorted(out)
 
 
 def null_signal_field_offenders(scan_src, scoring_src, schema):
@@ -147,6 +175,295 @@ def pnl_sign_directions(src):
     return sorted({m.group(1) for m in _PNL_SIGN.finditer(src)})
 
 
+# ── a name read before it exists ───────────────────────────────────────────────
+# Python binds a function's locals at compile time, so a read on a path that runs before the
+# assignment raises UnboundLocalError — it does NOT fall back to the module-level name of the same
+# spelling. The closure variant raises NameError: a nested `_persist()` defined above its free
+# variable and called from an early return reads a name the enclosing scope has not bound yet.
+# Both are latent — the tick that takes the branch can be days after the deploy, and the scanner
+# then crashes EVERY tick until someone looks — hours of dead ticks on a funded wallet.
+# `ast.parse` above proves the file compiles, which is precisely what these two survive.
+# Only what is certain, because a finding fails validation: control flow in a function runs forward
+# except round a loop, so a read that precedes every binding of a local, outside any loop that also
+# binds it, crashes whenever it runs. A closure counts only when it reads the name on EVERY call —
+# `_persist(result=None)` reading it under `if result is not None` cannot crash an early `_persist()`.
+_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+_COMPS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+_CAPTURES = tuple(getattr(ast, c) for c in ("MatchAs", "MatchStar", "MatchMapping") if hasattr(ast, c))  # py3.10+
+_ALIAS = getattr(ast, "TypeAlias", ())                                                                   # py3.12+
+
+
+def _scope(fn):
+    """`fn`'s own scope in one walk → (loads, binds, declared, loops, defs, calls).
+    loads [(name, pos)] · binds {name: [(pos, is_augassign)]} · declared global/nonlocal names ·
+    loops [(first, last line)] · nested defs · calls {name: [pos]}; pos is (line, col).
+    An assignment binds at the END of its statement — `x = x + 1` and `x += 1` read x first — and a
+    walrus at its START: `x if (x := f()) else y` and `[x for t in ts if (x := g(t))]` read x after it,
+    though the source puts the read first. A nested def's body is its own scope, but its name, defaults
+    and decorators belong here; a comprehension's targets are its own, every other name it reads is
+    read here."""
+    loads, binds, declared, loops, defs, calls = [], {}, set(), [], [], {}
+    stmt = [(fn.lineno, fn.col_offset)]          # start of the statement being walked
+
+    def bind(name, pos, aug=False):
+        binds.setdefault(name, []).append((pos, aug))
+
+    def target(t, pos, aug):
+        if isinstance(t, ast.Name):
+            bind(t.id, pos, aug)
+        elif isinstance(t, (ast.Tuple, ast.List, ast.Starred)):
+            for e in (t.elts if not isinstance(t, ast.Starred) else [t.value]):
+                target(e, pos, aug)
+        else:                                    # s["k"] = v reads s
+            visit(t, frozenset())
+
+    def visit(n, hidden):
+        if isinstance(n, ast.stmt):
+            stmt[0] = (n.lineno, n.col_offset)
+        if isinstance(n, _SCOPES):
+            a = getattr(n, "args", None)
+            for ch in [*getattr(n, "decorator_list", []), *getattr(n, "bases", []),
+                       *(a.defaults + [d for d in a.kw_defaults if d] if a else [])]:
+                visit(ch, hidden)
+            if not isinstance(n, ast.Lambda):
+                bind(n.name, (n.lineno, n.col_offset))
+                if not isinstance(n, ast.ClassDef):
+                    defs.append(n)
+            return
+        if isinstance(n, _COMPS):
+            first, *rest = n.generators
+            visit(first.iter, hidden)
+            inner = hidden | {t.id for g in n.generators for t in ast.walk(g.target) if isinstance(t, ast.Name)}
+            for ch in [*first.ifs, *(x for g in rest for x in (g.iter, *g.ifs)),
+                       *([n.key, n.value] if isinstance(n, ast.DictComp) else [n.elt])]:
+                visit(ch, inner)
+            return
+        if isinstance(n, ast.Name):
+            if n.id not in hidden:
+                if isinstance(n.ctx, ast.Load):
+                    loads.append((n.id, (n.lineno, n.col_offset)))
+                else:
+                    bind(n.id, (n.lineno, n.col_offset))
+            return
+        if isinstance(n, (ast.Assign, ast.AugAssign, ast.AnnAssign, ast.NamedExpr)):
+            if n.value is None:                  # a bare annotation binds nothing
+                return
+            visit(n.value, hidden)
+            aug = isinstance(n, ast.AugAssign)
+            for t in n.targets if isinstance(n, ast.Assign) else [n.target]:
+                if aug and isinstance(t, ast.Name):
+                    loads.append((t.id, (t.lineno, t.col_offset)))
+                target(t, stmt[0] if isinstance(n, ast.NamedExpr) else (n.end_lineno, n.end_col_offset), aug)
+            return
+        if isinstance(n, _ALIAS):                # `type X = …` binds X; its value is evaluated lazily
+            bind(n.name.id, (n.lineno, n.col_offset))
+            return
+        if isinstance(n, ast.ExceptHandler) and n.name:
+            bind(n.name, (n.lineno, n.col_offset))
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            for al in n.names:
+                bind((al.asname or al.name).split(".")[0], (n.lineno, n.col_offset))
+        elif isinstance(n, _CAPTURES):           # `case {"k": str(x)}` binds x
+            for nm in (getattr(n, "name", None), getattr(n, "rest", None)):
+                if nm:
+                    bind(nm, (n.lineno, n.col_offset))
+        elif isinstance(n, (ast.Global, ast.Nonlocal)):
+            declared.update(n.names)
+        elif isinstance(n, (ast.For, ast.AsyncFor, ast.While)):
+            loops.append((n.lineno, n.end_lineno))
+        elif isinstance(n, ast.Call) and isinstance(n.func, ast.Name):
+            calls.setdefault(n.func.id, []).append((n.lineno, n.col_offset))
+        for ch in ast.iter_child_nodes(n):
+            visit(ch, hidden)
+
+    a = fn.args
+    for p in [x.arg for x in (*a.posonlyargs, *a.args, *a.kwonlyargs, a.vararg, a.kwarg) if x] \
+            + [t.name for t in getattr(fn, "type_params", [])]:
+        bind(p, (fn.lineno, fn.col_offset))
+    for s in fn.body:
+        visit(s, frozenset())
+    return loads, binds, declared, loops, defs, calls
+
+
+def _eager(node):
+    """Name loads `node` makes whenever it runs — not in an IfExp branch, a BoolOp's later operands,
+    a comprehension past its first iterable, a nested def/lambda/class, or a lazy `type` alias."""
+    if isinstance(node, ast.Name):
+        return [node] if isinstance(node.ctx, ast.Load) else []
+    kids = ([node.test] if isinstance(node, ast.IfExp) else node.values[:1] if isinstance(node, ast.BoolOp)
+            else [node.generators[0].iter] if isinstance(node, _COMPS)
+            else [] if isinstance(node, _SCOPES) or isinstance(node, _ALIAS) else ast.iter_child_nodes(node))
+    return [x for k in kids for x in _eager(k)]
+
+
+def _every_call_reads(g):
+    """Name loads `g` makes on EVERY call: its leading statements, up to the first compound statement
+    (whose if/while test or for iterable still runs) or return."""
+    out = []
+    for s in g.body:
+        if hasattr(s, "body"):
+            return out + _eager(s.test if isinstance(s, (ast.If, ast.While)) else getattr(s, "iter", ast.Pass()))
+        out += _eager(s)
+        if isinstance(s, (ast.Return, ast.Raise)):
+            break
+    return out
+
+
+def unbound_name_offenders(src):
+    """Names a function reads on a path that runs before the name exists.
+    Returns [(func, name, read_line, bind_line, kind), ...]; kind is 'local' or 'free'."""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return []                                  # the syntax error is reported on its own
+    out = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        loads, binds, declared, loops, defs, calls = _scope(fn)
+        nonlocal_ = {n for x in ast.walk(fn) if isinstance(x, ast.Nonlocal) for n in x.names}  # a nested def binds it
+        local = {n: b for n, b in binds.items() if n not in declared | nonlocal_}
+
+        def first(name):
+            return min(p for p, _ in local[name])
+
+        def rerun(pos, name):
+            """A loop can run `pos` again after binding `name` — unless `x += …` is its only binding."""
+            bs = local[name]
+            return not all(aug for _, aug in bs) and any(
+                lo <= pos[0] <= hi and any(lo <= p[0] <= hi for p, _ in bs) for lo, hi in loops)
+
+        for name, pos in loads:
+            if name in local and pos < first(name) and not rerun(pos, name):
+                out.append((fn.name, name, pos[0], first(name)[0], "local"))
+        for g in defs:
+            if isinstance(g, ast.AsyncFunctionDef) or any(isinstance(x, (ast.Yield, ast.YieldFrom)) for x in ast.walk(g)):
+                continue                                # calling it builds a coroutine/generator; the body runs later
+            _, g_binds, g_declared, *_ = _scope(g)
+            for r in _every_call_reads(g):
+                name = r.id
+                if name not in local or name in g_binds or name in g_declared:
+                    continue
+                if any((g.lineno, g.col_offset) < c < first(name) and not rerun(c, name)
+                       for c in calls.get(g.name, [])):
+                    out.append((g.name, name, r.lineno, first(name)[0], "free"))
+    return sorted(set(out))
+
+
+# ── marginPct must stay a percent ──────────────────────────────────────────────
+# `marginPct` is a PERCENT in (0, 100]. The runtime drops the whole candidate at delivery
+# (`delivery_candidate_invalid: marginPct must be a number in (0, 100] when set`) when it is not,
+# so the strategy funds, ticks clean and never opens a position. Every catalog scanner reads it
+# from `inputs` as a configured constant and is safe by construction. The shape that breaks is a
+# percent recomputed from a live balance — `max(size, MIN_ORDER) / free_margin * 100` — which is
+# fine while the wallet is liquid and blows past 100 the moment the floor binds and free margin is
+# smaller than the minimum order — the emitted percent then climbs as the margin drains, and every
+# candidate is dropped. A literal out of range is certain (an error); a division by a live balance
+# with no clamp is only likely (a warning), because whether it can pass 100 is not in the source.
+# `margin_fraction_offenders` already owns the opposite error (a fraction where a percent belongs),
+# so a literal in (0, 1] is left to it.
+
+
+def _unwrap(node):
+    """round(x, n) / float(x) / int(x) → x."""
+    while isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
+            and node.func.id in ("round", "float", "int") and node.args:
+        node = node.args[0]
+    return node
+
+
+def _number(v):
+    """A numeric literal with its sign (`-5` parses as a UnaryOp), else None."""
+    if isinstance(v, ast.UnaryOp) and isinstance(v.op, ast.USub):
+        n = _number(v.operand)
+        return None if n is None else -n
+    ok = isinstance(v, ast.Constant) and isinstance(v.value, (int, float)) and not isinstance(v.value, bool)
+    return v.value if ok else None
+
+
+def _clamped(v):
+    """The outermost call is min(…), or max(lo, min(…)) — the two-sided clamp."""
+    v = _unwrap(v)
+    return isinstance(v, ast.Call) and isinstance(v.func, ast.Name) and (
+        v.func.id == "min" or v.func.id == "max" and any(_clamped(a) for a in v.args))
+
+
+def _bounded(fn, name):
+    """`if pct > 100: return []` — the name compared with a literal in [1, 100] somewhere in `fn`."""
+    for c in ast.walk(fn):
+        if isinstance(c, ast.Compare):
+            sides = [c.left, *c.comparators]
+            if any(isinstance(s, ast.Name) and s.id == name for s in sides) \
+                    and any(1 <= (_number(s) or 0) <= 100 for s in sides):
+                return True
+    return False
+
+
+def _live(fn):
+    """Names assigned from `ctx` — directly, or through each other: the scanner's live reads."""
+    pairs = [(t, n.value) for n in ast.walk(fn) if isinstance(n, (ast.Assign, ast.AnnAssign)) and n.value
+             for t in (n.targets if isinstance(n, ast.Assign) else [n.target])]
+    live = {"ctx"}
+    while True:
+        new = {x.id for t, v in pairs if live & {y.id for y in ast.walk(v) if isinstance(y, ast.Name)}
+               for x in ast.walk(t) if isinstance(x, ast.Name)} - live
+        if not new:
+            return live
+        live |= new
+
+
+def _margin_values(fn):
+    """Every value `fn` sets marginPct to: {"marginPct": v}, dict(marginPct=v), s["marginPct"] = v."""
+    for n in ast.walk(fn):
+        if isinstance(n, ast.Dict):
+            pairs = zip(n.keys, n.values)
+        elif isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "dict":
+            pairs = ((ast.Constant(k.arg), k.value) for k in n.keywords)
+        elif isinstance(n, ast.Assign):
+            pairs = ((t.slice, n.value) for t in n.targets if isinstance(t, ast.Subscript))
+        else:
+            continue
+        yield from (v for k, v in pairs if isinstance(k, ast.Constant) and k.value == "marginPct")
+
+
+def margin_pct_offenders(src):
+    """Emitted `marginPct` values that can leave (0, 100]. Returns [(line, kind, detail), ...]: kind
+    'literal' is a number outside the range; 'ratio' is a division by a live balance with no clamp."""
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        return []
+    out = []
+    for fn in ast.walk(tree):
+        if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        live = _live(fn)
+        assigned = sorted(((n.lineno, t.id, n.value) for n in ast.walk(fn)
+                           if isinstance(n, (ast.Assign, ast.AnnAssign)) and n.value is not None
+                           for t in (n.targets if isinstance(n, ast.Assign) else [n.target])
+                           if isinstance(t, ast.Name)), key=lambda a: a[0])
+        for v in _margin_values(fn):
+            v = _unwrap(v)
+            num = _number(v)
+            if num is not None:
+                if not 0 < num <= 100:
+                    out.append((v.lineno, "literal", f"{num:g}"))
+                continue
+            name, expr = None, v
+            if isinstance(v, ast.Name):            # the assignment that reaches this line
+                prior = [e for line, n, e in assigned if n == v.id and line <= v.lineno]
+                if not prior:
+                    continue
+                name, expr = v.id, prior[-1]
+            if _clamped(expr) or name and _bounded(fn, name):
+                continue
+            if any(isinstance(d, ast.BinOp) and isinstance(d.op, ast.Div)
+                   and live & {x.id for x in ast.walk(d.right) if isinstance(x, ast.Name)}
+                   for d in ast.walk(expr)):
+                out.append((v.lineno, "ratio", f"`{name}` (line {expr.lineno})" if name else "the value"))
+    return sorted(set(out))
+
+
 def _strings(obj, path=""):
     """(dotted_path, text) for every string in a parsed YAML value."""
     if isinstance(obj, str):
@@ -178,7 +495,7 @@ def smart_money_mentions(pkg: Path):
 
 
 def _runtime_docs(pkg: Path):
-    """Every parsed runtime.yaml in the package (flat or nested)."""
+    """(path, doc) for every parsed runtime.yaml in the package (flat or nested)."""
     out = []
     for rt in pkg.rglob("runtime.yaml"):
         try:
@@ -186,7 +503,7 @@ def _runtime_docs(pkg: Path):
         except Exception:  # noqa: BLE001
             continue
         if isinstance(d, dict):
-            out.append(d)
+            out.append((rt, d))
     return out
 
 
@@ -264,7 +581,7 @@ def validate(pkg: Path) -> list:
                 errs.append(f"instance {name}: set runtime `name: {expect}` (found {rt_doc.get('name')!r})")
             if rt_doc.get("group") != sid:
                 errs.append(f"instance {name}: set runtime `group: {sid}` (found {rt_doc.get('group')!r})")
-            # marginPct is a PERCENT in (0,100]; a value <= 1 is the fraction slip (0.10 meant 10, 100x
+            # marginPct is a PERCENT in (0,100]; a value below 1 is the fraction slip (0.10 meant 10, 100x
             # too small). Flag it pre-deploy with the exact fix. (See scan-contract.md.)
             for kp, val in margin_fraction_offenders(rt_doc):
                 errs.append(f"instance {name}: `{kp}` must be a PERCENT in (0,100] — set {val * 100:g} "
@@ -362,19 +679,20 @@ def validate(pkg: Path) -> list:
                 # checked nowhere before the executor — and the executor does not refuse an unknown one,
                 # it falls back to MARKET with a warning: full taker fees on every entry while the recipe
                 # says otherwise. A LIMIT open needs a price the runtime's open action never supplies.
-                if ot is not None and (not isinstance(ot, str) or ot not in OPEN_ORDER_TYPES):
+                if ot == "LIMIT":
+                    errs.append(
+                        f"instance {name}: [exec] action {aname!r} opens with `params.order_type: LIMIT` — the "
+                        f"runtime's open action never supplies the `limitPrice` a LIMIT order needs. A runtime "
+                        f"with senpi-trading-runtime#394 runs the entry as MARKET instead (full taker fees on "
+                        f"every entry while the recipe says otherwise); an older one sends it unpriced and the "
+                        f"venue rejects every open. Use `FEE_OPTIMIZED_LIMIT` for a maker-first entry, or `MARKET`")
+                elif ot is not None and (not isinstance(ot, str) or ot not in OPEN_ORDER_TYPES):
                     errs.append(
                         f"instance {name}: [exec] action {aname!r} has `params.order_type: {ot!r}` — not an "
                         f"order type the runtime knows ({', '.join(OPEN_ORDER_TYPES)}). It would not fail: the "
                         f"runtime logs a warning and falls back to MARKET, so every entry pays full taker fees "
                         f"while the recipe says otherwise. Write `FEE_OPTIMIZED_LIMIT` (a maker window, then "
                         f"taker) or `MARKET`")
-                elif ot == "LIMIT":
-                    errs.append(
-                        f"instance {name}: [exec] action {aname!r} opens with `params.order_type: LIMIT` — a "
-                        f"LIMIT order needs a `limitPrice`, and the runtime's open action never supplies one, "
-                        f"so the order cannot be placed as written. Use `FEE_OPTIMIZED_LIMIT` for a maker-first "
-                        f"entry, or `MARKET`")
                 folo = params.get("fee_optimized_limit_options")
                 if ot == "FEE_OPTIMIZED_LIMIT" and isinstance(folo, dict) and folo.get("ensure_execution_as_taker") is False:
                     errs.append(
@@ -418,7 +736,18 @@ def validate(pkg: Path) -> list:
         for lng, sht in candle_key_bug(src):
             errs.append(f"{py.name}: candles are keyed `o/h/l/c/v` — use `candle['{sht}']`, not `{lng}` "
                         f"(no such key → always None → the scan emits nothing).")
+        for fname, name, read, bound, kind in unbound_name_offenders(src):
+            how = ("UnboundLocalError" if kind == "local" else
+                   "NameError — the closure is called before the enclosing scope binds it")
+            errs.append(f"{py.name}: {fname}() reads `{name}` at line {read} but binds it at line {bound} "
+                        f"→ {how}. The path crashes the first tick that takes it, then every tick after. "
+                        f"Bind `{name}` before the first read (`{name} = <empty>` above the branch).")
         if "scanners" in py.parts:
+            for line, kind, detail in margin_pct_offenders(src):
+                if kind == "literal":        # a division by a live balance is warnings()' — it may stay in range
+                    errs.append(f"{py.name}: emits `marginPct: {detail}` at line {line} — marginPct is a PERCENT "
+                                f"in (0, 100]; the runtime drops the whole candidate at delivery "
+                                f"(`delivery_candidate_invalid`), so the strategy ticks clean and never opens.")
             for lit in direction_literal_offenders(src):
                 errs.append(
                     f"{py.name}: emits `direction: {lit!r}` — a direction is LONG or SHORT, nothing else; the "
@@ -448,7 +777,7 @@ def validate(pkg: Path) -> list:
     for scan_py in pkg.rglob("scanners/scan.py"):
         scoring_py = scan_py.with_name("scoring.py")
         scoring_src = scoring_py.read_text() if scoring_py.is_file() else ""
-        for rt_doc in _runtime_docs(pkg):
+        for _, rt_doc in _runtime_docs(pkg):
             for sc in (rt_doc.get("scanners") or []):
                 if not isinstance(sc, dict) or sc.get("type") != "external_scanner":
                     continue
@@ -459,6 +788,25 @@ def validate(pkg: Path) -> list:
                         f"None — OMIT it when it doesn't apply (a null fails schema validation and the "
                         f"runtime drops the whole candidate silently). Build data as "
                         f"`{{k: v for k, v in {{...}}.items() if v is not None}}`.")
+    # undeclared `data` keys — each scanner against ITS OWN file, resolved as the runtime does
+    # (runtime.yaml dir / path / entrypoint): barracuda ships two external_scanners on one `path`
+    # (scan.py + close_all.py), and spider's swing + scalp each ship a scanners/scan.py — pairing
+    # by filename alone checks one against the other's schema and invents offenders.
+    for rt, rt_doc in _runtime_docs(pkg):
+        for sc in (rt_doc.get("scanners") or []):
+            if not isinstance(sc, dict) or sc.get("type") != "external_scanner":
+                continue
+            schema = sc.get("signal_data_schema") or {}
+            scan_py = rt.parent / str(sc.get("path") or "scanners") / str(sc.get("entrypoint") or "scan.py")
+            if scan_py.is_file():
+                for key in undeclared_signal_data_offenders(scan_py.read_text(), schema):
+                    errs.append(
+                        f"{scan_py.relative_to(pkg)}: signal `data` carries `{key}`, which "
+                        f"`{sc.get('name', 'this scanner')}`'s `signal_data_schema` does not declare "
+                        f"— the scaffold refuses the whole candidate (`delivery_candidate_invalid`: "
+                        f"data has unknown key '{key}'), so the scanner logs a healthy EMIT and "
+                        f"nothing reaches the venue. Declare `{key}` in `signal_data_schema`, or "
+                        f"stop emitting it.")
     for f in pkg.rglob("*"):
         if f.is_file() and f.suffix in (".py", ".yaml", ".md"):
             t = f.read_text(errors="ignore")
@@ -486,8 +834,8 @@ WARN_STOP_PRICE_PCT = 1.0
 # direction, took the money, and nothing said so before the user funded it.
 WARN_FEE_PCT_PER_DAY = 0.5
 # The order types the runtime's open path accepts (its constants/order-types.ts VALID_OPEN_ORDER_TYPES).
-# Anything else is not refused by the runtime: it logs a warning and falls back to MARKET.
-OPEN_ORDER_TYPES = ("MARKET", "LIMIT", "FEE_OPTIMIZED_LIMIT")
+# Anything else is not refused by the runtime: it logs a warning and falls back to MARKET (`LIMIT` included).
+OPEN_ORDER_TYPES = ("MARKET", "FEE_OPTIMIZED_LIMIT")
 FEE_RATE_PER_SIDE = 0.0005
 
 _PRESETS_FILE = Path(__file__).resolve().parent.parent / "references" / "dsl-presets.yaml"
@@ -713,6 +1061,17 @@ def warnings(pkg: Path) -> list:
                     f"a round trip of fees; for an `xyz:` equity, index or commodity, judge it against that "
                     f"market's own daily range. Widen `max_loss_pct`, lower the leverage, or tell the user "
                     f"this is a known cost before they fund it (a run of small losses otherwise reads as 'broken')")
+
+        # [sizing] a marginPct recomputed from a live balance passes 100 once the balance is small enough
+        for py in sorted((rt.parent / "scanners").glob("*.py")):
+            for line, kind, detail in margin_pct_offenders(py.read_text()):
+                if kind == "ratio":
+                    out.append(
+                        f"{tag}: [sizing] {py.name} line {line} emits `marginPct` from {detail}, a division by "
+                        f"a live balance with no upper clamp — once the balance falls below the size it divides "
+                        f"(a `MIN_ORDER` floor binds), the percent passes 100 and the runtime drops every "
+                        f"candidate (`delivery_candidate_invalid`): the strategy ticks clean and never opens. "
+                        f"Clamp it with `min(pct, 100.0)`, or skip the signal when the size cannot be funded")
 
         # [sizing] multi-slot: every slot must be fundable, and emits must be gated on free margin
         slots, margin = slot_plan(rt_doc)

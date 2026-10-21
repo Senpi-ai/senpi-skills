@@ -2,12 +2,16 @@
 
 Multi-asset, basket-gated (BTC/ETH/SOL by default). Per tick it:
   - reads account state + held positions (dual-DEX equity via max(), never sum()),
+  - reads the 4h leaderboard ONCE (it is not per-coin; 1.2.x re-read it for every
+    candidate). An unreadable board HOLDS the tick and is logged as an OUTAGE
+    (`gate: board_unreadable`), not reported as "no pullback": the market said
+    nothing, the read did,
   - iterates the basket universe (XYZ banned; held + recently-signaled filtered
     BEFORE the per-asset MCP fetch, as in v2 main()),
-  - for each candidate fetches 1h+4h candles + the smart-money lean and scores a
-    pullback thesis via the pure `scoring.build_thesis` (4h-trend non-neutral,
-    pullback in the 3-7% band, and SM-direction agreement are ALL HARD GATES;
-    the midpoint and strong-SM bonuses are score contributors),
+  - for each candidate fetches 1h+4h candles, takes the smart-money lean off the
+    board rows and scores a pullback thesis via the pure `scoring.build_thesis`
+    (4h-trend non-neutral, pullback in the 3-7% band, and SM-direction agreement
+    are ALL HARD GATES; the midpoint and strong-SM bonuses are score contributors),
   - emits the SINGLE highest-scoring candidate at/above `minScore` (v2 main()
     emitted only `best`), sized by a flat margin PERCENT + clamped leverage.
 
@@ -19,10 +23,11 @@ FIDELITY NOTES vs the v2 producer (salamander-producer.py VERSION 1.0.1; the fil
 header label is "v1.0.0" and SKILL.md is v1.0.0 — the VERSION constant 1.0.1 is
 cited as authoritative):
   - v2 sized margin as marginPct=0.20 (a FRACTION) * account_value -> marginUsd.
-    This port emits a `marginPct` PERCENT (default 20) and the runtime sizes
-    (marginPct/100)*withdrawable. The defensive "<=1.0 means a pasted fraction,
-    x100" guard converts a config that still carries 0.20 -> 20. Flat sizing (no
-    conviction tiers) is preserved verbatim.
+    This port emits a `marginPct` PERCENT (default 40 since 1.3.0; v2 and 1.x
+    shipped 20) and the runtime sizes (marginPct/100)*withdrawable. The defensive
+    "<1.0 means a pasted fraction, x100" guard converts a config that still
+    carries a fraction (0.40 -> 40). Flat sizing (no conviction tiers) is
+    preserved verbatim.
   - v2 leverage = min(config.leverage(5), MAX_LEVERAGE(5)). Preserved: clamp the
     input leverage to MAX_LEVERAGE (5).
   - v2 emitted exactly one signal (best, highest score). Preserved: scan() emits
@@ -30,8 +35,10 @@ cited as authoritative):
   - v2 recent-signals JSON cache (RECENT_SIGNAL_TTL_SEC=240) -> ctx.state dedup
     map (same TTL + 4x-TTL prune semantics).
   - v2 smart-money lean (fetch_sm_direction) thresholds reproduced VERBATIM in
-    _get_sm_direction (long_ratio >= 50 -> LONG else SHORT; token compared UPPER;
+    _sm_direction (long_ratio >= 50 -> LONG else SHORT; token compared UPPER;
     total<=0 -> NEUTRAL/50; not found -> (None, 0.0)). NOT bison's 58/42 band.
+    1.3.0 split the board READ (_read_board, once per tick) from the per-coin
+    lean (_sm_direction, pure on the rows); the math is unchanged.
   - v2 build_thesis short-circuited on data.get("success") False; the read-guard
     here treats success:false as "skip asset" (None), same effect.
   - v2's salamander_config.py docstring AND runtime.yaml description called
@@ -43,10 +50,12 @@ cited as authoritative):
     FLAGGED.) The v2 runtime.yaml's SALAMANDER_BTC_TREND signal_type, the BTC-only
     LLM decision_prompt, and the "is BTC trending?" description are stale-template
     residue and were NOT ported.
-  - DSL ported VERBATIM from the v2 runtime.yaml exit block (the producer docstring
-    says "24h cap" / "T0 +5% / lock 30" but the runtime.yaml — which OWNS the DSL —
-    has hard_timeout 2880min/48h and T0 +10%/lock 0; runtime.yaml is authoritative
-    for DSL per the spec, and SKILL.md agrees with it: 48h, T0 +10%/lock 0). (FLAGGED.)
+  - DSL: 1.0.0 ported the v2 runtime.yaml exit block verbatim (the producer
+    docstring and the runtime.yaml disagreed on the clock cap and the first rung;
+    runtime.yaml owned the DSL and won — FLAGGED then). 1.3.0 re-tuned it from the
+    live record and the runtime.yaml is the only source now: the stop is 12% ROE
+    (2.4% of price at 5x), no clock cuts, first lock +20% ROE keeping 40% of the
+    high-water.
   - The v2 producer has NO order-lifecycle management (no cancel_order /
     has_resting_orders / stale-order purge), so nothing of that kind was dropped.
 """
@@ -78,7 +87,7 @@ def _sm_row_matches(row, token, target):
 # v1.0.1 defaults (salamander-producer.py / salamander-config.json)
 _UNIVERSE_DEFAULT = ["BTC", "ETH", "SOL"]
 _DEFAULT_MIN_SCORE = 5            # v1 DEFAULT_MIN_SCORE / config.minScore
-_DEFAULT_MARGIN_PCT = 20         # PERCENT; v2 config.marginPct=0.20 fraction -> 20%
+_DEFAULT_MARGIN_PCT = 40         # PERCENT; runtime.yaml ships 40 (1.3.0; v2 config.marginPct=0.20 fraction -> 20%)
 _DEFAULT_LEVERAGE = 5            # v1 DEFAULT_LEVERAGE / config.leverage
 _MAX_LEVERAGE = 5               # v1 MAX_LEVERAGE (hardcoded, not configurable)
 _DEFAULT_RECENT_TTL = 240        # v1 RECENT_SIGNAL_TTL_SEC — race-window dedup
@@ -143,31 +152,38 @@ def _get_account(ctx):
     return account_value, positions
 
 
-def _get_sm_direction(ctx, coin, min_traders=10):
-    """Net smart-money lean for `coin` from leaderboard_get_markets. Returns
-    (direction, tilt_pct) or (None, 0.0). READ-GUARDED.
-
-    Ported VERBATIM from v2 fetch_sm_direction (NOT bison's 58/42 band):
-      - token compared UPPER-cased against coin (assumed upper),
-      - long_ratio = long_pct/(long+short)*100,
-      - long_ratio >= 50 -> ("LONG", long_ratio), else ("SHORT", 100 - long_ratio),
-      - total <= 0 -> ("NEUTRAL", 50.0); coin not found -> (None, 0.0)."""
+def _read_board(ctx):
+    """The 4h leaderboard (`leaderboard_get_markets`) as a list of market rows, or
+    None when it could not be read. READ-GUARDED. Read ONCE per tick: the board is
+    not per-coin, and 1.2.x re-read it for every candidate (three identical reads
+    a tick on the default basket). None is an OUTAGE — the caller holds the tick
+    and logs it as one, never as "no pullback"."""
     try:
         raw = ctx.senpi_mcp.call_tool("leaderboard_get_markets", {})
-    except Exception as exc:  # noqa: BLE001 — smart-money is the entry GATE; a read failure must skip,
-        print(f"[salamander.scan] leaderboard_get_markets read failed (smart-money -> none): {exc!r}",
-              file=sys.stderr)
-        return None, 0.0
+    except Exception as exc:  # noqa: BLE001 — smart-money is the entry GATE; an unreadable board holds the tick
+        print(f"[salamander.scan] leaderboard_get_markets read failed: {exc!r}", file=sys.stderr)
+        return None
     if not raw or (isinstance(raw, dict) and raw.get("success") is False):
-        return None, 0.0
+        return None
     markets = raw.get("data", raw) if isinstance(raw, dict) else raw
     if isinstance(markets, dict):
         markets = markets.get("markets", markets.get("leaderboard", markets))
     if isinstance(markets, dict):
         markets = markets.get("markets", [])
     if not isinstance(markets, list):
-        return None, 0.0
+        return None
+    return markets
 
+
+def _sm_direction(markets, coin, min_traders=10):
+    """Net smart-money lean for `coin` off the board rows from _read_board. Pure.
+    Returns (direction, tilt_pct) or (None, 0.0).
+
+    Ported VERBATIM from v2 fetch_sm_direction (NOT bison's 58/42 band):
+      - token compared UPPER-cased against coin (assumed upper),
+      - long_ratio = long_pct/(long+short)*100,
+      - long_ratio >= 50 -> ("LONG", long_ratio), else ("SHORT", 100 - long_ratio),
+      - total <= 0 -> ("NEUTRAL", 50.0); coin not found -> (None, 0.0)."""
     long_pct = 0.0
     short_pct = 0.0
     found = False
@@ -257,7 +273,7 @@ def scan(inputs, ctx):
     min_traders = int(inputs.get("minTraderCount", 10))   # 4h-board headcount floor
     base_margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))   # PERCENT in (0,100]
     # defensive: a config that still stores margin as a FRACTION (e.g. 0.20) -> x100
-    if base_margin_pct <= 1.0:
+    if 0 < base_margin_pct < 1.0:
         print(f"[salamander.scan] marginPct={base_margin_pct} looks like a v2 fraction; "
               f"converting to PERCENT ({base_margin_pct * 100})", file=sys.stderr)
         base_margin_pct *= 100
@@ -272,11 +288,16 @@ def scan(inputs, ctx):
 
     signaled = _prune_signaled(_load_signaled(ctx), ttl, now)
 
+    # ── the 4h board is read ONCE per tick (it is not per-coin). It is the SM gate
+    #    for every candidate, so an unreadable board holds the whole tick — no
+    #    candle reads, logged as an OUTAGE rather than as a quiet market. ──
+    board = _read_board(ctx)
+
     # ── score every eligible basket candidate (XYZ banned; held + recently
     #    signaled filtered BEFORE the per-asset MCP fetch, as in v2 main()) ──
     candidates = []
     scanned = 0
-    for coin in universe:
+    for coin in (universe if board is not None else []):
         if not coin or coin.lower().startswith("xyz:"):   # XYZ banned (liquid-crypto basket)
             continue
         cu = coin.upper()
@@ -288,14 +309,20 @@ def scan(inputs, ctx):
         md = _asset_data(ctx, coin)
         if not md:
             continue
-        sm = _get_sm_direction(ctx, cu, min_traders)
+        sm = _sm_direction(board, cu, min_traders)
         th = scoring.build_thesis(coin, md["candles_1h"], md["candles_4h"], sm, inputs)
         if th and th["score"] >= min_score:
             candidates.append(th)
 
     out = []
-    if not candidates:
-        result = {"ts": now, "scanned": scanned, "emitted": False,
+    if board is None:
+        result = {"ts": now, "scanned": scanned, "emitted": False, "gate": "board_unreadable",
+                  "held": held_assets,
+                  "note": "HOLD — 4h leaderboard unreadable (the smart-money gate has no data); retry next tick"}
+        print(f"[salamander.scan] HOLD — 4h leaderboard unreadable (the smart-money gate has no data); "
+              f"held={held_assets}", file=sys.stderr)
+    elif not candidates:
+        result = {"ts": now, "scanned": scanned, "emitted": False, "gate": "waiting",
                   "held": held_assets,
                   "note": f"WAITING — no pullback in trend with SM agreement (min score {min_score:.0f})"}
         print(f"[salamander.scan] WAITING — no pullback in trend with SM agreement "
@@ -310,7 +337,7 @@ def scan(inputs, ctx):
         leverage = min(lev_default, _MAX_LEVERAGE)
 
         signaled[best["coin"].upper()] = now
-        result = {"ts": now, "scanned": scanned, "emitted": True,
+        result = {"ts": now, "scanned": scanned, "emitted": True, "gate": "emit",
                   "coin": best["coin"], "direction": best["direction"],
                   "score": best["score"], "leverage": leverage,
                   "marginPct": round(margin_pct, 4), "held": held_assets,

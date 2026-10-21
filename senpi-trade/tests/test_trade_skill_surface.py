@@ -58,6 +58,35 @@ class ProtectionProtocolIsResident(unittest.TestCase):
         self.assertGreaterEqual(text.count("**Must"), 10)
         self.assertIn("$2,095", text) and self.assertIn("$1,557", text)
 
+    def test_a_saved_wallet_is_answered_with_its_access_line_not_a_write(self):
+        """External Wallets R1, amendment A1: Senpi cannot trade a wallet the user added in Your wallets.
+        The answer is the MCP's access line, verbatim, and no write tool is attempted on it."""
+        body = " ".join(_body(SKILL).split())
+        for needle in ("SAVED wallets", "`external_wallets`", "no write-tool attempt",
+                       "Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it.",
+                       "`NOT_A_STRATEGY_WALLET` (match the error code)", "add it in Your wallets on senpi.ai (web)",
+                       "an address pasted in chat is never described as saved"):
+            self.assertIn(needle, body, needle)
+
+    def test_a_sent_stop_price_is_checked_against_the_live_mark(self):
+        """2026-09-24/25: two users had a stop refused for sitting on the wrong side of the mark
+        (56.695 >= 56.180 on a LONG; 0.20691 >= 0.15933, +30%). On edit_position the size change
+        commits first, so each refusal left the position open and UNPROTECTED — and both agents
+        re-sent the identical price rather than recomputing the side."""
+        body = _body(SKILL)
+        self.assertIn("correct side of the live mark", body)
+        self.assertIn("BELOW", body)
+        self.assertIn("ABOVE", body)
+        # the consequence, not just the rule — this is why it is worth the lines
+        self.assertIn("UNPROTECTED", body)
+        # the mark must come from the venue at call time, not from entry or an earlier quote — and from
+        # the tool that returns one (clearinghouse positions carry entryPx, no mark)
+        self.assertIn("strategy_get_asset_trading_limits", body)
+        # percentage is entry-based, so it is not the escape from a mark that is already past the stop
+        self.assertIn("measured from ENTRY", body)
+        # re-sending the same price is the one move that cannot work
+        self.assertIn("Re-sending the same price", body)
+
     def test_readme_row_matches_the_skill_version(self):
         version = re.search(r'version: "([0-9.]+)"', SKILL.read_text(encoding="utf-8")).group(1)
         readme = (REPO / "README.md").read_text(encoding="utf-8")

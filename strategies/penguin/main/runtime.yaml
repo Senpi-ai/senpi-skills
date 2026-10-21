@@ -15,7 +15,7 @@
 # concentrated, high-variance expression of the same read; see strategy.yaml for the risk.
 name: penguin-main
 group: penguin
-version: 3.2.0
+version: 3.5.0
 description: >
   PENGUIN — Concentrated Striker. Universe rank-jump sniper on Orca's entry model: scans the
   top-50 rows of the 4h leaderboard (leaderboard_get_markets — a momentum read of who is
@@ -51,7 +51,27 @@ scanners:
     default_signal_validity_seconds: 180    # 2x tick; a fresh re-score arrives next tick (rule action)
     state_history_max_count: 100            # rank-history window (5 scans) + emit-cooldown/dedup maps
     inputs:
+      # 0 = accept whatever the venue will lever and only WARN when it is below the leverage this
+      # ladder was authored for. Every DSL threshold is ROE and the engine divides by leverage to
+      # get a price floor, so on a name the venue caps at half this package's leverage every exit
+      # distance DOUBLES in price and the upper rungs can fall out of reach. Raise this to the
+      # package's leverage to make the scanner prefer a lower-scoring name the ladder actually fits;
+      # it falls back to the top candidate with a warning rather than skipping the tick.
+      minLeverage: 0
       minScore: 9                           # v2 STRIKER_MIN_SCORE
+      # Quant desk 2026-10-02: 55% of live Penguin entries fired AFTER a >= 3% 1h pre-move and those
+      # ran a profit factor of 0.3 against 3.3 for entries taken before the move. Direction-aware, so
+      # a dip-buy or a rally-sell still passes; it only rejects chasing.
+      #
+      # CAVEAT, measured 2026-10-03 and recorded because it disagrees: over 7 days of CAND telemetry
+      # only 16 of 578 penguin candidates that cleared the floor (2.8%) sat at or above 3%. Units
+      # verified against Hyperliquid 1m candles (priceChg1h is a PERCENT; actual/reported 0.81-1.06
+      # over 6 of 7 checks), so 3.0 does mean 3% and the gap is not a scaling error. CAND samples
+      # CANDIDATES, the quant desk measured FILLED ENTRIES — a real selection difference, but not a
+      # 20x one. Treat this as cheap insurance, not a filter expected to fire often.
+      #
+      # orca shares this scorer and keeps the gate OFF until measured on its own book.
+      maxPreMovePct: 1.5                   # DEFAULT as of 2026-10-07 — see the note above
       maxPositions: 1                       # mirrors slots:1
       topN: 50                              # v2 TOP_N — score only the top-50 SM markets
       leaderboardLimit: 100                 # v2 fetch_markets limit=100
@@ -108,8 +128,9 @@ actions:
 # moves to +2% and rises with high-water to +4% by the time rung 2 takes over. That is what
 # turns a round-tripper into a scratch instead of a -15% stop. Rungs 2 onward are Orca's
 # "let winners run" shape, held verbatim. What Penguin changes vs Orca: hard_timeout OFF (see
-# below), weak_peak_cut 25m -> 300m, dead_weight_cut OFF (a 15-minute cut fights a multi-hour
-# hold), phase-1 max_loss 8% -> 15% ROE.
+# below), EVERY time cut OFF as of 2026-10-05 (weak_peak_cut was the last one — see its note),
+# phase-1 max_loss 8% -> 15% ROE. Nothing on this template closes on a clock: the ladder and
+# the stop decide every exit.
 # order_type FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST happen).
 exit:
   engine: dsl
@@ -128,12 +149,22 @@ exit:
       enabled: false
       interval_in_minutes: 240
     weak_peak_cut:
-      # The only time cut left, and it is a DEATH cut, not a profit cut: 5h to show +5% ROE (a 0.5%
-      # price move at 10x) or the slot is freed. Raised from 180m/3.0 — at 10x the old 3% ROE bar was
-      # a 0.3% move, which almost anything clears, so the cut effectively never fired and flatliners
-      # rode to the 4h timeout holding the only slot. NOTE the timer RESETS every time ROE clears
-      # min_value (runtime: DslState.weakPeakCutStartedAt), so this bounds DEAD positions, not slow ones.
-      enabled: true
+      # OFF as of 2026-10-05. The DSL manages every exit on this family now — nothing here closes on
+      # a clock. This was the last time-based close: 5h to show a peak of 0.50% of price or the slot
+      # was freed. It was defensible as a DEATH cut rather than a profit cut, because its timer
+      # RESETS every time ROE clears min_value (runtime: DslState.weakPeakCutStartedAt) and its bar
+      # sat just under rung 0's arm at 0.60% of price, so it could only ever fire on a position that
+      # never worked. But it still decided an exit on elapsed time, and the measurement that killed
+      # hard_timeout is a verdict on the instrument and not just on that one setting: of 142 clock
+      # closes in 7 days, 110 (77.5%) were in profit and 93 (65.5%) kept moving the right way for
+      # the next hour.
+      #
+      # WHAT HOLDS A DEAD POSITION NOW: the phase-1 floor at 1.50% of price, and nothing else. There
+      # is no CLOSE_POSITION scanner on this family, so a flatliner keeps its slot until the stop
+      # fires or it finally moves. That is the accepted trade — a slow winner is worth more than a
+      # freed slot — and it is the same call puffin has run under since 2026-09-30. The interval and
+      # min_value below are kept for the record; both are inert while disabled.
+      enabled: false
       interval_in_minutes: 300
       min_value: 5.0
     dead_weight_cut:

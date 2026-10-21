@@ -1,40 +1,24 @@
-"""The engine here must stay byte-identical to senpi-signals/scripts/.
+"""This package holds the reference copy of the strategy-side detector engine.
 
-The detector library IS this strategy. A vendored copy that is allowed to drift stops being the
-thing whose signals the user was reading — quietly, and in the direction of whatever was convenient
-at the time. This is the same guard smartmoney.py already carries between senpi-signals and
-senpi-smart-money, for the same reason.
+senpi-signals 3.0 reads Senpi Signals from the backend (signals-service, agent-bridge, a Go port of
+these same files) and no longer carries the scripts. signals-hunter's copy is now the one the other
+strategies that trade this engine (puffin, puffin-duo) are held byte-identical to.
 
-If a detector is fixed in the feed, re-vendor: copy the file across and bump this package. If the
-strategy needs behaviour the feed does not have, it belongs in scan.py, never in these three files.
+If a detector is fixed, fix it here, copy it to puffin and puffin-duo, and bump all three. If the
+strategy needs behaviour the engine does not have, it belongs in scan.py, never in these three files.
 
 Run: python3 -m pytest strategies/signals-hunter/tests -q
 """
-import hashlib
 import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 VENDORED = os.path.join(HERE, "..", "main", "scanners")
-SOURCE = os.path.join(HERE, "..", "..", "..", "senpi-signals", "scripts")
 ENGINE = ("sweep.py", "score.py", "smartmoney.py")
 
 
-def _sha(path):
-    with open(path, "rb") as f:
-        return hashlib.sha256(f.read()).hexdigest()
-
-
-def test_every_engine_file_is_byte_identical_to_the_skill():
-    drift = []
+def test_the_reference_engine_is_here():
     for name in ENGINE:
-        a, b = os.path.join(SOURCE, name), os.path.join(VENDORED, name)
-        assert os.path.isfile(a), f"{name} is gone from senpi-signals/scripts — re-point this test"
-        assert os.path.isfile(b), f"{name} is missing from the package"
-        if _sha(a) != _sha(b):
-            drift.append(name)
-    assert not drift, (
-        f"vendored engine drifted from senpi-signals/scripts: {drift}. Re-vendor (copy across and "
-        f"bump this package) — do not edit the copy. Strategy-only behaviour belongs in scan.py.")
+        assert os.path.isfile(os.path.join(VENDORED, name)), f"{name} is missing from the package"
 
 
 def test_the_scanner_owns_no_copy_of_the_detectors():

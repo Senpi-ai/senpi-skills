@@ -1,7 +1,7 @@
 # ── CONDOR · single instance — One Amazing Trade per Day (Runtime 3.0 port of v2 CONDOR v4.0.1) ──
 name: condor-main
 group: condor
-version: 3.1.0
+version: 3.5.0
 description: >
   CONDOR — multi-asset trend-continuation apex sniper ("One Amazing Trade per Day").
   Scans the top 50 HL crypto assets by 24h notional volume and fires ONLY when 4h +
@@ -37,10 +37,24 @@ scanners:
       universeSize: 50                     # top N HL crypto by 24h notional volume
       minOiUsd: 1000000                    # OI >= $1M hard floor
       smLimit: 100                         # leaderboard_get_markets aggregation depth
-      minScore: 12                         # v2 MIN_SCORE (v3.4 calibration)
+      # 0 = accept whatever the venue will lever and only WARN when it is below the leverage this
+      # ladder was authored for. Every DSL threshold is ROE and the engine divides by leverage to
+      # get a price floor, so on a name the venue caps at half this package's leverage every exit
+      # distance DOUBLES in price and the upper rungs can fall out of reach. Raise this to the
+      # package's leverage to make the scanner prefer a lower-scoring name the ladder actually fits;
+      # it falls back to the top candidate with a warning rather than skipping the tick.
+      minLeverage: 0
+      minScore: 13                         # v2 MIN_SCORE (v3.4 calibration)
+  # RAISED 12 -> 13: 13 is this package's own next conviction band (11/13/15).
+      # 2026-10-01: of 25 closes in 24h across the fleet, 15 never armed a single profit
+      # rung and their median peak was 2.0% ROE (~0.2% of price) — entries that never went
+      # green, which no stop placement fixes. Fees were 57% of gross over the same set.
+      # The 11 band below the floor is now UNREACHABLE. Kept deliberately: it records the author's
+      # calibration and comes back if an experiment lowers the floor again.
       marginPct: 20                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable.
                                            # Was 50: at 10x that is 5x the account in one position,
-                                           # so a -12% ROE stop costs 6% of equity per stop-out.
+                                           # so the -15% ROE stop would cost 7.5% of equity per
+                                           # stop-out. At 20% it is 2x the account and 3.0%.
       maxPositions: 1                      # "one amazing trade per day"
       # SM gates. `minSmConsensusPct: 70` used to live here and gated
       # `pct_of_top_traders_gain` — a share of TOTAL top-trader gain spread across the
@@ -49,15 +63,26 @@ scanners:
       # now comes from `is_dominant_direction`; the gain share is a separate
       # concentration filter on its own scale. Thresholds derived from one live
       # snapshot — NOT backtested, tune before relying on them.
-      requireDominantDirection: true       # is_dominant_direction must be true
-      minSmGainSharePct: 5.0               # concentration hard gate (~median of deep markets)
-      minTraderCount: 50                   # trader-depth hard gate
+      # ── proven cohort: replaced the 4h gain board's directional read (2026-10-12) ──
+      # The board is circular — when a coin falls, every wallet short it is mechanically
+      # at the top of the 4h gain board. Direction now comes from the 3TF price action and
+      # is confirmed by HEADCOUNT among the wallets with >= $1M LIFETIME realized PnL,
+      # which senpi-signals treats as the definition of smart money. Price cannot change a
+      # headcount. The old gain-share thresholds were never backtested — they came from a
+      # single live snapshot (2026-08-13) and the scorer said so.
+      cohortPool: 200                      # rows pulled from discovery_get_top_traders
+      cohortCap: 150                       # cap the cohort at N wallets
+      cohortMinRealizedUsd: 1000000        # the >= $1M floor
+      cohortCacheTtlSeconds: 900           # refresh every ~15 min
+      minPositionedCount: 10               # minimum proven wallets positioned in a coin
+      minCohortConvictionPct: 60.0         # dominant side must hold >= 60% of them
+      stronglyTiltedConvictionPct: 80.0    # conviction tier for +4
+      convergentConvictionPct: 70.0        # conviction tier for +3
+      deepConsensusCount: 50               # cohort depth for +1
       min4hMagnitude: 1.0                  # 3TF alignment floors
       min1hMagnitude: 0.3
       min15mVelocity: 0.1
       macroGateThresholdPct: 10.0          # MACRO_TREND_GATE (no counter-trend >10%)
-      stronglyTiltedPct: 15                # SM concentration scoring tier (+4)
-      convergentPct: 8                     # SM concentration scoring tier (+3)
       recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC race-window dedup
       # leverageTiers: per-score [min_score, leverage, marginPct(PERCENT)]; omit -> scoring defaults
       leverageTiers: [[15, 10, 32], [13, 10, 28], [11, 10, 20]]   # margin per score tier, was 80/70/50 (divided by 2.5)
@@ -69,8 +94,8 @@ scanners:
       priceChange4hPct: { type: number, required: false }
       priceChange1hPct: { type: number, required: false }
       contribChange15m: { type: number, required: false }
-      smGainSharePct: { type: number, required: false }
-      smTraders: { type: number, required: false }
+      cohortConvictionPct: { type: number, required: false }
+      cohortPositioned: { type: number, required: false }
       oiUsd: { type: number, required: false }
       funding: { type: number, required: false }
 
@@ -138,19 +163,20 @@ exit:
       # max_loss_pct := the old retrace (12.0% ROE), which is what the trail was already
       # enforcing, so the per-trade risk cap is UNCHANGED. retrace_threshold is now inert.
       enabled: false
-      max_loss_pct: 12.0   # was 20.0 — set to the old retrace so the risk cap is unchanged
+      max_loss_pct: 15   # 1.5% of price at 10x — was 12.0 ROE (=1.20% px), inside the measured 1.38% p75 bounce
       retrace_threshold: 12                # v2: raised 8 -> 12 (don't pre-exit the one amazing trade)
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 8,   lock_hw_pct: 30 }   # first lock reachable at +8% (Kodiak mid-beta Tier 1)
-        - { trigger_pct: 15,  lock_hw_pct: 50 }
-        - { trigger_pct: 25,  lock_hw_pct: 70 }   # Kodiak's #3 exit tier
-        - { trigger_pct: 40,  lock_hw_pct: 85 }   # Kodiak's #1/#2 exit tier
-        - { trigger_pct: 60,  lock_hw_pct: 90 }   # infinite trail
-        - { trigger_pct: 100, lock_hw_pct: 94 }   # monster winners
-
+        - { trigger_pct: 6,     lock_hw_pct: 30 }   # 0.6% of price   <- LOSS REDUCER
+        - { trigger_pct: 20,    lock_hw_pct: 40 }   # 2% of price
+        - { trigger_pct: 25,    lock_hw_pct: 50 }   # 2.5% of price
+        - { trigger_pct: 30,    lock_hw_pct: 60 }   # 3% of price
+        - { trigger_pct: 40,    lock_hw_pct: 65 }   # 4% of price
+        - { trigger_pct: 50,    lock_hw_pct: 70 }   # 5% of price
+        - { trigger_pct: 70,    lock_hw_pct: 75 }   # 7% of price
+        - { trigger_pct: 100,   lock_hw_pct: 85 }   # 10% of price
 risk:
   guard_rails:
     daily_loss_limit_pct: 15

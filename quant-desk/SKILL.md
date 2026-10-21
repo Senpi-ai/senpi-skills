@@ -14,7 +14,10 @@ description: >-
   Hyperfeed attention layer come from Senpi's own data.
   TRIGGERS — any of these, with or without an address: "run AI quant", "run ai-quant", "run quant-desk", "run AI quant on my Hyperliquid wallet", "run AI quant on any Hyperliquid wallet", "run quant", "run the quant on 0x…", "run quant
   desk on 0x…", "score my trading", "rate my trading", "find leaks on my Hyperliquid wallet", "where am
-  I leaking money", "what did I miss" (about a book, a week or a trade), "master my week", "analyze my
+  I leaking money", "what did I miss" (about a book, a week or a trade), "master my week" (on a
+  SAVED wallet the user trades by hand — "my MetaMask", "my own Hyperliquid wallet", "my saved
+  wallet" — leaks and "what did I miss" are always this skill; its trade review and "master my week"
+  belong to senpi-improve-trades, which also keeps the leaks of senpi strategies), "analyze my
   wallet / my Hyperliquid address", "how am I doing", "what's my strategy", "am I on the right side of
   smart money", "are my positions protected", "what should I fix first", "compare me to the whales",
   "scout setups for me", "find traders for me to analyze with AI quant", "run AI quant on any
@@ -44,7 +47,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.40.0"
+  version: "1.49.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -109,7 +112,10 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
 
    **Stage 1 — the hook.** `desk.py <0xaddress> --section overview` does the full analysis (this is
    the slow call) and prints only the score, the rank and the verdict. Relay it the moment it lands.
-   That is the number they came for.
+   That is the number they came for. **If it opens with "I'm reading 0x… as your book now, because
+   you added it to Your wallets", that sentence is the first thing you say, word for word, before the
+   score** — the desk prints it on this one run only, so a summary that skips it means the reader is
+   never told (measured on dev: the stage-1 summary dropped it).
    **Stage 2 — what is urgent.** `--section protection`. Instant, from cache. Relay.
    **Stage 3 — the money.** `--section leaks`. Instant. Relay.
    **Stage 4 — the rest**, in one call: `--section strategy --section context --section performance
@@ -152,7 +158,10 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
 
    Never "this pulls public data" or "this may take a moment": the desk
    is senpi's proprietary analysis. Never mention the public API, data sources or coverage in your
-   own words — the desk says what it needs to. Run the installed copy
+   own words — the desk says what it needs to. **Our machinery stays ours: in what you write, no script
+   name, flag or skill id ever reaches the reader** — not `desk.py`, not `--days`, not `senpi-strategy-discover`.
+   Say the thing in plain words and then do it ("I can look further back — how far?", "I can help you
+   pick a strategy"), never the identifier that does it. Run the installed copy
    (`/data/.openclaw/skills/quant-desk/scripts/desk.py`), never a backup folder: the header line carries the
    version — and `desk.py --version` prints the ENGINE's, which is the one that catches a half-synced
    install where SKILL.md looks current and the script is not. Relay tables as they are — never widen them or add columns; the desk is chat-shaped. Write
@@ -194,10 +203,6 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    Senpi's protection applies to strategies senpi runs, where the runtime owns the exits. Funding a
    quant is only for autonomous trading. Never imply senpi holds or moves their funds.
 
-   > **Dated, revisit this.** As of 2026-09-21 the ability to attach a DSL or a stop to any position
-   > already on Hyperliquid is about a week out. When it ships this rule changes and the protect step
-   > becomes a real offer — until then the restriction above holds exactly as written, because a
-   > promise that lands a week early is the one that gets remembered as a lie.
 6. **Say "quant", "desk", "agents", "leak", "protect".** Never "report", "analyst", "bot", "AI assistant".
    Lowercase `senpi`. No outcome guarantees. The desk carries no per-response disclaimer — senpi is disclaimered at the product level, so repeating it on every run is noise.
 7. **Address hygiene and whose book it is.** Show the address shortened (`0x2999…65de`). Never post
@@ -207,17 +212,38 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    user is 0x… — run it plain and speak to them. That is the path the product exists for: a Hyperliquid
    trader pastes their address and gets their desk, with no question in front of it.
 
-   **The desk remembers.** It keeps an address book per box (`scripts/desk.py --addresses`) with three
-   relationships: **verified** (a wallet senpi issued — we know), **claimed** (the user said it is
-   theirs — a claim, not proof; nobody can verify ownership of an address from a chat message) and
-   **analyzed** (someone else's book they read). An address already recorded as *analyzed* stays
+   **"My wallets" are the wallets the reader added, plus their senpi wallets.** `desk.py --my-wallets`
+   prints them as ONE list, `wallets`, largest first: the reader's **saved** wallets (the ones they
+   added in Your wallets), their Senpi main wallet and their senpi strategy wallets side by side, each
+   row with its `kind` (`saved` / `strategy` / `main`), the words to show for it in `kind_label`
+   (read-only — you added it / Senpi strategy / Senpi strategy — closed / Senpi strategy — some wallets
+   closed / Senpi main wallet — idle cash) and its
+   `value_usd`, each source with its own `ok` / `unavailable` status. A saved wallet is theirs even
+   if the book once read it as a stranger's. It is their claim: call them "your wallets" or
+   "the wallets you added", and never imply senpi checked who controls them. If a saved wallet isn't theirs (or they no longer want it read), they can remove it in Your wallets on senpi.ai (web).
+
+   **Read as a stranger's, then added: say it once, on any path.** When a run reads an address the book
+   had as someone else's and the reader has since added it to Your wallets, the desk says so itself:
+   the Markdown opens with that sentence, and `--json` carries it as `whose_changed.say`. Relay it
+   once, word for word, first, before the score or anything else about the book as theirs — whether the run came from
+   `--my-wallets`, a pasted address, `--mine`, or the "Find my leaks on 0x…" button. The desk prints it
+   only on the first run after the add; don't repeat it on later sections.
+
+   **The desk remembers.** It keeps an address book per box (`scripts/desk.py --addresses`) with
+   **verified** (a wallet senpi issued) and **analyzed** (someone else's book they read). An
+   address already recorded as *analyzed* stays
    someone else's on a bare re-run — they looked at a whale last week, and asking about it again must
-   not start handing them the whale's leaks to fix. Use `--claim` when a reader says an address that
-   the book has as someone else's is in fact theirs.
+   not start handing them the whale's leaks to fix. **claimed** is retired: older books still hold it
+   and it means nothing — what the reader says is theirs lives in their saved wallets, or in this run's
+   `--mine`.
+
+   **A pasted address the reader says is theirs** is theirs for this conversation only: run it with
+   `--mine` (or `--claim`, the same voice). Say plainly that it isn't saved, and that to keep it they
+   can add it in Your wallets on senpi.ai (web).
 
    **Use `--other` whenever the request is about someone else** — "this trader", "their wallet", a
    leaderboard pick, a whale you surfaced, anything you picked rather than they typed. The default
-   covers the address a reader hands you; it is not a licence to read a wallet they never claimed as
+   covers the address a reader hands you; it is not a licence to read a wallet they never said was
    their own.
 
    "Run AI quant analyst on 0x…" (or
@@ -301,6 +327,9 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
 | "scout setups", "what should I look at" | `desk.py 0x… --section scout` | relay; process only |
 | **a follow-up the desk offered** | `desk.py 0x… --deep <mode>` | relay; then offer the next follow-ups |
 
+On a saved wallet the desk owns leaks and "what did I miss"; the trade review and "master my week"
+go to `senpi-improve-trades`, which reviews saved wallets as manual trades.
+
 **The ten deep modes** (each answers one bank question; all read the cached run, `protect` and `replay`
 refetch candles): `protect` (a stop ladder per position with levels and dollars at risk before/after) ·
 `smart` (both cohorts in full, tilt by class, what they hold that you don't, when they moved) · `scout`
@@ -336,10 +365,15 @@ to restate numbers differently). `--fresh` ignores the 10-minute cache. `--days 
    and a coverage line when trade-level reads cover less than 90% of the wallet's executed volume.
 4. **Where your P&L went** — gross → fees → funding → net, cost share vs the whale median.
 5. **Top 3 things your agents found** — each: agent · ~$ / window · title · evidence · counterfactual · fix.
-6. **Live positions — protection audit** — account value, margin used, withdrawable, net uPnL; per
+6. **Live positions — protection audit** — account value, margin used, withdrawable, net uPnL. On a
+   standard account the value is perps + spot and the line names both (`account_value_perps`,
+   `account_value_spot`): any balance table you show carries the perps line — never a spot-only table
+   under that total; on a unified / portfolio-margin account spot already holds the perps margin. Per
    position: side, leverage, notional, uPnL, ROE, funding/day, distance to liquidation, **stop cover**
    (share of the size a resting stop covers), status (`AT RISK` / `UNPROTECTED` / `PARTLY COVERED` /
-   `PROTECTED`) and what your quant would do.
+   `PROTECTED` / `UNKNOWN` — the orders could not be read: say so, never "nothing needs protecting")
+   and what your quant would do. A dex whose **positions** could not be read is named instead of
+   counted: never "no open positions" or "nothing here" over it.
 7. **Performance** — per-coin table, long/short split, hold time winners vs losers, execution
    (taker share, fee rates, liquidations), size-vs-outcome bands.
 8. **Leaks** — ranked by $ impact, each counterfactual; then the rules **tested and rejected**.
@@ -372,6 +406,13 @@ to restate numbers differently). `--fresh` ignores the 10-minute cache. `--days 
   Senpi's funding regime; and the Hyperfeed attention layer (where the top traders' gains sit, momentum
   events). Without one, the cohort is the largest profitable accounts on the public leaderboard, the read
   carries no entry timing, and the attention layer is absent.
+- **Market makers are screened out of both cohorts** (and the public fallback) against Senpi's
+  market-maker blacklist. Both cohorts rank by realized P&L — the leaderboard a quoting engine tops
+  without taking a single directional view — so an unscreened cohort moves the line every book is
+  measured against. Unlike the subject gate this one **fails open**: an unreadable blacklist leaves
+  the cohort intact and adds a warning, because a cohort of 100 that could not be screened still
+  tells the reader more than no cohort. `meta.market_maker_check.cohorts_screened` says which
+  happened, and `cohorts_filtered` names what was dropped.
 - **Whale median:** `references/benchmark.json`, computed by `scripts/benchmark.py` — from Senpi discovery
   with a token (whales are TWAP-heavy, so the public endpoints cannot rebuild their round trips). The table
   renders only when the benchmark holds ≥ 5 members with ≥ 10 trades; until that file ships, the smart-money
@@ -379,7 +420,9 @@ to restate numbers differently). `--fresh` ignores the 10-minute cache. `--days 
 
 ## Mandatory closing (verbatim structure, after any full desk or `--section edge/next`)
 
-1. **Protect first** — name the AT RISK / UNPROTECTED positions and offer to help. Per rule 5, senpi
+1. **Protect first** — name the AT RISK / UNPROTECTED positions, and **check first** on any UNKNOWN one
+   (its orders could not be read: send the reader to Hyperliquid) or on any dex whose positions could
+   not be read, and offer to help. Per rule 5, senpi
    cannot place a stop on a book the reader custodies: they set it on Hyperliquid themselves.
 2. **Fix the biggest leak** — the top leak's title and its counterfactual $; the one-line fix.
 3. **Keep the agents on** — "say *hire my quant* and senpi runs this desk on your book — risk guard,
@@ -409,7 +452,9 @@ winners should hear which candidate takes that decision away from them.
 The engine fails open: every optional layer (rank, cohort, candles, Senpi) degrades to a line under
 `Notes:`; the trade-level analysis needs only the public fills. An address with no perp activity in the
 window and no open positions returns an error document — say "nothing to read here yet" and offer the
-new-trader path (`senpi-strategy-discover`). A malformed address returns exit 2 with the reason.
+new-trader path in plain words ("I can help you find a strategy that fits how you want to trade"),
+routing to senpi-strategy-discover yourself; never name the skill to the reader. A malformed address
+returns exit 2 with the reason.
 Public-API rate limits (HTTP 429) are retried with backoff; a second run inside 10 minutes is served from
 the cache (`--fresh` to refetch).
 
@@ -420,26 +465,50 @@ book** or **someone else's**. Settle that first — it is one question and it de
 
 > Your own book, or do you want me to find you someone to read?
 
-### If they mean their OWN book — read the address book FIRST, then the strategy wallets
+### If they mean their OWN book — `desk.py --my-wallets` FIRST: one list, largest first
 
-**Check `desk.py --addresses` before anything else.** A reader who has already told this box an
-address is theirs is recorded there as `claimed`, and a Senpi-issued wallet as `verified`. A trader
-who came from Hyperliquid with their own external wallet and said "this is my book" does not stop
-owning it the moment they have senpi strategies — **do not forget an address they already claimed**,
-and do not silently swap it for a senpi wallet.
+**Run `desk.py --my-wallets` before anything else.** It returns ONE list, `wallets`, of the reader's
+saved wallets (`user_get_me`) and their senpi strategy wallets (`strategy_list`, closed ones included),
+ordered by value — largest first. A trader who came from Hyperliquid and added a wallet in Your
+wallets still has it the moment they have senpi strategies — **do not forget a saved wallet**, and do
+not silently swap it for a senpi wallet.
 
-So the precedence is:
+Every wallet is first-class: **keep that order and never split it by origin** — no "saved wallets"
+section and "strategy wallets" section, no saved-first or senpi-first. Origin is the `kind` column and
+only says what Senpi can do with the wallet. Relay `text` (the list, rendered) and ask `ask`:
 
-1. **Claimed or verified in the address book** — offer it by name, it is the one they told you about.
-2. **Their senpi strategy wallets** (`strategy_list`) — where their senpi perp history actually is.
-3. **Both?** Then ask, because only they know which they mean today: *"Your external wallet
-   `0x5a10…2c37`, or your senpi strategies — Aegis, Phalanx?"* Offer to run both and compare; that
-   is often the more interesting read, and the desk prices them the same way.
+**A Senpi strategy is one row with all its wallets.** One package is one strategy: its instances are
+its wallets, grouped by the package they were deployed under (`skill_name`); a wallet with no package
+stamp is its own row. A strategy row lists its instances in `wallets[]` (`wallet_count` of them; a
+row of several wallets has `address: null`) and is called by its package; it is closed only when every
+wallet is (`closed_wallets` counts the closed ones — "some wallets closed" when it is mixed). A saved wallet is always one row of its own.
+**Every row carries `run`: the exact desk arguments for it** — `--book 0x… 0x…` over a strategy's
+wallets, the plain address for a one-wallet strategy or a saved wallet. When they pick a row, run
+`desk.py <run>`; never pick one instance of a strategy for them.
+
+1. **Value.** A saved wallet's is the MCP's `state.totalValueUsd`; a strategy's is its wallets'
+   Hyperliquid account values, summed; the Senpi main wallet's is its idle cash (senpi-portfolio's
+   read), and its `run` is its address like any other row. `value_status: "couldnt_load"` → say its value couldn't load —
+   never as $0 — it is listed last. `value_status: "partial"` → the value covers only the wallets that
+   loaded: say "(1 of 2 wallets)" from `wallets_loaded` / `wallet_count`. A closed strategy stays
+   labeled closed at its value (usually $0).
+2. **Kind.** A saved wallet is read-only: offer it by its label, it is the one they added. Quote its
+   `access` line when they ask what senpi can do with it:
+   > Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it.
+   A strategy wallet is where their senpi perp history actually is.
+3. **More than one?** Then ask, because only they know which they mean today — `ask` names them
+   largest first: *"Which one do you want me to run the desk on — MetaMask ($12,400), Aegis ($3,000)
+   or Phalanx ($0, closed)? Or I can read them together as one book."* Offer, in plain words, to
+   read them together as one book or side by side; that is often the more interesting read. **Never
+   show the user a flag or a command** (`--book`, `--compare`, `desk.py …`) — those are what you run.
+   `external_wallets_status: "unavailable"` → say "I couldn't load your saved wallets" and offer
+   the wallets that did load; never "you have no saved wallets". `wallets_complete: false` means a
+   source is missing from the list, not empty.
 4. **Neither?** Ask for an address — and **offer to show them the desk on a real book in the same
    breath**. Never guess an address, but never leave a new reader with only a question either.
 
    On 2026-09-23 a brand-new user's FIRST EVER prompt was the quant-desk chip. Their agent did
-   everything right — read this file, checked the address book (empty), checked `strategy_list`
+   everything right — read this file, checked for saved wallets (none), checked `strategy_list`
    (empty, they had no strategies yet) — and asked for an address. One turn, eight seconds, and
    they never came back. A question is the one answer that shows them nothing.
 
@@ -460,7 +529,7 @@ both got a dead end. A third user pointed the desk at three strategy wallets the
 three full desks, a priced leak, and a DSL fix off the back of it. Same product, same hour; the only
 difference was which wallet.
 
-So, where the address book has nothing claimed: resolve their wallets with `strategy_list` and
+So, where they have no saved wallet: resolve their wallets with `strategy_list` and
 **offer the strategy wallets first**, named by their strategy. Offer the embedded wallet second and label it — "your funding wallet, usually no
 trades of its own".
 
@@ -520,7 +589,7 @@ them, never about inventing one or answering from memory.
 
 ### Not every address is a trader — `exit 4`, `not_a_trader`
 
-Two shapes reach this exit, and an agent should treat them the same: relay `say_to_the_reader`,
+Three shapes reach this exit, and an agent should treat them the same: relay `say_to_the_reader`,
 then offer the reader their own wallet.
 
 **`"not_a_trader": "book_wider_than_the_desk_reads"`** — the book touches more coins than the desk
@@ -530,6 +599,33 @@ whole book, so the desk says so instead. The refusal makes **no claim about who 
 it is a statement about this tool's reach, and it is equally true of a systematic trader on 200
 names and of a quoting engine. Relay it as the limit it is, and take up the offer in
 `say_to_the_reader`: ask which names they care about and read those properly.
+
+**`"not_a_trader": "market_maker_blacklisted"`** — the wallet is on **Senpi's market-maker
+blacklist**, the list the market-maker detector writes (`GetDiscoveryBlacklist` on
+`hyperliquid-traders.prod.senpi.ai`). The payload carries `reason` and `flagged_at`. Unlike the
+breadth line this one IS a claim about who the wallet is — but it is a lookup against Senpi's own
+detector, not an inference from fills, which is why it is allowed to make the claim. The desk checks
+it with the breadth gate, before the expensive half.
+
+This exists because fee rate does not work as the line: re-sampled over the leaderboard top 30, a
+0.5 bp cut would have refused 13 of 25 wallets, VIP traders at 0.42 and 0.50 bp among them. Users
+were running the desk on market makers and getting a confident read of a book that has no thesis,
+no stop ladder and no meaningful score.
+
+**Being in the table is not the same as being a market maker.** The table also holds `probe`, `test`
+and `unauth-write-poc-benign` rows, written while the internal write endpoint was open, and only a
+`MARKET MAKER` reason (either spelling — two real rows use `MARKET_MAKER`) causes the refusal.
+A wallet present for any other reason is **not refused and not dropped from any cohort**: calling a
+real trader a quoting engine is the failure that killed the fee-rate gate, and it is worse than
+missing one. `meta.market_maker_check.other_row` records such a row when there is one. If its reason
+is one nobody recognises, a warning says so — that is how a new market-maker spelling surfaces
+instead of being silently skipped — and it still is not a refusal.
+
+**When the blacklist cannot be read, the desk still runs** — one endpoint being down should not take
+the whole desk with it — **but it does not claim the wallet is clean.** `meta.market_maker_check`
+reports `{"checked": false, ...}` and a warning says the desk does not confirm the subject is a
+directional trader. Relay that warning: *unknown* and *verified clean* are different answers, so
+silence is not reassurance. A missing `SENPI_AUTH_TOKEN` produces exactly this state.
 
 The desk stops as soon as it has read the fills, before the tape and the cohorts — which is most of
 the run — so this costs ~30s rather than a two-minute timeout.
@@ -603,12 +699,15 @@ you did not need.
 
 ## Install — the whole `scripts/` directory is required
 
-`desk.py` imports `addresses.py`, `deep.py`, `dsl.py`, `followups.py`, `hl_api.py`, `market.py`, `metrics.py`,
-`desk.py` imports `addresses.py`, `book.py`, `deep.py`, `followups.py`, `hl_api.py`, `market.py`, `metrics.py`,
-`opportunities.py`, `render.py`, `roundtrips.py`, `score.py`, `senpi_history.py`, `smart_money.py`,
-`strategy_read.py`, `taxonomy.py`, `timing.py` and `voice.py`, plus the vendored `mcp_client.py` (used
-only when `SENPI_AUTH_TOKEN` is set). Copy the whole directory — a partial copy fails at import, not
-at runtime. Stdlib only, Python ≥ 3.9. Fixture-driven tests in `tests/`.
+`desk.py` imports `addresses.py`, `blacklist.py`, `book.py`, `deep.py`, `dsl.py`, `followups.py`,
+`hl_api.py`, `market.py`, `metrics.py`, `opportunities.py`, `render.py`, `roundtrips.py`, `score.py`,
+`senpi_history.py`, `smart_money.py`, `strategy_read.py`, `taxonomy.py`, `timing.py` and `voice.py`,
+plus the vendored `mcp_client.py` (used only when `SENPI_AUTH_TOKEN` is set). Copy the whole
+directory — a partial copy fails at import, not at runtime. Stdlib only, Python ≥ 3.9.
+
+`blacklist.py` and `mcp_client.py` both need `SENPI_AUTH_TOKEN`. Without it the desk still runs, but
+it cannot check Senpi's market-maker blacklist and says so in its warnings rather than implying the
+subject was verified. Fixture-driven tests in `tests/`.
 
 ## Skill attribution
 

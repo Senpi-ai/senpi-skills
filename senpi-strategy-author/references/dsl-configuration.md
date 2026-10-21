@@ -19,6 +19,8 @@ and breakeven rungs that the presets had already dropped.
 > (`entry × (1 - max_loss_pct/100/leverage)`), so `max_loss_pct: 15` means "cut at −15% of *margin*"
 > at any leverage — not a price move. Shipped presets run 5–18.
 
+A stop computed in `scan()` and emitted in `data{}` does not bind — see [`signal-data-does-not-bind.md`](signal-data-does-not-bind.md).
+
 ---
 
 ## Exit block
@@ -94,6 +96,8 @@ phase1:
 ---
 
 ## Time-based cuts
+
+**Which of these to enable at all is decided by the strategy's `time_horizon`, not by the preset you started from — see [time-cuts-by-horizon.md](time-cuts-by-horizon.md). A long-hold strategy carries no `weak_peak_cut` and no short timed close; `strategies/tests/test_time_cuts_match_horizon.py` enforces it.**
 
 Defined at **preset level** (NOT inside `phase1`). All optional. Evaluated every tick after breach logic, **regardless of phase**; first match wins. The only exception is `hard_timeout`, which is skipped on the exact tick a position crosses into Phase 2 so a boundary hit cannot lose to the clock before the tier advance runs.
 

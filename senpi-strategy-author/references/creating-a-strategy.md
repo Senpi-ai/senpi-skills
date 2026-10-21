@@ -189,6 +189,8 @@ def scan(inputs, ctx):
 - **`ctx` is frozen:** `ctx.senpi_mcp.call_tool(name, args)` (read-only), `ctx.state` (`.last()/.recent(n)/.append()/len()`), `ctx.wallet`, `ctx.scanner_name`, `ctx.interval_seconds`. No logging handle — `print(..., file=sys.stderr)`.
 - **Signal dict keys:** `asset`✅, `direction`✅ (LONG/SHORT), `marginPct` (intent), `leverage` (optional), `data{}` (validated against `signal_data_schema`), optional `valid_for_seconds` / `signal_id`. The scaffold owns `produced_at`/`valid_until`/dedup — don't set them.
 - **Anchor every `call_tool` on the published MCP I/O reference** (`read_senpi_guide`). A guessed tool name, interval string, or output field = a silent dead scanner.
+- **Bind every name before the branch that reads it.** Python fixes a function's locals at compile time, so a read on a path that runs before the assignment raises `UnboundLocalError` — it does NOT fall back to a module-level name of the same spelling — and a nested `_persist()` defined above its free variable raises `NameError` the first time an early return calls it. Both compile, both pass a scan of the happy path, and both crash EVERY tick once the branch is first taken, which can be days later. `validate_strategy.py` now fails the package on either; keep the catalog's shape — give `_persist(result=None, signaled=None)` parameters rather than closing over values bound further down.
+- **`marginPct` is a PERCENT in (0, 100], and stays one.** Out of range, the runtime drops the whole candidate at delivery (`delivery_candidate_invalid`), so the strategy funds, ticks clean and never opens. Read it from `inputs` as a constant, as the catalog does. A percent recomputed from a live balance (`max(size, MIN_ORDER) / free_margin * 100`) is correct while the wallet is liquid and passes 100 the moment the floor binds — clamp it with `min(pct, 100.0)`, or emit nothing when the size cannot be funded. `validate_strategy.py` fails an out-of-range literal and warns on a division by a live balance with no clamp.
 - **A response is not guaranteed to be a dict.** When a tool's text payload is not JSON, `call_tool` returns it as a **raw string** (by design — it mirrors `producer.mjs`), and a bare JSON array comes back as a **list**. `if not resp:` does NOT catch that, because a non-empty string is truthy. Guard with `isinstance(resp, dict)` before any `.get()`, or the tick dies on `AttributeError: 'str' object has no attribute 'get'`. It is intermittent, so it passes `validate` and surfaces hours later.
 
 ### `runtime.yaml` — the deterministic spec
@@ -537,7 +539,8 @@ Counting calls bounds the work a tick *intends* to do. It does nothing about a s
 never returns, and that is the failure that actually strands scanners: no output, no error, no
 timeout line, the runtime alive and the scan silent for hours.
 
-Observed 2026-09-19: a hand-authored scanner made the SAME reads as `senpi-signals/scripts/sweep.py`
+Observed 2026-09-19: a hand-authored scanner made the SAME reads as the signals engine's `sweep.py`
+(today `strategies/signals-hunter/main/scanners/sweep.py`)
 with the SAME limits — universe top-120, one cohort page, board 500, momentum 50 — and produced
 **zero completed ticks in 2h49m**, while the sweep runs the identical gather in about a minute. The
 limits were never the difference. The sweep budgets its reads; the scanner did not:
@@ -555,7 +558,7 @@ time it fires you have lost the tick and learned nothing about which read hung.
 So, for any scanner that makes more than a couple of reads:
 
 - **Per-read timeout**, with one retry. Pass it to `call_tool` if the host accepts a `timeout=`
-  keyword; `sweep.py`'s `Client.mcp_call` shows how to detect that once and fall back cleanly.
+  keyword; `Client.mcp_call` in that `sweep.py` shows how to detect that once and fall back cleanly.
 - **A whole-tick deadline** checked between reads, comfortably under `timeout_seconds`, so the scan
   returns `[]` on its own terms instead of being killed mid-flight.
 - **Cheap reads first, the expensive lens last.** `sweep.py` reads market and leaderboard before the

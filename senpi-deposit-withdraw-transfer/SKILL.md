@@ -9,15 +9,16 @@ description: >-
   NEVER writes a deposit address in chat and NEVER points at a strategy wallet; and money LEAVES Senpi to
   any EXTERNAL address only through the Senpi web/mobile app (Balances/Wallet) — no agent tool can send
   funds outside Senpi, by design, for the user's security. On-platform moves between the user's OWN
-  wallets (strategy → funding wallet, spot → perps, close a strategy to reclaim funds) DO use tools —
-  and this skill owns their mechanics: the perps precheck before a top-up, polling it, a FAILED top-up
-  that parked the money in Spot (recover it, never loop), "withdraw everything" as the exact figure,
+  wallets (strategy → funding wallet, close a strategy to reclaim funds) DO use tools — Spot → Perps
+  is the user's, in Balances — and this skill owns their mechanics: the perps precheck before a top-up,
+  polling it, a FAILED top-up that parked the money in Spot (find it, hand the user the move, never
+  loop), "withdraw everything" as the exact figure,
   and fees stated before money moves. Use this skill for every deposit / withdraw / transfer / send /
   top-up question. Pure guidance, no engine.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.6.0"
+  version: "1.6.2"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -230,17 +231,19 @@ the money parked in **Spot**. Four rules, in this order:
 | Say | Never say |
 | --- | --- |
 | "Your funding wallet has $X free in perps; topping up $Y." — before the call | A top-up amount with no free-perps figure next to it; the account value (`total_in_hyperliquid`) quoted as free |
-| "The top-up failed after its first leg — your $X was in your funding wallet's **Spot** balance; I've moved it back to perps and it's available again." | "The money is still in your funding wallet" with no balance named; "safe to re-submit" read off the status message |
+| "The top-up failed after its first leg — your $X is sitting in your funding wallet's **Spot** balance, not lost. Move it to Perps in Balances and I'll top up again." | "The money is still in your funding wallet" with no balance named; "safe to re-submit" read off the status message |
 | "The top-up failed again, so I've stopped retrying. Your $X is in your funding wallet's **perps** (or **Spot**) balance, and Senpi support can trace it with request id …" — after the second FAILED | "Let me try again" a third time; a fresh deploy offered as the fix for a failed top-up; "contact support" before the money is located |
 | "Creating a strategy reserves a creation fee — about $1, budgeted as $1.50 per wallet — on top of the $10 minimum." | A fee figure no tool returned |
 
 ## Costs — say them before money moves
 
 - **Creating a strategy reserves a creation fee — about $1, budgeted as $1.50 per wallet by the
-  minimum-budget math** — so a wallet opens at the $10 floor with ~$11.50 funded. Say it whenever the plan
-  creates a wallet.
-- **Several wallets → the per-wallet minimum and fee up front:** "N wallets × ($10 minimum + ~$1.50 fee)
-  ≈ $Z" — before the budget question, not after a refusal.
+  minimum-budget math** — so ~$11.50 per wallet opens a wallet. It is not what the strategy needs to
+  trade: that is the design's own minimum. Say it whenever the plan creates a wallet.
+- **Before the budget question, quote the design's minimum, not the floor:** `min_budget` on the card
+  (`minBudget` on the deploy report) — already the whole book across its wallets. "N wallets × ($10 +
+  ~$1.50)" only says the wallets can open; under the design's minimum the strategy installs, scans and
+  never opens a position.
 - **Quote what the tool returned, nothing else.** A fee, a "funds in transit" figure, or an `available`
   figure in a tool result is quoted as-is. Never invent a fee a tool did not return.
   `strategy_withdraw_funds` returns the exact available figure — quote that, don't compute one.

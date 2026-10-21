@@ -39,7 +39,7 @@ FIDELITY NOTES vs the v2 producer (lynx-producer.py v1.0.1):
   - v2 recent-signals JSON cache (240s TTL) -> ctx.state dedup map (same TTL).
   - v2 marginPct was a FRACTION (0.20) * account_value -> marginUsd. This port emits
     `marginPct` as a PERCENT (20); the runtime sizes (marginPct/100)*withdrawable.
-    The "<=1.0 means a pasted fraction, x100" guard normalizes a fraction default.
+    The "<1.0 means a pasted fraction, x100" guard normalizes a fraction default.
   - v2 leverage default 3, clamped to MAX_LEVERAGE 5. Preserved (clamp [1,5]).
   - v2 score normalization for the wire (score/8.0) is dropped — the contract takes
     the raw score on data{}; the runtime owns any [0,1] normalization.
@@ -410,9 +410,9 @@ def scan(inputs, ctx):
         best = candidates[0]
 
         # marginPct PERCENT in (0,100]. v2 marginPct was a FRACTION (0.20); a value
-        # <= 1.0 is a pasted fraction -> x100 (dire/koala guard).
+        # < 1.0 is a pasted fraction -> x100 (dire/koala guard).
         margin_pct = float(inputs.get("marginPct", 20))
-        if margin_pct <= 1.0:
+        if margin_pct < 1.0:
             margin_pct *= 100.0
 
         leverage = min(int(inputs.get("leverage", _DEFAULT_LEVERAGE)), _MAX_LEVERAGE)
