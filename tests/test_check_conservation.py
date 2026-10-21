@@ -86,3 +86,19 @@ def test_dropped_list_accounts_for_a_removed_sentence(tmp_path):
     dropped = tmp_path / "dropped.md"
     dropped.write_text('- "Never guess a wallet address when the user has several." Reason: duplicate.\n', encoding="utf-8")
     assert _run(old, d, dropped).returncode == 0
+
+
+def test_typographic_apostrophe_is_an_imperative(tmp_path):
+    # "Don’t" (U+2019) must count as "don't": moved to a reference, it needs listing.
+    old, d = _skill(tmp_path, "# Demo\n", {"r.md": OLD.replace("Never guess", "Don’t guess")})
+    old.write_text(OLD.replace("Never guess", "Don’t guess"), encoding="utf-8")
+    r = _run(old, d)
+    assert r.returncode == 1 and "don't guess a wallet address" in r.stdout
+
+
+def test_no_match_across_two_files(tmp_path):
+    # The sentence's first half ends SKILL.md, its second half starts a reference: not kept.
+    core = OLD.replace("The engine sorts the wallet list by value before it prints.\n", "The engine sorts the\n")
+    old, d = _skill(tmp_path, core, {"r.md": "wallet list by value before it prints.\n"})
+    r = _run(old, d)
+    assert r.returncode == 1 and "MISSING: the engine sorts the wallet list" in r.stdout

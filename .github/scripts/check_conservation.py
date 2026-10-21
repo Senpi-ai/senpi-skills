@@ -16,11 +16,13 @@ Usage:
 
   --old       the pre-restructure SKILL.md: a file path, or <ref>:<path> read with `git show`
   --skill-dir the restructured skill directory (SKILL.md + references/*.md)
-  --dropped   markdown listing each deliberately removed or reworded sentence with its reason
+  --dropped   markdown listing each deliberately removed or reworded sentence with its reason;
+              defaults to tests/context_budget/dropped/<skill dir name>.md when that file exists
 
 Matching is on normalized text: markdown markers (* _ ` | > #), list bullets and whitespace runs
-are removed, case is folded, and a sentence counts as kept when it is a substring of the
-normalized new corpus. Fragments under 4 words (headings, labels) are ignored.
+are removed, typographic apostrophes become ', case is folded, and a sentence counts as kept when
+it is a substring of the normalized SKILL.md or of one normalized reference (each file on its own,
+so no match spans two files). Fragments under 4 words (headings, labels) are ignored.
 Exit 0 when everything is accounted for, 1 otherwise (a missing sentence, or an imperative that
 left core without being listed).
 """
@@ -33,9 +35,11 @@ import sys
 MIN_WORDS = 4
 IMPERATIVE = re.compile(r"\b(never|always|must|do not|don't|only|verbatim)\b")
 LEFT_CORE_HEADING = "## Imperatives that left core"
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def normalize(text):
+    text = text.replace("\u2019", "'").replace("\u2018", "'")
     text = re.sub(r"[*_`|>#]", " ", text)
     text = re.sub(r"^\s*(?:[-+]|\d+[.)])\s+", " ", text, flags=re.M)
     return re.sub(r"\s+", " ", text).strip().lower()
@@ -93,9 +97,15 @@ def main():
     ap.add_argument("--skill-dir", required=True)
     ap.add_argument("--dropped")
     args = ap.parse_args()
+    if args.dropped is None:
+        default = os.path.join(REPO, "tests", "context_budget", "dropped",
+                               os.path.basename(os.path.normpath(args.skill_dir)) + ".md")
+        if os.path.exists(default):
+            args.dropped = default
+            print(f"dropped list: {os.path.relpath(default, REPO)}")
 
     core, refs = read_skill(args.skill_dir)
-    corpus = normalize(" ".join([core, *refs.values()]))
+    corpora = [core, *refs.values()]
     dropped, left_core = "", ""
     if args.dropped:
         with open(args.dropped, encoding="utf-8") as f:
@@ -108,7 +118,7 @@ def main():
         if s in seen:
             continue
         seen.add(s)
-        if s not in corpus and s not in dropped:
+        if not any(s in c for c in corpora) and s not in dropped:
             missing.append(s)
         elif s not in core and IMPERATIVE.search(s):
             where = [name for name, text in refs.items() if s in text]
