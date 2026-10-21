@@ -63,13 +63,16 @@ REPLAY_NEEDLES = (
     "never re-send the wallet list, the book total, or verdicts and figures already shown",
     "| The ask | Step to run | Read first |",
     "| close / pause / keep / top up ONE wallet of a strategy | — | the no-no below: whole strategy only |",
-    "| a yes to CTA 1 / CTA 2, or a digit | the levers / the ready options | `references/output-contract.md` (the menu) |",
+    "| a yes to CTA 1 / CTA 2, or a digit (after the CTAs: that CTA; after the idle menu: that option) | the levers / "
+    "the ready options | `references/output-contract.md` (the menu) |",
+    "`references/runtime-health.md` (liveness)",
     "say the cost first: every firing is a full model call",
     "**Still true on every follow-up**",
     "`total_withdrawable` is idle in strategy wallets, NOT embedded idle cash.",
     "Never add a wallet's `main` + `xyz` views (shared collateral).",
     "realized PnL that didn't load → *unavailable*, never `$0`",
-    "Never skip a wallet or the CTAs.",
+    "A full read never skips a wallet or the CTAs.",
+    "A `timeout` open may have filled: check positions, never suggest a retry.",
     "confirm before any change, never trade unprompted; propose, never deploy without confirmation.",
     "**Source of truth for position facts — read before you answer, even mid-trade.**",
     "**\"In profit\" on an open position is unrealized.**",
@@ -144,7 +147,12 @@ def test_the_always_on_liveness_rules_stay_in_skill_md():
                    "open position and a fresh wallet. Never reach for it to clear an error you have not "
                    "diagnosed. **There is no restart verb.**",
                    "**Do not offer \"close and relaunch\" for `withdrawable_unavailable`.** Do not send anyone "
-                   "to redeploy over a row marked \"no\".",
+                   "to redeploy over a row marked \"no\". (\"do they act?\" in `references/why-not-trading.md`.)",
+                   "`timeout`: **Not a rejection — the order may have filled.** Check live positions before saying "
+                   "anything, and never suggest retrying until you have.",
+                   "`degraded`, book live: *\"running — some scans errored\"*, never *\"your strategy is broken.\"* "
+                   "`unknown`: \"runtime liveness unverified — not confirmed running\".",
+                   "`status.py`'s `degraded` is our `recovering`, its `unhealthy` our `degraded`.",
                    "**NEVER, for a mirror:**",
                    "**Fees are read, never estimated.**", "**Paper is not live.**",
                    "**Lead the per-strategy read with `profile.description`",
@@ -188,44 +196,21 @@ DUPLICATED = {
         "**There is no restart verb.**",
         "This is the honest bar: **only `live` means \"confirmed working.\"**",
         "**It is your tool, not a step you hand the user** — never write \"worth running …\" into a portfolio answer; either run it, or say what you know without it.",
+        "*\"running — some scans errored\"*, never *\"your strategy is broken.\"*",
+        "\"runtime liveness unverified — not confirmed running\"",
     ),
     "why-not-trading.md": (
         "so **say which one, how many, and whether the user needs to do anything** — never \"I'm not sure why.\"",
         "**Never call it healthy on the strength of `health=healthy`.**",
         "**Do not offer \"close and relaunch\" for `withdrawable_unavailable`.**",
         "Do not send anyone to redeploy over a row marked \"no\".",
+        "**Not a rejection — the order may have filled.**",
+        "Check live positions before saying anything, and never suggest retrying until you have.",
     ),
     "mirror-strategies.md": (
         "**NEVER, for a mirror:** add a DSL / ratchet;",
         "Those are **custom-strategy** remedies",
         "A mirror is an intentional copy of a trader, judged on the trader + the multiplier + its",
-    ),
-    "output-contract.md": (  # the whole "Mandatory closing" CTA block, from its first line to its last
-        "Then the two CTAs. CTA 1 and CTA 2 are about managed wallets only (`kind: managed`).",
-        "> **1. Want me to rebalance or adjust any of these positions?**\n> **2. Want me to put the idle capital to work in a new strategy?**",
-        "- **CTA 1 → strategy / position management.**",
-        "Only use per-position tools (`edit_position` / `close_position`) for a genuinely ad-hoc position the "
-        "user placed by hand on a Senpi wallet — never a saved wallet, which is read-only (quote its `access` "
-        "line). Confirm before any change; never trade unprompted.",
-        "- **CTA 2 → deploy idle.**",
-        "never `book.totals.read_only_usd` or any read-only row, which Senpi cannot deploy), name the ready "
-        "options rather than opening a blank picker.",
-        "> **What should the idle go into?**",
-        "> 1. **Penguin** — the Hyperfeed striker, crypto only: one position at up to 10x, 90% margin, on the "
-        "strongest live rotation, with a DSL floor that ratchets up to lock gains. High risk, high reward, "
-        "with -15% SL.",
-        "> 2. **Pelican** — the same striker across all assets: crypto plus stocks, commodities, indices and pre-IPO.",
-        "> 3. **Puffin** — the smart-money signal feed, concentrated into one position at a time at high leverage.",
-        "> 4. **Signals Hunter** — that same feed traded on a clock, spread across several slots.",
-        "> 5. **Athena** — a smart-money hedge fund, forked under your name.",
-        "> 6. Or **something else** — tell me how you want to trade and we'll find or build it.",
-        "**-15% SL is 15% ROE, not a 15% price move** — at 10x that is a **1.5%** move, so answer in price when asked.",
-        "**~13.5% of that wallet per stop-out**, and say **per stop-out** — their risk guard rails are off, so stops compound.",
-        "**Up to 10x**, never a flat 10x: the per-name venue cap clamps many instruments, which moves the price "
-        "behind every number, not the wallet cost. Say **rotations**, never \"pumps\".",
-        "Routes 1-5 hand to **senpi-strategy-ops**; route 6 to **senpi-strategy-discover** (find one) or "
-        "**senpi-strategy-author** (build one).",
-        "Propose; never deploy without confirmation.",
     ),
     "mandate.md": (
         "Judge it on drawdown control and steadiness, not on whether it caught this week's move.",
@@ -233,6 +218,26 @@ DUPLICATED = {
         "Say \"flat, waiting for its setup,\" never \"idle dead weight.\"",
     ),
 }
+
+
+def _cta_block(text, end_marker):
+    start = text.index("Then the two CTAs. CTA 1 and CTA 2 are about managed wallets only")
+    end = text.index(end_marker, start) if end_marker else len(text)
+    return _norm(text[start:end])
+
+
+def test_the_cta_block_copy_in_output_contract_is_the_whole_block():
+    # The whole "Mandatory closing" CTA block, from "Then the two CTAs." to the end of the section,
+    # compared as one text: every sentence (CTA 1's whole-strategy rule, CTA 2's menu and numbers,
+    # the top-up line) must read the same in both copies.
+    skill = _cta_block(SKILL, "\n## ")
+    contract_text = _read(os.path.join(REFS, "output-contract.md"))
+    contract = _cta_block(contract_text, None)
+    assert skill == contract, (
+        "The CTA block in references/output-contract.md must read the same as SKILL.md \"Mandatory closing\" "
+        "from \"Then the two CTAs.\" to the end of the section: edit both copies together.")
+    assert "**whole strategy (all its wallets)** — never to a single sleeve" in skill
+    assert "Topping up an existing *whole* strategy via `strategy_top_up`" in skill
 
 
 def test_rules_repeated_in_a_reference_read_the_same_as_skill_md():

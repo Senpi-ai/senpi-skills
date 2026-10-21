@@ -48,7 +48,7 @@ Two commands, and they answer different questions — `senpi runtime list` print
 status, so it will show you `running` and leave you stuck. It does carry the sibling failure,
 `running — NO ENTRY SCANNERS`. The per-scanner view is **`senpi scanner`**, which flags a barren one
 in plain words (`(no signals yet)` = it has run and emitted nothing). For anything deeper, hand off to
-`senpi-strategy-ops` `status.py <id>` as below — this skill interprets, it does not
+`senpi-strategy-ops` `status.py <id>` (step 1 of the ladder in `runtime-health.md`) — this skill interprets, it does not
 re-derive.
 
 **The interpretation is the part that is yours**, because both of these look identical on every field:
