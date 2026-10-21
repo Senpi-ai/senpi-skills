@@ -31,6 +31,16 @@ jobs:
       - name: account-status suite (own invocation — `status` module name collides with ops)
         run: python3 -m pytest senpi-account-status/tests -q
 
+      # Repo-root `tests/` added 2026-10-21: the context-budget gate for the OpenClaw 10.x migration.
+      # Every */SKILL.md ≤ 56,000 est chars (10.4 refuses an over-cap SKILL.md read whole), and the
+      # skills catalog plus the OpenClaw-bundled entries ≤ 30,000 (prod maxSkillsPromptChars is 32,000;
+      # over it every box drops all descriptions). Sizes are measured with ports of OpenClaw's own
+      # code, pinned by goldens in the same directory. Over 16,000 is a warning, never a failure. Own
+      # invocation so its warnings and failures read on their own, apart from the skill suites.
+      # `.github/scripts/check_conservation.py` is a hand-run restructure tool, smoke-tested here.
+      - name: context budgets (SKILL.md ceiling + skills catalog, as OpenClaw measures them)
+        run: python3 -m pytest tests -q
+
       # pytest collects every test regardless of a __main__ runner — bare `python3 <file>` exits 0
       # without running anything on a runner-less file (test_default_catalog.py), a silent green.
       # `strategies/tests` holds catalog-wide contract guards (no null optional signal keys).
