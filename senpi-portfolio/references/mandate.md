@@ -45,3 +45,35 @@ it works **universally** — for a user's own authored strategy, not just our ca
   strategies do nothing most days by design — they wait for a specific signal (crowding + exhaustion, a
   range break, a copy-trigger) that is usually absent. `deployed == 0` and `positions == []` means
   **waiting for its signal**, not broken. Say "flat, waiting for its setup," never "idle dead weight."
+
+## The verdict rules, as SKILL.md states them
+
+SKILL.md's strategy-first rule, whole:
+
+> **Strategy-first, judged against each strategy's OWN mandate.** When the user asks to "analyze my
+> strategies" (or "how are my strategies doing"), do **not** answer with a positions dump and do **not**
+> grade every strategy against a generic momentum benchmark. Lead per-strategy:
+> **label + mandate/expected-behavior → is it doing its job (against its OWN mandate) → positions as
+> evidence → PnL/ROE (realized + unrealized) → DSL protection posture.** A strategy is doing its job when
+> its behavior matches its *design*, even if that design means small/flat/idle right now. See
+> "Judge each strategy against its OWN mandate" in SKILL.md.
+
+This is the SAME read whether the strategy is one of ours or user-authored — every deployed strategy has a
+`runtime.yaml`.
+
+**Present each group as one strategy**; never present its wallets/instances as separate strategies.
+
+For a **hedge, market-neutral, all-weather, or contrarian** strategy, **being counter is the DESIGN.** A
+market-neutral book is *supposed* to be short the names the crowd is long; a hedge is *supposed* to lean
+against the prevailing move; a contrarian book is *supposed* to fade the consensus. **Judge it against
+its own `mandate` / `profile.description`, NOT against alignment with the 4h leaderboard / Predators
+view.** Do **not** recommend closing a hedge/neutral/all-weather strategy because it's "fighting the
+whales" or "on the wrong side of smart money" — that IS its job. (For a *directional momentum* strategy,
+fighting the tape is a real red flag — but only for a strategy whose mandate is to ride the move.)
+
+The **leaderboard / Predators view is a ~4h momentum window, not a portfolio mandate.** A strategy can be
+"behind the current 4h rotation" and still be doing exactly its multi-week job. **Never recommend a
+wholesale close+redeploy of a deliberate book to chase what's hot on a 4h screen.** Before proposing any
+close+redeploy, weigh **turnover cost** (fees compound on churn) and **regime durability** (is this a
+lasting shift or a 4h blip?). A deliberate, on-mandate strategy is not "underperforming" because it
+didn't catch this afternoon's move.

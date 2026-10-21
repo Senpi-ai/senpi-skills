@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SKILL.md layout for the OpenClaw size limits (senpi-portfolio 1.35.0).
+"""SKILL.md layout for the OpenClaw size limits (senpi-portfolio 1.35.1).
 
 On OpenClaw 10.4 a SKILL.md over the model's cap is refused whole; the repo gate keeps every SKILL.md at
 or under 56,000 est chars (tests/test_context_budgets.py), and the long tail lives in `references/`.
@@ -52,7 +52,7 @@ def test_the_57_replay_stays_head_only():
 
 
 # What a 5.7 follow-up turn must still see: the router, the follow-up rule, the one-list rules (R1),
-# the always-on summary and the hard rules.
+# the always-on summary, the hard rules and (1.35.1) the wallet model's balance rules in their own words.
 REPLAY_NEEDLES = (
     "## Follow-ups first — the router",
     "**Follow-ups: answer only what is new.**",
@@ -61,17 +61,17 @@ REPLAY_NEEDLES = (
     "| close / pause / keep / top up ONE wallet of a strategy | — | the no-no below: whole strategy only |",
     "| a yes to CTA 1 / CTA 2, or a digit (after the CTAs: that CTA; after the idle menu: that option) | the levers / "
     "the ready options | `references/output-contract.md` (the menu) |",
+    "| a read failed: `meta.degraded`, `meta.warnings`, `reconciles: false`, a `null` figure | re-run that step | "
+    "`references/output-contract.md` (\"Resilience\") |",
     "| `strategies` | `references/dsl.md` (protection), `references/mandate.md` (verdicts), `references/runtime-health.md` "
     "(liveness) |",
     "narrating between | `references/output-contract.md`, `references/runtime-health.md` (liveness) |",
     "say the cost first: every firing is a full model call",
     "**Still true on every follow-up**",
-    "`total_withdrawable` is idle in strategy wallets, NOT embedded idle cash.",
-    "Never add a wallet's `main` + `xyz` views (shared collateral).",
     "realized PnL that didn't load → *unavailable*, never `$0`",
     "A full read never skips a wallet or the CTAs.",
     "A `timeout` open may have filled: check positions, never suggest a retry.",
-    "confirm before any change, never trade unprompted; propose, never deploy without confirmation.",
+    "Confirm before any change; never trade unprompted. Propose; never deploy without confirmation.",
     "**Source of truth for position facts — read before you answer, even mid-trade.**",
     "**\"In profit\" on an open position is unrealized.**",
     "**A Senpi strategy is one row with all its wallets.**",
@@ -100,11 +100,43 @@ REPLAY_NEEDLES = (
     "multi-wallet strategy.**",
     "act on **all its wallets together** — never a single leg.",
     "There is no restart verb; close → redeploy is a last resort, asked first.",
+    "**no strategy trades from the embedded wallet.**",
+    "**It is NOT idle cash in the embedded wallet.**",
+    "**always say *where***",
+    "**These are two views of one wallet, not two separate pools.**",
+    "so it is counted **once**, never summed.",
+    "**Never add the two views' account values or withdrawables yourself** — that double-counts the shared collateral.",
+    "Only the Hyperliquid legs can fund strategies — EVM USDC does not bridge in",
 )
+
+# Everything pinned above must end at least this many chars before the 5.7 cut, so a small edit above it
+# fails here first instead of silently dropping a rule from the follow-up replay.
+REPLAY_MARGIN = 150
 
 
 def test_follow_up_rules_survive_the_57_replay():
     assert_replayed(SKILL, REPLAY_NEEDLES)
+
+
+def test_every_replayed_rule_keeps_a_margin_before_the_57_cut():
+    mode, kept, _ = om.replay_57_layout(SKILL)
+    assert mode == "head-only", mode
+    tight = []
+    for needle in REPLAY_NEEDLES:
+        n = _norm(needle)
+        lo, hi = 0, len(SKILL)
+        while lo < hi:  # shortest prefix of SKILL.md that contains the needle
+            mid = (lo + hi) // 2
+            if n in _norm(SKILL[:mid]):
+                hi = mid
+            else:
+                lo = mid + 1
+        end = len(om.utf16_units(SKILL[:lo]))
+        if kept - end < REPLAY_MARGIN:
+            tight.append((needle[:60], kept - end))
+    assert not tight, (
+        f"These replayed rules end less than {REPLAY_MARGIN} chars before the 5.7 cut at {kept:,}: {tight}. "
+        f"Make room above them (move non-rule text out of the head) rather than letting one fall past the cut.")
 
 
 def test_the_router_names_a_reference_that_exists_for_each_topic():
@@ -141,9 +173,14 @@ def test_the_always_on_liveness_rules_stay_in_skill_md():
                    "to redeploy over a row marked \"no\". (\"do they act?\" in `references/why-not-trading.md`.)",
                    "`timeout`: **Not a rejection — the order may have filled.** Check live positions before saying "
                    "anything, and never suggest retrying until you have.",
-                   "`degraded`, book live: *\"running — some scans errored\"*, never *\"your strategy is broken.\"* "
-                   "`unknown`: \"runtime liveness unverified — not confirmed running\".",
-                   "`status.py`'s `degraded` is our `recovering`, its `unhealthy` our `degraded`.",
+                   "**They disagree.** The last scans errored; the book is live and managed. Say *\"running — some "
+                   "scans errored\"*, never *\"your strategy is broken.\"* Confirm with `status.py <id>` before going "
+                   "further.",
+                   "Say **\"runtime liveness unverified — not confirmed running\"** — never upgrade to "
+                   "\"healthy/protected\" or downgrade to \"broken.\"",
+                   "**Mind the vocabulary:** `status.py` reports the engine's raw words, and they do not line up with "
+                   "this skill's. Its **`degraded`** is this skill's **`recovering`** (one errored tick); its "
+                   "**`unhealthy`** is this skill's **`degraded`** (the real fault).",
                    "**NEVER, for a mirror:**",
                    "**Fees are read, never estimated.**", "**Paper is not live.**",
                    "**Lead the per-strategy read with `profile.description`",
@@ -151,6 +188,53 @@ def test_the_always_on_liveness_rules_stay_in_skill_md():
                    "**Never read \"no ratchet record\" as \"no DSL.\"**",
                    "**Asked to run this on a schedule? Say the cost first.**"):
         assert needle in sk, needle
+
+
+# Rules 1.35.0 had moved to a reference; 1.35.1 brought each back to SKILL.md in its b1916b12 words.
+RULES_BACK_IN_CORE = (
+    "report **⚠ RUNNING — NO ENTRY SCANNERS**, not a clean \"running.\"",
+    "**Do not warn on it.** Do not put a ⚠ on the strategy, and do not send the user to a diagnostic.",
+    "This is the one that always deserved the warning. Say **\"⚠ runtime degraded — running but not healthy,\"** "
+    "not a clean all-clear.",
+    "A runtime *process* that exists (`status: running`) is not a health verdict and never reaches `live` on its own.",
+    "**They disagree.** Do **not** give a clean all-clear — a scanner can read `healthy` and still be blind.",
+    "**When the two disagree, say which one you are trusting and why.** If the money is moving, that is the "
+    "headline and the field is the footnote — do not report the field and bury the evidence.",
+    "**Say \"has not CLOSED a trade in Xh\", never \"has not traded\"**: a position carries no open time, so an "
+    "entry taken since that close is invisible here.",
+    "Quiet while **holding** means fully allocated, not stuck — check slots and entry gates first, and note every "
+    "guard rail halts ENTRIES only, so a gate counter is moot while every slot is full.",
+    "**`risk_pause`** (beside `runtime_health`, never instead of it) — the runtime's OWN entry gate says `CLOSED` or "
+    "`COOLDOWN`: the strategy is **healthy and paused by its own rule**",
+    "Name the gate and quote its `reason` verbatim (\"Max Entries/Day — Max entries: 4/4 entries today\"), say when "
+    "it lets go",
+    "and that nothing is broken.",
+    "A thorough health check does not stop at the verdict: for a strategy that is `not_running`, `degraded` or "
+    "`unknown` — **never for `recovering`** — **`python3 senpi-strategy-ops/scripts/status.py <id>`** re-asks the "
+    "runtime directly",
+    "Run it yourself and give the answer.",
+    "Reference the right tool to *confirm* — never re-derive its analysis here.",
+    "**Before the ladder: if the row carries `runtime_reason`, say it.**",
+    "No `runtime_reason` means the runtime gave none — never invent one; the ladder finds it.",
+    "**When it IS genuinely broken, act — don't hand the user a to-do.** For `degraded` corroborated by no "
+    "activity, or `not_running`, work the ladder yourself and report what you found",
+    "Only the last step touches their money, and only that one needs their consent:",
+    "**Nothing qualified.** The entry bar has not been met — name it, never \"being selective\"",
+    "Its `name` is **\"copy of `mirror_of`\"** — never call it \"unnamed.\"",
+    "but the fix is **never** a DSL or a per-position stop.",
+    "lower `mirrorMultiplier` **via `senpi-trade`** (it wraps `strategy_update`). To stop copying → unsubscribe / "
+    "close the mirror **via `senpi-trade`**.",
+    "Flag any position fighting the tape *for a directional-momentum mandate* / near `liq_px` / oversized.",
+    "**Per-strategy verdict (the real value).** For **each `strategy_groups[]` entry** (one per real strategy — "
+    "never one per wallet), in this order:",
+    "**Anti-patterns — these exact misreads happened live; never repeat them:**",
+)
+
+
+def test_rules_brought_back_to_core_stay_in_skill_md():
+    sk = _norm(SKILL)
+    missing = [n for n in RULES_BACK_IN_CORE if _norm(n) not in sk]
+    assert not missing, f"These rules belong in SKILL.md (the maintainer's rule: imperatives stay in core): {missing}"
 
 
 def test_the_wallet_model_resilience_and_closing_rules_stay_in_skill_md():
@@ -181,7 +265,7 @@ DUPLICATED = {
         "**Fees are read, never estimated.**",
         "If the fee read fails, say the number is gross and why.",
         "**Paper is not live.**",
-        "Never narrate a shadow run as \"live\", \"running\" or \"a trade\" — the user then manages a position that does not exist.",
+        "Never narrate a shadow run as \"live\", \"running\" or \"a trade\"",
         "**`close.py` → redeploy** — **last resort, and ask first.** It",
         "is a market exit of every open position and a fresh wallet. Never reach for it to clear an error you have not diagnosed.",
         "**There is no restart verb.**",
@@ -204,11 +288,37 @@ DUPLICATED = {
         "A mirror is an intentional copy of a trader, judged on the trader + the multiplier + its",
     ),
     "mandate.md": (
+        "**Present each group as one strategy**; never present its wallets/instances as separate strategies.",
         "Judge it on drawdown control and steadiness, not on whether it caught this week's move.",
         "Only a hedge that fails to pay off in an actual crisis is broken.",
         "Say \"flat, waiting for its setup,\" never \"idle dead weight.\"",
     ),
 }
+
+
+def _section_body(text, heading, end_marker):
+    start = text.index(heading) + len(heading)
+    end = text.index(end_marker, start)
+    return text[start:end]
+
+
+def test_the_resilience_copy_in_output_contract_is_the_whole_section():
+    # Resilience no longer replays on a 5.7 follow-up (it sits past the cut); the router row "a read failed"
+    # sends the agent to this copy, so every bullet must read the same as SKILL.md.
+    skill = _norm(_section_body(SKILL, "## Resilience (engine handles; narrate honestly)\n", "\n## "))
+    contract_text = _read(os.path.join(REFS, "output-contract.md"))
+    contract = _norm(_section_body(contract_text, "that only has the router still reaches them.\n",
+                                   "SKILL.md \"The three buckets\", word for word:"))
+    assert skill == contract, ("The Resilience copy in references/output-contract.md must read the same as SKILL.md "
+                               "\"Resilience\": edit both copies together.")
+    assert "Report realized PnL as **unavailable** for that strategy — never as `$0`." in skill
+
+
+def test_the_managed_money_paragraph_copy_reads_the_same():
+    para = "These three buckets are the **managed** money"
+    sk = SKILL[SKILL.index(para):]
+    sk = _norm(sk[:sk.index("\n\n")])
+    assert sk in _ref("output-contract.md"), "edit SKILL.md \"The three buckets\" and its output-contract.md copy together"
 
 
 def _cta_block(text, end_marker):
@@ -267,6 +377,41 @@ def test_runtime_health_states_and_ladder_are_in_runtime_health():
                    "the runtime on this box is too old for this skill's registry read",
                    "### Corroborate the verdict before you assert it"):
         assert needle in ref, needle
+
+
+def test_explanations_moved_in_1351_are_in_their_references():
+    # Not rules: the incidents, engine notes and examples 1.35.1 moved out to make room.
+    rationale = _ref("rationale.md")
+    for needle in ("can be reconciled as foreign and DSL-flattened within minutes",
+                   "a bare number read by eye is how an older close gets called today's.",
+                   "un-bucketed dumps that mislead",
+                   "it's the dry powder the other half of the design needs to do its job.",
+                   "it graded an all-weather core, a crisis hedge, and a waiting strategy",
+                   "it opens and closes positions every tick per its DSL and signal logic.",
+                   "Recommending action on a strategy that turns out to be already closed",
+                   "(a \"strategy-grinder cascade,\" a \"close at 14:58,\" \"funds returned to embedded\")",
+                   "(this is a real failure that broke live strategies)"):
+        assert needle in rationale, needle
+    dsl = _ref("dsl.md")
+    for needle in ("`ratchet_stop_list` shows **only** the live ratchet", "It is protected **two ways**",
+                   "`SERR031` auth", "runs a built-in DSL exit (trailing stop) + risk guard-rails"):
+        assert needle in dsl, needle
+    mandate = _ref("mandate.md")
+    for needle in ("A strategy is doing its job when its behavior matches its *design*",
+                   "a contrarian book is *supposed* to fade the consensus.",
+                   "\"behind the current 4h rotation\"", "This is the SAME read whether the strategy is one of ours"):
+        assert needle in mandate, needle
+    fields = _ref("output-fields.md")
+    for needle in ("A strategy row's wallets are grouped by the same key in every step",
+                   "`book.totals.managed_usd` is `grand_total_usd`", "enumerates the embedded wallet",
+                   "The engine forces a fresh fetch (no 12h cache)", "can't linger as a ghost.",
+                   "`strategyName` is optional on `strategy_create_custom_strategy`",
+                   "`\"tradingStrategyName\"` is the **package id**", "`all` is the default when no step is given"):
+        assert needle in fields, needle
+    framework = _ref("analysis-framework.md")
+    for needle in ("The engine computes these as two separate fields precisely so you don't mix them.",
+                   "has **$3K now** regardless of what it was funded.", "a 1% price move at 10x is a 10% return on margin."):
+        assert needle in framework, needle
 
 
 def test_mirror_dsl_mandate_contract_and_fields_moved_whole():
