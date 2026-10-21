@@ -44,7 +44,7 @@ book total, or verdicts and figures already shown unless the user asks for them 
 | "why hasn't it traded / why didn't it open X / no signals" | `strategies` | `references/why-not-trading.md` |
 | a copy-trade (`strategy_kind: "mirror"`) | `strategies` | `references/mirror-strategies.md` |
 | *"analyze my positions / my positions vs the market / net exposure / concentration / idle drag"* | `positions` | `references/analysis-framework.md` |
-| *"analyze my portfolio / how am I doing"* (the full read) | `money` → `strategies` → `positions`, narrating between | `references/output-contract.md` |
+| *"analyze my portfolio / how am I doing"* (the full read) | `money` → `strategies` → `positions`, narrating between | `references/output-contract.md`, `references/runtime-health.md` (liveness) |
 | "what happened to my closed X / did my trade go through / do I still hold X" | `strategies` (`closed`), `positions` | "Source of truth" below |
 | "go deeper on X" (the deep-dive answer) | a strategy: `strategies`; a wallet they added: its row; the Senpi main wallet: `embedded_wallet` | — |
 | add / change / remove a stop or DSL | nothing here — this skill reads; offer it, then `senpi-trade` | "This skill reads" below |

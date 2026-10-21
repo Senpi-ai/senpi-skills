@@ -61,7 +61,9 @@ REPLAY_NEEDLES = (
     "| close / pause / keep / top up ONE wallet of a strategy | — | the no-no below: whole strategy only |",
     "| a yes to CTA 1 / CTA 2, or a digit (after the CTAs: that CTA; after the idle menu: that option) | the levers / "
     "the ready options | `references/output-contract.md` (the menu) |",
-    "`references/runtime-health.md` (liveness)",
+    "| `strategies` | `references/dsl.md` (protection), `references/mandate.md` (verdicts), `references/runtime-health.md` "
+    "(liveness) |",
+    "narrating between | `references/output-contract.md`, `references/runtime-health.md` (liveness) |",
     "say the cost first: every firing is a full model call",
     "**Still true on every follow-up**",
     "`total_withdrawable` is idle in strategy wallets, NOT embedded idle cash.",
