@@ -78,7 +78,7 @@ class CloseRuntimeDeleteConfirm(unittest.TestCase):
 
     def test_already_closed_is_idempotent_noop(self):
         _cli.list_runtimes_or_none = lambda: []
-        rec = close.close_one("main", dict(self._STRAT, status="CLOSED"), self._RUNTIMES, False, lambda m: None)
+        rec = close.close_one("main", dict(self._STRAT, status="CLOSED"), [], False, lambda m: None)
         self.assertEqual(rec["status"], "closed")
         self.assertEqual(self.deletes, [])            # nothing to stop
         self.assertEqual(self.closed, [])             # nothing to close
@@ -89,10 +89,29 @@ class CloseRuntimeDeleteConfirm(unittest.TestCase):
         # submit condition below, so it fell through to the final `rec["status"] = "closing"` having
         # done nothing: a terminal, already-dead strategy misreported as freshly triggered.
         _cli.list_runtimes_or_none = lambda: []
-        rec = close.close_one("main", dict(self._STRAT, status="FAILED"), self._RUNTIMES, False, lambda m: None)
+        rec = close.close_one("main", dict(self._STRAT, status="FAILED"), [], False, lambda m: None)
         self.assertEqual(rec["status"], "closed")
-        self.assertEqual(self.deletes, [])             # nothing to stop — terminal, return before step 1
+        self.assertEqual(self.deletes, [])             # no runtime left to stop
         self.assertEqual(self.closed, [])              # nothing to submit — already terminal
+
+    def test_closed_elsewhere_with_a_live_runtime_deletes_it(self):
+        # Closed in the app (or by a raw strategy_close): the strategy is CLOSED but its runtime is
+        # still listed and ticking against the emptied wallet. It used to return `closed` before
+        # step 1 and leave that runtime running for good.
+        _cli.list_runtimes_or_none = lambda: []
+        rec = close.close_one("main", dict(self._STRAT, status="CLOSED"), self._RUNTIMES, False, lambda m: None)
+        self.assertEqual(rec["status"], "closed")
+        self.assertEqual(rec["runtime"], "stopped")
+        self.assertEqual(len(self.deletes), 1)
+        self.assertIn("pkg-main", self.deletes[0])
+        self.assertEqual(self.closed, [])              # already terminal — never re-submitted
+
+    def test_closed_elsewhere_runtime_that_will_not_go_reports_failed(self):
+        _cli.list_runtimes_or_none = lambda: [{"name": "pkg-main", "wallet": "0xabc"}]
+        rec = close.close_one("main", dict(self._STRAT, status="CLOSED"), self._RUNTIMES, False, lambda m: None)
+        self.assertEqual(rec["status"], "failed")      # not a quiet `closed` over a runtime still listed
+        self.assertEqual(len(self.deletes), 2)
+        self.assertEqual(self.closed, [])
 
     def test_dry_run_labels_failed_as_already_closed(self):
         rec = close.close_one("main", dict(self._STRAT, status="FAILED"), self._RUNTIMES, True, lambda m: None)
@@ -441,6 +460,115 @@ class MainPackagePollReportsClosed(unittest.TestCase):
         self.rows = [self._CLOSED_ROW]
         self._run("omega", "--dry-run")
         self.assertEqual(self.closed, [])
+
+
+class MainStrandedRuntime(unittest.TestCase):
+    """A strategy closed OUTSIDE close.py (the app, a raw `strategy_close`) leaves its runtime ticking
+    against the emptied wallet. The LIVE read drops the terminal row, so `close.py <id>` and `--all`
+    never reached it: they printed `closed` / the all-clear and left the runtime running. Seen on a
+    live box 2026-10-21: its scanner kept emitting and running OPEN_POSITION against a $0 wallet."""
+
+    def setUp(self):
+        self._orig = (close.MCPClient, _cli.strategies_for_or_none, _cli.list_strategies_or_none,
+                      _cli.list_runtimes, _cli.list_runtimes_or_none, _cli.run_cli, close._pkg.load)
+        self.closed, self.deletes, self.reads = [], [], []
+        self.rows = [{"strategyId": "s1", "strategyWalletAddress": "0xabc", "status": "CLOSED",
+                      "strategyMetadata": {"skillName": "omega"}}]
+        self.runtimes = [{"name": "omega-main", "wallet": "0xabc"}]
+        outer = self
+
+        class _FakeMCP:
+            def mcp_call(self, name, timeout=None, **kw):
+                if name == "strategy_close":
+                    outer.closed.append(kw.get("strategyId"))
+                    return {"success": True}
+                raise AssertionError(f"unexpected mcp_call {name!r}")
+        close.MCPClient = _FakeMCP
+
+        def _rows(statuses):
+            outer.reads.append(statuses)
+            want = {str(s).upper() for s in statuses} if statuses else None
+            return [s for s in outer.rows
+                    if want is None or str(_cli.strategy_status(s) or "").upper() in want]
+        _cli.strategies_for_or_none = (lambda mcp, skill_name=None, strategy_id=None, wallet=None,
+                                       timeout=15, statuses=None, why=None: _rows(statuses))
+        _cli.list_strategies_or_none = lambda mcp, timeout=15, statuses=None, why=None: _rows(statuses)
+        _cli.list_runtimes = lambda: list(outer.runtimes)
+        _cli.list_runtimes_or_none = lambda: [r for r in outer.runtimes
+                                              if not any(r["name"] in d for d in outer.deletes)]
+
+        def _run_cli(args, timeout=60):
+            if "delete" in args:
+                outer.deletes.append(args)
+            return (0, "", "")
+        _cli.run_cli = _run_cli
+
+        class _FakeInst:
+            name = "main"
+
+        class _FakePkg:
+            id = "omega"
+            version = "1.0.0"
+            instances = [_FakeInst()]
+            dir = Path("/nonexistent-close-py-test-path")
+        close._pkg.load = lambda _p: _FakePkg()
+
+    def tearDown(self):
+        (close.MCPClient, _cli.strategies_for_or_none, _cli.list_strategies_or_none,
+         _cli.list_runtimes, _cli.list_runtimes_or_none, _cli.run_cli, close._pkg.load) = self._orig
+
+    def _run(self, *args):
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            with self.assertRaises(SystemExit) as ctx:
+                close.main(["close.py", *args])
+        return buf.getvalue(), ctx.exception.code
+
+    def test_package_close_deletes_the_runtime_of_a_strategy_closed_elsewhere(self):
+        out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.deletes), 1)
+        self.assertIn("omega-main", self.deletes[0])
+        self.assertEqual(self.closed, [])              # terminal: never re-submitted
+        self.assertIn("closed", out)
+
+    def test_all_deletes_the_runtime_of_a_strategy_closed_elsewhere(self):
+        out, code = self._run("--all")
+        self.assertEqual(code, 0)
+        self.assertEqual(len(self.deletes), 1)
+        self.assertEqual(self.closed, [])
+        self.assertNotIn("no OPEN strategies to close", out)
+
+    def test_dry_run_plans_the_delete_without_running_it(self):
+        out, code = self._run("omega", "--dry-run", "--json")
+        self.assertEqual(code, 0)
+        plan = json.loads(out)["instances"][0]["plan"]
+        self.assertIn("runtime delete --id omega-main --address 0xabc", plan)
+        self.assertEqual(self.deletes, [])
+
+    def test_a_closed_strategy_with_no_runtime_left_is_still_a_noop(self):
+        self.runtimes = []
+        out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.deletes, [])
+        self.assertIn("all CLOSED", out)
+
+    def test_all_with_no_runtimes_does_not_read_the_whole_history(self):
+        self.runtimes = []
+        out, code = self._run("--all")
+        self.assertEqual(code, 0)
+        self.assertIn("no OPEN strategies to close", out)
+        self.assertNotIn(None, self.reads)             # only the LIVE-filtered read
+
+    def test_a_live_row_missing_from_the_live_read_is_never_closed_here(self):
+        # A race (created between the two reads) must not be flattened by the stranded-runtime path.
+        self.rows = [dict(self.rows[0], status="ACTIVE")]
+        _cli.list_strategies_or_none = lambda mcp, timeout=15, statuses=None, why=None: []
+        _cli.strategies_for_or_none = (lambda mcp, skill_name=None, strategy_id=None, wallet=None,
+                                       timeout=15, statuses=None, why=None: [] if statuses else self.rows)
+        _out, _code = self._run("omega")
+        self.assertEqual(self.closed, [])
+        self.assertEqual(self.deletes, [])
 
 
 if __name__ == "__main__":
