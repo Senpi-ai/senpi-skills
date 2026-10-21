@@ -3,6 +3,9 @@
 Read before a full read ("analyze my portfolio / how am I doing"). Step 1 and the closing are in
 SKILL.md.
 
+The sections below headed "a copy of SKILL.md …" are SKILL.md's own words, kept identical by a test.
+Inside a copy, "above", "below" and "see …" point to sections of SKILL.md, not of this file.
+
 ## Narrate as the steps return
 
 A full portfolio read is several MCP round-trips (embedded wallet + a live clearinghouse pull per strategy
@@ -13,6 +16,15 @@ minutes, blow the `exec` timeout, and push you to raw MCP — which loses every 
 between). Each step is a **separate `exec` call**, so your response streams and no single call hangs.
 Runtime health inside `strategies` is **one** `openclaw senpi status --json` for the whole fleet (a
 progress line goes to stderr), so that step's cost does not grow with the number of runtimes.
+
+The steps (SKILL.md "Run it in steps"):
+
+```sh
+python3 scripts/portfolio.py money        # 1. the FAST money map: embedded idle + each wallet's value → the three buckets (narrate FIRST)
+python3 scripts/portfolio.py strategies   # 2. per-strategy detail: mandate + DSL ladder + protected + closed/realized + strategy_groups[]
+python3 scripts/portfolio.py positions    # 3. position-level: per-position market (market_24h_pct/vs_market) + exposure + signals
+python3 scripts/portfolio.py all          # one-shot fallback: the full composed dict (same output as before)
+```
 
 **For a FULL portfolio read** — "analyze my portfolio / my strategies", "how am I doing" — run the steps
 **in order** and narrate between:
@@ -89,9 +101,46 @@ that only has the router still reaches them.
 
 SKILL.md "The three buckets", word for word:
 
+Every dollar is in exactly one of **three buckets** — and the #1 mistake is conflating them:
+
+| Bucket | What it is | Engine field |
+|---|---|---|
+| **Idle in embedded** | Truly free cash in the main wallet — HL perps USDC + HL spot USDC + EVM USDC (all three legs). Only the Hyperliquid legs can fund strategies — EVM USDC does not bridge in (deposit via the funding card lands on Hyperliquid). Withdraw any of it to your bank. | `totals.idle_in_embedded` |
+| **Idle in strategies** | Free margin sitting *inside* a strategy wallet, not yet in a position — waiting for a signal. | `totals.idle_in_strategies` |
+| **Deployed in positions** | Margin actively backing open trades. | `totals.deployed_in_positions` |
+
+**`grand_total = idle_in_embedded + idle_in_strategies + deployed_in_positions`.**
+
 These three buckets are the **managed** money — Senpi's. The wallets the user added sit outside them:
 they are `read-only` rows in the one wallet list and the read-only subtotal beside `grand_total_usd`
 (see "One wallet list — every wallet first-class").
+
+## A strategy is ALL its wallets — a copy of SKILL.md
+
+Read for a full read and any per-strategy verdict. SKILL.md "A strategy is ALL its wallets", word for word:
+
+**This is the most important rule in this skill.** A single strategy can deploy as **MULTIPLE instances
+on SEPARATE wallets** — **ox** = `core`+`ballast` (risk-parity), **cougar** = `long`+`short`
+(market-neutral), **cub** = `long`+`short`+`preipo` (multi-sleeve dispersion). `strategy_list` returns
+**each instance/wallet as its own row**, so the raw list looks like several separate strategies. **It is
+not.** A multi-wallet strategy (long+short, core+ballast, multi-sleeve) is **ONE strategy across N
+wallets/instances** — the wallets are the *legs of one design*, not independent bets.
+
+**Lead and reason at the `strategy_groups[]` level, not `strategies[]`.** The engine re-unites the
+per-wallet rows into **`strategy_groups[]`** — one entry per real strategy, with `is_multi_wallet`,
+`instances[]` (the per-wallet detail), and `totals` summed across every wallet. **Present each group as
+one strategy**; never present its wallets/instances as separate strategies. (`strategies[]` is still
+there for per-wallet detail and the bucket math — but the *unit of analysis and recommendation* is the
+group.) When `meta.has_multi_wallet_strategy` is true, at least one strategy spans multiple wallets —
+be especially careful.
+
+## The analyst's bar (moved from SKILL.md)
+
+You are a sharp portfolio analyst. A hidden engine pulls every wallet in real time and classifies
+every dollar into the right bucket; **your job is the analysis** — but the analysis leads at the
+**strategy** level: for each strategy, *is it doing the job it was deployed to do?* Positions are
+evidence for that verdict, not the headline. The bar is high: a flat list of balances — or a positions
+dump when the user asked about their **strategies** — is a failure. The user wants a read.
 
 ## The two CTAs — a copy of SKILL.md "Mandatory closing"
 

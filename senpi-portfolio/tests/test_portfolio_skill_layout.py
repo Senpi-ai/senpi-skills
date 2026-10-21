@@ -63,8 +63,10 @@ REPLAY_NEEDLES = (
     "never re-send the wallet list, the book total, or verdicts and figures already shown",
     "| The ask | Step to run | Read first |",
     "| close / pause / keep / top up ONE wallet of a strategy | — | the no-no below: whole strategy only |",
-    "| a yes to CTA 1 / CTA 2, or a digit (after the CTAs: that CTA; after the idle menu: that option) | the levers / "
-    "the ready options | `references/output-contract.md` (the menu) |",
+    "| a yes to CTA 1 / CTA 2, or a digit (after the CTAs: that CTA; after the idle menu: that option), or a "
+    "question about a menu option or its numbers | the levers / the ready options | "
+    "`references/output-contract.md` (the menu) |",
+    "CTA 2: -15% SL is 15% ROE; up to 10x, never a flat 10x; say rotations, never \"pumps\".",
     "| a read failed: `meta.degraded`, `meta.warnings`, `reconciles: false`, a `null` figure | re-run that step | "
     "`references/output-contract.md` (\"Resilience\") |",
     "| `strategies` | `references/dsl.md` (protection), `references/mandate.md` (verdicts), `references/runtime-health.md` "
@@ -180,7 +182,7 @@ def test_the_always_on_liveness_rules_stay_in_skill_md():
                    "**`close.py` → redeploy** — **last resort, and ask first.** It is a market exit of every "
                    "open position and a fresh wallet. Never reach for it to clear an error you have not "
                    "diagnosed. **There is no restart verb.**",
-                   "**Do not offer \"close and relaunch\" for `withdrawable_unavailable`.** Do not send anyone "
+                   "**Do not offer \"close and relaunch\" for `withdrawable_unavailable`.** Wait, then support. Do not send anyone "
                    "to redeploy over a row marked \"no\". (\"do they act?\" in `references/why-not-trading.md`.)",
                    "`timeout`: **Not a rejection — the order may have filled.** Check live positions before saying "
                    "anything, and never suggest retrying until you have.",
@@ -202,43 +204,108 @@ def test_the_always_on_liveness_rules_stay_in_skill_md():
 
 
 # Rules 1.35.0 had moved to a reference; 1.35.1 brought each back to SKILL.md in its b1916b12 words.
+# Whole sentences, each as SKILL.md states it (b1916b12 words). One entry per sentence, so deleting any
+# clause of a rule fails the test.
 RULES_BACK_IN_CORE = (
-    "report **⚠ RUNNING — NO ENTRY SCANNERS**, not a clean \"running.\"",
-    "**Do not warn on it.** Do not put a ⚠ on the strategy, and do not send the user to a diagnostic.",
-    "This is the one that always deserved the warning. Say **\"⚠ runtime degraded — running but not healthy,\"** "
-    "not a clean all-clear.",
+    # 1.35.1 round 1
+    "`running_blind: true` is a third, previously-invisible state: the runtime IS registered and ticking, but its "
+    "entry scanners never wired (`running — NO ENTRY SCANNERS`), so it **cannot produce entry signals** — report "
+    "**⚠ RUNNING — NO ENTRY SCANNERS**, not a clean \"running.\"",
+    "**Do not warn on it.**",
+    "Do not put a ⚠ on the strategy, and do not send the user to a diagnostic.",
+    "This is the one that always deserved the warning.",
+    "Say **\"⚠ runtime degraded — running but not healthy,\"** not a clean all-clear.",
+    "Say **\"runtime liveness unverified — not confirmed running\"** — never upgrade to \"healthy/protected\" or "
+    "downgrade to \"broken.\"",
     "A runtime *process* that exists (`status: running`) is not a health verdict and never reaches `live` on its own.",
+    "**They disagree.** The last scans errored; the book is live and managed.",
+    "Say *\"running — some scans errored\"*, never *\"your strategy is broken.\"*",
+    "Confirm with `status.py <id>` before going further.",
     "**They disagree.** Do **not** give a clean all-clear — a scanner can read `healthy` and still be blind.",
-    "**When the two disagree, say which one you are trusting and why.** If the money is moving, that is the "
-    "headline and the field is the footnote — do not report the field and bury the evidence.",
-    "**Say \"has not CLOSED a trade in Xh\", never \"has not traded\"**: a position carries no open time, so an "
-    "entry taken since that close is invisible here.",
+    "Say it is running but has not found a trade, and use \"No signals at all\" in `why-not-trading.md`.",
+    "**When the two disagree, say which one you are trusting and why.**",
+    "If the money is moving, that is the headline and the field is the footnote — do not report the field and bury "
+    "the evidence.",
+    "**Say \"has not CLOSED a trade in Xh\", never \"has not traded\"**: a position carries no open time, so an entry "
+    "taken since that close is invisible here.",
     "Quiet while **holding** means fully allocated, not stuck — check slots and entry gates first, and note every "
     "guard rail halts ENTRIES only, so a gate counter is moot while every slot is full.",
     "**`risk_pause`** (beside `runtime_health`, never instead of it) — the runtime's OWN entry gate says `CLOSED` or "
-    "`COOLDOWN`: the strategy is **healthy and paused by its own rule**",
+    "`COOLDOWN`: the strategy is **healthy and paused by its own rule** (daily entry cap, daily loss halt, drawdown "
+    "halt, a cooldown).",
     "Name the gate and quote its `reason` verbatim (\"Max Entries/Day — Max entries: 4/4 entries today\"), say when "
-    "it lets go",
-    "and that nothing is broken.",
+    "it lets go (`reset`: daily gates at 00:00 UTC, cooldowns on their own; a latched drawdown halt with "
+    "`drawdown_reset_on_day_rollover: false` never lets go on its own — it waits for the user's decision, and you "
+    "never clear it or resume entries without their explicit approval), and that nothing is broken.",
+    "**Never send the user to redeploy over it** — a fresh wallet market-exits the book and starts the same gate "
+    "again from zero.",
     "A thorough health check does not stop at the verdict: for a strategy that is `not_running`, `degraded` or "
     "`unknown` — **never for `recovering`** — **`python3 senpi-strategy-ops/scripts/status.py <id>`** re-asks the "
-    "runtime directly",
+    "runtime directly and returns its verdict **beside a position count**, which is the corroboration above.",
     "Run it yourself and give the answer.",
+    "**It is your tool, not a step you hand the user** — never write \"worth running …\" into a portfolio answer; "
+    "either run it, or say what you know without it.",
+    "**Mind the vocabulary:** `status.py` reports the engine's raw words, and they do not line up with this skill's.",
+    "Its **`degraded`** is this skill's **`recovering`** (one errored tick); its **`unhealthy`** is this skill's "
+    "**`degraded`** (the real fault).",
     "Reference the right tool to *confirm* — never re-derive its analysis here.",
     "**Before the ladder: if the row carries `runtime_reason`, say it.**",
+    "Quote it in those words: a scanner that cannot stay up is why it has not traded.",
     "No `runtime_reason` means the runtime gave none — never invent one; the ladder finds it.",
-    "**When it IS genuinely broken, act — don't hand the user a to-do.** For `degraded` corroborated by no "
-    "activity, or `not_running`, work the ladder yourself and report what you found",
-    "Only the last step touches their money, and only that one needs their consent:",
-    "**Nothing qualified.** The entry bar has not been met — name it, never \"being selective\"",
+    "**When it IS genuinely broken, act — don't hand the user a to-do.**",
+    "For `degraded` corroborated by no activity, or `not_running`, work the ladder yourself and report what you "
+    "found (the ladder: `references/runtime-health.md`).",
+    "Only the last step touches their money, and only that one needs their consent: **`close.py` → redeploy** — "
+    "**last resort, and ask first.**",
+    "**Nothing qualified.** The entry bar has not been met — name it, never \"being selective\": the binding gate, its "
+    "threshold and the universe count from its `runtime.yaml` (`senpi-strategy-ops` "
+    "`references/liveness-verification.md`, \"Healthy, live — and it has never traded\").",
     "Its `name` is **\"copy of `mirror_of`\"** — never call it \"unnamed.\"",
-    "but the fix is **never** a DSL or a per-position stop.",
-    "lower `mirrorMultiplier` **via `senpi-trade`** (it wraps `strategy_update`). To stop copying → unsubscribe / "
-    "close the mirror **via `senpi-trade`**.",
-    "Flag any position fighting the tape *for a directional-momentum mandate* / near `liq_px` / oversized.",
+    "High leverage or a lopsided book is worth *surfacing* (\"this copies `mirror_of` at 20x — a sharp adverse move "
+    "liquidates fast; it has [no] strategy-level stop\"), but the fix is **never** a DSL or a per-position stop.",
+    "To add/tighten a downside cap, take profit, or size down → set `stopLossPercentage` / `takeProfitPercentage` "
+    "or lower `mirrorMultiplier` **via `senpi-trade`** (it wraps `strategy_update`).",
+    "To stop copying → unsubscribe / close the mirror **via `senpi-trade`**.",
+    "**These are two views of one wallet, not two separate pools.**",
+    "The `withdrawable` (idle cash) is **shared** and reported *identically* in both views — so it is counted "
+    "**once**, never summed.",
     "**Per-strategy verdict (the real value).** For **each `strategy_groups[]` entry** (one per real strategy — "
     "never one per wallet), in this order:",
+    "Flag any position fighting the tape *for a directional-momentum mandate* / near `liq_px` / oversized.",
     "**Anti-patterns — these exact misreads happened live; never repeat them:**",
+    "The deployed `runtime.yaml` is authoritative; a strategy's open book is *evidence about* whether it's "
+    "on-mandate, never the definition of the mandate.",
+    "**Lead and reason at the `strategy_groups[]` level, not `strategies[]`.**",
+    # 1.35.1 round 2 (review of 16907c2f)
+    "**Two rules before you answer.** Count the signals rather than describing one, and name the assets that were "
+    "skipped, because \"3 eligible entries were skipped\" is the part the user actually feels.",
+    "And lead with whether they need to act: for most of these the honest answer is *nothing*, and saying so is "
+    "the useful reply.",
+    "Say **\"could not verify on this host\"** — never \"protected,\" \"not protected,\" \"running,\" or \"not "
+    "running.\" **`null` is not `false`.**",
+    "**That whole-fleet pattern means the runtime on this box is too old for this skill's registry read, not that "
+    "the strategies are broken.**",
+    "Say so in those words, quote the warning, and do not diagnose the strategies from it: no strategy may be "
+    "called running, not-running, protected or unprotected off that run.",
+    "The fix is a runtime upgrade on the box, not a redeploy of the strategies.",
+    "`live`, trading: **They agree.** Clean. Say so.",
+    "**Re-run the deploy** — a deploy interrupted by a gateway restart does not resume on its own, and re-running "
+    "reconciles rather than duplicating.",
+    "This is the fix for `not_running` after a broken deploy.",
+    "**Do not offer \"close and relaunch\" for `withdrawable_unavailable`.** Wait, then support.",
+    "Give the exchange's own message, which rides the outcome.",
+    "Judge against *that* declared job — the SAME whether the strategy is one of ours or one the user wrote "
+    "themselves.",
+    "1. **Label + mandate.** 2. **Is it doing its job — against its OWN mandate.** 3. **Positions as evidence — "
+    "across ALL the strategy's instances.**",
+    "4. **PnL — realized + unrealized, summed across the strategy.** 5. **DSL protection — ladder + live tiers.**",
+    "State the group's `protected` posture (⟹ **all** instances ship a DSL exit), then **how its DSL works** from "
+    "`group.dsl` / `profile.dsl` (hard stop at `hard_stop_roe_pct`, ratchet arms at `arm_at_roe_pct`, the tier "
+    "ladder), then **each open position's live tier** from `positions[].dsl`. 6. **Any lever is WHOLE-STRATEGY.**",
+    "3. **Portfolio-level read.** Net exposure (net long/short and by sector), concentration (largest position), "
+    "idle drag (capital sitting in cash), and the overall posture — is this book hedged, directional, mostly in "
+    "cash?",
+    "Compare the net tilt to where the broader market is.",
 )
 
 
@@ -295,7 +362,6 @@ DUPLICATED = {
     ),
     "mirror-strategies.md": (
         "**NEVER, for a mirror:** add a DSL / ratchet;",
-        "Those are **custom-strategy** remedies",
         "A mirror is an intentional copy of a trader, judged on the trader + the multiplier + its",
     ),
     "mandate.md": (
@@ -325,11 +391,27 @@ def test_the_resilience_copy_in_output_contract_is_the_whole_section():
     assert "Report realized PnL as **unavailable** for that strategy — never as `$0`." in skill
 
 
-def test_the_managed_money_paragraph_copy_reads_the_same():
-    para = "These three buckets are the **managed** money"
-    sk = SKILL[SKILL.index(para):]
-    sk = _norm(sk[:sk.index("\n\n")])
-    assert sk in _ref("output-contract.md"), "edit SKILL.md \"The three buckets\" and its output-contract.md copy together"
+def test_the_three_buckets_copy_reads_the_same():
+    # The bucket table's last row, the grand_total formula and the managed-money paragraph sit just past the
+    # 5.7 cut; output-contract.md (router rows "analyze my portfolio" and "a yes to CTA 1 / CTA 2") carries
+    # the whole subsection word for word.
+    sk = _norm(_section_body(SKILL, "### The three buckets\n", "\n## A strategy is ALL its wallets"))
+    contract = _norm(_section_body(_read(os.path.join(REFS, "output-contract.md")),
+                                   "SKILL.md \"The three buckets\", word for word:\n",
+                                   "\n## A strategy is ALL its wallets — a copy"))
+    assert sk == contract, "edit SKILL.md \"The three buckets\" and its output-contract.md copy together"
+    assert "**`grand_total = idle_in_embedded + idle_in_strategies + deployed_in_positions`.**" in sk
+
+
+def test_the_strategy_grouping_copies_read_the_same():
+    # "A strategy is ALL its wallets" sits past the 5.7 cut; the strategies row (mandate.md) and the full-read
+    # row (output-contract.md) open whole-paragraph copies of it.
+    sk = _norm(_section_body(SKILL, "## A strategy is ALL its wallets (present + reason at `strategy_groups[]`)\n",
+                             "\n### A flat/empty instance"))
+    assert sk.startswith("**This is the most important rule in this skill.**")
+    assert "at least one strategy spans multiple wallets — be especially careful." in sk
+    for name in ("mandate.md", "output-contract.md"):
+        assert sk in _ref(name), f"edit SKILL.md \"A strategy is ALL its wallets\" and its {name} copy together"
 
 
 def _cta_block(text, end_marker):
@@ -419,6 +501,14 @@ def test_explanations_moved_in_1351_are_in_their_references():
                    "`strategyName` is optional on `strategy_create_custom_strategy`",
                    "`\"tradingStrategyName\"` is the **package id**", "`all` is the default when no step is given"):
         assert needle in fields, needle
+    contract = _ref("output-contract.md")
+    for needle in ("You are a sharp portfolio analyst.", "The user wants a read.",
+                   "# 1. the FAST money map: embedded idle + each wallet's value → the three buckets (narrate FIRST)"):
+        assert needle in contract, needle
+    for needle in ("The steps share a state file", "Their raw reads are `external_wallets: {status, wallets}`"):
+        assert needle in fields, needle
+    assert "Attribution happens downstream when the execution tools / strategy skills act on a CTA." in rationale
+    assert "Those are **custom-strategy** remedies" in _ref("mirror-strategies.md")
     framework = _ref("analysis-framework.md")
     for needle in ("The engine computes these as two separate fields precisely so you don't mix them.",
                    "has **$3K now** regardless of what it was funded.", "a 1% price move at 10x is a 10% return on margin."):

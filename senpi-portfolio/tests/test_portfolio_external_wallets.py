@@ -351,9 +351,11 @@ def test_cta_one_never_routes_a_saved_wallet_to_a_write_tool():
 def test_skill_has_no_strategy_pitch_on_the_no_strategy_path():
     sec = _skill().split("## One wallet list — every wallet first-class", 1)[1].split("## ", 1)[0]
     assert "`meta.no_strategy_path`" in sec
-    # The raw-read field detail sits in "row details" (below the 5.7 replay cut); the head points there.
+    # The raw-read field detail is an engine note: "row details" points to output-fields.md (1.35.1).
     details = _skill().split("## One wallet list — row details", 1)[1].split("## ", 1)[0]
-    assert "from every step (`money`, `strategies`, `positions`) and from `all`" in details
+    assert "their raw reads, `external_wallets`: `references/output-fields.md`" in details
+    fields = " ".join(open(os.path.join(HERE, "..", "references", "output-fields.md"), encoding="utf-8").read().split())
+    assert "from every step (`money`, `strategies`, `positions`) and from `all`" in fields
     assert "Never pitch a strategy" in sec
     assert "**Want me to review the trades on it, or score it on the quant desk?**" in sec
 

@@ -127,6 +127,14 @@ $3.1K account to $5.6K).
 
 ## Steps — the fail-open contract
 
+**Narrate each slice as it returns — never wait for all steps.** The steps share a state file
+(`<tempdir>/senpi-portfolio/state.json`, overridable with `--state`), so a later step reuses what an earlier
+one fetched instead of re-pulling.
+
+**Saved wallets.** Their raw reads are `external_wallets: {status, wallets}` (each `state` verbatim), returned from
+every step (`money`, `strategies`, `positions`) and from `all`, with `meta.no_strategy_path` on each;
+their rows in `book.wallets` carry the columns.
+
 `--no-market` applies to every step (skips the `positions` market fan-out). Same fail-open contract as
 `all`: each step returns valid JSON with `meta.warnings` on partial data and **never crashes on a
 missing/corrupt state file, nor on a runtime CLI that is absent or cannot even be spawned** (it
