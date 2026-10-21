@@ -24,6 +24,7 @@ Two measurements, each a line-for-line port of the OpenClaw code that applies th
 Re-port all three on any OpenClaw bump; tests/test_openclaw_measure.py pins goldens produced by
 running the original TypeScript/JavaScript under node.
 """
+import json
 import math
 import os
 import re
@@ -129,7 +130,8 @@ def estimate_string_chars(text):
 
 
 def estimate_file_chars(path):
-    with open(path, encoding="utf-8") as f:
+    # newline="": OpenClaw's readFileSync keeps CRLF as 2 chars; universal newlines would count 1.
+    with open(path, encoding="utf-8", newline="") as f:
         return estimate_string_chars(f.read())
 
 
@@ -186,37 +188,133 @@ def _extract_frontmatter_block(content):
     return normalized[4:end]
 
 
-def _frontmatter_string(value):
-    # coerceYamlFrontmatterValue: strings are trimmed, numbers/booleans stringified.
+class _CoreSchemaLoader(yaml.SafeLoader):
+    """PyYAML minus the YAML 1.1 resolvers the npm ``yaml`` core schema lacks: no timestamps, and
+    booleans are only true/false (``yes``/``on`` stay strings)."""
+
+
+_CoreSchemaLoader.yaml_implicit_resolvers = {
+    k: [(tag, rx) for tag, rx in v
+        if tag not in ("tag:yaml.org,2002:timestamp", "tag:yaml.org,2002:bool")]
+    for k, v in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+_CoreSchemaLoader.add_implicit_resolver(
+    "tag:yaml.org,2002:bool", re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"), list("tTfF"))
+
+
+def _js_number_string(value):
+    if isinstance(value, float) and value.is_integer() and abs(value) < 1e21:
+        return str(int(value))
+    return str(value)
+
+
+def _coerce_yaml_value(value):
+    # coerceYamlFrontmatterValue -> (value, kind) or None.
     if value is None:
         return None
     if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float, str)):
-        return str(value).strip()
-    return None
+        return ("true" if value else "false"), "scalar"
+    if isinstance(value, str):
+        return value.strip(_JS_WHITESPACE), "scalar"
+    if isinstance(value, (int, float)):
+        return _js_number_string(value), "scalar"
+    try:
+        return json.dumps(value, separators=(",", ":"), ensure_ascii=False), "structured"
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_yaml_frontmatter(block):
+    # parseYamlFrontmatter: None on a parse error or a non-mapping document.
+    try:
+        parsed = yaml.load(block, Loader=_CoreSchemaLoader)
+    except yaml.YAMLError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    out = {}
+    for raw_key, value in parsed.items():
+        key = str(raw_key).strip(_JS_WHITESPACE)
+        coerced = _coerce_yaml_value(value) if key else None
+        if coerced:
+            out[key] = coerced
+    return out
+
+
+_LINE_KEY_RE = re.compile(r"^([\w-]+):\s*([^\n\r\u2028\u2029]*)$", re.ASCII)
+
+
+def _strip_quotes(value):
+    if len(value) >= 1 and ((value[0] == '"' and value[-1] == '"') or (value[0] == "'" and value[-1] == "'")):
+        return value[1:-1]
+    return value
+
+
+def _parse_line_frontmatter(block):
+    # parseLineFrontmatter: key -> (value, kind, raw_inline).
+    out = {}
+    lines = block.split("\n")
+    i = 0
+    while i < len(lines):
+        m = _LINE_KEY_RE.match(lines[i])
+        if not m:
+            i += 1
+            continue
+        key, inline = m.group(1), m.group(2).strip(_JS_WHITESPACE)
+        if not inline and i + 1 < len(lines) and lines[i + 1][:1] in (" ", "\t"):
+            j = i + 1
+            while j < len(lines) and not (lines[j] and lines[j][0] not in (" ", "\t")):
+                j += 1
+            value = "\n".join(lines[i + 1:j]).strip(_JS_WHITESPACE)
+            if value:
+                out[key] = (value, "multiline", inline)
+            i = j
+            continue
+        value = _strip_quotes(inline)
+        if value:
+            out[key] = (value, "inline", inline)
+        i += 1
+    return out
+
+
+def parse_frontmatter_block(content):
+    """Port of 5.7 parseFrontmatterBlock: the YAML values, merged with a line parser's.
+
+    When YAML fails (e.g. an unquoted ``description: Use when: …``) the line parser's values are
+    used whole, so the skill is still rendered. When YAML succeeds, keys only the line parser saw
+    are added, and a structured YAML value loses to an inline line value that contains a colon.
+    """
+    block = _extract_frontmatter_block(content)
+    if not block:
+        return {}
+    line = _parse_line_frontmatter(block)
+    parsed = _parse_yaml_frontmatter(block)
+    if parsed is None:
+        return {k: v[0] for k, v in line.items()}
+    merged = {}
+    for key, (value, kind) in parsed.items():
+        merged[key] = value
+        entry = line.get(key)
+        if (entry and kind == "structured" and entry[1] == "inline"
+                and not re.match(r"^[|>][+-]?(\d+)?[+-]?$", entry[2]) and ":" in entry[0]):
+            merged[key] = entry[0]
+    for key, entry in line.items():
+        merged.setdefault(key, entry[0])
+    return merged
 
 
 def skill_prompt_entry(skill_dir):
     """(name, description, location) as loadSingleSkillDirectory builds it, or None if skipped.
 
-    OpenClaw parses the frontmatter with the npm ``yaml`` package (core schema); our
-    descriptions are plain/folded block scalars, which PyYAML reads identically (cross-checked
-    against yaml@2.8 under node). A skill with no description is not loaded at all.
+    OpenClaw parses the frontmatter with ``parseFrontmatterBlock`` (npm ``yaml``, core schema,
+    plus its line-parser fallback); ``parse_frontmatter_block`` ports both, pinned by goldens from
+    the original under node. A skill with no description is not loaded at all.
     """
-    with open(os.path.join(skill_dir, "SKILL.md"), encoding="utf-8") as f:
-        block = _extract_frontmatter_block(f.read())
-    data = {}
-    if block:
-        try:
-            parsed = yaml.safe_load(block)
-            if isinstance(parsed, dict):
-                data = parsed
-        except yaml.YAMLError:
-            data = {}
+    with open(os.path.join(skill_dir, "SKILL.md"), encoding="utf-8", newline="") as f:
+        data = parse_frontmatter_block(f.read())
     dir_name = os.path.basename(os.path.normpath(skill_dir))
-    name = _frontmatter_string(data.get("name")) or dir_name.strip()
-    description = _frontmatter_string(data.get("description"))
+    name = (data.get("name") or "").strip(_JS_WHITESPACE) or dir_name.strip()
+    description = (data.get("description") or "").strip(_JS_WHITESPACE)
     if not name or not description:
         return None
     return name, description, f"{BOX_SKILLS_ROOT}/{dir_name}/SKILL.md"
@@ -309,10 +407,9 @@ def _append_bounded_suffix(kept, original_len, max_chars):
         kept = nxt if len(nxt) < len(kept) else kept[:-1]
 
 
-def _truncate_units(u, max_chars, min_keep_chars):
-    # truncateToolResultText on a code-unit string; minKeepChars already resolved.
-    if len(u) <= max_chars:
-        return u
+def _plan_cut(u, max_chars, min_keep_chars):
+    # truncateToolResultText's cut points on a code-unit string over max_chars:
+    # (head_cut, tail_start) for head+tail, (cut, None) for head-only.
     budget = max(min_keep_chars, max_chars - len(_suffix(max(1, len(u) - max_chars))))
     if has_important_tail(_from_units(u)) and budget > min_keep_chars * 2:
         tail_budget = min(math.floor(budget * 0.3), 4000)
@@ -326,13 +423,23 @@ def _truncate_units(u, max_chars, min_keep_chars):
             tail_newline = u.find("\n", tail_start)
             if tail_newline != -1 and tail_newline < tail_start + tail_budget * 0.2:
                 tail_start = tail_newline + 1
-            kept = u[:head_cut] + _units_str(MIDDLE_OMISSION_MARKER) + u[tail_start:]
-            return _append_bounded_suffix(kept, len(u), max_chars)
+            return head_cut, tail_start
     cut = budget
     last_newline = u.rfind("\n", 0, budget + 1)
     if last_newline > budget * 0.8:
         cut = last_newline
-    return _append_bounded_suffix(u[:cut], len(u), max_chars)
+    return cut, None
+
+
+def _truncate_units(u, max_chars, min_keep_chars):
+    # truncateToolResultText on a code-unit string; minKeepChars already resolved.
+    if len(u) <= max_chars:
+        return u
+    head_cut, tail_start = _plan_cut(u, max_chars, min_keep_chars)
+    if tail_start is None:
+        return _append_bounded_suffix(u[:head_cut], len(u), max_chars)
+    kept = u[:head_cut] + _units_str(MIDDLE_OMISSION_MARKER) + u[tail_start:]
+    return _append_bounded_suffix(kept, len(u), max_chars)
 
 
 def truncate_tool_result_text(text, max_chars, min_keep_chars=MIN_KEEP_CHARS):
@@ -353,15 +460,21 @@ def replay_57(text):
 
 
 def replay_57_layout(text):
-    """(mode, head_len, tail_start) of replay_57(text) in UTF-16 units: mode is "whole",
-    "head-only" or "head+tail"; tail_start is the offset in ``text`` where the kept tail begins."""
+    """(mode, head_len, tail) of replay_57(text) in UTF-16 units: mode is "whole", "head-only" or
+    "head+tail"; tail is None or the (start, end) offsets in ``text`` of the kept tail.
+
+    end is not always len(text): when the truncation notice gains a digit (texts of ~16k, ~26k,
+    ~116k), _append_bounded_suffix trims the last chars of the kept tail, and those are not
+    replayed. Assert "replayed" on text[start:end], never on text[start:].
+    """
     u = _units_str(text)
     if len(u) <= LIVE_TOOL_RESULT_MAX_CHARS:
         return "whole", len(u), None
     out = _units_str(replay_57(text))
+    body = re.sub(r"\[\.\.\. \d+ more characters truncated\]$", "", out)
     marker = _units_str(MIDDLE_OMISSION_MARKER)
-    i = out.find(marker)
+    i = body.find(marker)
     if i < 0:
-        return "head-only", out.rfind("[..."), None
-    tail = re.sub(r"\[\.\.\. \d+ more characters truncated\]$", "", out[i + len(marker):])
-    return "head+tail", i, len(u) - len(tail)
+        return "head-only", len(body), None
+    _, tail_start = _plan_cut(u, LIVE_TOOL_RESULT_MAX_CHARS, MIN_KEEP_CHARS)
+    return "head+tail", i, (tail_start, tail_start + len(body) - i - len(marker))

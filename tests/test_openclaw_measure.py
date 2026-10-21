@@ -131,6 +131,27 @@ FRONTMATTER_CASES = {
         "---\r\nname: crlf-skill\r\ndescription: >-\r\n  wrapped\r\n  text\r\n---\r\n",
         ("crlf-skill", "wrapped text"),
     ),
+    # YAML parse errors: 5.7 falls back to its line parser and still renders the skill.
+    "yaml_error_colon": (
+        "---\nname: colon-skill\ndescription: Use when: the user asks\nmetadata:\n  v: 1\n---\nbody\n",
+        ("colon-skill", "Use when: the user asks"),
+    ),
+    "yaml_error_multiline": (
+        "---\nname: ml\ndescription:\n  first line: with colon\n  second line\nbad: [unclosed\n---\n",
+        ("ml", "first line: with colon\n  second line"),
+    ),
+    "yaml_error_quoted_inline": (
+        "---\nname: \"q-skill\"\ndescription: 'Quoted: then: more'\nx: : :\n---\n",
+        ("q-skill", "Quoted: then: more"),
+    ),
+    # YAML succeeds: a structured value loses to an inline line value with a colon, else is JSON.
+    "structured_prefers_line": ("---\nname: s\ndescription: {a: 1}\n---\n", ("s", "{a: 1}")),
+    "structured_block_no_colon": (
+        "---\nname: s2\ndescription:\n  - one\n  - two\n---\n", ("s2", '["one","two"]')),
+    # Core schema: yes/on are strings, dates stay text, numbers print as JS does.
+    "yaml_bool_yes": ("---\nname: yes\ndescription: on\n---\n", ("yes", "on")),
+    "yaml_date": ("---\nname: d\ndescription: 2026-10-21\n---\n", ("d", "2026-10-21")),
+    "yaml_number": ("---\nname: n\ndescription: 1.50\n---\n", ("n", "1.5")),
 }
 
 
@@ -255,7 +276,27 @@ def test_replay_layout_names_the_mode():
     assert mode == "head-only" and 15_900 < head <= 16_000 and tail is None
     mode, head, tail = om.replay_57_layout(REPLAY_CASES["tail_total"][0])
     text = REPLAY_CASES["tail_total"][0]
-    assert mode == "head+tail" and 11_000 < head < 12_000 and len(text) - tail < 4_000
+    assert mode == "head+tail" and 11_000 < head < 12_000
+    assert len(text) - tail[0] < 4_000 and tail[1] == len(text)
     assert om.important_tail_trigger(text) == "total"
     assert om.important_tail_trigger(REPLAY_CASES["tail_brace_bom"][0]) == "}"
     assert om.important_tail_trigger(REPLAY_CASES["head_only_prose"][0]) is None
+
+
+@pytest.mark.parametrize("n", [25_958, 16_092, 115_958])
+def test_replay_layout_tail_end_at_digit_rollover(n):
+    # The notice's count gains a digit here, so _append_bounded_suffix trims the last char of
+    # the kept tail: the span must end before EOF and match the replayed text exactly.
+    text = "a" * n + " total"
+    mode, head, (start, end) = om.replay_57_layout(text)
+    out = om.replay_57(text)
+    body = out[:out.rfind("[...")]
+    assert mode == "head+tail" and end == len(text) - 1
+    assert body[:head] == text[:head] and body.endswith(text[start:end])
+
+
+def test_crlf_counts_two_chars(tmp_path):
+    p = tmp_path / "SKILL.md"
+    with open(p, "w", encoding="utf-8", newline="") as f:
+        f.write("a\r\nb\r\n")
+    assert om.estimate_file_chars(str(p)) == 6
