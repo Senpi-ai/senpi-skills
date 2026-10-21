@@ -182,7 +182,8 @@ For each: ask the question, offer the options as plain choices, then map the ans
    the 4h gain leaderboard is a consequence of the move (whoever was on the winning side is at the top),
    so following it is circular. Use `discovery_get_top_traders` (ALL_TIME; pass `limit` and page with `offset`,
    since it returns 20 rows without one) + `discovery_get_trader_state` — headcount and tick-over-tick change,
-   the `senpi-smart-money` method — and name the template that already does it (the Starling / WhaleHunter / Stingray family) as the fork option before writing a new one.
+   the `senpi-smart-money` method — and name the template that already does it (the Starling /
+   WhaleHunter / Stingray family) as the fork option before writing a new one.
 3. **Edge — "What's the actual signal?"**
    trend-follow · mean-revert · breakout · relative-strength · copy/follow · **cohort-divergence**
    (smart money vs the crowd) · event/new-listing · macro-thesis. → the math in `scoring.py`.
