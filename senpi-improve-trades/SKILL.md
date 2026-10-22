@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.20.1"
+  version: "1.20.2"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -62,7 +62,8 @@ binds on a follow-up; when a row names a reference, read it first.
   signal, never a fee dollar total. ("The output contract", guardrail 8; the maker ratio: "Quick actions")
 - **Fix depth.** End every improvement with "How deep do you want me to go?" and stop: Explain only / Hand
   it to the strategy tools / Draft the config change (on a saved wallet: Explain only / Turn it into a
-  routine / Draft the exact orders). Never pick for the user, and never act unprompted.
+  routine / Draft the exact orders). Never pick for the user, and never act unprompted. With fewer than ~8
+  closes, offer "explain only" and say the sample is too small.
 
 ## One book — every wallet first-class
 
@@ -171,7 +172,7 @@ imply Senpi checked who controls them. The engine adds every one to the review s
 5. **It's the strategy, not the user — on Senpi strategy trades.** Route every fix on a Senpi strategy trade
    to the strategy config (a DSL tier, the hard stop, an entry gate); never "you should have…". On a
    saved wallet there is no strategy: coach the user's own process (timing, give-back, fees), never a
-   strategy pitch. No fabricated forward numbers (no $/week).
+   strategy pitch. No fabricated forward numbers (no $/week). No guaranteed-gain language.
 
 The detailed guardrails below explain each; these five are the floor.
 
@@ -186,9 +187,9 @@ The detailed guardrails below explain each; these five are the floor.
 
 ## Your wallets — unknown reads and fix depth
 
-The long tail of "Your wallets" above. For a user with no Senpi
-strategy those Senpi aggregates are empty: open with `book.rows` as always (see "One book"), and the
-detail is `external_wallets[]`.
+The long tail of "Your wallets" above.
+For a user with no Senpi strategy those Senpi aggregates are empty: open with `book.rows` as always (see
+"One book"), and the detail is `external_wallets[]`.
 
 - **Unknown is never empty.**
   - `external_wallets: null` (`meta.external_wallets_status: "unavailable"`) → "I couldn't load your

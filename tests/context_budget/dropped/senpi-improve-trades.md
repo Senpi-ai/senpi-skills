@@ -1,7 +1,8 @@
-# senpi-improve-trades 1.20.1: dropped, reworded and moved-out-of-core sentences
+# senpi-improve-trades 1.20.2: dropped, reworded and moved-out-of-core sentences
 
 The restructure moved SKILL.md from 63,956 (1.19.1) to 54,319 (1.20.0) est chars; 1.20.1 puts rules back in
-core word for word and moves more of them into the 5.7 follow-up replay, at 55,569. Every other sentence of
+core word for word and moves more of them into the 5.7 follow-up replay, at 55,569; 1.20.2 copies two
+rules short into the replay after the Box A live test (2026-10-22), at 55,681. Every other sentence of
 the 1.19.1 SKILL.md is still in `SKILL.md` or moved verbatim to a `references/*.md` file (the conservation
 script checks this). This lists what was reworded or split, every imperative that left core, and where each
 rule sits on a 5.7 follow-up, so reviewers need not read the diff.
@@ -243,8 +244,8 @@ At `b1916b12` 5.7 kept head 0–11,896 + tail 60,031–end of SKILL.md on every 
 near the end switched it to head+tail). The file is head-only now: 5.7 keeps its first ~15,870 chars
 (`openclaw_measure.replay_57`). The Router, the follow-up rule, "Still true on every follow-up", One book,
 Your wallets, HARD RULES 0–5, "these five are the floor" and "Use this skill FIRST" replay (One book and
-Your wallets did not at `b1916b12`); 5.7 keeps 15,866 chars, and the smallest margin before the cut is 214
-chars (`test_every_replayed_rule_keeps_a_margin_before_the_57_cut` holds every replayed rule to ≥150).
+Your wallets did not at `b1916b12`); 5.7 keeps 15,953 chars (1.20.2), and the smallest margin before the cut
+is 189 chars (`test_every_replayed_rule_keeps_a_margin_before_the_57_cut` holds every replayed rule to ≥150).
 `test_improve_trades_skill_layout.py` pins them and the mode. The base-replayed rules now past the cut (all
 still in SKILL.md, word for word):
 
@@ -264,7 +265,7 @@ still in SKILL.md, word for word):
 | "quote the maker ratio as a fee-tier signal, never a fee dollar total" | `references/sources.md` (a copy of the **Fee $:** paragraph), opened by router row "where am I leaking, fees, maker vs taker"; "Still true" replays "The maker ratio is a fee-tier signal, never a fee dollar total." |
 | Composition: "Don't re-implement these — call them and weave their output into the four-part contract below." | `references/output-contract.md` (a whole copy of Composition), opened by router row "master my week, …" |
 | Output contract 3: "**`strategies[]` (the CURRENT book only) is the sole verdict surface.**" | `references/output-contract.md`, router row "master my week, …"; guardrail 8's closed-strategy sentence replays |
-| Output contract 4: "**no guaranteed-gain language**" | `references/output-contract.md`, router row "master my week, …"; hard rule 5 replays "No fabricated forward numbers (no $/week)." |
+| Output contract 4: "**no guaranteed-gain language**" | in the replay as a short copy after hard rule 5 (1.20.2): "No fabricated forward numbers (no $/week). No guaranteed-gain language."; whole in `references/output-contract.md`, router row "master my week, …" |
 | Sources: "`meta.telemetry_source` … and `meta.exit_reason_source_counts` tell you exactly how much enrichment landed; surface that honestly." | `references/sources.md`, router rows "shaken out, …" and "where am I leaking, fees, maker vs taker" |
 | Composition: "Use this skill for retrospective / … questions; use `senpi-portfolio` for live state." | `references/output-contract.md`, router row "master my week, …" |
 | "Use this skill FIRST" reason "(skipping the current-price comparison, guessing the exit mechanism)" | in the replay (back in core, 1.20.1) |
@@ -277,6 +278,16 @@ for word; both are first-turn cases):
 |---|---|
 | Your wallets "**`external_no_trades`** — saved wallets, no Senpi strategy, nothing closed in the window: say it in one line and offer a longer `--window`. Never pitch a strategy." | past the cut ("Your wallets — unknown reads and fix depth"); the Router row "nothing to review, an empty result" replays and sends the agent to `meta.book_state` ("Nothing to review?", whose `external_no_trades` row says the same) |
 | Your wallets "For a user with no Senpi strategy those Senpi aggregates are empty: open with `book.rows` as always (see "One book"), and the detail is `external_wallets[]`." | past the cut (same section); One book rule 1 ("Open with `book.rows` …") replays |
+
+Rules past the cut that were not in the `b1916b12` replay either, copied short into the replay in 1.20.2
+(Box A live test, 2026-10-22: a "Turn it into a routine" follow-up on a wallet with a few closes gave stop
+prescriptions, and follow-ups wrote "a guaranteed +$237"). The full rules stay where they were, word for
+word; `test_the_short_copies_sit_by_their_lines_and_match_the_full_rules` keeps the copies in step:
+
+| Rule past the cut | On a follow-up |
+|---|---|
+| The sample gates: guardrail 7 "With **fewer than ~8 attributed closes on that strategy**, offer "explain only" and say the sample is too small to tune on, …" and "Same sample gate: with fewer than ~8 closes on that wallet, offer "explain only" and say the sample is too small to change a routine on." | in the replay, short copy at the end of the "Still true" Fix depth line: "With fewer than ~8 closes, offer "explain only" and say the sample is too small."; the saved-wallet gate is whole in `references/output-contract.md`, router row "the user picks a fix depth"; guardrail 7's is whole only in SKILL.md, past the cut |
+| Guardrail 3: "no guaranteed-gain figure of any kind" | in the replay, same copy after hard rule 5 as output contract 4 above |
 
 The copies are byte for byte (`test_sections_copied_into_a_reference_are_byte_identical`,
 `test_the_fee_paragraph_copy_in_sources_is_byte_identical`), and a test checks that the replayed Router rows
@@ -298,7 +309,10 @@ name the file that holds them.
   reversals, guardrail 8's closed-strategy sentence, "Never pick for the user, and never act unprompted."),
   with short restatements for the rest ("No telemetry: …, never a bug", "Never the raw status.", the maker
   ratio) and the fix-depth menus by their question and option names (a test keeps them equal to the menus).
-  The full rules and menus stay where they were.
+  The full rules and menus stay where they were. 1.20.2: the Fix depth line ends with "With fewer than ~8
+  closes, offer "explain only" and say the sample is too small." (the two sample gates, short).
+- 1.20.2: hard rule 5 ends with "No guaranteed-gain language." (output contract 4 and guardrail 3, short).
+  "The long tail of "Your wallets" above." now ends its line (whitespace only), so 5.7's cut falls after it.
 - "## Your wallets — unknown reads and fix depth": the "Unknown is never empty" and "Open positions" bullets
   of Your wallets and "Fix depth on a saved wallet", moved below HARD RULES and "Use this skill FIRST" so
   those replay; the text is unchanged. 1.20.1: the `external_no_trades` bullet and the "For a user with no

@@ -160,7 +160,51 @@ def test_the_hard_rules_survive_the_57_replay():
     _assert_replayed(HARD_RULE_NEEDLES)
 
 
-REPLAY_NEEDLES = ROUTER_NEEDLES + MOVED_INTO_HEAD_NEEDLES + R1_NEEDLES + HARD_RULE_NEEDLES
+# 1.20.2 (Box A, OpenClaw 5.7, 2026-10-22): two rules past the cut, each copied short into the replay
+# next to the line it belongs with. A "Turn it into a routine" follow-up on a wallet with a few closes gave
+# stop prescriptions (the sample gate was past the cut), and follow-ups wrote "a guaranteed +$237" (the
+# no-guaranteed-gain rule was past the cut). The full rules stay where they were; the test below keeps
+# each short copy in step with them.
+SAMPLE_GATE_COPY = "With fewer than ~8 closes, offer \"explain only\" and say the sample is too small."
+NO_GUARANTEE_COPY = "No fabricated forward numbers (no $/week). No guaranteed-gain language."
+SHORT_COPY_NEEDLES = (SAMPLE_GATE_COPY, NO_GUARANTEE_COPY)
+
+
+def test_the_short_copies_survive_the_57_replay():
+    _assert_replayed(SHORT_COPY_NEEDLES)
+
+
+def test_the_short_copies_sit_by_their_lines_and_match_the_full_rules():
+    raw = _skill()
+    card = _norm(raw.split("**Still true on every follow-up**", 1)[1].split("\n\n", 1)[0])
+    fix_depth = card.split("**Fix depth.**", 1)[1]
+    assert _norm(SAMPLE_GATE_COPY) in fix_depth, "the sample-gate copy left the replayed Fix depth line"
+    # The full gates: guardrail 7 (Senpi strategy) and "Fix depth on a saved wallet". Same threshold, and
+    # the copy's words are the part the two share.
+    g7 = _norm(_section(raw, "### 7. The user chooses the fix depth — never auto-act, and never offer a "
+                             "tune off one trade"))
+    saved = _norm(_section(raw, "### Fix depth on a saved wallet — advice they apply on Hyperliquid"))
+    full = (re.search(r"With \*\*fewer than (~\d+) attributed closes on that strategy\*\*, offer \"explain only\" "
+                      r"and say the sample is too small to tune on", g7),
+            re.search(r"Same sample gate: with fewer than (~\d+) closes on that wallet, offer \"explain only\" "
+                      r"and say the sample is too small to change a routine on\.", saved))
+    assert all(full), "a full sample gate (guardrail 7 or the saved-wallet one) changed its wording"
+    copy = re.search(r"fewer than (~\d+) closes", SAMPLE_GATE_COPY).group(1)
+    assert {m.group(1) for m in full} == {copy}, (
+        f"the replayed sample gate says {copy}; the full gates say {[m.group(1) for m in full]}. Edit all "
+        f"three together.")
+    # Hard rule 5 carries the no-guaranteed-gain copy; the full rules are the output contract's step 4 and
+    # guardrail 3, both past the cut.
+    hard = _norm(_section(raw, "## HARD RULES (never violate — obey these even if you skim the rest)"))
+    rule5 = hard.split("5. **It's the strategy, not the user", 1)[1].split("The detailed guardrails", 1)[0]
+    assert _norm(NO_GUARANTEE_COPY) in rule5, "the no-guaranteed-gain copy left hard rule 5"
+    assert "**no guaranteed-gain language**" in _norm(_section(raw, "## The output contract — what you produce"))
+    assert "no guaranteed-gain figure of any kind." in _norm(
+        _section(raw, "### 3. No fabricated numbers — realized PnL + engine counterfactuals ONLY"))
+
+
+REPLAY_NEEDLES = (ROUTER_NEEDLES + MOVED_INTO_HEAD_NEEDLES + R1_NEEDLES + HARD_RULE_NEEDLES
+                  + SHORT_COPY_NEEDLES)
 REPLAY_MARGIN = 150
 
 
