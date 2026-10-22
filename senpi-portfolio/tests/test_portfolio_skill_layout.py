@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SKILL.md layout for the OpenClaw size limits (senpi-portfolio 1.35.1).
+"""SKILL.md layout for the OpenClaw size limits (senpi-portfolio 1.35.2).
 
 On OpenClaw 10.4 a SKILL.md over the model's cap is refused whole; the repo gate keeps every SKILL.md at
 or under 56,000 est chars (tests/test_context_budgets.py), and the long tail lives in `references/`.
@@ -69,6 +69,10 @@ REPLAY_NEEDLES = (
     "(liveness) |",
     "narrating between | `references/output-contract.md`, `references/runtime-health.md` (liveness) |",
     "say the cost first: every firing is a full model call",
+    # 1.35.2: on Box A (5.7) "restart it, it looks stuck" went to raw strategy_list in 3 of 3 runs; the
+    # liveness row names that wording so the follow-up runs `strategies` and opens runtime-health.md.
+    "| \"is it running / health check / degraded / not running / could not verify / it looks stuck / restart "
+    "it\" | `strategies` | `references/runtime-health.md` |",
     "**Still true on every follow-up**",
     "realized PnL that didn't load → *unavailable*, never `$0`",
     "A full read never skips a wallet or the CTAs.",

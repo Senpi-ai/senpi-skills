@@ -1,7 +1,7 @@
-# senpi-portfolio 1.35.1 — dropped, reworded and moved sentences
+# senpi-portfolio 1.35.2 — dropped, reworded and moved sentences
 
 Restructure of `senpi-portfolio/SKILL.md` for the 10.4 size limit: base `b1916b12` 90,344 est chars,
-1.35.0 55,735, 1.35.1 55,469. No sentence was deleted: every old sentence is in SKILL.md or a
+1.35.0 55,735, 1.35.1 55,469, 1.35.2 55,499. No sentence was deleted: every old sentence is in SKILL.md or a
 reference, or quoted here (`.github/scripts/check_conservation.py` passes against `b1916b12`).
 
 1.35.1 applies the maintainer's rule that every imperative's own words stay in SKILL.md. Of the
@@ -20,6 +20,9 @@ left core":
 3. **Rules still outside SKILL.md**: none.
 
 The 5.7 follow-up table (last section) says where each base-replayed rule is on a follow-up turn.
+
+1.35.2 (Box A live test, 2026-10-22) only widens the liveness router row with "it looks stuck / restart
+it": "restart it, it looks stuck" had gone to a raw `strategy_list` read. No sentence moved.
 
 ## Re-pointed cross-references
 
@@ -106,7 +109,7 @@ what's their DSL" (protection):
 - Do not abandon a correct reading, and do not invent a story to justify agreeing (a "strategy-grinder cascade," a "close at 14:58," "funds returned to embedded"). *(The incident's details; "Do not abandon a correct reading, and do not invent a story to justify agreeing." stays in SKILL.md. Moved 1.35.1.)*
 - Moved 1.35.1, no imperative word: "— a position in a scanner-managed wallet can be reconciled as foreign and DSL-flattened within minutes (order "succeeds," position gone; a raw read of the wrong sub-wallet then shows it "phantom")." (the tail of the "A successful open/close order is NOT proof" rule, which stays); "— a bare number read by eye is how an older close gets called today's." (the tail of the `closed_at_utc` rule, which stays); "Those return un-bucketed dumps that mislead — idle-vs-deployed conflation, per-wallet collateral double-counting, and **sub-wallets mistaken for separate strategies** (a strategy's `main`/`hedge` legs are ONE strategy, not two). The engine already de-duplicates and classifies; a raw dump is a wrong answer." (why "Use this skill FIRST"); "Grading every strategy against a generic momentum benchmark is the failure mode this skill exists to prevent — it graded an all-weather core, a crisis hedge, and a waiting strategy each as "dead weight" when all three were doing exactly their job."; "— it opens and closes positions every tick per its DSL and signal logic." (the tail of "For an **autonomous strategy the scanner owns entries and exits**", which stays); "Recommending action on a strategy that turns out to be already closed is exactly the failure this guards against."; the heading's "(this is a real failure that broke live strategies)".
 
-**`references/runtime-health.md`** — router rows "is it running / health check / degraded / not running / could not verify", "how are my strategies doing" and the full read; the Liveness digest in SKILL.md names it:
+**`references/runtime-health.md`** — router rows "is it running / health check / degraded / not running / could not verify / it looks stuck / restart it", "how are my strategies doing" and the full read; the Liveness digest in SKILL.md names it:
 
 - Such a strategy is **not running at all** — its scanner has never ticked, so it has **no DSL and no guardrails** — even though it shows ACTIVE and holds capital. *(Explanation; "Report it as **⛔ NOT RUNNING / UNPROTECTED — funded but no runtime; no scanner, no DSL, no guardrails**" stays in SKILL.md.)*
 - No closed record is never flagged: "never closed" cannot be told apart from "deployed ten minutes ago". *(What the engine does.)*
