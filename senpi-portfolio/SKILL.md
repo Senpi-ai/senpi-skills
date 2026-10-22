@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.35.1"
+  version: "1.35.2"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -40,7 +40,7 @@ book total, or verdicts and figures already shown unless the user asks for them 
 |---|---|---|
 | *"how much idle / where's my money / balance across wallets / grand total / my wallets"*, a wallet they added | `money` | "One wallet list" below |
 | *"are my strategies protected? / do they have a stop-loss? / how are my strategies doing / analyze my strategies / what's their DSL / mandate"* | `strategies` | `references/dsl.md` (protection), `references/mandate.md` (verdicts), `references/runtime-health.md` (liveness) |
-| "is it running / health check / degraded / not running / could not verify" | `strategies` | `references/runtime-health.md` |
+| "is it running / health check / degraded / not running / could not verify / it looks stuck / restart it" | `strategies` | `references/runtime-health.md` |
 | "why hasn't it traded / why didn't it open X / no signals" | `strategies` | `references/why-not-trading.md` |
 | a copy-trade (`strategy_kind: "mirror"`) | `strategies` | `references/mirror-strategies.md` |
 | *"analyze my positions / my positions vs the market / net exposure / concentration / idle drag"* | `positions` | `references/analysis-framework.md` |
