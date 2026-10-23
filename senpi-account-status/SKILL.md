@@ -1,22 +1,22 @@
 ---
 name: senpi-account-status
 description: >-
-  Show the user's standing across Senpi programs — points and rank, loyalty tier, the Senpi trading
-  fee (none on a paid plan), referral earnings — and explain the AI-credits usage meter. Use for
-  "how many points do I have?", "what's my rank/tier?", "what are my fees?", "my referral rewards",
-  and for credits: "what is the bubble/meter in the header?", "why are my credits going down?",
-  "how much did that cost?", "does my strategy use credits?", "can I trade or withdraw my credits?",
-  and for plans: "what plans are there?", "how much
+  Show the user's standing across Senpi programs — points and rank, the Senpi trading fee (none on a
+  paid plan), referral earnings — and explain the AI-credits usage meter. Use for "how many points
+  do I have?", "what's my rank/tier?", "where did my tier go?", "what are my fees?", "my referral
+  rewards", and for credits: "what is the bubble/meter in the header?", "why are my credits going
+  down?", "how much did that cost?", "does my strategy use credits?", "can I trade or withdraw my
+  credits?", and for plans: "what plans are there?", "how much
   does Senpi cost?", "what do I get on Pro/Quant?", "how do I get free credits?", "where are my
   milestone credits?", "do I need a subscription to keep my strategy running?", "what happens when my
-  trial ends?". Use this instead of calling user_get_senpi_points +
-  get_loyalty_tiers one by one. A hidden engine (scripts/status.py) pulls points/loyalty/referral in one call; the credit
-  BALANCE is explained, never read — no tool returns it — while the plan catalog and the free-credit
-  ladder are published here and may be quoted. Requires a USER-scoped Senpi token.
+  trial ends?". Use this instead of calling user_get_senpi_points by hand. A hidden engine
+  (scripts/status.py) pulls points, the fee and referral in one call; the credit
+  BALANCE is explained, never read — no tool returns it — while the plan catalog and the end of the
+  free-credit milestones are published here and may be quoted. Requires a USER-scoped Senpi token.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.6.0"
+  version: "1.7.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -24,27 +24,27 @@ metadata:
 # Senpi Account Status — your standing across Senpi
 
 A hidden engine pulls the user's standing in one real-time call; **your job is to present it
-cleanly** and point at the next step (the next loyalty tier, a claimable referral balance).
+cleanly**: points and rank, the Senpi fee, and referral earnings.
 
 ## Golden rules
 
-- **Run the engine; never hand-pull.** `python3 scripts/status.py` gathers points, loyalty, and
+- **Run the engine; never hand-pull.** `python3 scripts/status.py` gathers points, the fee, and
   referral together. Read its JSON.
 - **Real-time, not from memory.** Points/rank move — never quote a figure from earlier in the
   conversation; re-run.
-- **The fee comes from the data, never from memory.** Quote `loyalty.fee_pct` as returned: `0%` on a
-  paid plan (Starter, Pro, Advanced, Quant), the flat free rate without one, free trials included.
-  Tiers and points no longer change it, so never tell a user that a higher tier lowers their fee.
-  (For the *full* tier table, that's `get_loyalty_tiers`; this skill returns the user's *own* tier.)
-- **Lead with what they asked, then the milestone.** If they asked about points, lead with points +
-  rank, then "X to the next tier." Don't dump every section if they asked one question — but the
-  engine returns all of it so you can.
+- **The fee comes from the data, never from memory.** Quote `fee.pct` as returned: `0%` on a paid
+  plan (Starter, Pro, Advanced, Quant), the flat free rate without one, free trials included.
+- **Tiers carry no benefit right now: no fee change, nothing unlocked. Do not bring tiers up.** Never
+  suggest reaching, keeping or regaining a tier, and never close with a next-tier offer. If the user
+  asks about their tier or where it went, say tiers carry no benefit right now. Points still accrue
+  at the plan multiplier and still set leaderboard rank.
+- **Lead with what they asked.** If they asked about points, lead with points + rank. Don't dump
+  every section if they asked one question — but the engine returns all of it so you can.
 - **Credits are explained, never read.** No tool returns the AI-credit balance; the meter in the app
   header is the balance. Rules in "AI credits — the usage meter" below.
-- **Plans and free credits are published; the balance is not.** Quote the catalog and the milestone
-  ladder in "Plans & free credits" below — and only from there. A figure about *this user* (what is
-  left, what they were charged, where their bar sits) comes from their page, never from you.
-- **Always end with the CTA** (below) — for standing answers; a credits answer closes on the meter.
+- **Plans and free credits are published; the balance is not.** Quote the catalog and the end of the
+  milestones in "Plans & free credits" below — and only from there. A figure about *this user* (what
+  is left, what they were charged, where their bar sits) comes from their page, never from you.
 
 ## How to run the engine
 
@@ -52,14 +52,11 @@ cleanly** and point at the next step (the next loyalty tier, a claimable referra
 python3 scripts/status.py
 ```
 
-Returns `{identity, points, loyalty, referral, meta}`:
-- `points` — `total`, `base` (Base copy-trading), `perp` (Hyperliquid), `multiplier`, `rank`,
-  `rank_change`.
-- `loyalty` — `tier`, `fee_bps` + `fee_pct` (the Senpi fee this user pays: `0` / `0%` on a paid
-  plan, the flat free rate otherwise; `fee_bps` is in tenths of a bp, so 50 = 0.05%),
-  `fee_discount_pct` (0 — tiers no longer discount the fee), `next_tier`, `points_to_next` (the
-  milestone), plus `demoted` / `previous_tier` / `maintenance_deadline` — if `demoted` is true,
-  mention the tier they fell from and that maintenance volume wins it back.
+Returns `{as_of, identity, points, fee, referral, meta}`:
+- `points` — `total`, `base` (Base copy-trading), `perp` (Hyperliquid), `multiplier` (the plan's
+  points rate), `rank`, `rank_change`.
+- `fee` — `bps` + `pct`, the Senpi fee this user pays: `0` / `0%` on a paid plan, the flat free rate
+  otherwise (`bps` is in tenths of a bp, so 50 = 0.05%).
 - `referral` — `balance_usdc` (pending referral earnings, 25% of builder fee on referred trades).
 - `meta.warnings` / `meta.degraded` — narrate honestly.
 - Fails open — partial data still returns valid JSON.
@@ -69,19 +66,10 @@ Returns `{identity, points, loyalty, referral, meta}`:
 Lead with the section they asked about; otherwise a tight standing card:
 
 1. **Points & rank** — total, base/perp split, multiplier, rank (+ change).
-2. **Loyalty** — current tier, the Senpi fee (`fee_pct`; `0%` = a paid plan, no Senpi fee), and
-   **`points_to_next` → next_tier** (the actionable milestone). The tier is a status; it does not
-   change the fee.
+2. **Fee** — `fee.pct` (`0%` = a paid plan, no Senpi fee).
 3. **Referral** — pending `balance_usdc` (and that it's claimable if > 0).
 
-Formatting: clean, scannable, numbers from the data; emoji sparingly (🎯 next tier).
-
-## Mandatory closing (verbatim)
-
-> **Want me to break down what it takes to reach the next tier?**
-
-On yes: use `loyalty.points_to_next` + `get_loyalty_tiers` for the tier path — thresholds and
-maintenance. Tiers carry no fee perk, so leave the table's fee columns out.
+Formatting: clean, scannable, numbers from the data; emoji sparingly.
 
 ## AI credits — the usage meter
 
@@ -105,7 +93,7 @@ on your plan and your usage, and only the user's own page shows that.
   anywhere — they are separate from the funding wallet and from every strategy budget. A shrinking
   meter is usage, never a trading loss; a losing trade never touches the meter.
 - **You cannot read the balance.** No Senpi tool returns it (`user_get_me` → id / wallets / createdAt
-  / referralCode; `user_get_senpi_points` → points / tier / fees) and the engine has no `credits`
+  / referralCode; `user_get_senpi_points` → points / fees) and the engine has no `credits`
   section. Point at the meter in the app header, or at their subscription page for the exact figure —
   the in-app indicator surfaces only when credits run low, so a missing indicator is expected, not a
   lost balance. Never invent a number, a percentage or a "roughly", and never guess what the meter
@@ -127,7 +115,7 @@ did that cost?", "does my strategy use credits?", "can I trade / withdraw / depo
 come here, in any language. "Credits" (Ukrainian "кредити", Spanish "créditos") means these AI credits
 unless the user says leverage, a loan or funding; when it is unclear, ask which before answering. A
 credits question is answered from this section alone — no engine run, no number — and closes by
-pointing at the meter; the next-tier CTA is for standing answers. "What plans are there / how much
+pointing at the meter. "What plans are there / how much
 does it cost / what do I get on Pro / how do I get free credits / where are my milestone credits /
 do I need a subscription / what happens when my trial ends" are **catalog** questions: answer them from "Plans & free credits" below, still without a figure
 about this user.
@@ -147,7 +135,7 @@ never a calendar month.
 - **Every plan includes every model.** Plans differ on credits and points rate only — never on model
   access, so a cheaper plan never locks anyone out of the better model.
 - **No Senpi trading fee on any paid plan** — only Hyperliquid's own exchange fees. Without a paid
-  plan, free trials included, Senpi charges a flat 0.05% on trades; tiers and points do not change it.
+  plan, free trials included, Senpi charges a flat 0.05% on trades; points do not change it.
 - **$1 of credit = $1 of AI usage.** Full credits land at the start of the cycle and expire at the end
   of it: **no rollover, no top-ups, no overage**. Out of credits = upgrade (instant) or wait for renewal.
 - **Upgrading is instant, any day** — the new plan's full credits land immediately, the 30-day cycle
@@ -168,25 +156,17 @@ never a calendar month.
   strategies back. You cannot see the user's plan, trial or renewal dates: point at
   senpi.ai/settings/subscription, and never tell them a subscription is not needed.
 
-**Free credits — what is left of the milestone ladder.** $25 of AI credit across 2 milestones, on the
-"Unlock Free AI Credits" card. The rest of the ladder (launch a strategy, fund a wallet, the
-trade-volume ladder) ended on 2026-10-26 and no longer pays.
+**Free credits — the milestones ended on 2026-10-26.** Every free-credit milestone is over: your
+first strategy, funding a wallet, the trading-volume ladder and the first-subscription bonus. None of
+them pays any more, and the "Unlock Free AI Credits" card shows nothing. Its "Deploy your agent" row
+went with it: the app built that row from the trial credit, and it was never a milestone.
 
-| Milestone | Free credits |
-|---|---|
-| Deploy your agent | $10 |
-| Subscribe to a plan | $15 |
-
-- **Deploying the agent is the only one credited on day one.** The other is earned.
-- **Not retroactive** — a milestone credits the next time it is achieved, counting from when
-  milestones launched; activity before that does not fill the bar.
-- **Milestone credits expire at the next renewal** — a different clock from the 14-day trial expiry,
-  so credit that vanished at a renewal boundary is working as designed.
-- The bonus is **always AI credit** — it never lands in Balances as USDC.
-
-**The card is the source of truth.** If the user's own page or card disagrees with any figure here,
-their page is right and this table is stale — never argue a user out of what is on their screen, and
-never tell them what their bar ought to read.
+- **Milestone credit already earned stays until the next renewal** — a different clock from the
+  14-day trial expiry, so credit that vanished at a renewal boundary is working as designed.
+- **The trial credit still activates when the user deploys their agent** (see Free trial above).
+- Never offer a bonus for a strategy, a deposit, volume or subscribing. If the user's own page or
+  card disagrees with this text, their page is right — never argue a user out of what is on their
+  screen.
 
 ## ⚠ Token scope
 
