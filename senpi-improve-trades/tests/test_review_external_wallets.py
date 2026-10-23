@@ -299,10 +299,18 @@ def _skill():
     return " ".join(open(SKILL, encoding="utf-8").read().split())
 
 
+def _your_wallets(sk):
+    """"Your wallets" and its long tail ("Your wallets — unknown reads and fix depth", up to its own
+    "### Fix depth" sub-heading), as one section."""
+    main = sk.split("## Your wallets (read-only, traded by hand)", 1)[1].split("## ", 1)[0]
+    tail = sk.split("## Your wallets — unknown reads and fix depth", 1)[1].split("## ", 1)[0]
+    return main + " " + tail
+
+
 def test_skill_quotes_the_access_line_and_forbids_writes():
     sk = _skill()
     assert ACCESS in sk
-    sec = sk.split("## Your wallets (read-only, traded by hand)", 1)[1].split("## ", 1)[0]
+    sec = _your_wallets(sk)
     for needle in ("`MANUAL_TRADE`", "manual trade", "no DSL-preset or strategy-tuning coaching",
                    "`closed_trades_unknown: true`", "`fills_capped: true`", "at least", "`external_no_trades`",
                    "`close.py`", "`edit_position`", "`strategy_*`", "`ratchet_stop_*`", "`protection`",
@@ -313,8 +321,7 @@ def test_skill_quotes_the_access_line_and_forbids_writes():
 
 
 def test_skill_never_prints_a_read_error_code():
-    sec = " ".join(open(SKILL, encoding="utf-8").read().split()).split(
-        "## Your wallets (read-only, traded by hand)", 1)[1].split("## ", 1)[0]
+    sec = _your_wallets(_skill())
     assert "never print the code" in sec and "`state: null`" in sec
 
 
@@ -620,7 +627,9 @@ def test_skill_narrates_one_book_in_the_engines_order():
 
 
 def test_skill_offers_the_three_depths_on_a_saved_wallet_as_advice():
-    sec = _book_section()
+    # "Fix depth on a saved wallet" sits in the long tail of Your wallets (offered at the end of an answer).
+    sec = _skill().split("## Your wallets — unknown reads and fix depth", 1)[1].split(" ## ", 1)[0]
+    assert "### Fix depth on a saved wallet — advice they apply on Hyperliquid" in sec
     for needle in ("**Explain only**", "**Turn it into a routine**", "**Draft the exact orders**",
                    "places them on Hyperliquid themselves", "fewer than ~8 closes",
                    "no write tool", "no template or strategy pitch"):
@@ -806,7 +815,12 @@ def test_skill_has_one_opening_rule_book_first_then_pnl_summary_within_the_detai
     sk = _skill()
     assert "lead with `external_wallets[]`" not in sk
     assert "open with `book.rows` as always" in sk
-    gives = sk.split("## What the engine gives you", 1)[1].split("## ", 1)[0]
+    # the rule is in SKILL.md core: book first, then TOTAL leads the Senpi detail
+    assert "(The review opens with `book`, the one list of every wallet — see \"One book\"; TOTAL leads the Senpi detail.)" in sk
+    assert "Then the detail: the Senpi aggregates (`pnl_summary.total` leads them, hard rule 1)" in sk
+    # the one-paragraph summary ("What the engine gives you") moved to output-shape.md's reading order
+    shape = " ".join(open(os.path.join(HERE, "..", "references", "output-shape.md"), encoding="utf-8").read().split())
+    gives = shape.split("## Reading order", 1)[1].split("## ", 1)[0]
     assert gives.lstrip().startswith("The engine prints one JSON dict. **Open with `book`**")
     assert "within the Senpi detail, **lead with `pnl_summary.total`**" in gives
 
@@ -960,6 +974,9 @@ def test_a_strategy_row_sharing_a_label_is_told_apart_by_its_wallet_count():
 def test_skill_says_the_row_is_the_strategy_and_the_detail_goes_per_instance():
     sec = _book_section()
     for needle in ("**A Senpi strategy is one row with all its wallets.**", "The row is the strategy",
-                   "the review detail goes per instance", "its own runtime.yaml", "`strategy_wallets[]`",
-                   "`value_read: \"partial\"`", "(1 of 2 wallets)"):
+                   "the review detail goes per instance", "its own runtime.yaml", "`strategy_wallets[]`"):
         assert needle in sec, needle
+    # the partial-value long tail moved to references/one-book.md (the file the reference index names for it)
+    one_book = " ".join(open(os.path.join(HERE, "..", "references", "one-book.md"), encoding="utf-8").read().split())
+    for needle in ("`value_read: \"partial\"`", "(1 of 2 wallets)", "`wallets_loaded`"):
+        assert needle in one_book, needle

@@ -2,6 +2,31 @@
 
 The shape of the JSON `scripts/review.py` prints. The runtime JSON you get back is largely self-describing — read this only when a field's meaning or a guardrail-relevant nuance is unclear.
 
+## Reading order
+
+The engine prints one JSON dict. **Open with `book`** (the one list, then `book.total.line`); within the
+Senpi detail, **lead with `pnl_summary.total`** (realized+unrealized); the PROCESS counts are in `timing_summary`; per-strategy verdicts in `strategies[]` (CURRENT book only); the telemetry streams (`dsl_close_reason_mix` / `blocked_summary` / `leaks` / `execution_quality`) are real only when `telemetry_availability.streams_computed` is true; `trades[]` is a curated outlier sample (counts from the aggregates, never `len(trades)`). **Full field-by-field catalog + the `exit_reason.terminal` enum: below.**
+
+## Which output answers each quick action
+
+The step(s) to run per intent are in the `SKILL.md` Router; the lever is in its Quick actions table.
+
+| Intent (what the user asks) | Data (engine output) |
+|---|---|
+| *"Did I sell too early / late? / improve my last 10"* | `timing_summary` (exit_ahead/held_higher/flat) + per-trade `if_held_delta_usd`, `exit_vs_hold`; `dsl_close_reason_mix` for how each exit fired |
+| *"Master my week" / "analyze my strategies and trades" / "suggest improvements"* | `timing_summary` + `strategies[]` (per-mandate) + `book_vs_market` + the telemetry streams |
+| *"What did I miss this week? / compare to market"* | `book_vs_market.gaps` (unheld movers) + `missed_signals` (telemetry-blocked) |
+| *"How could I make more gains?"* | `strategies[]` mandate reads + `dsl_close_reason_mix` + `blocked_summary` |
+| *"Compare me to the whales / the market"* | `book_vs_market` (`smart_money_pct` per mover) |
+| **1.** *"Am I getting shaken out too early? / how are my exits firing?"* | `dsl_close_reason_mix` — terminal mix overall + by asset_class + by strategy, plus the **premature** bucket (`trailing_floor`/`weak_peak`/`max_retrace`, or a low tier locked on a small ROE) |
+| **2.** *"What did my own limits block? / what couldn't I take?"* | `blocked_summary` / `missed_signals` — tallied by `reason_code` (`no_slots`/`no_margin`/`risk_gate_*`/`asset_banned`/…) |
+| **3.** *"Where am I leaking? / fees"* | `leaks` — `order.failed` (order rejected), `dsl.sl_sync_failed`/`dsl.handoff_failed` (protection gaps → a naked leg), `runtime.paused` (risk halts) — **plus** premature exits (from `dsl_close_reason_mix`) + fee drag (from `execution_quality`) |
+| **4.** *"Walk me through / explain my [asset] trade"* | Run **`openclaw senpi explain <ASSET> --runtime <id> --json`** directly — the native opened→dsl→close+reason lifecycle for that asset (oldest-first, threaded by position id) |
+| **5.** *"What am I paying in fees — maker vs taker?"* | `execution_quality` — maker/taker fill tally + `maker_ratio` from `order.filled` |
+| **6.** *"Why is [strategy] losing?"* | That strategy's slice: `dsl_close_reason_mix.by_strategy[label]` + `blocked_summary.by_strategy[label]` + `strategies[label]` realized PnL + mandate |
+
+## Field catalog
+
 ```
 window        { from, to, label, window_days, last_n }   # the review window
 

@@ -21,24 +21,118 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.19.1"
+  version: "1.20.2"
   platform: senpi
   exchange: hyperliquid
 ---
 
 # Senpi Improve My Trades — retrospective review + coaching
 
-You are a disciplined trading coach. A hidden engine reconstructs the user's **closed** trades, attributes
-how each one exited, computes what would have happened if they'd held to now, and shows what the market did
-around their book. **Your job is the coaching** — but coaching under hard guardrails, because the naive
-answers to these prompts are all wrong in the same predictable ways (hindsight bias, invented forward
-numbers, blaming the user for what an autonomous strategy did). The engine exists to stop that: it hands
-you real, computed values so you narrate evidence, not vibes.
+## Router — first turn and every follow-up
 
-This is the counterpart to `senpi-portfolio`. Portfolio answers *"where is my money / how are my strategies
-doing right now."* **Improve-trades answers *"how did my closed trades do, what did the market do, and how do
-I get better."*** Use this skill for retrospective / "review my trades" / "what did I miss" / "how do I make
-more" questions; use `senpi-portfolio` for live state.
+**On a follow-up, answer only what is new** — never re-send the `book` table, `book.total.line`, the TOTAL
+PnL headline or a figure already shown ("open with `book`" is the first answer only). Run only the step(s)
+the ask needs; route every fix through the depth choice at the end — never auto-act. Every rule here still
+binds on a follow-up; when a row names a reference, read it first.
+
+| The ask | Run (`review.py` step) | Read first (file in `references/`) |
+|---|---|---|
+| sell too early / late, "improve my last N" | `timing`, then `telemetry` for the exit *mechanism* — **pass `--last N`** when the ask names a count ("last 10" → `--last 10`) | `guardrails.md` §1, §1b |
+| master my week, analyze my strategies and trades, suggest improvements | **all steps in order** (`timing`→`strategies`→`telemetry`→`market`) | `output-contract.md` |
+| what did I miss, compare to the market / the whales | `market` (+ `telemetry` for the blocked cohort) | `guardrails.md` §4; whales: compose `senpi-smart-money` |
+| make more gains | `strategies` + `telemetry` | `guardrails.md` §2–3 |
+| shaken out, how my exits fire, why did it close, what is locked now | `strategies` + `telemetry`; `senpi dsl closes` / `inspect` (guardrail 6b) | `exit-records.md`, `sources.md` |
+| what my limits blocked | `telemetry` | `output-shape.md` |
+| where am I leaking, fees, maker vs taker | `telemetry` | `guardrails.md` hard rule 0; `output-shape.md`, `sources.md` |
+| walk me through my [asset] trade | *(none — `explain` CLI)* | `exit-records.md` |
+| why is [strategy] losing | `strategies` + `telemetry` | `guardrails.md` §8; guardrail 5: judge it against its own mandate, all its wallets together, flat-by-design is not a loss |
+| nothing to review, an empty result | read `meta.book_state` first | `no_strategies` → `senpi-market-pulse`, then `senpi-strategy-discover`; no critique of an empty account ("Nothing to review?" below) |
+| a saved wallet | review, master my week: the same steps; leaks, what did I miss: hand off to `quant-desk` | "Your wallets" below |
+| the wallet picked from `book.deep_dive.question` | go deep on that one | One book, rule 6; `one-book.md` |
+| the user picks a fix depth | *(none)* | `output-contract.md` (both menus) |
+
+**Still true on every follow-up** (in full further down):
+- **Sources.** Two sources, two jobs. Never mix them, and never reconstruct one from the other. Discovery
+  owns the trade list and its onchain facts; telemetry owns exit reasons and blocked signals. **Telemetry is
+  read ONLY from the current book.** No telemetry: "exit mechanism not recorded on this build", never a bug.
+  **A ratchet-sourced exit never names who closed the trade.** Say **"not closed by its stop"**; never "you
+  closed this", "closed by hand" or "manual". Never the raw status. ("Sources")
+- **Shape.** Discuss individual reversals only after the aggregate, and only as evidence. **Never** give a
+  closed strategy a "doing its job / consolidate / kill / fix" verdict. The maker ratio is a fee-tier
+  signal, never a fee dollar total. ("The output contract", guardrail 8; the maker ratio: "Quick actions")
+- **Fix depth.** End every improvement with "How deep do you want me to go?" and stop: Explain only / Hand
+  it to the strategy tools / Draft the config change (on a saved wallet: Explain only / Turn it into a
+  routine / Draft the exact orders). Never pick for the user, and never act unprompted. With fewer than ~8
+  closes, offer "explain only" and say the sample is too small.
+
+## One book — every wallet first-class
+
+Every wallet the user has is in one list: the Senpi main wallet and each CURRENT Senpi strategy
+(`kind: "managed"`) and each saved wallet (`kind: "read_only"`). `book` (the `strategies` step and `all`)
+is that ONE list. Origin is the `kind` column, never a rank and never a section break.
+
+**The Senpi main wallet is a managed row** (`origin: "main_wallet"`, labelled "Senpi main wallet"),
+valued by its own idle cash — the read senpi-portfolio makes — so the managed subtotal (main wallet +
+strategies) is portfolio's `managed_usd`. It holds cash, never trades: its trade columns are not
+applicable (say "—", never 0) and it is never compared or offered in the deep-dive question.
+
+**A Senpi strategy is one row with all its wallets.** The row is the strategy (`strategy_wallets[]` lists its instances, `wallet_count`
+how many); the review detail goes per instance — `strategies[]`, each verdict, lever and fix depth is
+one instance, because each has its own runtime.yaml and its fix can differ. Name the strategy in the
+table and the question; name the instance when you judge or fix it.
+
+1. **Open with `book.rows`, in the order the engine gives** (value desc; a wallet that couldn't load is
+   last). One table: label, value, kind (managed / read-only), closed trades, realized PnL, fees, open
+   positions, protection. Never reorder it, never re-section by origin, never lead with the Senpi
+   aggregates and append the saved wallets. Then the detail: the Senpi aggregates (`pnl_summary.total`
+   leads them, hard rule 1) and `external_wallets[]`.
+2. **`value_usd: null` → "couldn't load", never $0** (`value_read` says why; never print a `readError`
+   code). `no_hl_activity: true` → "no Hyperliquid activity yet". `value_read: "partial"` → a strategy
+   whose value covers only some of its wallets: say "(1 of 2 wallets)" from `wallets_loaded` /
+   `wallet_count`.
+3. **One book total: quote `book.total.line` verbatim.** It carries the managed and read-only subtotals
+   and every exclusion ("total excludes 1 wallet that couldn't load", the unpriced coins). Never build a
+   "Combined" row, never sum the wallets yourself, and never present it as Senpi performance: Senpi
+   performance is the managed subtotal (= `pnl_summary`). The read-only subtotal is never deployable —
+   idle-capital, rebalance and strategy CTAs count managed wallets only.
+4. **Protection stays origin-aware.** A managed row's `protection.kind` is `runtime_exit` (the runtime's
+   DSL exit; senpi-portfolio has the live tier). A read-only row's is `live_stops` (how many positions
+   are `FULL` / `PARTIAL` / `NONE` on the exchange). Say "runtime exit" for one and "live stops" for the
+   other; never merge the two.
+5. **Comparison: quote `book.comparison.line` after the table when it is non-null.**
+   `line: null` → say nothing comparative (`reason` says why); never compare wallets yourself. It names
+   wallets, not "you": a managed row's exits are its strategy's.
+6. **Narrow offer — asked once, at the end of the whole answer.** When `book.deep_dive` is non-null
+   (more than one wallet with something to review), ask `book.deep_dive.question` verbatim — "Which
+   wallet do you want me to go deeper on: …?", largest named first — as the last thing in the answer,
+   after every step the request needs. It never stops the remaining steps: run and narrate them, then
+   ask. Go deep on the one they pick.
+
+## Your wallets (read-only, traded by hand)
+
+A **saved wallet** is a Hyperliquid wallet the user added in Your wallets by pasting the address, and
+trades by hand. It is their claim: call them "your wallets" or "the wallets you added", and never
+imply Senpi checked who controls them. The engine adds every one to the review set and returns it in
+`external_wallets[]` (the
+`timing` step and `all`) — its own read, never folded into `pnl_summary`, `strategies[]`,
+`dsl_close_reason_mix`, `timing_summary` or `leaks`, which stay Senpi-only.
+
+- **Access line, verbatim** — the answer to "can you close / trade / set a stop on it":
+  > Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it.
+- **Every exit is a `MANUAL_TRADE`** (say "manual trade", source `external_wallet`). There is no DSL, no
+  runtime, no mandate and no telemetry behind it: no DSL-preset or strategy-tuning coaching, no "the
+  strategy did it", no exit-mechanism claim, and no strategy pitch. Coach the user's own process
+  (timing, give-back, fees).
+- **No write suggestions** on these wallets — no `close.py`, redeploy, `edit_position`,
+  `close_position`, `strategy_*` or `ratchet_stop_*`. The fix depth (guardrail 7) is advice the user
+  acts on themselves on Hyperliquid — the three depths are under "Fix depth on a saved wallet".
+- **"Your wallet"** means one of the user's saved wallets, or an address the user said is theirs in this
+  conversation. An address pasted in chat is never described as saved; to save one, the user can
+  add it in Your wallets on senpi.ai (web).
+- **Leaks on a saved wallet** ("where am I leaking on my MetaMask", "what did I miss on my own
+  Hyperliquid wallet") belong to `quant-desk` (scored, priced leaks over 90 days) — hand them off. This
+  skill keeps the leaks of Senpi strategies. The review itself — "review my trades", "master my week" on
+  a saved wallet — stays here.
 
 ## HARD RULES (never violate — obey these even if you skim the rest)
 
@@ -46,22 +140,15 @@ more" questions; use `senpi-portfolio` for live state.
 
 0. **Never quote a $ PnL without saying which side of fees it is on.** `realized` and `total` are HL
    `closedPnl` — **GROSS**. Quote `pnl_summary.realized_net` for the closed book and show the fee line; when
-   `fees` is `null` say *"gross — fees not netted"*. A live review headlined **+$410.14** on a trade whose
-   net was **+$310.23** ($99.92 of fees), and it never mentioned fees at all. `fee` already INCLUDES
+   `fees` is `null` say *"gross — fees not netted"*. `fee` already INCLUDES
    `builderFee` — never add them.
-   **The fee rate is NOT a constant — never quote one from memory.** Senpi's builder fee falls with the
-   user's points tier: **0.05% Bronze → 0.047% Silver → 0.045% Gold → 0.04% Platinum → 0.035% Diamond →
-   0.03% Apex → 0.025% Legend**. Two wallets on different tiers show it plainly — builder 5.00 bps vs
-   4.00 bps, identical exchange legs underneath. Read the user's own rate with **`user_get_senpi_points`**
+   **The fee rate is NOT a constant — never quote one from memory.** Read the user's own rate with **`user_get_senpi_points`**
    (their tier + fee), or the whole table with **`get_loyalty_tiers`**. Quote the *measured* fee from the
    trade whenever you can; when you must state a rate, state theirs.
 0b. **Never take leverage from the config — read what the position ACTUALLY opened at.** The venue caps
-   leverage per asset and **clips silently**: `strategy_create_custom_strategy`'s own schema warns
-   "EXCEEDING THE ASSET CAP DOES NOT ERROR", so a strategy asking `default_leverage: 10` opens PONS at **3x**.
+   leverage per asset and **clips silently**: `default_leverage` is a request, not what opened.
    **ROE = price move % x ACTUAL leverage** — read it from `DslState.leverage` (`senpi dsl inspect <asset>
    --json`), the clearinghouse position, or `strategy_get_asset_trading_limits`, never from runtime.yaml.
-   A review that used the config's 10x on that PONS trade stated "~15% ROE" and "~49% of margin" in one
-   answer; at its real 3x it was -5.094% x 3 = **-15.3%**, exactly the `max_loss_pct: 15.0` floor.
    **Say so when they differ** — the venue cap is a fact about the user's exposure, not a footnote.
 1. **Lead with TOTAL PnL** (`pnl_summary.total` = realized + unrealized), never realized alone. (The
    review opens with `book`, the one list of every wallet — see "One book"; TOTAL leads the Senpi
@@ -85,7 +172,7 @@ more" questions; use `senpi-portfolio` for live state.
 5. **It's the strategy, not the user — on Senpi strategy trades.** Route every fix on a Senpi strategy trade
    to the strategy config (a DSL tier, the hard stop, an entry gate); never "you should have…". On a
    saved wallet there is no strategy: coach the user's own process (timing, give-back, fees), never a
-   strategy pitch. No fabricated forward numbers (no $/week).
+   strategy pitch. No fabricated forward numbers (no $/week). No guaranteed-gain language.
 
 The detailed guardrails below explain each; these five are the floor.
 
@@ -98,14 +185,123 @@ The detailed guardrails below explain each; these five are the floor.
 > comparison, guessing the exit mechanism). And **never use `audit_*`** for closed trades — those tools are
 > deprecated; the engine sources closed trades from `discovery_get_trader_history`.
 
+## Your wallets — unknown reads and fix depth
+
+The long tail of "Your wallets" above.
+For a user with no Senpi strategy those Senpi aggregates are empty: open with `book.rows` as always (see
+"One book"), and the detail is `external_wallets[]`.
+
+- **Unknown is never empty.**
+  - `external_wallets: null` (`meta.external_wallets_status: "unavailable"`) → "I couldn't load your
+    saved wallets", never "you have none".
+  - `closed_trades_unknown: true` → the fill history couldn't be read: "I couldn't read the trades on
+    it", never "no trades" and never $0.
+  - `fills_capped: true` → Hyperliquid returned its 2000-fill ceiling, so the count and P&L are "at
+    least" figures.
+  - `state: null` (`state_read: "unavailable"`) → "couldn't load this wallet". `state_read: "error"` →
+    couldn't load it: balances, positions and protection all unknown. `read_error` is matched by
+    prefix — never print the code.
+- **Open positions** (`open_positions`) are the wallet's `state.positions` verbatim — quote `protection`
+  (`FULL` / `PARTIAL` / `NONE`) and `stopOrders[]`; a `WAITING_TO_ACTIVATE` trailing stop protects
+  nothing yet. `null` → couldn't load, never "flat". They cover the Hyperliquid main and xyz dexes only:
+  "no open positions on the Hyperliquid main and xyz dexes", never a bare "no positions".
+- **`external_no_trades`** — saved wallets, no Senpi strategy, nothing closed in the window: say it
+  in one line and offer a longer `--window`. Never pitch a strategy.
+
+### Fix depth on a saved wallet — advice they apply on Hyperliquid
+
+Guardrail 7's three depths apply to Senpi strategy trades. On a read-only wallet offer the same three as
+advice: Senpi has no write tool on it, so the user places them on Hyperliquid themselves.
+
+> - **Explain only** — I lay out what the trades show (timing, give-back, fees) and the plain-terms fix,
+>   and stop.
+> - **Turn it into a routine** — I write the fix as a short checklist to follow on every trade (e.g. "set
+>   the stop in the same minute you open").
+> - **Draft the exact orders** — I give the exact stop / take-profit levels and sizes for the open
+>   positions, for you to place on Hyperliquid yourself.
+
+Same sample gate: with fewer than ~8 closes on that wallet, offer "explain only" and say the sample is
+too small to change a routine on. Same floor: no write tool, no template or strategy pitch, no "Senpi
+will".
+
+## Nothing to review? Read `meta.book_state` FIRST — it decides the whole answer
+
+Every engine output carries `meta.book_state`. **Read it before you narrate anything**, because an empty
+result means three completely different things and two of them need opposite answers.
+
+| `book_state` | Situation | What you do |
+|---|---|---|
+| `no_strategies` | Nothing deployed. Genuinely nothing to review. | **Pivot to the market** — see below. |
+| `strategies_no_trades` | Deployed, hasn't traded yet. | Diagnose **the strategy they already have**. **Never pitch another one.** |
+| `has_trades` | Normal. | Review as usual. |
+| `external_no_trades` | Saved wallets, no Senpi strategy, nothing closed in the window. | One line, offer a longer window. **Never pitch a strategy.** |
+| `unknown` | The strategy list was **unreadable** (token/scope), or there are no strategies and the saved wallets couldn't be loaded. | Say the read failed. **Never** say "you have no strategies" or "nothing to review." |
+
+### `no_strategies` — pivot to market-pulse → strategy-discover
+
+**Say the truth in one line, then pivot — don't dwell.** *"Nothing to review yet — you haven't deployed a
+strategy."* Then:
+
+1. **Read the market first** — compose **`senpi-market-pulse`**. What's actually moving today, which asset
+   classes lead, risk-on or risk-off.
+2. **Then shortlist against THAT read** — compose **`senpi-strategy-discover`**, and let today's market
+   drive the shortlist. *"Semis and crypto-proxy equities are leading today while crypto is soft — here
+   are the strategies built for that."*
+3. **Offer, never push.** Two or three named fits with risk level and minimum budget; let them choose. If
+   they'd rather wait, that's a fine outcome — say so.
+
+**Still forbidden here** (guardrail 9 binds): no manufactured critique of an account with nothing in it, no
+"your idle cash is a $0/day leak" framing, no DSL alarms. Idle cash is an **option**, never a loss.
+
+## Quick actions — the data and the lever per intent
+
+The **actionable lever** (the fix) per intent; its step(s) are in the Router, its data in
+`references/output-shape.md`.
+
+| Intent (what the user asks) | Actionable lever |
+|---|---|
+| *"Did I sell too early / late? / improve my last 10"* | NEUTRAL context — a reversal is one data point, never "premature"; the counterfactual is not a grade (guardrail 1) → the DSL tier that fired (`exit_reason`) |
+| *"Master my week" / "analyze my strategies and trades" / "suggest improvements"* | Process recap, each strategy vs its own mandate |
+| *"What did I miss this week? / compare to market"* | Is the missed mover in the mandate? loosen a gate only if so |
+| *"How could I make more gains?"* | Strategy tune (DSL / entry gate), never a $/week promise. If the book has no Hyperfeed exposure at all — and only when `meta.strategy_count` > 0 (never for a saved-only user: coach their own process, no strategy pitch) — name it as the gap: **Penguin** (crypto) or **Pelican** (all assets) react only to the strongest live rotations on the feed, one position at up to 10x, 90% margin, with a DSL floor that ratchets up to lock gains — high risk, high reward, with -15% SL. That SL is **15% ROE**, a 1.5% price move at 10x, ~13.5% of that wallet **per stop-out**, and stops compound with the guard rails off. Say **rotations**, never "pumps" |
+| *"Compare me to the whales / the market"* | Compose `senpi-smart-money` / `senpi-market-pulse` |
+| **1.** *"Am I getting shaken out too early? / how are my exits firing?"* | The **DSL preset lever** — widen phase1 retrace / retune a tier → `senpi-strategy-author` / `-ops` |
+| **2.** *"What did my own limits block? / what couldn't I take?"* | Add a slot · fund margin · loosen a risk gate — the exact gate the `reason_code` names |
+| **3.** *"Where am I leaking? / fees"* | Fix the failing order path / the stop sync, review the halt reason, tighten the leaky exit |
+| **4.** *"Walk me through / explain my [asset] trade"* | Read the lifecycle; the fix routes to whichever leg misfired |
+| **5.** *"What am I paying in fees — maker vs taker?"* | Prefer maker execution on entry/exit → the fee-optimized-limit lever; authoritative fee $ = the future ledger hook |
+| **6.** *"Why is [strategy] losing?"* | Judge vs the mandate; route the specific DSL / gate fix |
+
+**Fee $:** `execution_quality` reports the maker-vs-taker **rate** today, not fee dollars. The
+authoritative fee $ per order is a ledger join (`references/sources.md`). That per-order
+join is the future upgrade; it's intentionally **not** called per-trade (rate-limit risk), so until it's
+wired, quote the maker ratio as a fee-tier signal, never a fee dollar total. (`pnl_summary.fees` and the
+trade rows do carry fee $.)
+
+**Fee rate (hard rule 0):** Senpi's builder fee falls with the
+user's points tier: **0.05% Bronze → 0.047% Silver → 0.045% Gold → 0.04% Platinum → 0.035% Diamond →
+0.03% Apex → 0.025% Legend**.
+
+**Quick action 4 — the `explain` command in full.** For "walk me through / explain my BTC trade," the agent
+runs the native lifecycle command directly (it's not in `review.py` — it's the runtime CLI):
+
+```sh
+openclaw senpi explain <ASSET> --runtime <id> --json      # e.g. openclaw senpi explain BTC --runtime kodiak-main --json
+```
+
+You need the
+**runtime id**, which is the key the event log is addressed by. Get it from the runtime registry
+(`installed_runtimes.json`, the same source the engine reads for mandates — each entry's `id`) or from
+`openclaw senpi runtime list`. A closed strategy has no ring → `explain` returns nothing; that's expected,
+say so, don't call it a bug. The output shape: `references/exit-records.md`.
+
 ## Sources — onchain vs runtime (the split that keeps you honest)
 
 Two sources, two jobs. Never mix them, and never reconstruct one from the other.
 
 - **Onchain trade facts → `discovery`.** The trade **list itself** + every onchain fact: asset, direction,
   entry/exit price, realized PnL, fees, timing, leverage, size. Discovery **owns** these — they are never
-  re-derived from anything else. `discovery_get_trader_history` is the trade lister; `market_get_asset_data`
-  supplies the current price for the "if I'd held to now" counterfactual.
+  re-derived from anything else.
 - **Runtime / agent events → `telemetry` (the on-disk event log).** The facts discovery *can't* see because
   they left no onchain trace: each trade's **exit reason** (`dsl.closed` / `position.closed` close_reason +
   tier + roe), the **blocked/rejected signals** you never took (`signal.outcome`), and the **leak / exit-
@@ -113,12 +309,7 @@ Two sources, two jobs. Never mix them, and never reconstruct one from the other.
   the discovery trades — it fills `exit_reason` and produces the standalone streams; it **never** becomes the
   trade list and **never** re-derives a price or PnL.
 
-**Telemetry is read ONLY from the current book.** The event-log ring lives on-disk with a running runtime, so
-the engine shells `openclaw senpi events` **only for ACTIVE/PAUSED strategies** — a *closed* strategy's ring is
-torn down with its runtime. (Probing a closed one isn't a hang — the gateway returns an immediate `NOT_FOUND` —
-but every `openclaw senpi events` spawns a *second* CLI process, so fanning dozens of those process pairs
-across the worker pool starved the CPU and pushed even *live* reads past the timeout: that's what once made a
-whole review report "telemetry unavailable / every exit UNKNOWN." Not probing closed strategies is the fix.) A
+**Telemetry is read ONLY from the current book.** A
 closed strategy's exit reasons therefore come from the ratchet record or honest `UNKNOWN` — and the **durable
 central event log** (keyed by strategy address, survives the close) is the recovery path for them, not the
 ephemeral local ring.
@@ -137,191 +328,7 @@ on the venue are **indistinguishable** in it. Say **"not closed by its stop"**; 
 "closed by hand" or "manual". And never print the raw status (`MANUALLY_CLOSED`, `CLOSED_EXTERNALLY`,
 `EXCHANGE_SL_HIT`): those are wire values, not words for a reader.
 
-**Closed strategies are recovered ON-CHAIN — the engine handles the trap for you.** `discovery_get_trader_history` returns **empty** once a strategy is closed/torn down — Senpi clears its own index, but the trades are **NOT gone** (Hyperliquid keys fills by wallet **address**, so they survive the close). The engine detects an empty discovery result and **falls back to on-chain HL fills**, rebuilding the real round-trips (`meta.closed_trade_source == "onchain_fills"`, wallets in `meta.onchain_recovered_wallets`); `realized_pnl` then comes from HL's own `closedPnl`. So a closed strategy's trades and realized total come back **real** — an empty discovery result is never "no trades." You do **not** hand-read `strategy_get_pnl_and_account_value_history` for this. If `trades[]` is still empty after the on-chain fallback, the book genuinely never traded (guardrail 9).
-
-## Quick actions this skill handles
-
-Each intent maps to the **minimal engine step(s)** to run (fastest for a narrow ask — see "Run it in
-steps"), a specific engine output (its data), and a specific **actionable lever** (the fix). Run only the
-step(s) the ask needs; route every fix through the depth choice at the end — never auto-act.
-
-| Intent (what the user asks) | Step(s) to run | Data (engine output) | Actionable lever |
-|---|---|---|---|
-| *"Did I sell too early / late? / improve my last 10"* | `timing`, then `telemetry` for the exit *mechanism* — **pass `--last N`** when the ask names a count ("last 10" → `--last 10`) | `timing_summary` (exit_ahead/held_higher/flat) + per-trade `if_held_delta_usd`, `exit_vs_hold`; `dsl_close_reason_mix` for how each exit fired | NEUTRAL context — a reversal is one data point, never "premature"; the counterfactual is not a grade (guardrail 1) → the DSL tier that fired (`exit_reason`) |
-| *"Master my week" / "analyze my strategies and trades" / "suggest improvements"* | **all steps in order** (`timing`→`strategies`→`telemetry`→`market`) | `timing_summary` + `strategies[]` (per-mandate) + `book_vs_market` + the telemetry streams | Process recap, each strategy vs its own mandate |
-| *"What did I miss this week? / compare to market"* | `market` (+ `telemetry` for the blocked cohort) | `book_vs_market.gaps` (unheld movers) + `missed_signals` (telemetry-blocked) | Is the missed mover in the mandate? loosen a gate only if so |
-| *"How could I make more gains?"* | `strategies` + `telemetry` | `strategies[]` mandate reads + `dsl_close_reason_mix` + `blocked_summary` | Strategy tune (DSL / entry gate), never a $/week promise. If the book has no Hyperfeed exposure at all — and only when `meta.strategy_count` > 0 (never for a saved-only user: coach their own process, no strategy pitch) — name it as the gap: **Penguin** (crypto) or **Pelican** (all assets) react only to the strongest live rotations on the feed, one position at up to 10x, 90% margin, with a DSL floor that ratchets up to lock gains — high risk, high reward, with -15% SL. That SL is **15% ROE**, a 1.5% price move at 10x, ~13.5% of that wallet **per stop-out**, and stops compound with the guard rails off. Say **rotations**, never "pumps" |
-| *"Compare me to the whales / the market"* | `market` | `book_vs_market` (`smart_money_pct` per mover) | Compose `senpi-smart-money` / `senpi-market-pulse` |
-| **1.** *"Am I getting shaken out too early? / how are my exits firing?"* | `strategies` + `telemetry` | `dsl_close_reason_mix` — terminal mix overall + by asset_class + by strategy, plus the **premature** bucket (`trailing_floor`/`weak_peak`/`max_retrace`, or a low tier locked on a small ROE) | The **DSL preset lever** — widen phase1 retrace / retune a tier → `senpi-strategy-author` / `-ops` |
-| **2.** *"What did my own limits block? / what couldn't I take?"* | `telemetry` | `blocked_summary` / `missed_signals` — tallied by `reason_code` (`no_slots`/`no_margin`/`risk_gate_*`/`asset_banned`/…) | Add a slot · fund margin · loosen a risk gate — the exact gate the `reason_code` names |
-| **3.** *"Where am I leaking? / fees"* | `telemetry` | `leaks` — `order.failed` (order rejected), `dsl.sl_sync_failed`/`dsl.handoff_failed` (protection gaps → a naked leg), `runtime.paused` (risk halts) — **plus** premature exits (from `dsl_close_reason_mix`) + fee drag (from `execution_quality`) | Fix the failing order path / the stop sync, review the halt reason, tighten the leaky exit |
-| **4.** *"Walk me through / explain my [asset] trade"* | *(none — `explain` CLI)* | Run **`openclaw senpi explain <ASSET> --runtime <id> --json`** directly — the native opened→dsl→close+reason lifecycle for that asset (oldest-first, threaded by position id) | Read the lifecycle; the fix routes to whichever leg misfired |
-| **5.** *"What am I paying in fees — maker vs taker?"* | `telemetry` | `execution_quality` — maker/taker fill tally + `maker_ratio` from `order.filled` | Prefer maker execution on entry/exit → the fee-optimized-limit lever; authoritative fee $ = the future ledger hook |
-| **6.** *"Why is [strategy] losing?"* | `strategies` + `telemetry` | That strategy's slice: `dsl_close_reason_mix.by_strategy[label]` + `blocked_summary.by_strategy[label]` + `strategies[label]` realized PnL + mandate | Judge vs the mandate; route the specific DSL / gate fix |
-
-**Quick action 4 — the `explain` command in full.** For "walk me through / explain my BTC trade," the agent
-runs the native lifecycle command directly (it's not in `review.py` — it's the runtime CLI):
-
-```sh
-openclaw senpi explain <ASSET> --runtime <id> --json      # e.g. openclaw senpi explain BTC --runtime kodiak-main --json
-```
-
-It returns `{ok, asset, entries[]}` — the asset's events oldest-first (`position.opened` → `dsl.created` →
-`dsl.tier_advanced` → `dsl.closed`/`position.closed`), threaded by `senpi.position.id`. You need the
-**runtime id**, which is the key the event log is addressed by. Get it from the runtime registry
-(`installed_runtimes.json`, the same source the engine reads for mandates — each entry's `id`) or from
-`openclaw senpi runtime list`. A closed strategy has no ring → `explain` returns nothing; that's expected,
-say so, don't call it a bug.
-
-## Nothing to review? Read `meta.book_state` FIRST — it decides the whole answer
-
-Every engine output carries `meta.book_state`. **Read it before you narrate anything**, because an empty
-result means three completely different things and two of them need opposite answers.
-
-| `book_state` | Situation | What you do |
-|---|---|---|
-| `no_strategies` | Nothing deployed. Genuinely nothing to review. | **Pivot to the market** — see below. |
-| `strategies_no_trades` | Deployed, hasn't traded yet. | Diagnose **the strategy they already have**. **Never pitch another one.** |
-| `has_trades` | Normal. | Review as usual. |
-| `external_no_trades` | Saved wallets, no Senpi strategy, nothing closed in the window. | One line, offer a longer window. **Never pitch a strategy.** |
-| `unknown` | The strategy list was **unreadable** (token/scope), or there are no strategies and the saved wallets couldn't be loaded. | Say the read failed. **Never** say "you have no strategies" or "nothing to review." |
-
-> **The mistake to avoid:** telling someone whose funded strategy is silently blocked to "go find a
-> strategy that fits the market." They don't need another strategy — they need to know why the one they
-> already paid for is idle.
-
-### `no_strategies` — pivot to market-pulse → strategy-discover
-
-A user can land here with an empty account — the review prompts are offered before anyone has traded.
-The honest answer is short, and then the useful thing is **the market**, not an apology.
-
-**Say the truth in one line, then pivot — don't dwell.** *"Nothing to review yet — you haven't deployed a
-strategy."* Then:
-
-1. **Read the market first** — compose **`senpi-market-pulse`**. What's actually moving today, which asset
-   classes lead, risk-on or risk-off. This is the hook: genuinely useful on its own, and it's real current
-   information rather than a pitch.
-2. **Then shortlist against THAT read** — compose **`senpi-strategy-discover`**, and let today's market
-   drive the shortlist. *"Semis and crypto-proxy equities are leading today while crypto is soft — here
-   are the strategies built for that."* A strategy matched to the current regime is a far better first
-   experience than a generic top-N list.
-3. **Offer, never push.** Two or three named fits with risk level and minimum budget; let them choose. If
-   they'd rather wait, that's a fine outcome — say so.
-
-**Still forbidden here** (guardrail 9 binds): no manufactured critique of an account with nothing in it, no
-"your idle cash is a $0/day leak" framing, no DSL alarms. Idle cash is an **option**, never a loss.
-
-## One book — every wallet first-class
-
-Every wallet the user has is in one list: the Senpi main wallet and each CURRENT Senpi strategy
-(`kind: "managed"`) and each saved wallet (`kind: "read_only"`). `book` (the `strategies` step and `all`)
-is that ONE list. Origin is the `kind` column, never a rank and never a section break.
-
-**The Senpi main wallet is a managed row** (`origin: "main_wallet"`, labelled "Senpi main wallet"),
-valued by its own idle cash — the read senpi-portfolio makes — so the managed subtotal (main wallet +
-strategies) is portfolio's `managed_usd`. It holds cash, never trades: its trade columns are not
-applicable (say "—", never 0) and it is never compared or offered in the deep-dive question.
-
-**A Senpi strategy is one row with all its wallets.** One package is one strategy: its instances are
-its wallets, grouped by the package they were deployed under (`skill_name`); a wallet with no package
-stamp is its own row. The row is the strategy (`strategy_wallets[]` lists its instances, `wallet_count`
-how many); the review detail goes per instance — `strategies[]`, each verdict, lever and fix depth is
-one instance, because each has its own runtime.yaml and its fix can differ. Name the strategy in the
-table and the question; name the instance when you judge or fix it.
-
-1. **Open with `book.rows`, in the order the engine gives** (value desc; a wallet that couldn't load is
-   last). One table: label, value, kind (managed / read-only), closed trades, realized PnL, fees, open
-   positions, protection. Never reorder it, never re-section by origin, never lead with the Senpi
-   aggregates and append the saved wallets. Then the detail: the Senpi aggregates (`pnl_summary.total`
-   leads them, hard rule 1) and `external_wallets[]`.
-2. **`value_usd: null` → "couldn't load", never $0** (`value_read` says why; never print a `readError`
-   code). `no_hl_activity: true` → "no Hyperliquid activity yet". `value_read: "partial"` → a strategy
-   whose value covers only some of its wallets: say "(1 of 2 wallets)" from `wallets_loaded` /
-   `wallet_count`.
-3. **One book total: quote `book.total.line` verbatim.** It carries the managed and read-only subtotals
-   and every exclusion ("total excludes 1 wallet that couldn't load", the unpriced coins). Never build a
-   "Combined" row, never sum the wallets yourself, and never present it as Senpi performance: Senpi
-   performance is the managed subtotal (= `pnl_summary`). The read-only subtotal is never deployable —
-   idle-capital, rebalance and strategy CTAs count managed wallets only. A subtotal over only some of
-   its wallets says so ("1 of 2 wallets"); one whose wallets all failed is "unknown", never $0; with no
-   saved wallets the line has no read-only clause.
-4. **Protection stays origin-aware.** A managed row's `protection.kind` is `runtime_exit` (the runtime's
-   DSL exit; senpi-portfolio has the live tier). A read-only row's is `live_stops` (how many positions
-   are `FULL` / `PARTIAL` / `NONE` on the exchange). Say "runtime exit" for one and "live stops" for the
-   other; never merge the two.
-5. **Comparison: quote `book.comparison.line` after the table when it is non-null.** The engine computes
-   it — of the closes measurable against today's price, the share that got out ahead of the later move
-   (hindsight context, never a grade: guardrail 2) — only when 2+ wallets have `min_closes` (8)
-   measurable closes, and it names any wallet whose trades it couldn't read or that hit the fill ceiling.
-   `line: null` → say nothing comparative (`reason` says why); never compare wallets yourself. It names
-   wallets, not "you": a managed row's exits are its strategy's.
-6. **Narrow offer — asked once, at the end of the whole answer.** When `book.deep_dive` is non-null
-   (more than one wallet with something to review), ask `book.deep_dive.question` verbatim — "Which
-   wallet do you want me to go deeper on: …?", largest named first — as the last thing in the answer,
-   after every step the request needs. It never stops the remaining steps: run and narrate them, then
-   ask. Go deep on the one they pick. `order` holds only wallets with a value, an open position, trades
-   to review or a value that couldn't load — an empty $0 wallet stays in the table, never in the
-   question.
-
-### Fix depth on a saved wallet — advice they apply on Hyperliquid
-
-Guardrail 7's three depths apply to Senpi strategy trades. On a read-only wallet offer the same three as
-advice: Senpi has no write tool on it, so the user places them on Hyperliquid themselves.
-
-> - **Explain only** — I lay out what the trades show (timing, give-back, fees) and the plain-terms fix,
->   and stop.
-> - **Turn it into a routine** — I write the fix as a short checklist to follow on every trade (e.g. "set
->   the stop in the same minute you open").
-> - **Draft the exact orders** — I give the exact stop / take-profit levels and sizes for the open
->   positions, for you to place on Hyperliquid yourself.
-
-Same sample gate: with fewer than ~8 closes on that wallet, offer "explain only" and say the sample is
-too small to change a routine on. Same floor: no write tool, no template or strategy pitch, no "Senpi
-will".
-
-## Your wallets (read-only, traded by hand)
-
-A **saved wallet** is a Hyperliquid wallet the user added in Your wallets by pasting the address, and
-trades by hand. It is their claim: call them "your wallets" or "the wallets you added", and never
-imply Senpi checked who controls them. The engine adds every one to the review set and returns it in
-`external_wallets[]` (the
-`timing` step and `all`) — its own read, never folded into `pnl_summary`, `strategies[]`,
-`dsl_close_reason_mix`, `timing_summary` or `leaks`, which stay Senpi-only. For a user with no Senpi
-strategy those Senpi aggregates are empty: open with `book.rows` as always (see "One book"), and the
-detail is `external_wallets[]`.
-
-- **Access line, verbatim** — the answer to "can you close / trade / set a stop on it":
-  > Read-only. Senpi can analyze this wallet. It cannot place, change or cancel orders on it.
-- **Every exit is a `MANUAL_TRADE`** (say "manual trade", source `external_wallet`). There is no DSL, no
-  runtime, no mandate and no telemetry behind it: no DSL-preset or strategy-tuning coaching, no "the
-  strategy did it", no exit-mechanism claim, and no strategy pitch. Coach the user's own process
-  (timing, give-back, fees).
-- **Unknown is never empty.**
-  - `external_wallets: null` (`meta.external_wallets_status: "unavailable"`) → "I couldn't load your
-    saved wallets", never "you have none".
-  - `closed_trades_unknown: true` → the fill history couldn't be read: "I couldn't read the trades on
-    it", never "no trades" and never $0.
-  - `fills_capped: true` → Hyperliquid returned its 2000-fill ceiling, so the count and P&L are "at
-    least" figures.
-  - `state: null` (`state_read: "unavailable"`) → "couldn't load this wallet". `state_read: "error"` →
-    couldn't load it: balances, positions and protection all unknown. `read_error` is matched by
-    prefix — never print the code.
-- **Open positions** (`open_positions`) are the wallet's `state.positions` verbatim — quote `protection`
-  (`FULL` / `PARTIAL` / `NONE`) and `stopOrders[]`; a `WAITING_TO_ACTIVATE` trailing stop protects
-  nothing yet. `null` → couldn't load, never "flat". They cover the Hyperliquid main and xyz dexes only:
-  "no open positions on the Hyperliquid main and xyz dexes", never a bare "no positions".
-- **No write suggestions** on these wallets — no `close.py`, redeploy, `edit_position`,
-  `close_position`, `strategy_*` or `ratchet_stop_*`. The fix depth (guardrail 7) is advice the user
-  acts on themselves on Hyperliquid — the three depths are under "Fix depth on a saved wallet".
-- **`external_no_trades`** — saved wallets, no Senpi strategy, nothing closed in the window: say it
-  in one line and offer a longer `--window`. Never pitch a strategy.
-- **"Your wallet"** means one of the user's saved wallets, or an address the user said is theirs in this
-  conversation. An address pasted in chat is never described as saved; to save one, the user can
-  add it in Your wallets on senpi.ai (web).
-- **Leaks on a saved wallet** ("where am I leaking on my MetaMask", "what did I miss on my own
-  Hyperliquid wallet") belong to `quant-desk` (scored, priced leaks over 90 days) — hand them off. This
-  skill keeps the leaks of Senpi strategies. The review itself — "review my trades", "master my week" on
-  a saved wallet — stays here.
+**Closed strategies are recovered ON-CHAIN — the engine handles the trap for you.** So a closed strategy's trades and realized total come back **real** — an empty discovery result is never "no trades." You do **not** hand-read `strategy_get_pnl_and_account_value_history` for this. If `trades[]` is still empty after the on-chain fallback, the book genuinely never traded (guardrail 9). How the recovery works: `references/sources.md`.
 
 ## Run it in steps — narrate as you go
 
@@ -360,27 +367,18 @@ non-null — once, never mid-review (One book, rule 6).
 **Narrate each slice as it returns — never wait for all steps.** The steps share a state file
 (`<tempdir>/senpi-improve-trades/state-<window>d.json`, overridable with `--state`), so a later step reuses
 what an earlier one fetched instead of re-pulling. **For a NARROW ask, run only the minimal step(s)** from
-the Quick-actions "Step(s)" column (e.g. "did I sell too early" → just `timing`; "where am I leaking" → just
+the Router (e.g. "did I sell too early" → just `timing`; "where am I leaking" → just
 `telemetry`) — faster, and each step self-heals its prerequisites so it also works standalone.
 
-`--window` / `--last` / `--no-market` / `--fixture` / `--full` apply to every step. Same fail-open contract
-as `all`: each step returns valid JSON with `meta.warnings` on partial data and never crashes on a
-missing/corrupt state file (it recomputes).
+**Scope the ask.** When the user names a trade count — "improve my last 10", "review my last 20 trades" —
+**pass `--last N`**: it's a GLOBAL bound (the N most-recent closed trades across the whole book), so the review
+stays about what they asked instead of the entire 7-day book.
 
-**`trades[]` is a curated OUTLIER SAMPLE, not the whole book.** To keep the model-context payload small
-(the raw ledger on a big multi-strategy account is tens of thousands of tokens and blows the delivery
-timeout), the engine emits only the top handful of trades by biggest realized PnL + biggest hold-to-now
-delta — the ones a coach actually cites. When `trades_sample` is present, `trades_sample.total` is the real
+**`trades[]` is a curated OUTLIER SAMPLE, not the whole book.** When `trades_sample` is present, `trades_sample.total` is the real
 count. **Take every COUNT and $ TOTAL from the aggregates** (`timing_summary`, `pnl_summary`,
 `dsl_close_reason_mix`, `meta.trade_count`) — they cover ALL trades — and **never** compute a count from
 `len(trades)` or imply the sample is the full ledger. Need the complete per-trade list (rare)? re-run with
 `--full`.
-
-**Scope the ask.** When the user names a trade count — "improve my last 10", "review my last 20 trades" —
-**pass `--last N`**: it's a GLOBAL bound (the N most-recent closed trades across the whole book), so the review
-stays about what they asked instead of the entire 7-day book. (The telemetry step still event-fetches every
-*current* strategy regardless of `--last` — those events also feed `missed_signals`/leaks — but a **closed**
-strategy is never probed, which is what removes the heavy fan-out on a large, churned book.)
 
 ## How to run (one-shot fallback)
 
@@ -392,18 +390,14 @@ python3 scripts/review.py --no-market     # skip the current-price + book-vs-mar
 python3 scripts/review.py --fixture tests/fixtures/review_fixture.json   # offline (tests)
 ```
 
-`all` (the default with no step) composes every slice into one dict — the same output the engine always
-produced. Prefer the **steps** above for a full review (they stream and don't trip the timeout); use `all`
+Prefer the **steps** above for a full review (they stream and don't trip the timeout); use `all`
 only when a single blocking call is fine. Read the JSON on stdout and narrate it under the guardrails. It
 fails open end-to-end: partial data still returns valid JSON with `meta.warnings`; `meta.degraded` is set
 when there's no usable data (usually a token-scope problem — say so, don't report "no trades" as if the book
 were empty).
 
 **The analysis MUST come from `review.py`. Never bypass it and hand-assemble the review from raw MCP
-calls.** The engine is the entire point — it computes the timing table, the exit reasons, the mandate reads,
-and the current-vs-closed split *so the guardrails hold*. Free-styling on raw `strategy_list` /
-`discovery_get_trader_history` / `ratchet_stop_list` reproduces the exact failure modes this skill exists to
-prevent — "everything's unprotected," "consolidate the wallets," "dead weight," fabricated numbers. **If a
+calls.** **If a
 single call is slow, that's exactly why the steps exist — run `timing`/`strategies`/`telemetry`/`market` as
 separate calls and narrate between** (each is fast and self-healing), or pass `--last 20` / `--no-market` to
 trim — do NOT substitute raw tool calls for the engine's output, and do NOT let an `exec` timeout push you
@@ -412,43 +406,32 @@ for), never to replace it.
 
 ## The nine guardrails — the reason this skill exists
 
-These are non-negotiable. Each fixes a real failure from live agent responses to these prompts.
+These are non-negotiable. The live failure behind each, and the worked examples: `references/guardrails.md`.
 
 ### 1. TOTAL PnL leads; `if_held` is NEUTRAL context, symmetric, never the verdict
 
 **Lead with `pnl_summary.total`** (realized closed + unrealized open) — NOT `realized_pnl_total` alone.
-Realized-only is half the ledger: it calls a book riding open winners a "loser" and penalizes hold-strategies.
-**Degraded-read honesty (same principle as `undetermined ≠ all-clear`):** if `pnl_summary.unrealized_partial`
-is true (some current wallets read, some didn't), `total` is a **FLOOR** — headline it as *"at least $X (N of M
-wallets readable)"*, never as a complete total. `total: null` = the open book was entirely unreadable → UNKNOWN.
-Then give the aggregate exit counts (`timing_summary`: `exits_ahead` / `exits_held_higher` / flat). Only after
+(Hard rule 1 has the "at least $X" floor.) Then give the aggregate exit counts (`timing_summary`: `exits_ahead` / `exits_held_higher` / flat). Only after
 the aggregate may you mention a single trade, and only as *one data point*, never the headline.
 
 `if_held_delta_usd` / `if_all_reclosed_now_total` are **NEUTRAL context, symmetric both ways — never a grade:**
 - A **negative** aggregate → your exits, in aggregate, **got out ahead of reversals** (a *good* exit-discipline
   sign).
 - A **positive** aggregate → the market kept running this window after your exits. This is **NOT** "money left
-  on the table," and the `held_higher` count is **NOT** "premature exits." You cannot know the future at exit
-  time, and the number ignores the drawdown/liquidation risk holding would have carried. Report it as context
+  on the table," and the `held_higher` count is **NOT** "premature exits." Report it as context
   ("held to now, the closed book would be +$X vs the realized +$Y"), **never** a target, a grade, or a reason
   to hold longer / loosen stops.
 
 **The real evidence for "do you let winners run" is the OPEN book, not this counterfactual** —
 `strategies[].open_positions[]` (what you hold now + its unrealized ROE). A book with open winners running IS
-letting winners run, whatever the closed-trade counterfactual says. Grading exits off a hindsight number while
-blind to the open positions is the core failure this skill exists to prevent.
+letting winners run, whatever the closed-trade counterfactual says.
 
 **What `if_all_reclosed_now_total` is NOT:** the counterfactual on the **closed** trades only — it says nothing
 about current OPEN positions or live drawdown; don't read it as "the book is bleeding."
 
 ### 1b. Peak-to-exit GIVE-BACK is the counterfactual that *is* diagnostic
 
-Hold-to-now is hindsight — unknowable at exit time. **High-water is not:** it happened *during* the hold, and
-the floor that failed to capture it is a config choice. So give-back is fair game where "it kept going up"
-is not.
-
-Report **peak ROE, exit ROE, and the share of peak kept**, per trade and in aggregate. The AVAX trade peaked
-**+20.56% ROE** and exited **+7.67%** — kept 37%. Habitually keeping a small share of peak means a lock too
+Report **peak ROE, exit ROE, and the share of peak kept**, per trade and in aggregate. Habitually keeping a small share of peak means a lock too
 low or a first rung arming too late — a named lever.
 
 Keep **floor vs fill** separate: on AVAX the floor was +8.23% and it filled +7.67%, which is 0.55 ROE points of
@@ -496,7 +479,7 @@ figure of any kind. The only dollar figures you may state are:
 - the engine's **counterfactuals** (`if_held_delta_usd`, `if_all_reclosed_now_total`) — clearly labeled as
   *"if held to now"* context.
 
-The engine deliberately emits **no** per-week or projection field. If you feel the urge to annualize, weekly-ize,
+If you feel the urge to annualize, weekly-ize,
 or forecast a dollar figure, stop — that urge is the exact failure mode this skill exists to kill.
 
 **Account value ≠ P&L — never narrate the value curve as trades.** The engine sources closed trades from on-chain fills, so you should not need `strategy_get_pnl_and_account_value_history` for a trade review at all. If you ever look at it: `accountValueHistory` is a series of account **snapshots**, not trades — never narrate "$135 → $133 → $143 → …" as individual round-trips. A curve ending at **`$0` after a `strategy_close` / `strategy_withdraw_funds` is capital RETURNED to the main wallet (a withdrawal), not a loss** — the realized result is realized PnL, not the value drop. If realized PnL (e.g. −$21) and the value drop (e.g. −$175) disagree, the difference **is the withdrawal** — reconcile, never report the drop as a loss.
@@ -513,8 +496,7 @@ otherwise it's just an asset the strategy was never designed to trade.
 ### 5. Inherit the portfolio rules — mandate, multi-wallet, idle-by-design
 
 - **Judge each strategy against its OWN mandate** (`strategies[].mandate`, from the deployed `runtime.yaml`),
-  not a generic momentum benchmark. A market-neutral book "underperforming" a raging bull tape is doing its
-  job. Realized PnL is *evidence for the mandate verdict*, not the headline.
+  not a generic momentum benchmark. Realized PnL is *evidence for the mandate verdict*, not the headline.
 - **A strategy is ALL its wallets.** A multi-wallet strategy (long+short, core+ballast, multi-sleeve) is ONE
   strategy — **never** recommend closing / repurposing a single sleeve ("close the duplicate wallet"). One
   sleeve of a long/short book is a **naked directional position**, the opposite of the design.
@@ -546,60 +528,32 @@ otherwise it's just an asset the strategy was never designed to trade.
   (`crossed` on every fill), **fees in $** (`fee`), and **peak ROE**
   (1m candles over the hold). Scope "undetermined" to blocked signals and protection gaps — and for *how the
   position closed*, work the ladder in 6b before you ever say you could not tell.
-- **Name your source (onchain vs runtime).** Closed trades + every onchain fact come from **`discovery`**
-  (`discovery_get_trader_history`) — **never `audit_*`** (deprecated). Exit reason, blocked signals, leaks and
-  maker/taker come from **telemetry** (the event log) and *enrich* those discovery trades. See the "Sources —
-  onchain vs runtime" note above.
-- **Exit attribution is telemetry-first, ratchet-fallback.** `exit_reason.source` tells you which: `telemetry`
-  (native `close_reason`), `ratchet` (the reconstructed record), or `unknown`. When it's `UNKNOWN` — no
-  telemetry event and no ratchet record — say *"exit mechanism not recorded on this build"* (or, for a closed
-  strategy, *"…its event ring is gone"*), **never guess** the mechanism. Check `meta.telemetry_source` +
-  `meta.exit_reason_source_counts` and report how much enrichment landed honestly.
 - When a price / horizon is missing, `if_held_delta_usd` is `null` and the trade counts as `exits_unknown` —
   say so ("couldn't compare — no current price"), don't invent a comparison.
 - Read `meta.warnings` and surface material gaps plainly. Missing data is a caveat, not a thing to paper over.
 
 ### 6b. Why the runtime closed it — READ THE RECORD. Never infer a mechanism.
 
-**The runtime archives every close with its reason.** There is nothing to deduce. A live review once
-answered *"Exit mechanism: undetermined"* because one command timed out, while the record sat one call away.
+**The runtime archives every close with its reason.** There is nothing to deduce.
 
 **A CLOSED position — `senpi dsl closes --runtime <id> --json`** ("archived closes with reason and ROE").
-Each row is the answer *and* the details:
+Each row is the answer *and* the details: `closeReason` (why it closed), `phase` + `currentTierIndex` (which
+rung was governing), `currentROE` (the ROE it closed at — already at the REAL leverage, so quote it).
 
-| field | what it tells the user |
-| --- | --- |
-| `closeReason` | **why it closed** (vocabulary below) |
-| `phase` + `currentTierIndex` | **which rung was governing** at the close |
-| `currentROE` | the ROE it closed at — already at the REAL leverage, so quote it |
+Translate `closeReason`, never paste the enum: `exchange_sl_hit`, `dsl_breach`, `hard_timeout`,
+`weak_peak_cut`, `dead_weight_cut` (what each means: `references/exit-records.md`).
 
-…plus `entryPrice` / `lastPrice` / `elapsedMinutes` / `closedAt`.
-
-Translate `closeReason`, never paste the enum:
-- **`exchange_sl_hit`** — the resting exchange stop fired. It fills at **market**, so expect a burst of taker
-  fills at one timestamp and some overshoot past the floor. The most common DSL exit by far.
-- **`dsl_breach`** — the DSL's own floor broke and the runtime closed it via `closePosition`, honouring
-  `exit.order_type`.
-- **`hard_timeout`** — the clock, regardless of PnL. OFF on penguin / pelican.
-- **`weak_peak_cut`** — never reached `min_value` ROE inside the window. A **death** cut, not a profit cut.
-- **`dead_weight_cut`** — stagnation cut.
-
-**The three above are TIMERS, not reactions to price, and none is phase-scoped.** State the configured
+**`hard_timeout`, `weak_peak_cut` and `dead_weight_cut` are TIMERS, not reactions to price, and none is
+phase-scoped.** State the configured
 interval and the actual hold, or the reason is not explained: *"held 5.03h against a 300-minute
 `weak_peak_cut` with `min_value` 5.0 — it never cleared +5% ROE in that window, so the slot was freed."*
 Saying it "detected the position rolling over" or "cut early before the hard stop" invents a mechanism —
 a real review did exactly that on a position whose hold time (5.03h vs a 300m timer) was the giveaway.
-`weak_peak_cut`'s timer also RESETS whenever ROE clears `min_value`, so it bounds DEAD positions, not
-slow ones.
 
 **A LIVE position — `senpi dsl inspect <asset> --json`** returns the full `DslState`, which already holds
-every number users ask for. Quote these rather than computing anything:
-- `floorPrice` / `tierFloorPrice` — where the stop actually is
-- **`lockedProfitPct`** — what is locked in *right now* (the answer to "at what point does it lock profits")
-- `highWaterRoe` / `peakROE` — the best it has seen
-- `currentTierIndex` + `phase` — which rung is governing
-- `distanceToNextTierPct` — how far to the next rung
-- `slOrderId` / `lastSyncedFloorPrice` — the resting exchange order the floor is synced to
+every number users ask for. Quote these rather than computing anything: `floorPrice` / `tierFloorPrice`
+(where the stop is), **`lockedProfitPct`** (what is locked in *right now*), `highWaterRoe` / `peakROE`,
+`currentTierIndex` + `phase`, `distanceToNextTierPct` — field by field in `references/exit-records.md`.
 
 Two more: **`senpi dsl positions --json`** (what is under DSL management at all — the answer to "is this
 protected?") and **`senpi explain <asset>`** (the stitched opened → dsl → closed narrative).
@@ -631,7 +585,7 @@ is worth pulling when the pattern survives dropping any single trade — not whe
 
 ### 8. Verdicts are for the CURRENT book only — closed strategies are HISTORY, not a live problem
 
-**This is the split that stops the worst live-run failure.** The engine enumerates strategies of *all*
+The engine enumerates strategies of *all*
 statuses so a churned book's **closed trades** are captured — but a closed strategy is **history**, not a
 current strategy to analyze, consolidate, or fix.
 
@@ -657,16 +611,11 @@ current strategy to analyze, consolidate, or fix.
   same root as `meta.registry_source == null`), never evidence of a naked strategy. **NEVER** say a strategy
   "has no DSL / no exit protection / is running unprotected," **never** recommend "add DSL," and **never**
   invent DSL tier numbers to fix it. If the user wants a strategy's real DSL, look it up (its `runtime.yaml`
-  package), don't infer absence from a `null`. (Same lesson as senpi-portfolio's `protected` handling — an
-  empty/absent record is a *surfacing* gap, not an unprotected position.)
+  package), don't infer absence from a `null`.
 - **Attribute every trade to its actual `strategy_label` from the trade record — never speculate** ("*likely*
   from the old X strategy"). The engine tags each trade with its strategy; use it. If two same-label wallets
   diverge (one winning on equities, one losing on crypto), say exactly that from the data — don't guess a
   mandate for a trade.
-
-Concretely: if you're about to say "you have 13 wallets, kill/merge 11 of them," stop — check
-`meta.current_strategy_count`. If most of those 13 are in `closed_strategies[]`, the real live book is small
-and there is **no consolidation problem** — you're looking at redeploy history.
 
 ### 9. No trades yet? Stop cleanly — do NOT pivot to setup / config nagging
 
@@ -675,8 +624,7 @@ and there is **no consolidation problem** — you're looking at redeploy history
 A trade review with **no closed trades** — especially **brand-new strategies deployed today with no
 positions yet** — is a **complete, correct result**: *"nothing to review yet."* Say that and stop. The
 strategies are **autonomous**; they open positions on their own when their scanners fire. **Do not
-manufacture a setup/config critique to seem useful.** The specific failures this prevents (all from a live
-run on a just-deployed book):
+manufacture a setup/config critique to seem useful.**
 
 - **Never tell the user to "fund a position," "open a position first," "decide which gets action first," or
   "manually exit."** An autonomous strategy trades **itself** on its signal — the user does not hand-open or
@@ -688,22 +636,22 @@ run on a just-deployed book):
   user to "verify" protection that exists by design, and never pair it with "until you manually exit."
 - **Never give generic execution / config-tuning advice** — slippage, market-vs-limit, leverage. It's out of
   scope for a *trade review*, it second-guesses a strategy that was just set up, and nudging toward MARKET /
-  higher-slippage fills **raises fees** — the biggest killer of returns. `slippage: 0` is not a defect to
-  "fix." If the user explicitly asks about execution, hand it to `senpi-strategy-author` / `senpi-strategy-ops`;
+  higher-slippage fills **raises fees** — the biggest killer of returns. `slippage: 0`
+  is not a defect to "fix." If the user explicitly asks about execution, hand it to `senpi-strategy-author` / `senpi-strategy-ops`;
   don't free-style a number.
-- **What TO say instead — branch on `meta.book_state` (see "Nothing to review?" above):**
-  - **`strategies_no_trades`** (deployed, hasn't fired): there's nothing to review *yet*; the strategies
-    trade on their own signals — idle-by-design for a fresh deploy. If they ask **why**, diagnose the
-    strategy they have. **Do not pitch another strategy to someone whose strategy hasn't traded.**
-  - **`no_strategies`** (nothing deployed): say it in one line, then **pivot to `senpi-market-pulse` →
-    `senpi-strategy-discover`** — read today's market, then shortlist strategies that fit *it*.
-  - Either way, next moves are **options, not obligations**, and idle embedded cash is an **opportunity to
-    deploy if they want**, never a "$0/day leak."
 
-## What the engine gives you
+## Composition — this skill orchestrates, it doesn't re-implement
 
-The engine prints one JSON dict. **Open with `book`** (the one list, then `book.total.line`); within the
-Senpi detail, **lead with `pnl_summary.total`** (realized+unrealized); the PROCESS counts are in `timing_summary`; per-strategy verdicts in `strategies[]` (CURRENT book only); the telemetry streams (`dsl_close_reason_mix` / `blocked_summary` / `leaks` / `execution_quality`) are real only when `telemetry_availability.streams_computed` is true; `trades[]` is a curated outlier sample (counts from the aggregates, never `len(trades)`). **Full field-by-field catalog + the `exit_reason.terminal` enum: [`references/output-shape.md`](references/output-shape.md).**
+This is the counterpart to `senpi-portfolio`. Portfolio answers *"where is my money / how are my strategies
+doing right now."* **Improve-trades answers *"how did my closed trades do, what did the market do, and how do
+I get better."*** Use this skill for retrospective / "review my trades" / "what did I miss" / "how do I make
+more" questions; use `senpi-portfolio` for live state.
+
+- **`senpi-market-pulse`** → the movers narrative (what moved this window and why).
+- **`senpi-smart-money`** → the whale read ("compare my trades to the best whales").
+- **`senpi-portfolio`** → live positions, balances, and the current mandate/DSL posture.
+
+Don't re-implement these — call them and weave their output into the four-part contract below.
 
 ## The output contract — what you produce
 
@@ -737,25 +685,16 @@ Senpi detail, **lead with `pnl_summary.total`** (realized+unrealized); the PROCE
 
 Never pick for the user, and never act unprompted.
 
-## Composition — this skill orchestrates, it doesn't re-implement
+## Reference index — read the file before doing the thing
 
-- **`senpi-market-pulse`** → the movers narrative (what moved this window and why). The engine's
-  `book_vs_market.top_movers` is the hook; market-pulse is the depth.
-- **`senpi-smart-money`** → the whale read ("compare my trades to the best whales"). The engine surfaces
-  `smart_money_pct` per mover; smart-money does the trader-level comparison.
-- **`senpi-portfolio`** → live positions, balances, and the current mandate/DSL posture.
-
-Don't re-implement these — call them and weave their output into the four-part contract above.
-
-## The one pending upgrade — authoritative fee $
-
-**Fees in $ now ship on both paths** — discovery rows carry `totalFees` (its `totalHyperliquidFees` +
-`totalBuilderFees`; discovery splits those two, unlike HL's raw `fee`, which is already inclusive), on-chain
-rows carry both legs of the round trip, and `pnl_summary` carries `fees` / `realized_net`. What remains below
-is *reconciliation against the ledger*, not availability.
-
-`execution_quality` reports the maker-vs-taker **rate** today, not fee dollars. The authoritative fee **$**
-lives in the ledger — `order.filled` / `position.closed` carry `senpi.order.id`, which joins to
-`execution_get_closed_position_details({closedOrderId})` → realized PnL + **fees** + funding. That per-order
-join is the future upgrade; it's intentionally **not** called per-trade (rate-limit risk), so until it's
-wired, quote the maker ratio as a fee-tier signal, never a fee dollar total.
+- `references/guardrails.md` — before coaching an exit, a missed mover, a "make more" or a "why is it
+  losing": the live failure behind each guardrail and its worked example.
+- `references/exit-records.md` — before explaining why or how a position closed, what is locked now, or a
+  `senpi explain` lifecycle: every close-record and `DslState` field.
+- `references/one-book.md` — before narrating a partial subtotal, the comparison or the deep-dive question.
+- `references/sources.md` — before explaining where a trade, an exit reason or a fee $ came from, or why a
+  closed strategy's trades came back from the chain.
+- `references/output-contract.md` — before a full review or a fix-depth pick: the output contract,
+  Composition and both fix-depth menus, word for word.
+- `references/output-shape.md` — when an engine field's meaning is unclear.
+- `references/event-log.md` — the telemetry event shapes the engine reads (`signal.outcome` reason codes).

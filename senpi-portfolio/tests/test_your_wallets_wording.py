@@ -112,6 +112,7 @@ SECTIONS = (
     ("senpi-improve-trades/SKILL.md", "## One book — every wallet first-class",
      "## Your wallets (read-only, traded by hand)"),
     ("senpi-improve-trades/SKILL.md", "## Your wallets (read-only, traded by hand)", None),
+    ("senpi-improve-trades/SKILL.md", "## Your wallets — unknown reads and fix depth", "## Nothing to review?"),
     ("quant-desk/SKILL.md", '**"My wallets" are', "**The desk remembers.**"),
     ("quant-desk/SKILL.md", "### If they mean their OWN book", None),
     ("senpi-trade/SKILL.md", "- **A request to act on one of the user's SAVED wallets**",
