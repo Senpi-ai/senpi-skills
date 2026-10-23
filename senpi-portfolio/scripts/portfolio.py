@@ -1397,8 +1397,9 @@ def fetch_strategies(client, meta):
             drained = bool(tf and tf > 0 and tw is not None and tw >= tf - 0.01)
             strat["empty_reason"] = "closed_or_drained" if drained else "unfunded"
         # LIVE per-position DSL/ratchet tier — read-guarded + fail-open. Attaches a `dsl` object to each
-        # open position (armed → tier/lock; not armed → "protected from entry, ratchet arms at +X%").
-        # NEVER leaves a live position looking "unprotected." (See attach_position_dsl.)
+        # open position (armed → tier/lock; sub-Tier-1, incl. a tier -1 record → "protected from entry,
+        # ratchet arms at +X%" for a runtime ladder; no ladder → never "protected" off the ratchet alone).
+        # NEVER leaves a runtime-ladder position looking "unprotected." (See attach_position_dsl.)
         attach_position_dsl(client, strat, meta)
         strat["closed"] = fetch_closed(client, strat["wallet"], meta)
         return strat
@@ -1661,13 +1662,56 @@ def _locked_pct_at_tier(ladder, tier_index):
     return None
 
 
-def _unarmed_dsl(ladder, roe):
-    """The DSL object for an open position that has NOT yet crossed Tier 1 (no ratchet record). This is
-    the WHOLE POINT of the fix: an empty ratchet record is NOT "no DSL / unprotected" — the phase1 hard
-    stop protects the position FROM ENTRY, and the profit-ratchet simply hasn't ARMED yet. Frame it that
-    way, NEVER as unmonitored. `ladder` = the strategy's profile.dsl (config); `roe` = this position's
-    return_on_equity_pct. Stands alone even if the live ratchet call failed (config + ROE only)."""
-    ladder = ladder if isinstance(ladder, dict) else {}
+def _engaged_tier(rec):
+    """The record's `currentTierIndex` as an int when a tier is ENGAGED (>= 0), else None. The backend
+    reports -1 (with `tierFloorPrice: null` and no SL order of its own) from open until the first tier
+    fires: a strategy whose runtime starts in phase 2 (`phase1.enabled: false`) is handed to the backend
+    at open. Missing / null / non-numeric / negative ⇒ not engaged ⇒ sub-Tier-1, never "armed"."""
+    ti = _field(rec, "currentTierIndex", "current_tier_index")
+    if isinstance(ti, bool):
+        return None
+    n = _num(ti)
+    if n is None or n != n or n < 0:      # n != n: NaN
+        return None
+    return int(n)
+
+
+def _record_arm_at(rec):
+    """Tier 1's trigger ROE from the record's own ladder (`dslConfig.tiered.tiers[0].triggerRoe`), or None."""
+    cfg = rec.get("dslConfig") if isinstance(rec, dict) else None
+    tiered = cfg.get("tiered") if isinstance(cfg, dict) else None
+    tiers = tiered.get("tiers") if isinstance(tiered, dict) else None
+    if isinstance(tiers, list) and tiers and isinstance(tiers[0], dict):
+        return _num(tiers[0].get("triggerRoe"))
+    return None
+
+
+def _no_ladder_kind(strat):
+    """What stands behind a position whose strategy has NO runtime ladder (`profile.dsl` is None):
+      "runtime"    — the engine read an exit in the deployed runtime.yaml (`protected: true`)
+      "mirror"     — a copy-trade: no DSL by design; the trader's exits + its own strategy SL/TP
+      "unverified" — the runtime read did not answer (`protected: null`): nothing is claimed
+      "raw"        — no runtime exit (`protected: false`): a raw position or a not_running strategy"""
+    strat = strat if isinstance(strat, dict) else {}
+    if strat.get("strategy_kind") == "mirror":
+        return "mirror"
+    prot = strat.get("protected")
+    if prot is True:
+        return "runtime"
+    if prot is None:
+        return "unverified"
+    return "raw"
+
+
+def _unarmed_dsl(ladder, roe, strat=None):
+    """The DSL object for an open position that has NOT yet crossed Tier 1: no ratchet record, or a
+    record at tier -1 with a null floor. For a strategy WITH a runtime ladder this is NOT "no DSL /
+    unprotected" — the max-loss (phase1) stop protects the position FROM ENTRY, and the profit-ratchet
+    simply hasn't ARMED yet. Frame it that way, NEVER as unmonitored. `ladder` = the strategy's
+    profile.dsl (config); `roe` = this position's return_on_equity_pct; `strat` = the strategy row, read
+    only when there is no ladder (None = the ratchet read failed: the config framing stands alone)."""
+    has_ladder = isinstance(ladder, dict)
+    ladder = ladder if has_ladder else {}
     hard = ladder.get("hard_stop_roe_pct")
     arm = ladder.get("arm_at_roe_pct")
     obj = {
@@ -1685,8 +1729,54 @@ def _unarmed_dsl(ladder, roe):
     elif hard is not None:
         obj["note"] = (f"protected from entry by the phase1 hard stop (floor {hard}% ROE); "
                        f"phase1-only preset — no profit-ratchet tiers")
-    else:
+    elif has_ladder or strat is None or _no_ladder_kind(strat) == "runtime":
         obj["note"] = ("protected by the strategy's DSL exit from entry; live ratchet tier not yet armed")
+    else:
+        # No runtime ladder and no runtime exit the engine read: never say "protected" on this read.
+        kind = _no_ladder_kind(strat)
+        obj["downside_stop"] = None       # not read here (a hand-placed stop is a resting order)
+        if kind == "mirror":
+            obj["note"] = ("copy-trade: no DSL by design — exits follow the copied trader plus the "
+                           "strategy-level SL/TP (stop_loss_pct / take_profit_pct)")
+        elif kind == "unverified":
+            obj["note"] = ("runtime read did not answer: whether a DSL exit protects this position could "
+                           "not be verified on this host")
+        else:
+            obj["note"] = ("no ratchet: no runtime DSL exit; resting stop orders are not read here — "
+                           "read strategy_get_open_orders before saying it has no stop")
+    return obj
+
+
+def _sub_tier1_record_dsl(rec, ladder, roe, strat):
+    """A ratchet record whose tier is NOT engaged (-1 / null / missing). Sub-Tier-1, never armed.
+      - runtime ladder (or a runtime exit the engine read) → the `_unarmed_dsl` "protected from entry"
+        framing: the runtime's max-loss stop rests from entry even with phase1 trailing disabled.
+      - no runtime ladder → `ratchet_stop_add` does not persist a max-loss floor today, so the ratchet
+        gives NO downside stop until Tier 1. Say so (`downside_stop: false` for a raw position); a hand-
+        placed resting stop is not read here. Revisit once `ratchet_stop_add` persists the floor."""
+    kind = None if isinstance(ladder, dict) else _no_ladder_kind(strat)
+    if kind in (None, "runtime"):
+        obj = _unarmed_dsl(ladder, roe, strat)
+    else:
+        arm = _record_arm_at(rec)
+        arm_txt = f" (+{arm:g}%)" if arm is not None else ""
+        obj = {"armed": False, "hard_stop_roe_pct": None, "arm_at_roe_pct": arm, "roe": roe}
+        if kind == "raw":
+            obj["downside_stop"] = False
+            obj["note"] = (f"ratchet registered, not yet armed: no downside stop from the ratchet until Tier 1"
+                           f"{arm_txt}; resting stop orders are not read here — read strategy_get_open_orders "
+                           f"before saying it has no stop")
+        elif kind == "mirror":
+            obj["downside_stop"] = None
+            obj["note"] = (f"ratchet registered, not yet armed (Tier 1{arm_txt}); a copy-trade's downside is "
+                           f"its strategy-level SL (stop_loss_pct) and the copied trader's exits")
+        else:  # unverified
+            obj["downside_stop"] = None
+            obj["note"] = (f"ratchet registered, not yet armed (Tier 1{arm_txt}); runtime read did not "
+                           f"answer, so whether a max-loss stop rests from entry could not be verified")
+    obj["ratchet_record"] = True          # the backend holds a record; its tier is not engaged yet
+    obj["tier_index"] = _field(rec, "currentTierIndex", "current_tier_index")
+    obj["status"] = _field(rec, "status", default="ACTIVE")
     return obj
 
 
@@ -1694,14 +1784,17 @@ def attach_position_dsl(client, strat, meta):
     """Attach a `dsl` object to each open position of ONE strategy instance — its LIVE ratchet tier state.
 
     Read-guarded + FAIL-OPEN. One `ratchet_stop_list(strategyId, wallet, status:ACTIVE)` call per
-    instance, indexed by asset:
-      - a record exists (position crossed Tier 1) → armed: true, tier_index, high_water_roe, status,
-        locked (= lock_hw_pct at that tier from the parsed ladder).
+    instance, indexed by asset (and by `dex:asset` for a HIP-3 row that carries a bare asset):
+      - a record with an ENGAGED tier (`currentTierIndex` >= 0) → armed: true, tier_index,
+        high_water_roe, status, locked (= lock_hw_pct at that tier from the parsed ladder).
+      - a record at tier -1 / null / missing (sub-Tier-1: a phase-2-from-open strategy is handed to the
+        backend at open) → `_sub_tier1_record_dsl`: armed: false, never "armed at tier -1".
       - NO record (sub-Tier-1) → the `_unarmed_dsl` object: armed: false + the "protected from entry,
-        ratchet arms at +X%" framing. This is EXPECTED, not a gap — never "unprotected."
+        ratchet arms at +X%" framing for a runtime ladder. This is EXPECTED, not a gap.
       - the ratchet call fails entirely → EVERY position still gets the config-based `_unarmed_dsl`
         object (config + ROE stands alone), plus a meta.warnings note.
-    NEVER emits anything that reads as "no DSL / no monitoring."
+    A runtime-ladder position is NEVER framed "no DSL / no monitoring"; a position with no runtime
+    ladder is never framed "protected" off a ratchet record alone.
     """
     positions = strat.get("positions") or []
     if not positions:
@@ -1715,14 +1808,19 @@ def attach_position_dsl(client, strat, meta):
     try:
         rl = _ok(client.mcp_call("ratchet_stop_list", strategyId=sid,
                                  strategy_wallet_address=wallet, status="ACTIVE", timeout=15))
-        rows = rl if isinstance(rl, list) else _field(rl, "configs", "ratchetStops", "data", "items", default=[])
+        # `positions` is the MCP's key ({positions, count}); the others are older shapes, kept.
+        rows = rl if isinstance(rl, list) else _field(rl, "positions", "configs", "ratchetStops", "data",
+                                                      "items", default=[])
         records = {}
         for r in (rows if isinstance(rows, list) else []):
             if not isinstance(r, dict):
                 continue
             asset = _field(r, "asset", "coin")
             if asset:
-                records[str(asset)] = r
+                records.setdefault(str(asset), r)
+                dex = r.get("dex")
+                if dex and dex != "main" and ":" not in str(asset):
+                    records.setdefault(f"{dex}:{asset}", r)   # the book's coin is "xyz:CL"
     except Exception as e:  # noqa — fail-open: config-based framing stands alone
         meta.setdefault("warnings", []).append(
             f"ratchet_stop_list {str(wallet)[:8]} failed: {e}; DSL tier from config only")
@@ -1731,8 +1829,8 @@ def attach_position_dsl(client, strat, meta):
     for p in positions:
         roe = p.get("return_on_equity_pct")
         rec = records.get(str(p.get("asset"))) if isinstance(records, dict) else None
-        if rec is not None:
-            ti = _field(rec, "currentTierIndex", "current_tier_index")
+        ti = _engaged_tier(rec) if rec is not None else None
+        if ti is not None:
             p["dsl"] = {
                 "armed": True,
                 "tier_index": ti,
@@ -1740,9 +1838,12 @@ def attach_position_dsl(client, strat, meta):
                 "status": _field(rec, "status", default="ACTIVE"),
                 "locked": _locked_pct_at_tier(ladder, ti),   # lock_hw_pct at the active tier
             }
+        elif rec is not None:
+            p["dsl"] = _sub_tier1_record_dsl(rec, ladder, roe, strat)
+        elif records is None:
+            p["dsl"] = _unarmed_dsl(ladder, roe)          # the list call failed: config framing, as before
         else:
-            # no ratchet record (sub-Tier-1) OR the list call failed — either way, config-based framing
-            p["dsl"] = _unarmed_dsl(ladder, roe)
+            p["dsl"] = _unarmed_dsl(ladder, roe, strat)   # no record: sub-Tier-1, or no ratchet at all
 
 
 # ──────────────────────────────────────────────────────────────── market context (for analysis)

@@ -1,4 +1,4 @@
-# senpi-portfolio 1.35.2 — dropped, reworded and moved sentences
+# senpi-portfolio 1.35.3 — dropped, reworded and moved sentences
 
 Restructure of `senpi-portfolio/SKILL.md` for the 10.4 size limit: base `b1916b12` 90,344 est chars,
 1.35.0 55,735, 1.35.1 55,469, 1.35.2 55,499. No sentence was deleted: every old sentence is in SKILL.md or a
@@ -23,6 +23,10 @@ The 5.7 follow-up table (last section) says where each base-replayed rule is on 
 
 1.35.2 (Box A live test, 2026-10-22) only widens the liveness router row with "it looks stuck / restart
 it": "restart it, it looks stuck" had gone to a raw `strategy_list` read. No sentence moved.
+
+1.35.3 corrects one premise ("Reworded in 1.35.3", below): a sub-Tier-1 position may have a ratchet
+record at tier -1 with a null floor, not only no record. SKILL.md stays at 55,499 est chars. No rule
+moved out of SKILL.md.
 
 ## Re-pointed cross-references
 
@@ -268,3 +272,22 @@ Where each base-replayed rule is on a follow-up turn now:
 | Install: "**Install the whole `scripts/` directory** — copying `portfolio.py` alone fails with `No module named 'mcp_client'`. Stdlib only, no other runtime dependencies." | Not on a follow-up: an install note for whoever installs the skill, not a rule for a chat turn. |
 | The persona ("You are a sharp portfolio analyst…", "The bar is high: … is a failure. The user wants a read.") | `references/output-contract.md` ("The analyst's bar"), router row "analyze my portfolio / how am I doing". Its rule replays as "do **not** answer with a positions dump" ("Strategy-first"). |
 | Explanations that were in the base head (the phantom-wallet clause, "a bare number read by eye…", "Those return un-bucketed dumps…", the `ratchet_stop_list` detail, "A strategy is doing its job when…", the trap's restatements, the no-no heading's "(this is a real failure…)") | Not rules: in `rationale.md`, `dsl.md`, `mandate.md` and `analysis-framework.md` (quoted under "Imperatives that left core"); each rule they explain replays. |
+
+## Reworded in 1.35.3 — the sub-Tier-1 premise corrected
+
+The base said `ratchet_stop_list` returns a record only once a position crosses Tier 1. That is false
+for a strategy with `phase1.enabled: false`: it starts in phase 2, the backend holds its record from
+open, and the record reads `currentTierIndex: -1`, `tierFloorPrice: null`, no SL order, while the
+runtime's max-loss stop rests on the venue. Each sentence below was reworded in place to say "no record,
+or a record at tier -1 — both sub-Tier-1"; the rule ("never call it unprotected / no DSL") is unchanged.
+The raw-position bullet gained one sentence (a raw position's tier -1 record is no downside stop until
+Tier 1) and keeps the rest word for word. The golden-rule pointer to the DSL section is shortened to
+the section's first words to keep SKILL.md net-neutral.
+
+- SKILL.md: "DSL — how it works per strategy, and which position is in which tier" below. **Never call a live position "unprotected" just because it has no ratchet record — sub-Tier-1 positions have none by design.** For a raw position with no runtime, `false` means **no ratchet** — see the HARD rule below.
+- SKILL.md and `dsl.md`: never infer "no stop" from the absence of a resting stop order (DSL exits are runtime-managed, not resting orders) or from a missing ratchet record (sub-Tier-1 positions have none).
+- SKILL.md and `dsl.md` (HARD rule): An **empty ratchet record on a sub-Tier-1 position is NOT "unprotected"** … Say **"protected; profit-ratchet arms at Tier 1 (+X%)"** — never "unprotected / unmonitored / no stop." (The engine already frames every `armed: false` position this way in `dsl.note`; do not override it with an "unprotected" reading.)
+- SKILL.md: - **A raw position (no runtime, `protected: false`) is "no ratchet," not "no stop."** A one-off position the user placed by hand carries its protection as resting orders, which this engine does not read.
+- `dsl.md`: - **`armed: true`** → the position has crossed Tier 1; report **"Tier N, locked at L% of peak, high-water +H% ROE"**
+- `dsl.md`: - **`armed: false`** → the position is **sub-Tier-1**: the profit-ratchet hasn't armed yet, but it is **still protected from entry by the phase1 hard stop.** Report it that way — `note` already phrases it
+- `output-fields.md`: **`dsl`** — this position's live DSL/ratchet state. **`armed: true`** → `tier_index`, `high_water_roe`, `status`, `locked` (= `lock_hw_pct` at the active tier). **`armed: false`** (no ratchet record — the position is sub-Tier-1) → `hard_stop_roe_pct`, `arm_at_roe_pct`, `roe`, and a `note` … **`armed: false` means the profit-ratchet hasn't ARMED yet, NOT that the position is unprotected** — the phase1 hard stop protects it from entry.
