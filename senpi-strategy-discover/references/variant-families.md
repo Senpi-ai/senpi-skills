@@ -179,6 +179,22 @@ closes a position — including through the Friday-to-Sunday equity gap that tim
 Say that last part out loud to anyone running it over a weekend.
 
 
+### 7. Leverage with the stop moved in — the same harvest at 3x
+
+`dugong` — manatee at **3x instead of 2x**, three changes and each one is load-bearing, so name all
+three. The harvest is unchanged IN PRICE (+1.4% / +6% / +12% rungs). The stop moves from 30% of
+price to **20%**, because at 3x the venue liquidates an isolated position 21–32% from entry and a
+30% stop would sit past liquidation. And it trades only names the venue allows at **10x or more**,
+so the stop has room to fill first. A clip is half again manatee's size; a clip that reaches its
+stop costs the same dollars as manatee's; a full name holds the same notional (two clips, not three).
+
+What to say: "Dugong is manatee at 3x with a tighter stop and fewer names: every move counts half
+again as much, in both directions, and positions stop out sooner." In a six-month backtest against
+manatee (27 Apr–22 Oct 2026) it averaged about 0.70 ROE per position after all fees at the starting
+builder-fee tier, against manatee's 0.42 (about 1.0 against 0.62 with no builder fee), with fewer
+losing months. Quote that as what one past window showed, with its window, never as a return to
+expect.
+
 ## Not a family any more: camel
 
 `camel-concentrated` **took the `camel` id on 2026-10-08** — one position per side at 10x is now

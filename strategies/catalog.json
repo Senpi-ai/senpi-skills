@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-10-20",
+  "_updated": "2026-10-23",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -4621,6 +4621,66 @@
       "sort_order": 5
     },
     {
+      "id": "dugong",
+      "name": "Dugong — Cross-Asset Mean-Reversion at 3x",
+      "emoji": "🐋",
+      "varies": "manatee",
+      "tagline": "Manatee's two-sided mean reversion at 3x: buys a liquid name that closed well below its one-week average and shorts one that closed well above it, across perpetuals and the xyz board's equities, indices and commodities, with a profit lock that arms at +1.4% of price. Up to 10 positions at 3x, each with a stop at 20% of price, inside the venue's liquidation distance, on names the venue allows at 10x or more.",
+      "belief_plain": "Liquid markets overshoot in both directions and come back toward their recent average. Dugong is Manatee's engine with the leverage raised to 3x: the same signal, the same 1.4% profit lock in price, one add instead of two, and a stop at 20% of price instead of 30%. The stop moves in because it has to: at 3x the venue would liquidate a position before a 30% stop could fire. Each clip is half again Manatee's size, so every move counts half again as much, in both directions; a clip that reaches its stop costs the same dollars as one of Manatee's, and a full name at most 1.8% of the account against Manatee's 2.7%. It trades only names the venue allows at 10x or more, so a stop has room to fill before liquidation. The risk is a one-way market that keeps stretching through the stops, and at 3x positions stop out sooner than Manatee's.",
+      "version": "1.0.0",
+      "thesis": "Manatee's engine at 3x, backtested side by side with Manatee minute by minute over 27 April to 22 October 2026: every qualifying daily close in the derived top 24, one position per name, positions still open at 45 days marked to market. In that backtest Manatee (2x, 30% stop) closed 96.6% of its 1,009 positions at the profit lock and Dugong (3x, 20% stop, names allowed 10x or more) 94.5% of 920. Per position, after all fees at the starting builder-fee tier, Dugong averaged about 0.70 ROE against Manatee's 0.42, and about 1.0 against 0.62 with no builder fee, with fewer losing months in both cases. Two findings in the backtest set its shape. The stop sits at 20% of price: of the 55 positions that fell that far against Manatee, 14 came back to the profit lock. And it trades only names the venue allows at 10x or more, because at 3x a short on a name capped lower would liquidate barely past that stop. A backtest describes one past window under stated assumptions; it is not a forecast and not a promise of returns. Adds, the 10-slot limit and stop slippage were not modelled.",
+      "tags": [
+        "mean-reversion",
+        "cross-asset",
+        "xyz-equities",
+        "derived-universe",
+        "long-short",
+        "harvester",
+        "always-on",
+        "dsl-only",
+        "no-close",
+        "inventory",
+        "two-sided",
+        "daily-close",
+        "buy-the-dip",
+        "short-the-rip",
+        "liquid-perps",
+        "majors",
+        "3x"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "contrarian_fade",
+      "archetype_label": "Contrarian / Fade",
+      "sub_style": "mean_reversion",
+      "sub_style_label": "Buys oversold / sells overbought, betting price reverts to its mean (works in chop, not just trends).",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts",
+        "xyz_equities",
+        "indices",
+        "commodities",
+        "pre_ipo"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 3,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 500,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 10,
+      "branch": "main",
+      "sort_order": 6
+    },
+    {
       "id": "eel",
       "name": "Eel — Electrons vs Hydrocarbons",
       "emoji": "⚡",
@@ -4677,7 +4737,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 6
+      "sort_order": 7
     },
     {
       "id": "kestrel",
@@ -4740,7 +4800,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 7
+      "sort_order": 8
     },
     {
       "id": "kite",
@@ -4796,7 +4856,7 @@
       ],
       "max_slots": 4,
       "branch": "main",
-      "sort_order": 8
+      "sort_order": 9
     },
     {
       "id": "lion",
@@ -4887,7 +4947,7 @@
       ],
       "max_slots": 9,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 10
     },
     {
       "id": "manatee",
@@ -4946,7 +5006,7 @@
       ],
       "max_slots": 10,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 11
     },
     {
       "id": "mandate",
@@ -5011,7 +5071,7 @@
       ],
       "max_slots": 8,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 12
     },
     {
       "id": "mongoose",
@@ -5071,7 +5131,7 @@
       ],
       "max_slots": 7,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 13
     },
     {
       "id": "ox",
@@ -5133,7 +5193,7 @@
       ],
       "max_slots": 14,
       "branch": "main",
-      "sort_order": 13
+      "sort_order": 14
     },
     {
       "id": "rhino",
@@ -5198,7 +5258,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 14
+      "sort_order": 15
     },
     {
       "id": "scorpion",
@@ -5268,7 +5328,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 15
+      "sort_order": 16
     },
     {
       "id": "spider",
@@ -5334,7 +5394,7 @@
       ],
       "max_slots": 7,
       "branch": "main",
-      "sort_order": 16
+      "sort_order": 17
     },
     {
       "id": "thesis-fund",
@@ -5394,7 +5454,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 17
+      "sort_order": 18
     },
     {
       "id": "wolf",
@@ -5457,7 +5517,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 18
+      "sort_order": 19
     },
     {
       "id": "aegis",

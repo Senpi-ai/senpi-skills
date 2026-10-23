@@ -1,0 +1,173 @@
+# ── DUGONG · Cross-Asset Mean-Reversion Inventory at 3x ─────────────────────────────
+# Manatee's engine at 3x. Two-sided inventory across BOTH venue boards, direction from the signal: at
+# the DAILY close, LONG a name 5% or more below its 7-day mean, SHORT one 5% or more above it. One add,
+# when the next daily close is a further 3% against an under-water position. Exit by the DSL only,
+# around the clock: a lock that arms at +1.4% of price over the (merged) average entry and keeps 95% of
+# it, and a max-loss floor at 20% of price. No clocks. An add re-anchors the DSL on the new average entry.
+# The engine reads CLOSED daily bars: market_get_asset_data serves 90 days of them with the in-progress
+# bar last, and the scanner drops that bar and acts once per closed bar.
+#
+# What changes from manatee, and why each number is what it is:
+#   - leverage 3, and every DSL number re-derived so the PRICE ladder is unchanged: the harvest still
+#     arms at +1.4%, the upper rungs at +6% and +12%.
+#   - the max-loss floor moves IN, from 30% of price to 20%. It has to: positions are isolated, and at
+#     3x the venue liquidates 21-32% from entry (shorts on 5x-max names at 21.2%), so a 30% floor would
+#     sit past liquidation on every name. The six-month backtest behind this package (minute marks,
+#     2026-04-27..10-22) points the same way: of the 55 positions that went 20%+ against manatee's 30%
+#     floor, 14 came back to the profit lock. A backtest describes one past window, not a forecast.
+#   - only names the venue lets trade at 10x or more (minMaxLeverage), so liquidation sits at least
+#     27% from entry, 7 points past the floor. 5x-max names would liquidate 1.2 points past it.
+#   - one add instead of two, and the per-name cap at 3% of margin = 9% of notional, manatee's own
+#     per-name notional, so the full book is the same size: bigger first clips, fewer of them.
+name: dugong-main
+group: dugong
+version: 1.0.0
+description: >
+  DUGONG — Mean-Reversion Inventory at 3x. Keeps up to 10 positions, one per liquid asset on either
+  venue board that the venue lets trade at 10x or more, long when the asset's daily close is at least
+  5% below its one-week average and short when it is at least 5% above it; the sign of the stretch is
+  the direction, there is no bias. When a later daily close is a further 3% against a position that is
+  under water it adds one more clip, so the average entry follows the move. The DSL alone closes a
+  position, at any hour: a lock that arms at +1.4% of price over the average entry and keeps 95% of
+  it, and a max-loss floor at 20% of price, inside the venue's liquidation distance at 3x. In a
+  six-month backtest against manatee (27 April to 22 October 2026) it averaged about 0.70 ROE per
+  position after all fees at the starting builder-fee tier, against manatee's 0.42. A backtest
+  describes one past window under stated assumptions; it is not a forecast or a promise of returns.
+strategy:
+  wallet: "${DUGONG_WALLET}"
+  slots: 10
+  margin_pct: 1.5                    # baseline clip = the scanner's marginPct (PERCENT of withdrawable)
+  default_leverage: 3                    # ROE = 3x the price move, so every DSL number below is 1.5x its
+                                         #   manatee (2x) value and the PRICE ladder is unchanged
+  trading_risk: aggressive
+  enabled: true
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: dugong_scanner
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300               # ticks every 5 minutes; acts on a name once per CLOSED daily bar
+    timeout_seconds: 240
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 200
+    inputs:
+      # ── universe: DERIVED from BOTH venue boards each tick, not hand-listed (see derive_universe() in
+      #    scan.py). A held name stays in scope below the OI floor, but never below the leverage floor. ──
+      oiFloorUsd: 50000000              # open interest, read from market_list_instruments context
+      minMaxLeverage: 10                # the venue's max_leverage for the name. At 3x isolated the venue
+                                        #   liquidates (1/3 - mmr)/(1 - mmr) below a long's entry and
+                                        #   (1/3 - mmr)/(1 + mmr) above a short's, mmr = 1/(2 x max
+                                        #   leverage): 27.0% for a short on a 10x name, 21.2% on a 5x
+                                        #   name. The floor below is 20%, so only 10x+ names leave the
+                                        #   stop room to fill. A name whose max_leverage is missing from
+                                        #   the read is EXCLUDED — the buffer cannot be shown.
+      maxNames: 24                      # ~20 clear the floor today; the cap bounds a liquidity surge
+      minHistoryBars: 60                # closed daily bars before a name is judged — a fresh listing
+                                        #   is unmeasured, and late listings underperformed by ~17%
+      maxSlots: 10
+      # ── the stretch (both sides), measured on CLOSED daily bars ──
+      candleInterval: "1d"
+      maBars: 7                         # the one-week mean
+      retBars: 1                        # the one-day return, for the card only
+      devPct: 5.0                       # at least 5% away from the 7-day mean at the close: below = LONG, above = SHORT
+      deepDevPct: 7.0                   # depth bands, for the signal's band label only; every clip is the same size
+      extremeDevPct: 10.0
+      # ── fee gate: a SANITY CEILING, not a quote of your fees ──────────────────────────────
+      #    Used for one purpose: refusing a harvest target too small to clear a round trip. The
+      #    venue's BASE rates (your HL volume tier only lowers them). Senpi's builder fee depends on
+      #    the account, so no rate is assumed for it: set builderFeeBps to your own to count it on
+      #    both legs. The gate is inert at the shipped 1.4% harvest and only bites if someone tunes
+      #    it down.
+      takerFeeBps: 4.5
+      makerFeeBps: 1.5
+      feeCoverMultiple: 3.0             # the harvest must cover a worst-case round trip 3x over
+      expectedCapturePct: 1.4           # the harvest in PRICE percent — the same unit as the fee ceiling
+                                        #   it is compared with (manatee states it in ROE, which at 2x
+                                        #   makes its inert gate twice as lenient as it reads)
+      # ── sizing (marginPct is a PERCENT of withdrawable): every entry and every add is one clip ──
+      marginPct: 1.5                    # 4.5% of withdrawable in notional at 3x, 1.5x manatee's clip
+      addMarginPct: 1.5
+      leverage: 3
+      # ── inventory scaling: one more clip once the next close is addStepPct further against an
+      #    under-water position (the runtime merges the add; the DSL re-anchors on the new average
+      #    entry). The replay behind this package modelled no adds and none fired live on manatee. ──
+      maxAddsPerAsset: 1
+      addStepPct: 3.0
+      # % of ACCOUNT VALUE per name, checked against the LIVE position's marginUsed, not against a
+      # tally of what this scanner emitted: an emit tally cannot see a fill that did not happen, nor
+      # one that happened twice (FEE_OPTIMIZED_LIMIT can double-fill), and this book adds into losers.
+      maxMarginPctPerAsset: 3.0         # 3% margin at 3x = 9% NOTIONAL per name, manatee's own: two clips,
+                                        #   10 names cap the book at 90% gross. A name on its stop costs
+                                        #   3% x 60 ROE = 1.8% of the account (manatee 2.7%); all ten = 18%.
+      # ── free-margin gate ──
+      venueMinNotionalUsd: 12.0         # the engine's bumped minimum order
+      freeMarginHeadroom: 0.9           # commit at most 90% of free margin in one tick
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      leverage: { type: number }
+      band: { type: string, required: false }
+      kind: { type: string, required: false }
+      addIndex: { type: number, required: false }
+      devPct: { type: number, required: false }
+      retPct: { type: number, required: false }
+      reasons: { type: array, required: false }
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: dugong_open
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [dugong_scanner]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT   # a daily stretch persists for minutes; rest first, cross only if it runs
+      fee_optimized_limit_options: { ensure_execution_as_taker: true, execution_timeout_seconds: 60 }
+    context:
+      - { type: signal, scanner: dugong_scanner }
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT       # the profit lock is a pullback exit, not a stop: it can rest
+  fee_optimized_limit_options: { ensure_execution_as_taker: true, execution_timeout_seconds: 45 }
+  dsl_preset:
+    # No hard_timeout / weak_peak_cut / dead_weight_cut: the DSL decides every exit.
+    phase1:
+      enabled: false
+      max_loss_pct: 60.0                # 60 ROE at 3x = a 20% PRICE floor, inside 3x isolated liquidation
+                                        #   (27%+ on every name minMaxLeverage admits); still stops with
+                                        #   phase1 disabled
+      retrace_threshold: 45             # 1.5x manatee's 30; inert while phase1 is disabled
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                            # trigger_pct is ROE, so at 3x each number is three times the price
+                                        #   move: 4.2 / 18 / 36 ROE = manatee's +1.4% / +6% / +12% of price.
+                                        #   Tier 0 is the harvest, 95% of it kept.
+        - { trigger_pct: 4.2, lock_hw_pct: 95 }
+        - { trigger_pct: 18, lock_hw_pct: 90 }
+        - { trigger_pct: 36, lock_hw_pct: 90 }
+risk:
+  data_retention_seconds: 604800
+  guard_rails:
+    daily_loss_limit_pct: 12    # manatee's 8 sat above its replay's worst day (-6%); a dugong clip is 1.5x
+                                #   manatee's notional, so the same day reads about -9%
+    max_entries_per_day: 20             # 10 names, at most one entry or add each per daily bar
+    bypass_max_entries_per_day_on_profit: true
+    max_consecutive_losses: 6
+    cooldown_seconds: 300
+    # LATCHED (drawdown_reset_on_day_rollover defaults false): a halt set inside the replayed range
+    # does not shade the result, it ends the run and waits for a human. 30 keeps manatee's halt, set
+    # beyond the -26.1% worst drawdown of manatee's own backtest. In dugong's six-month backtest
+    # (1.5% clips at 3x, all fees at the starting builder-fee tier) the worst calendar month was -1.4%
+    # of the account.
+    drawdown_halt_pct: 30
+    per_asset_cooldown_seconds: 1800
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
