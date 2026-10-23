@@ -1242,9 +1242,14 @@ def test_skill_names_the_runtime_commands_that_ANSWER_why_it_closed():
     # the fields that carry the answer
     for fld in ("closeReason", "currentTierIndex", "lockedProfitPct", "floorPrice", "highWaterRoe"):
         assert fld in skill, f"`{fld}` is not named — the agent has to compute what it could read"
-    # every close reason must be translated, not left as an enum
+    # every close reason must be translated, not left as an enum: the rule and the names stay in SKILL.md,
+    # the translations live in references/exit-records.md (the file the Router sends exit questions to)
+    assert "Translate `closeReason`, never paste the enum" in skill
+    records = " ".join(open(os.path.join(HERE, "..", "references", "exit-records.md"), encoding="utf-8").read().split())
     for reason in ("exchange_sl_hit", "dsl_breach", "hard_timeout", "weak_peak_cut", "dead_weight_cut"):
-        assert reason in skill, f"closeReason `{reason}` is not explained"
+        assert reason in skill, f"closeReason `{reason}` is not named"
+        assert f"**`{reason}`** —" in records, f"closeReason `{reason}` is not explained in exit-records.md"
+    assert "A **death** cut, not a profit cut" in records and "OFF on penguin / pelican" in records
     # the time cuts are timers — a review read `weak_peak_cut` correctly then invented a mechanism
     # for it ("detected the position rolling over"), on a position held 5.03h against a 300m timer
     assert "TIMERS" in skill or "timers" in skill, "the time cuts are not identified as timers"
@@ -1256,8 +1261,15 @@ def test_skill_names_the_runtime_commands_that_ANSWER_why_it_closed():
     assert "not who placed it" in skill, "the maker tell is overstated"
     k = skill.find("`CLOSED_OFF_LADDER` is not an answer")
     assert k > 0 and "UNKNOWN" in skill[k:k + 300], "CLOSED_OFF_LADDER must be treated as UNKNOWN"
-    # and a dead gateway must be reported, not papered over with a guess
-    assert "gateway" in skill.lower(), "the skill must say what to do when the record cannot be read"
+    # an unreadable record is said, not papered over with a guess — the rule in SKILL.md, the dead-gateway
+    # exit-code detail in exit-records.md
+    assert "**If the record cannot be read, say so.**" in skill
+    assert "openclaw gateway run" in records and "**Say that.**" in records, \
+        "the reference must say what to do when the gateway is down"
+    # the field-level reads moved to the reference; SKILL.md still names the fields that carry the answer
+    for fld in ("`closeReason`", "`currentROE`", "`lockedProfitPct`", "`distanceToNextTierPct`",
+                "`slOrderId`", "`elapsedMinutes`"):
+        assert fld in records, f"exit-records.md no longer documents {fld}"
 
 
 def test_skill_forbids_taking_leverage_from_the_config():

@@ -5,7 +5,8 @@ as an answer — the rule has to name that, and has to sit where a plain `read` 
 import os
 
 SKILL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "SKILL.md")
-# OpenClaw keeps ~11.8k chars of a long tool result's head (plus a tail); this SKILL.md is ~90k.
+# OpenClaw 5.7 keeps ~11.8k chars of a long tool result's head (plus a tail) on follow-up turns; this
+# SKILL.md is well over that, so the rule has to sit in the head.
 READ_HEAD = 11_000
 
 
