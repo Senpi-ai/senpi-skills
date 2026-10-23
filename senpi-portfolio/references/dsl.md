@@ -17,8 +17,11 @@ protected?". The HARD rule (never "no DSL" for a live position) is in SKILL.md.
 **(2) Which OPEN position is in which tier — live.** Each open position carries a **`dsl`** object (live
 per-position ratchet state, from `ratchet_stop_list`):
 - **`armed: true`** → the record's tier is engaged (`currentTierIndex` ≥ 0: the position has crossed
-  Tier 1); report **"Tier N, locked at L% of peak, high-water +H% ROE"** from `tier_index` / `locked` /
-  `high_water_roe` (`status` = `ACTIVE`/`PAUSED`/…).
+  Tier 1); report **"Tier N, locked at L% of peak, high-water +H% ROE"** from `tier` / `locked` /
+  `high_water_roe` (`status` = `ACTIVE`/`PAUSED`/…). `tier` is 1-based; `tier_index` is the record's
+  0-based `currentTierIndex` (index 0 = Tier 1) — never say "Tier 0". `locked` is the record's own
+  `lockRoe` at that tier (what the backend enforces, also after a `ratchet_stop_edit`), else the
+  ladder's `lock_hw_pct`; both are % of the peak.
 - **`armed: false`** → the position is **sub-Tier-1**: no ratchet record, or a record at tier -1 with a
   null floor and no SL order of its own (`ratchet_record: true`, `tier_index: -1`). A strategy with
   `phase1.enabled: false` starts in phase 2, so the backend holds its record from open; that switch turns
@@ -26,14 +29,24 @@ per-position ratchet state, from `ratchet_stop_list`):
   the profit-ratchet hasn't armed yet, but the position is **still protected from entry by the max-loss
   (phase1) stop.** Report it that way — `note` already phrases it ("protected from entry by the phase1
   hard stop; profit-ratchet arms at Tier 1 (+X%) — currently +Y%"). Use `arm_at_roe_pct` + the
-  position's `roe`: "protected, ratchet arms at +8% — currently at +6%."
-- **No runtime ladder** (`profile.dsl: null`) → the engine never says "protected" off the ratchet alone;
-  quote `note`. A **raw position with a tier -1 record** carries **`downside_stop: false`**: MCP
-  `ratchet_stop_add` does not persist a max-loss floor today, so the ratchet gives **no downside stop
-  until Tier 1** ("ratchet registered, not yet armed"). A raw position with no record is "no ratchet".
-  Either way, read its resting orders before saying it has no stop (the raw-position bullet in
-  SKILL.md). A copy-trade's note names the trader's exits + its strategy-level SL/TP; a failed runtime
-  read's note says it could not be verified.
+  position's `roe`: "protected, ratchet arms at +8% — currently at +6%." With a record, `arm_at_roe_pct`
+  is the record's own Tier 1 trigger.
+- **No runtime ladder** (`profile.dsl` null, or `{preset_name, note}`) → the engine never says
+  "protected" off the ratchet alone; quote `note`. A **raw position with a tier -1 record** carries
+  **`downside_stop: false`**: MCP `ratchet_stop_add` does not persist a max-loss floor today, so the
+  ratchet gives **no downside stop until Tier 1** ("ratchet registered, not yet armed"). A raw position
+  with no record is "no ratchet". Either way, read its resting orders before saying it has no stop (the
+  raw-position bullet in SKILL.md). A copy-trade's note names the trader's exits + its strategy-level
+  SL/TP; a failed runtime read's note says it could not be verified.
+- **A DSL exit the engine does not enforce** → `downside_stop: false`, never "protected": `exit: {engine:
+  dsl}` with no `dsl_preset` (`protected: true`, `profile.dsl` null — the runtime runs no ladder, so no
+  hard stop and no trailing floor), or a `dsl_preset` the engine could not install (a string preset, or
+  one its parser refuses). `protected: true` there means only that the author asked for a DSL exit.
+- **A registered runtime whose `runtime.yaml` did not render** (`runtime_registered: true`, no
+  descriptor) → `downside_stop: null` and "could not be verified" — it is running, so never "no runtime
+  DSL exit". The same holds when the ratchet read failed or answered a shape the engine doesn't know
+  (`meta.warnings` names it): a ladder strategy keeps its config framing, anything else reads "ratchet
+  read failed" and is never "protected".
 
 ## Config posture vs live tier, and resting orders
 

@@ -291,3 +291,12 @@ the section's first words to keep SKILL.md net-neutral.
 - `dsl.md`: - **`armed: true`** → the position has crossed Tier 1; report **"Tier N, locked at L% of peak, high-water +H% ROE"**
 - `dsl.md`: - **`armed: false`** → the position is **sub-Tier-1**: the profit-ratchet hasn't armed yet, but it is **still protected from entry by the phase1 hard stop.** Report it that way — `note` already phrases it
 - `output-fields.md`: **`dsl`** — this position's live DSL/ratchet state. **`armed: true`** → `tier_index`, `high_water_roe`, `status`, `locked` (= `lock_hw_pct` at the active tier). **`armed: false`** (no ratchet record — the position is sub-Tier-1) → `hard_stop_roe_pct`, `arm_at_roe_pct`, `roe`, and a `note` … **`armed: false` means the profit-ratchet hasn't ARMED yet, NOT that the position is unprotected** — the phase1 hard stop protects it from entry.
+
+### Reworded in 1.35.3 review — "Tier N" from the 1-based `tier`
+
+`currentTierIndex` is 0-based (index 0 = Tier 1), so "Tier N" read straight off `tier_index` named the
+first tier "Tier 0". The engine now emits a 1-based `tier` beside `tier_index`, and these two sentences
+name it. The rule (report the live tier, never "no DSL") is unchanged.
+
+- `dsl.md`: report **"Tier N, locked at L% of peak, high-water +H% ROE"** from `tier_index` / `locked` / `high_water_roe` (`status` = `ACTIVE`/`PAUSED`/…).
+- `output-contract.md`: **each open position's live tier** from `positions[].dsl` — "armed at Tier N, locked L% of peak" or, for a sub-Tier-1 position, "protected from entry, ratchet arms at +X% — currently +Y%."

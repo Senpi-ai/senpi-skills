@@ -69,7 +69,7 @@ python3 scripts/portfolio.py all          # one-shot fallback: the full composed
    5. **DSL protection — ladder + live tiers.** State the group's `protected` posture (⟹ **all**
       instances ship a DSL exit), then **how its DSL works** from `group.dsl` / `profile.dsl` (hard stop
       at `hard_stop_roe_pct`, ratchet arms at `arm_at_roe_pct`, the tier ladder), then **each open
-      position's live tier** from `positions[].dsl` — "armed at Tier N, locked L% of peak" or, for a
+      position's live tier** from `positions[].dsl` — "armed at Tier N (`tier`), locked L% of peak" or, for a
       sub-Tier-1 position, "protected from entry, ratchet arms at +X% — currently +Y%." **Never say a
       live position has "no DSL" because it lacks an armed ratchet tier** (no record, or one at tier -1
       with a null floor, is sub-Tier-1). See "DSL — how it works per strategy, and which position is in which tier." (SKILL.md)
