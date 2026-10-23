@@ -133,6 +133,10 @@
       "behaviour": "d27401f4ff29f053",
       "version": "1.2.2"
     },
+    "dugong": {
+      "behaviour": "f25a035f56150efd",
+      "version": "1.0.0"
+    },
     "eel": {
       "behaviour": "6bfc8e9755b472b5",
       "version": "1.2.1"
