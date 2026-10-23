@@ -2,7 +2,8 @@
 """senpi-account-status engine — the user's standing across Senpi programs (hidden, deterministic).
 
 The agent (LLM) runs this via the OpenClaw `exec` tool, reads the JSON on stdout, and NARRATES the
-user's standing (see SKILL.md): Senpi points + rank, loyalty tier + fee, and referral earnings.
+user's standing (see SKILL.md): Senpi points + rank, loyalty tier, the Senpi trading fee, and
+referral earnings.
 One real-time pull across all the status tools.
 
   python3 status.py                 # full standing
@@ -124,6 +125,8 @@ def fetch_points(client, meta, wallet, user_id):
     }
     loyalty = {
         "tier": _field(p, "loyaltyTier", "tier", "tierName"),
+        # The fee this user pays, as the backend reports it: 0 on a paid plan, the flat free rate
+        # otherwise. The field is still named loyaltyTierFee, but the tier no longer sets it.
         "fee_bps": _f(p, "loyaltyTierFee", "feeBps", "builderFeeBps"),
         "fee_pct": _field(p, "builderFeePercent"),
         "fee_discount_pct": None,  # not in the points payload — enriched from the tier table below
@@ -139,8 +142,9 @@ def fetch_points(client, meta, wallet, user_id):
 
 
 def enrich_from_tiers(client, meta, loyalty, points_total):
-    """Fill what the points payload doesn't carry from the tier table: the current tier's fee
-    discount (only lives in get_loyalty_tiers) and, if missing, next-tier progress."""
+    """Fill what the points payload doesn't carry from the tier table: the current tier's
+    `discountPercent` (only lives in get_loyalty_tiers; 0 on every tier now that tiers do not change
+    the fee) and, if missing, next-tier progress."""
     need_discount = loyalty.get("tier") is not None
     need_next = loyalty.get("points_to_next") is None and points_total is not None
     if not (need_discount or need_next):
