@@ -8,6 +8,11 @@ on:
   push:
     branches: [main]
 
+# Supersede earlier runs of the same PR. Pushes to main key on the sha and are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
