@@ -63,7 +63,6 @@ BUNDLED_RESERVE_CHARS = 28_815 - 26_267
 # The only files ever allowed over SKILL_MD_CEILING, at their size on b1916b12. The allowlist file
 # may hold a subset of these at or below these sizes, nothing else.
 GRANDFATHERED_OVER_CEILING = {
-    "senpi-portfolio/SKILL.md": 90_344,
     "senpi-improve-trades/SKILL.md": 63_956,
 }
 

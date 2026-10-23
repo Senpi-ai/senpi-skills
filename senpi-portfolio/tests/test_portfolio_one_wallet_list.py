@@ -343,25 +343,43 @@ def test_skill_presents_one_list_and_never_a_separate_saved_section():
     assert "its own \"Your wallets (read-only)\" section" not in sk
     assert "after the money map, never summed into it" not in sk
     for needle in ("Keep the engine's order", "never re-section by origin", "`book.wallets`",
-                   "`book.totals.line`", "`book.totals.managed_usd` is `grand_total_usd`",
-                   "`book.totals.excludes_note`", "kind column"):
+                   "`book.totals.line`", "`book.totals.excludes_note`", "kind column"):
         assert needle in sk, needle
+    # the managed_usd glossary line is an engine note: moved to output-fields.md in 1.35.1
+    assert "`book.totals.managed_usd` is `grand_total_usd`" in _ref("output-fields.md")
+
+
+def _ref(name):
+    return " ".join(open(os.path.join(HERE, "..", "references", name), encoding="utf-8").read().split())
 
 
 def test_skill_steps_and_output_contract_lead_with_the_one_list():
     sk = _skill()
-    steps = sk.split("## Run it in steps", 1)[1].split("## How to run the engine", 1)[0]
-    assert "`book`" in steps
+    # "every step prints the same `book`" is an engine note: moved to output-fields.md in 1.35.1
+    assert "Every step and `all` print the same `book`" in _ref("output-fields.md")
     contract = sk.split("## Output contract", 1)[1].split("## Mandatory closing", 1)[0]
     assert "1. **One wallet list + the book total.**" in contract
     ret = sk.split("## How to run the engine", 1)[1].split("## Output contract", 1)[0]
-    assert "`book`" in ret and "`external_wallets`" in ret
+    assert "`{book, totals, embedded_wallet, external_wallets," in ret
+    assert "`references/output-fields.md`" in ret
+    # the field glossary moved to its own reference (1.35.0) and still leads with `book`
+    fields = _ref("output-fields.md")
+    assert "- `book` — **every wallet in ONE list by value, and the one book total. PRESENT THE LIST FROM HERE.**" in fields
+    assert "- `external_wallets` —" in fields
+    # the full read's step-1 narration (moved to output-contract.md) narrates the one list first
+    assert "narrate the one wallet list IMMEDIATELY" in _ref("output-contract.md")
 
 
 def test_skill_closing_offers_the_deep_dive_and_keeps_the_ctas_managed():
-    closing = _skill().split("## Mandatory closing (verbatim)", 1)[1].split("## Resilience", 1)[0]
-    assert "**Which one do you want me to go deeper on?**" in closing
-    assert "`book.deep_dive.offer`" in closing and "largest first" in closing
+    """The deep-dive question sits with the one wallet list, near the top (what a follow-up keeps);
+    the CTAs' routing stays in "Mandatory closing", which points back to it."""
+    sk = _skill()
+    onelist = sk.split("## One wallet list — every wallet first-class", 1)[1].split("## ", 1)[0]
+    assert "**Which one do you want me to go deeper on?**" in onelist
+    assert "`book.deep_dive.offer`" in onelist and "largest first" in onelist
+    assert "**1. Want me to rebalance or adjust any of these positions?**" in onelist
+    closing = sk.split("## Mandatory closing (verbatim)", 1)[1].split("## Reference index", 1)[0]
+    assert "**First, the deep-dive question** when `book.deep_dive.offer` is true" in closing
     assert "never `book.totals.read_only_usd`" in closing
     assert "CTA 1 and CTA 2 are about managed wallets only" in closing
 
@@ -506,7 +524,9 @@ def test_every_step_groups_a_strategys_wallets_by_the_same_key():
 
 def test_skill_says_the_book_groups_by_the_same_key_in_every_step():
     sec = _skill().split("## One wallet list — every wallet first-class", 1)[1].split("## Run it in steps", 1)[0]
-    assert "the same key in every step" in sec and "`skill_name`" in sec
+    assert "grouped by the package they were deployed under (`skill_name`)" in sec
+    # the "same key in every step" engine note moved to output-fields.md in 1.35.1
+    assert "the same key in every step" in _ref("output-fields.md")
 
 
 # ── R1 re-review: the deep-dive offer counts only wallets with something to go deeper on ───────────
