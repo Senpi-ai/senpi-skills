@@ -1087,9 +1087,10 @@ def _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap):
                 # same exchange rate (4.32 / 1.44), and `fee` differs by exactly the builder delta.
                 # `builderFee` is a breakdown line, not a second charge. Summing them overstated one
                 # AVAX round trip $99.92 -> $153.53.
-                # NOTE the builder rate is NOT a constant — it falls with the user's points tier
-                # (0.05% Bronze down to 0.025% Legend). Never hardcode it; `user_get_senpi_points`
-                # returns the user's own rate.
+                # NOTE the builder rate is NOT a constant — from 2026-10-26 it is 0 on a paid plan and
+                # a flat 0.03% without one, and a fill keeps the rate it was signed with, so older
+                # fills carry the old tier rate (0.05% Bronze down to 0.025% Legend). Never hardcode
+                # it; `user_get_senpi_points` returns the user's current rate.
                 "fee": round(_close_fee + _open_fee_consumed, 4),
                 "source": "onchain_fills",
             })

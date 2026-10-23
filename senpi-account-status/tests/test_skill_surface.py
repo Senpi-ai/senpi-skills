@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
 """The AI-credits rules are resident in senpi-account-status/SKILL.md — the meter is explained, never
-read, while the plan catalog and the free-credit ladder ARE published — the router can find the
-credits questions from the frontmatter, and the version the README advertises is the version the
-skill carries."""
+read, while the plan catalog IS published and the end of the free-credit milestones is stated — tiers
+carry no benefit and are never brought up, the router can find the credits and tier questions from
+the frontmatter, the shape the skill documents is the shape the engine returns, and the version the
+README advertises is the version the skill carries."""
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import json
 import re
+import sys
 import unittest
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 SKILL = REPO / "senpi-account-status" / "SKILL.md"
+NOTES = REPO / "senpi-account-status" / "references" / "presentation-notes.md"
+FIXTURE = REPO / "senpi-account-status" / "tests" / "fixtures" / "status_fixture.json"
 README = REPO / "README.md"
 SECTION = "## AI credits — the usage meter"
 PLANS = "## Plans & free credits"
+RULES = "## Golden rules"
+FREE_CREDITS = "**Free credits"
 
 
 def _split(path):
@@ -35,36 +42,12 @@ def _section(body, heading=SECTION):
     return rest if end < 0 else rest[:end]
 
 
-_LADDER = "milestone ladder"
-
-
-def _rows(section, after):
-    """Body rows of the markdown table that follows `after` — header and rule dropped."""
-    for line in section[section.index(after):].splitlines():
-        line = line.strip()
-        if not line.startswith("|"):
-            continue
-        cells = [c.strip() for c in line.strip("|").split("|")]
-        if len(cells) != 2 or cells[0] == "Milestone" or set(cells[0]) <= set("-: "):
-            continue
-        yield cells[0], cells[1]
-
-
-def _milestones(left, credit):
-    """One ladder row -> (how many milestones it names, dollars it grants).
-
-    A row is compressed three ways and each has to agree with itself: "Deploy your agent | $10" is
-    one, "Trade $2K / $25K / $50K volume | $10 each" is three at $10, and "Trade $100K / $250K
-    volume | $20 / $30" pairs left to right in order. A left cell that names more tiers than the
-    right cell prices is the drift this catches.
-    """
-    n = left.count("/") + 1
-    amounts = [int(a.replace(",", "")) for a in re.findall(r"\$([\d,]+)", credit)]
-    if credit.endswith("each"):
-        assert len(amounts) == 1, f"{credit!r} says 'each' but carries {len(amounts)} amounts"
-        return n, n * amounts[0]
-    assert len(amounts) == n, f"{left!r} names {n} milestones, {credit!r} prices {len(amounts)}"
-    return n, sum(amounts)
+def _free_credits(body):
+    """The free-credits paragraph: from its bold lead-in to the end of the Plans section."""
+    plans = _section(body, PLANS)
+    start = plans.find(FREE_CREDITS)
+    assert start >= 0, "the Plans section lost its free-credits paragraph"
+    return plans[start:]
 
 
 class CreditsAreTheUsageMeter(unittest.TestCase):
@@ -131,7 +114,7 @@ class CreditsAreTheUsageMeter(unittest.TestCase):
 class PlansAndFreeCreditsArePublished(unittest.TestCase):
     """The catalog is the half of this that IS quotable — a user asking what a plan costs gets the
     table, not a shrug at the meter. The figures come from the subscription card, so the rules that
-    survive a price change (no rollover, instant upgrade, not retroactive, card-wins) matter as much
+    survive a price change (no rollover, instant upgrade, the user's own page wins) matter as much
     as the numbers."""
 
     def test_the_four_plans_and_the_cycle_rules_are_in_the_table(self):
@@ -147,30 +130,16 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
         ):
             self.assertIn(needle, section, needle)
 
-    def test_the_ladder_carries_the_milestones_and_the_rules_that_generate_tickets(self):
-        section = _flat(_section(_split(SKILL)[1], PLANS))
-        for needle in (
-            "Deploy your agent",
-            "Launch your first strategy",     # replaced the retired "fund your wallet" milestone
-            "Subscribe to a plan",
-            "Not retroactive",
-            "expire at the next renewal",
-            "Volume progress is not live",
-            "never lands in Balances as USDC",
-            "The card is the source of truth",
-        ):
-            self.assertIn(needle, section, needle)
-
     def test_the_plan_table_carries_the_published_prices(self):
         # the figures are the point of the section: an agent is told to quote this table, so a price
         # that drifts is quoted at the user. Names and prose rules are locked above; these are the
-        # numbers.
+        # numbers (credits from 2026-10-26: Pro $55, Advanced $115, Quant $240).
         section = _section(_split(SKILL)[1], PLANS)
         for row in (
             "| Starter | $25 | $25 | 1 |",
-            "| Pro (default) | $50 | $50 | 1.5 |",
-            "| Advanced | $100 | $130 (+30%) | 2 |",
-            "| Quant | $200 | $270 (+35%) | 3 |",
+            "| Pro (default) | $50 | $55 (+10%) | 1.5 |",
+            "| Advanced | $100 | $115 (+15%) | 2 |",
+            "| Quant | $200 | $240 (+20%) | 3 |",
         ):
             self.assertIn(row, section, row)
 
@@ -183,20 +152,6 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
             self.assertEqual(int(credits), round(int(price) * (1 + int(pct) / 100)),
                              f"${price} at +{pct}% is ${round(int(price) * (1 + int(pct) / 100))}, "
                              f"not ${credits}")
-
-    def test_the_ladder_adds_up_to_the_total_and_the_count_it_advertises(self):
-        # the headline "$315 across 12 milestones" is a sum of the table under it. Milestones get
-        # added, retired and repriced one row at a time (2026-09-18: "Fund your wallet" $5 ->
-        # "Launch your first strategy" $10) and the headline is what gets forgotten.
-        section = _section(_split(SKILL)[1], PLANS)
-        stated = re.search(r"\$([\d,]+) of AI credit across (\d+) milestones", section)
-        self.assertIsNotNone(stated, "the ladder stopped stating its total and milestone count")
-        rows = [_milestones(left, credit) for left, credit in _rows(section, _LADDER)]
-        self.assertTrue(rows, "the ladder table is empty")
-        self.assertEqual(sum(n for n, _ in rows), int(stated.group(2)),
-                         "the ladder table names a different number of milestones than the headline")
-        self.assertEqual(sum(v for _, v in rows), int(stated.group(1).replace(",", "")),
-                         "the ladder table does not add up to the headline total")
 
     def test_the_trial_figure_stays_unpublished(self):
         # plan prices are fixed and quotable; the trial grant has moved more than once, so the
@@ -225,6 +180,149 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
         # the catalog being quotable must not leak into the balance: "what is left" is still theirs
         section = _flat(_section(_split(SKILL)[1]))
         self.assertIn("how much is **left** depends on your plan and your usage", section)
+
+
+class FreeCreditMilestonesHaveEnded(unittest.TestCase):
+    """2026-10-26: every free-credit milestone ended, the $15 subscribe bonus included, and the
+    "Unlock Free AI Credits" card shows nothing. A table left in the skill is a promise of credit the
+    user never gets."""
+
+    def test_every_milestone_is_named_as_ended(self):
+        free = _flat(_free_credits(_split(SKILL)[1]))
+        for needle in (
+            "milestones ended on 2026-10-26",
+            "your first strategy, funding a wallet, the trading-volume ladder and the "
+            "first-subscription bonus",
+            "None of them pays any more",
+            'the "Unlock Free AI Credits" card shows nothing',
+            'Its "Deploy your agent" row went with it',
+            "was never a milestone",
+        ):
+            self.assertIn(needle, free, needle)
+
+    def test_earned_credit_stays_and_the_trial_credit_still_activates_on_deploy(self):
+        free = _flat(_free_credits(_split(SKILL)[1]))
+        for needle in (
+            "Milestone credit already earned stays until the next renewal",
+            "The trial credit still activates when the user deploys their agent",
+        ):
+            self.assertIn(needle, free, needle)
+
+    def test_the_paragraph_publishes_no_ladder_and_no_dollar_figure(self):
+        free = _free_credits(_split(SKILL)[1])
+        self.assertNotIn("|", free, "a milestone table is back")
+        self.assertNotIn("$", free, "a milestone amount is back")
+
+    def test_no_milestone_is_offered_anywhere_in_the_skill(self):
+        body = _flat(_split(SKILL)[1])
+        for stale in ("Subscribe to a plan", "Launch your first strategy", "Not retroactive",
+                      "across 2 milestones", "Milestone | Free credits",
+                      "never lands in Balances as USDC"):
+            self.assertNotIn(stale, body, stale)
+
+    def test_the_router_still_finds_the_milestone_and_free_credit_questions(self):
+        desc = _flat(_split(SKILL)[0])
+        for needle in ("where are my milestone credits?", "how do I get free credits?"):
+            self.assertIn(needle, desc, needle)
+
+
+class TheFeeFollowsThePlan(unittest.TestCase):
+    """From 2026-10-26 a paid plan pays no Senpi trading fee and everyone else pays one flat rate.
+    An agent that quotes anything else, or says every plan pays 0.03%, quotes a fee nobody is
+    charged."""
+
+    def test_the_catalog_states_both_fees(self):
+        section = _flat(_section(_split(SKILL)[1], PLANS))
+        for needle in (
+            "No Senpi trading fee on any paid plan",
+            "only Hyperliquid's own exchange fees",
+            "free trials included, Senpi charges a flat 0.03%",
+            "points do not change it",
+        ):
+            self.assertIn(needle, section, needle)
+        self.assertNotIn("start at 0.05% on every plan", section)
+
+    def test_the_flat_fee_is_three_bps_and_the_old_five_is_gone(self):
+        self.assertIn("so 30 = 0.03%", _flat(_split(SKILL)[1]))
+        for path in (SKILL, NOTES):
+            self.assertNotIn("0.05%", path.read_text(encoding="utf-8"), path.name)
+
+    def test_the_standing_answer_quotes_the_fee_the_data_returns(self):
+        body = _flat(_split(SKILL)[1])
+        self.assertIn("Quote `fee.pct` as returned: `0%` on a paid plan", body)
+        self.assertIn("the Senpi trading fee (none on a paid plan)", _flat(_split(SKILL)[0]))
+
+    def test_the_presentation_notes_quote_the_same_field(self):
+        notes = _flat(NOTES.read_text(encoding="utf-8"))
+        self.assertIn("Quote `fee.pct` as returned", notes)
+
+
+class TiersCarryNoBenefit(unittest.TestCase):
+    """Loyalty tiers carry no benefit for now. The agent does not bring them up, never suggests
+    reaching one, and answers a question about one with a single sentence."""
+
+    TIER_WORDS = ("loyalty", "next_tier", "points_to_next", "fee_discount_pct", "get_loyalty_tiers",
+                  "maintenance", "demoted", "previous_tier", "Mandatory closing",
+                  "break down what it takes", "Bronze", "Legend")
+
+    def test_the_rule_is_a_golden_rule(self):
+        rules = _flat(_section(_split(SKILL)[1], RULES))
+        for needle in (
+            "Tiers carry no benefit right now: no fee change, nothing unlocked.",
+            "Do not bring tiers up.",
+            "Never suggest reaching, keeping or regaining a tier",
+            "never close with a next-tier offer",
+            "say tiers carry no benefit right now",
+            "Points still accrue at the plan multiplier and still set leaderboard rank.",
+        ):
+            self.assertIn(needle, rules, needle)
+
+    def test_a_standing_answer_is_points_rank_the_fee_and_referral(self):
+        notes = _flat(NOTES.read_text(encoding="utf-8"))
+        self.assertIn("A standing answer is points, rank, the fee and referral", notes)
+        self.assertIn("never a closing offer about one", notes)
+
+    def test_neither_file_still_carries_the_tier_story(self):
+        for path in (SKILL, NOTES):
+            text = _flat(path.read_text(encoding="utf-8")).lower()
+            for word in self.TIER_WORDS:
+                self.assertNotIn(word.lower(), text, f"{path.name}: {word}")
+            self.assertNotIn("next tier", text, f"{path.name}: next tier")
+
+    def test_only_the_golden_rule_mentions_a_tier(self):
+        body = _split(SKILL)[1]
+        rest = body.replace(_section(body, RULES), "")
+        self.assertEqual([line for line in rest.splitlines() if "tier" in line.lower()], [])
+
+    def test_the_router_still_finds_the_tier_questions(self):
+        desc = _flat(_split(SKILL)[0])
+        for needle in ("what's my rank/tier?", "where did my tier go?"):
+            self.assertIn(needle, desc, needle)
+
+
+class TheSkillDocumentsTheEnginesOutput(unittest.TestCase):
+    """The agent reads the shape from SKILL.md and the values from status.py. When the two drift, it
+    narrates fields that are not there."""
+
+    def _engine_output(self):
+        scripts = str(REPO / "senpi-account-status" / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        import status
+        return status.run(status._FixtureClient(json.loads(FIXTURE.read_text(encoding="utf-8"))))
+
+    def test_the_documented_sections_are_the_returned_sections_in_order(self):
+        documented = re.search(r"Returns `\{([^}]*)\}`", _split(SKILL)[1]).group(1)
+        self.assertEqual(documented.split(", "), list(self._engine_output()))
+
+    def test_the_documented_fee_and_points_fields_are_the_returned_ones(self):
+        body = _split(SKILL)[1]
+        out = self._engine_output()
+        fee = re.search(r"- `fee` — `(\w+)` \+ `(\w+)`", body)
+        self.assertEqual(list(fee.groups()), list(out["fee"]))
+        points = re.search(r"- `points` — ([^\n]*(?:\n  [^\n]*)*)", body).group(1)
+        documented = re.findall(r"`(\w+)`", points)
+        self.assertEqual([f for f in out["points"] if f != "found"], documented)
 
 
 if __name__ == "__main__":

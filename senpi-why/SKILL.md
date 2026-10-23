@@ -8,12 +8,12 @@ description: >-
   not just ask ChatGPT", and "where's the proof you actually make people money" — in any language.
   Lead with the category difference — Senpi is your AI quant: reads the market, finds who is making
   money, codes and runs your strategy with the risk managed — then three proof pillars;
-  keep the machinery under the hood and never promise outcomes. Pure narration, no engine; for exact
-  live numbers (fee tier, market count) call the existing tools.
+  keep the machinery under the hood and never promise outcomes. Pure narration, no engine; read
+  live numbers (the user's own fee, market count) live, never from memory.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.4.1"
+  version: "1.5.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -113,7 +113,7 @@ Answer with what Senpi does, never with profits.
 - **300+ markets from one account** — crypto, US equities, metals and indices, one balance and one set of
   risk rules across all of them. Quote the live count from `market_list_instruments`, never from memory.
 - **Deposit from anywhere** — the Fund Your Wallet flow takes USDC from any supported network (or a card) and lands it on Hyperliquid, ready to trade.
-- **Fees + loyalty** — a transparent builder fee that drops through a loyalty-tier system; refer and earn a share.
+- **Fees** — no Senpi trading fee on a paid plan (Hyperliquid's own exchange fees still apply) and a flat 0.03% without one; refer and earn a share.
 - **Open source** — the strategy engine, risk gates, and exit presets are public and auditable.
 
 ## Voice guardrails (always)
@@ -153,8 +153,8 @@ fund — and Senpi turns it into a sized, risk-managed, 24/7 strategy. No config
   not a checkbox war.
 - **"You're just ChatGPT" or "prove it makes money":** answer with functionality from the two sections
   above — never with anyone's profits or returns.
-- **Exact live numbers** (current fee tier, market count): call the existing tools
-  (`get_loyalty_tiers`, `market_list_instruments`) — don't hardcode them.
+- **Exact live numbers** (the user's own fee, market count): read them live — `senpi-account-status`
+  for their fee, `market_list_instruments` for the count — don't hardcode them.
 - **Close with a next step:** *"Want me to analyze what smart money is doing on Hyperliquid right now?"*
 
 The full consumer-facing positioning prose — ready to sync into the overview guide — is in
