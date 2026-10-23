@@ -47,20 +47,6 @@
       "maintenanceThreshold": 10
     }
   },
-  "get_loyalty_tiers": {
-    "success": true,
-    "data": {
-      "tiers": [
-        {"tier": "BRONZE", "threshold": 0, "feeBps": 50, "feePercent": "0.05%", "maintenance": 0, "discountPercent": 0},
-        {"tier": "SILVER", "threshold": 100, "feeBps": 50, "feePercent": "0.05%", "maintenance": 10, "discountPercent": 0},
-        {"tier": "GOLD", "threshold": 500, "feeBps": 50, "feePercent": "0.05%", "maintenance": 50, "discountPercent": 0},
-        {"tier": "PLATINUM", "threshold": 1000, "feeBps": 50, "feePercent": "0.05%", "maintenance": 100, "discountPercent": 0},
-        {"tier": "DIAMOND", "threshold": 2000, "feeBps": 50, "feePercent": "0.05%", "maintenance": 200, "discountPercent": 0},
-        {"tier": "APEX", "threshold": 2500, "feeBps": 50, "feePercent": "0.05%", "maintenance": 250, "discountPercent": 0},
-        {"tier": "LEGEND", "threshold": 3000, "feeBps": 50, "feePercent": "0.05%", "maintenance": 300, "discountPercent": 0}
-      ]
-    }
-  },
   "user_get_referral_rewards": {
     "success": true,
     "data": {
