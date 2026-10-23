@@ -34,7 +34,7 @@ Configured under the `exit` key in the recipe YAML.
 | `order_type` | string | No | `MARKET` | Execution method for DSL exit closes: `MARKET` or `FEE_OPTIMIZED_LIMIT`. |
 | `fee_optimized_limit_options` | object | No | — | Only valid when `order_type` is `FEE_OPTIMIZED_LIMIT`. |
 | `fee_optimized_limit_options.ensure_execution_as_taker` | boolean | No | — | When `true`, falls back to market order if maker doesn't fill within timeout. |
-| `fee_optimized_limit_options.execution_timeout_seconds` | integer | No | `45` | Seconds to wait for maker fill (1–300). |
+| `fee_optimized_limit_options.execution_timeout_seconds` | integer | No | `30` with the taker fallback, else 45 | Seconds to wait for a maker fill before the taker fallback (schema 1–300). The MCP server caps it at 30 when `ensure_execution_as_taker` is `true`: omitted or above 30 runs as 30. With the flag `false` or omitted the MCP forwards it untouched, and an omitted value runs as the engine's own 45. |
 | `dsl_preset` | object | Yes | — | Single preset config (see below). |
 
 ```yaml
