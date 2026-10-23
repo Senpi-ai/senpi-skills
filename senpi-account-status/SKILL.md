@@ -1,11 +1,12 @@
 ---
 name: senpi-account-status
 description: >-
-  Show the user's standing across Senpi programs — points and rank, loyalty tier and fees, referral
-  earnings — and explain the AI-credits usage meter. Use for "how many points do I have?", "what's my
-  rank/tier?", "what are my fees?", "my referral rewards", and for credits: "what is the bubble/meter
-  in the header?", "why are my credits going down?", "how much did that cost?", "does my strategy use
-  credits?", "can I trade or withdraw my credits?", and for plans: "what plans are there?", "how much
+  Show the user's standing across Senpi programs — points and rank, loyalty tier, the Senpi trading
+  fee (none on a paid plan), referral earnings — and explain the AI-credits usage meter. Use for
+  "how many points do I have?", "what's my rank/tier?", "what are my fees?", "my referral rewards",
+  and for credits: "what is the bubble/meter in the header?", "why are my credits going down?",
+  "how much did that cost?", "does my strategy use credits?", "can I trade or withdraw my credits?",
+  and for plans: "what plans are there?", "how much
   does Senpi cost?", "what do I get on Pro/Quant?", "how do I get free credits?", "where are my
   milestone credits?", "do I need a subscription to keep my strategy running?", "what happens when my
   trial ends?". Use this instead of calling user_get_senpi_points +
@@ -15,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.5.0"
+  version: "1.6.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -23,7 +24,7 @@ metadata:
 # Senpi Account Status — your standing across Senpi
 
 A hidden engine pulls the user's standing in one real-time call; **your job is to present it
-cleanly** and point at the next milestone (next loyalty tier, etc.).
+cleanly** and point at the next step (the next loyalty tier, a claimable referral balance).
 
 ## Golden rules
 
@@ -31,9 +32,10 @@ cleanly** and point at the next milestone (next loyalty tier, etc.).
   referral together. Read its JSON.
 - **Real-time, not from memory.** Points/rank move — never quote a figure from earlier in the
   conversation; re-run.
-- **Fees come from the data, never from memory.** Quote `loyalty.fee_bps` / `fee_discount_pct` as
-  returned — the tier table changes; stale numbers mislead. (For the *full* tier table, that's
-  `get_loyalty_tiers`; this skill returns the user's *own* tier.)
+- **The fee comes from the data, never from memory.** Quote `loyalty.fee_pct` as returned: `0%` on a
+  paid plan (Starter, Pro, Advanced, Quant), the flat free rate without one, free trials included.
+  Tiers and points no longer change it, so never tell a user that a higher tier lowers their fee.
+  (For the *full* tier table, that's `get_loyalty_tiers`; this skill returns the user's *own* tier.)
 - **Lead with what they asked, then the milestone.** If they asked about points, lead with points +
   rank, then "X to the next tier." Don't dump every section if they asked one question — but the
   engine returns all of it so you can.
@@ -53,7 +55,9 @@ python3 scripts/status.py
 Returns `{identity, points, loyalty, referral, meta}`:
 - `points` — `total`, `base` (Base copy-trading), `perp` (Hyperliquid), `multiplier`, `rank`,
   `rank_change`.
-- `loyalty` — `tier`, `fee_bps` + `fee_pct`, `fee_discount_pct`, `next_tier`, `points_to_next` (the
+- `loyalty` — `tier`, `fee_bps` + `fee_pct` (the Senpi fee this user pays: `0` / `0%` on a paid
+  plan, the flat free rate otherwise; `fee_bps` is in tenths of a bp, so 50 = 0.05%),
+  `fee_discount_pct` (0 — tiers no longer discount the fee), `next_tier`, `points_to_next` (the
   milestone), plus `demoted` / `previous_tier` / `maintenance_deadline` — if `demoted` is true,
   mention the tier they fell from and that maintenance volume wins it back.
 - `referral` — `balance_usdc` (pending referral earnings, 25% of builder fee on referred trades).
@@ -65,8 +69,9 @@ Returns `{identity, points, loyalty, referral, meta}`:
 Lead with the section they asked about; otherwise a tight standing card:
 
 1. **Points & rank** — total, base/perp split, multiplier, rank (+ change).
-2. **Loyalty** — current tier + fee/discount, and **`points_to_next` → next_tier** (the actionable
-   milestone).
+2. **Loyalty** — current tier, the Senpi fee (`fee_pct`; `0%` = a paid plan, no Senpi fee), and
+   **`points_to_next` → next_tier** (the actionable milestone). The tier is a status; it does not
+   change the fee.
 3. **Referral** — pending `balance_usdc` (and that it's claimable if > 0).
 
 Formatting: clean, scannable, numbers from the data; emoji sparingly (🎯 next tier).
@@ -75,7 +80,8 @@ Formatting: clean, scannable, numbers from the data; emoji sparingly (🎯 next 
 
 > **Want me to break down what it takes to reach the next tier?**
 
-On yes: use `loyalty.points_to_next` + `get_loyalty_tiers` for the tier path.
+On yes: use `loyalty.points_to_next` + `get_loyalty_tiers` for the tier path — thresholds and
+maintenance. Tiers carry no fee perk, so leave the table's fee columns out.
 
 ## AI credits — the usage meter
 
@@ -134,13 +140,14 @@ never a calendar month.
 | Plan | Price | Credits | Points per $1 volume |
 |---|---|---|---|
 | Starter | $25 | $25 | 1 |
-| Pro (default) | $50 | $50 | 1.5 |
-| Advanced | $100 | $130 (+30%) | 2 |
-| Quant | $200 | $270 (+35%) | 3 |
+| Pro (default) | $50 | $55 (+10%) | 1.5 |
+| Advanced | $100 | $115 (+15%) | 2 |
+| Quant | $200 | $240 (+20%) | 3 |
 
 - **Every plan includes every model.** Plans differ on credits and points rate only — never on model
-  access, so a cheaper plan never locks anyone out of the better model. Trading fees are separate and
-  start at 0.05% on every plan.
+  access, so a cheaper plan never locks anyone out of the better model.
+- **No Senpi trading fee on any paid plan** — only Hyperliquid's own exchange fees. Without a paid
+  plan, free trials included, Senpi charges a flat 0.05% on trades; tiers and points do not change it.
 - **$1 of credit = $1 of AI usage.** Full credits land at the start of the cycle and expire at the end
   of it: **no rollover, no top-ups, no overage**. Out of credits = upgrade (instant) or wait for renewal.
 - **Upgrading is instant, any day** — the new plan's full credits land immediately, the 30-day cycle
@@ -161,25 +168,20 @@ never a calendar month.
   strategies back. You cannot see the user's plan, trial or renewal dates: point at
   senpi.ai/settings/subscription, and never tell them a subscription is not needed.
 
-**Free credits — the milestone ladder.** $315 of AI credit across 12 milestones, on the "Unlock Free
-AI Credits" card:
+**Free credits — what is left of the milestone ladder.** $25 of AI credit across 2 milestones, on the
+"Unlock Free AI Credits" card. The rest of the ladder (launch a strategy, fund a wallet, the
+trade-volume ladder) ended on 2026-10-26 and no longer pays.
 
 | Milestone | Free credits |
 |---|---|
 | Deploy your agent | $10 |
-| Launch your first strategy | $10 |
 | Subscribe to a plan | $15 |
-| Trade $2K / $25K / $50K volume | $10 each |
-| Trade $100K / $250K volume | $20 / $30 |
-| Trade $500K / $1M / $2M / $4M volume | $50 each |
 
-- **Deploying the agent is the only one credited on day one.** Everything else is earned.
+- **Deploying the agent is the only one credited on day one.** The other is earned.
 - **Not retroactive** — a milestone credits the next time it is achieved, counting from when
   milestones launched; activity before that does not fill the bar.
 - **Milestone credits expire at the next renewal** — a different clock from the 14-day trial expiry,
   so credit that vanished at a renewal boundary is working as designed.
-- **Volume progress is not live** — the card refreshes on a timer and shows a countdown, so a trade
-  that has not moved the bar yet is normal, not a missed milestone.
 - The bonus is **always AI credit** — it never lands in Balances as USDC.
 
 **The card is the source of truth.** If the user's own page or card disagrees with any figure here,

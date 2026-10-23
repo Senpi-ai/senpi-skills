@@ -11,14 +11,15 @@ lead with `points.total` + `rank`, then *"you're 5,000 from Gold"* — don't ope
 ## Always point at the next milestone
 
 Standing is more motivating with a target. Pair every section with its next step:
-- **Loyalty** → `points_to_next` to `next_tier` (and what the next tier's fee discount buys).
+- **Loyalty** → `points_to_next` to `next_tier`. The tier is a status; it does not change the fee.
 - **Referral** → if `balance_usdc > 0`, that it's claimable (a separate explicit action — this skill
   doesn't claim it).
 
 ## Honesty rules
 
-- **Fees from the data, never memory.** Quote `loyalty.fee_bps` / `fee_discount_pct` as returned —
-  the tier table changes.
+- **The fee from the data, never memory.** Quote `loyalty.fee_pct` as returned — `0%` on a paid
+  plan, the flat free rate otherwise. Tiers no longer change it, so never promise a lower fee at the
+  next tier.
 - **`found: false` on points** means no leaderboard entry yet (base-tier defaults) — present it as
   "you haven't started earning yet," not "0 / error."
 - **Demotion is a story, not a stat.** If `loyalty.demoted` is true, say it plainly — "you held

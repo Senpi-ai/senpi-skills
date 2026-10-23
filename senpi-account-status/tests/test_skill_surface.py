@@ -151,26 +151,35 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
         section = _flat(_section(_split(SKILL)[1], PLANS))
         for needle in (
             "Deploy your agent",
-            "Launch your first strategy",     # replaced the retired "fund your wallet" milestone
             "Subscribe to a plan",
             "Not retroactive",
             "expire at the next renewal",
-            "Volume progress is not live",
             "never lands in Balances as USDC",
             "The card is the source of truth",
         ):
             self.assertIn(needle, section, needle)
 
+    def test_the_ladder_lists_only_the_milestones_that_still_pay(self):
+        # 2026-10-26: the strategy, deposit and trade-volume milestones ended. A row left in the table
+        # is a promise of credit the user never gets; the $15 subscribe bonus stays until its fate is
+        # settled
+        section = _section(_split(SKILL)[1], PLANS)
+        self.assertEqual(list(_rows(section, _LADDER)),
+                         [("Deploy your agent", "$10"), ("Subscribe to a plan", "$15")])
+        self.assertIn("launch a strategy, fund a wallet, the trade-volume ladder) ended on 2026-10-26",
+                      _flat(section))
+        self.assertNotIn("Volume progress is not live", _flat(section))
+
     def test_the_plan_table_carries_the_published_prices(self):
         # the figures are the point of the section: an agent is told to quote this table, so a price
         # that drifts is quoted at the user. Names and prose rules are locked above; these are the
-        # numbers.
+        # numbers (credits from 2026-10-26: Pro $55, Advanced $115, Quant $240).
         section = _section(_split(SKILL)[1], PLANS)
         for row in (
             "| Starter | $25 | $25 | 1 |",
-            "| Pro (default) | $50 | $50 | 1.5 |",
-            "| Advanced | $100 | $130 (+30%) | 2 |",
-            "| Quant | $200 | $270 (+35%) | 3 |",
+            "| Pro (default) | $50 | $55 (+10%) | 1.5 |",
+            "| Advanced | $100 | $115 (+15%) | 2 |",
+            "| Quant | $200 | $240 (+20%) | 3 |",
         ):
             self.assertIn(row, section, row)
 
@@ -185,9 +194,10 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
                              f"not ${credits}")
 
     def test_the_ladder_adds_up_to_the_total_and_the_count_it_advertises(self):
-        # the headline "$315 across 12 milestones" is a sum of the table under it. Milestones get
+        # the headline "$25 across 2 milestones" is a sum of the table under it. Milestones get
         # added, retired and repriced one row at a time (2026-09-18: "Fund your wallet" $5 ->
-        # "Launch your first strategy" $10) and the headline is what gets forgotten.
+        # "Launch your first strategy" $10; 2026-10-26: strategy and volume rows ended) and the
+        # headline is what gets forgotten.
         section = _section(_split(SKILL)[1], PLANS)
         stated = re.search(r"\$([\d,]+) of AI credit across (\d+) milestones", section)
         self.assertIsNotNone(stated, "the ladder stopped stating its total and milestone count")
@@ -225,6 +235,42 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
         # the catalog being quotable must not leak into the balance: "what is left" is still theirs
         section = _flat(_section(_split(SKILL)[1]))
         self.assertIn("how much is **left** depends on your plan and your usage", section)
+
+
+class TheFeeFollowsThePlanNotTheTier(unittest.TestCase):
+    """From 2026-10-26 a paid plan pays no Senpi trading fee and everyone else pays one flat rate.
+    Tiers stay as a status. An agent that still says a higher tier lowers the fee, or that every
+    plan pays 0.05%, quotes a fee nobody is charged."""
+
+    def test_the_catalog_states_both_fees(self):
+        section = _flat(_section(_split(SKILL)[1], PLANS))
+        for needle in (
+            "No Senpi trading fee on any paid plan",
+            "only Hyperliquid's own exchange fees",
+            "free trials included, Senpi charges a flat 0.05%",
+            "tiers and points do not change it",
+        ):
+            self.assertIn(needle, section, needle)
+        self.assertNotIn("start at 0.05% on every plan", section)
+
+    def test_the_standing_answer_quotes_the_fee_the_data_returns(self):
+        body = _flat(_split(SKILL)[1])
+        for needle in (
+            "Quote `loyalty.fee_pct` as returned: `0%` on a paid plan",
+            "never tell a user that a higher tier lowers their fee",
+            "leave the table's fee columns out",
+        ):
+            self.assertIn(needle, body, needle)
+        for stale in ("fee/discount", "Quote `loyalty.fee_bps` / `fee_discount_pct`"):
+            self.assertNotIn(stale, body, stale)
+        self.assertIn("the Senpi trading fee (none on a paid plan)", _flat(_split(SKILL)[0]))
+
+    def test_the_presentation_notes_drop_the_tier_discount(self):
+        notes = _flat((REPO / "senpi-account-status" / "references" / "presentation-notes.md")
+                      .read_text(encoding="utf-8"))
+        self.assertNotIn("fee discount buys", notes)
+        self.assertIn("Quote `loyalty.fee_pct` as returned", notes)
+        self.assertIn("never promise a lower fee at the next tier", notes)
 
 
 if __name__ == "__main__":
