@@ -1289,14 +1289,15 @@ def test_skill_forbids_taking_leverage_from_the_config():
 
 
 def test_skill_treats_the_builder_fee_as_plan_dependent():
-    """From 2026-10-26 Senpi's builder fee follows the plan — none on a paid plan, a flat 0.05% without
+    """From 2026-10-26 Senpi's builder fee follows the plan — none on a paid plan, a flat 0.03% without
     one — and tiers no longer change it. A fill keeps the fee it was signed with, so a review still
     meets older fills at a tier rate. The skill must name where to read the user's own."""
     skill = " ".join(open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read().split())
     assert "user_get_senpi_points" in skill, "the skill must name where to read the user's own fee"
     assert "not a constant" in skill.lower(), "the skill must say the rate is not a constant"
-    assert "**none on a paid plan**" in skill and "**a flat 0.05% without one**" in skill, \
+    assert "**none on a paid plan**" in skill and "**a flat 0.03% without one**" in skill, \
         "the plan rule is not stated"
+    assert "flat 0.05%" not in skill, "the old flat rate is still quoted"
     assert "A fill keeps the fee it was signed with" in skill, "older fills at a tier rate go unexplained"
     assert "0.047% Silver" not in skill, "the tier ladder is stated as the current schedule"
 

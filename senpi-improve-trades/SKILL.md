@@ -279,7 +279,7 @@ wired, quote the maker ratio as a fee-tier signal, never a fee dollar total. (`p
 trade rows do carry fee $.)
 
 **Fee rate (hard rule 0):** Senpi's builder fee follows the plan: **none on a paid plan** (Starter,
-Pro, Advanced, Quant), **a flat 0.05% without one**, free trials included; tiers and points no longer
+Pro, Advanced, Quant), **a flat 0.03% without one**, free trials included; tiers and points no longer
 change it. A fill keeps the fee it was signed with, so fills from orders placed before 2026-10-26 (a
 resting stop included) show the old tier rate, between 0.025% and 0.05%.
 

@@ -64,7 +64,7 @@ def test_the_output_is_points_fee_and_referral_and_nothing_about_tiers():
         "identity": {"senpi_user_id": "u123", "wallet": "0xme"},
         "points": {"total": 15000.0, "base": 2000.0, "perp": 13000.0, "multiplier": 1.5,
                    "rank": 42.0, "rank_change": 3.0, "found": True},
-        "fee": {"bps": 50.0, "pct": "0.05%"},
+        "fee": {"bps": 30.0, "pct": "0.03%"},
         "referral": {"balance_usdc": 12.5, "wallet": "0xme"},
         "meta": {"warnings": []},
     }
