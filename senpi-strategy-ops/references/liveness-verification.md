@@ -58,8 +58,13 @@ doing real work, with timestamps and counters as proof. `runtime_id` = the runti
 ## Self-questions checklist
 
 1. **Is the target runtime in `runtime list` with `status: running`?**
-2. **Is its `external_scanner` alive** (`health` healthy or degraded + a fresh `lastAliveAt`)? Never
-   require a positive run count: a quiet one stays at 0.
+2. **Is its `external_scanner` alive?** It is live when `lastAliveAt` is recent (`alive=` in `senpi scanner`).
+   Then read `health`:
+   - `degraded`/`unhealthy` with `last=error` and a fresh `alive` is a past delivery error (read `reason`),
+     not a dead scanner. Heartbeats do not clear it; the next accepted signal does.
+   - `unhealthy` with `inFlight=true`, or a crash-loop reason, is a real fault.
+   - `health=unknown` with `alive=—` is a child not heard from yet.
+   Never require a positive run count: it moves only on an accepted signal or an error.
 3. **Are its actions either operating or dormant-by-design** — never a wiring problem or failing?
 
 **On DSL.** The DSL monitor exposes counters (`tickSuccessCount`, `lastTickFinishedAt`) in `state`, but
@@ -110,7 +115,7 @@ modes, and every zero in the `external` column is the runtime working:
 |---|---|---|
 | `intervalSeconds` | the cadence, `> 0` | **`0` — correct**, the scanner is not timer-driven |
 | `nextRunAt` | a timestamp | **`null` — correct**, no timer is armed |
-| `runCount` | climbs **every tick** (complete, skip, error) | climbs **only on a tick that emits** |
+| `runCount` | climbs **every tick** (complete, skip, error) | climbs **only on an accepted signal or an error** |
 | liveness comes from | the tick | `health` + `lastAliveAt` (the intake heartbeat) |
 
 `intervalSeconds: 0` / `nextRunAt: null` on an `external` scanner is **not** an unwired scanner and not a
@@ -203,7 +208,7 @@ Everything above proves the strategy is **operating**. It does not answer the qu
 actually asked: *why has it not opened anything?* "It's live and being selective" is the end of the
 liveness check, **not** an answer — and repeated back three or four times it reads as a brush-off from a
 system holding their money. `senpi scanner` showing `signals=0` (and `(no signals yet)` on an interval scanner —
-an external one never gets that flag while quiet: its run count stays 0 until it delivers a signal or an error) says *that* it found nothing; it never says *why*. Once liveness is established, answer with the strategy's **own arithmetic**:
+a quiet external one shows it only after an error run) says *that* it found nothing; it never says *why*. Once liveness is established, answer with the strategy's **own arithmetic**:
 
 1. **Name the binding gate and its threshold**, from that instance's `runtime.yaml` `inputs` (the
    running recipe — when `status.py` flags `✎ running recipe ≠ disk`, the disk copy is an unapplied edit). "Waiting
