@@ -229,7 +229,7 @@ actions:
     action_type: OPEN_POSITION
     decision_mode: rule                   # 'rule' unless you genuinely need an LLM gate
     scanners: [<id>_signals]
-    params: { order_type: FEE_OPTIMIZED_LIMIT, fee_optimized_limit_options: { ensure_execution_as_taker: true, execution_timeout_seconds: 60 } }
+    params: { order_type: FEE_OPTIMIZED_LIMIT, fee_optimized_limit_options: { ensure_execution_as_taker: true, execution_timeout_seconds: 30 } }
     context: [ { type: signal, scanner: <id>_signals } ]
 exit:   { engine: dsl, dsl_preset: { ... } }   # <-- a named preset (§7)
 risk:   { guard_rails: { drawdown_halt_pct: 25, daily_loss_limit_pct: 15, cooldown_seconds: 3600, ... } }
@@ -430,7 +430,7 @@ scanners:
 actions:
   - { name: position_tracker_action, action_type: POSITION_TRACKER, decision_mode: rule, scanners: [position_tracker] }
   - { name: us_rebound_entry, action_type: OPEN_POSITION, decision_mode: rule, scanners: [us_rebound_signals],
-      params: { order_type: FEE_OPTIMIZED_LIMIT, fee_optimized_limit_options: { ensure_execution_as_taker: true, execution_timeout_seconds: 60 } },
+      params: { order_type: FEE_OPTIMIZED_LIMIT, fee_optimized_limit_options: { ensure_execution_as_taker: true, execution_timeout_seconds: 30 } },
       context: [ { type: signal, scanner: us_rebound_signals } ] }
 exit:
   engine: dsl
@@ -527,7 +527,11 @@ came in at 398 and 390 calls against a 240s budget and both timed out.
   ceiling (~400 on a 240s tick), not a target.
 - Fetch candles/state **once per unique asset** and reuse across every pair or leg that needs them.
 - Hoist board-wide reads (`leaderboard_get_markets`, `discovery_get_top_traders`) out of the
-  per-asset loop — they return the whole board in one call.
+  per-asset loop — one read per tick serves every asset.
+- A ranked list is NOT the whole board: without `limit`, `discovery_get_top_traders` and
+  `leaderboard_get_top` return 20 rows. Pass `limit` for the rows you use. `discovery_get_top_traders`
+  takes up to 1000 per call and pages with `offset` (the ≥ $1M realized-cohort templates read 1000 per
+  page; clone the paging from `starling`); `leaderboard_get_top` takes up to 500 and has no `offset`.
 - Batch wallet reads (`discovery_get_trader_state` takes a list) rather than looping one per wallet.
 - If the count really is irreducible, raise `timeout_seconds` deliberately and say why in the
   recipe. Don't discover the ceiling by failing validation: each attempt costs a multi-minute
