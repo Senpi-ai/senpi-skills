@@ -1,4 +1,4 @@
-# senpi-portfolio 1.35.3 — dropped, reworded and moved sentences
+# senpi-portfolio 1.36.0 — dropped, reworded and moved sentences
 
 Restructure of `senpi-portfolio/SKILL.md` for the 10.4 size limit: base `b1916b12` 90,344 est chars,
 1.35.0 55,735, 1.35.1 55,469, 1.35.2 55,499. No sentence was deleted: every old sentence is in SKILL.md or a
@@ -27,6 +27,9 @@ it": "restart it, it looks stuck" had gone to a raw `strategy_list` read. No sen
 1.35.3 corrects one premise ("Reworded in 1.35.3", below): a sub-Tier-1 position may have a ratchet
 record at tier -1 with a null floor, not only no record. SKILL.md stays at 55,499 est chars. No rule
 moved out of SKILL.md.
+
+1.36.0 reverses one rule ("Reworded in 1.36.0", below): a named-string preset is no longer "still
+protected". SKILL.md is at 55,498 est chars. No rule moved out of SKILL.md.
 
 ## Re-pointed cross-references
 
@@ -300,3 +303,13 @@ name it. The rule (report the live tier, never "no DSL") is unchanged.
 
 - `dsl.md`: report **"Tier N, locked at L% of peak, high-water +H% ROE"** from `tier_index` / `locked` / `high_water_roe` (`status` = `ACTIVE`/`PAUSED`/…).
 - `output-contract.md`: **each open position's live tier** from `positions[].dsl` — "armed at Tier N, locked L% of peak" or, for a sub-Tier-1 position, "protected from entry, ratchet arms at +X% — currently +Y%."
+
+## Reworded in 1.36.0 — a named-string preset is not "protected"
+
+The base called a named-string preset "still protected". The runtime installs no ladder for a string
+preset (`runtime-descriptor.ts`: "string preset — unsupported by this runtime; no ladder installed"),
+and the engine reports such a position as `preset_unenforced`, `downside_stop: false`. The bullet now
+defers to the engine's `note` and never says "protected", as `dsl.md` already does. The rule changed
+on purpose; the old wording is quoted here.
+
+- SKILL.md: - **Named-string preset** (some strategies ship `dsl_preset: conviction`): `profile.dsl` is `{preset_name, note}` — say "DSL preset: `conviction` (ladder managed by the runtime, not inlined)." Still protected — never call a named preset "no DSL."

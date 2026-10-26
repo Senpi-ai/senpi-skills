@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.35.3"
+  version: "1.36.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -504,9 +504,9 @@ hold always:
 
 - `has_phase2` — `false`/empty `tiers` ⟹ **phase1-only** (a hard stop, no profit ratchet). Say
   "hard-stop protected, no profit-lock ratchet," not "unprotected."
-- **Named-string preset** (some strategies ship `dsl_preset: conviction`): `profile.dsl` is
-  `{preset_name, note}` — say "DSL preset: `conviction` (ladder managed by the runtime, not inlined)."
-  Still protected — never call a named preset "no DSL."
+- **Named-string preset** (`dsl_preset: conviction`): `profile.dsl` is `{preset_name, note}`. The
+  runtime cannot install a string preset, so `positions[].dsl` has `downside_stop: false`: quote its
+  `note` (`references/dsl.md`), never "protected."
 
 ### HARD rule — NEVER say a live position has "no active DSL / no monitoring"
 
