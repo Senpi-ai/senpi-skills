@@ -95,7 +95,7 @@ authoritative signals are the heartbeat first, then `health` — **not** the run
     not a dead scanner. Heartbeats do not clear it; the next accepted signal does.
   - `unhealthy` with `inFlight=true`, or a crash-loop reason, is a real fault.
   - `unknown` with `alive=—` is a child not heard from yet (wait / verify — not breakage).
-- **`lastAliveAt` is fresh — the first check** (`now − lastAliveAt ≤ 2 × interval_seconds`) — the scanner POSTed to intake
+- **`lastAliveAt` is fresh — the first check** (`now − lastAliveAt ≤ 2 × max(interval_seconds, 30)` s) — the scanner POSTed to intake
   this cycle. **A healthy scanner that finds no setup still POSTs an empty heartbeat every tick**, so a
   live barren scanner has a fresh `lastAliveAt` even with **`runCount === 0` / no signals**. (For **hand
   triage** of an already-running strategy, check this freshness. The deploy-time gate — the verb's
@@ -106,7 +106,7 @@ authoritative signals are the heartbeat first, then `health` — **not** the run
   `lastAliveAt` is a past delivery error, not a dead scanner (`lastError` is never cleared).
 
 > **Do NOT require `runCount > 0`.** For an external scanner, `runCount` and `lastRunFinishedAt` lag or
-> stay `0`/`null` until the runtime has processed a POST, and a barren scanner legitimately emits no
+> stay `0`/`null` until it delivers a signal or reports an error (a heartbeat records no run), and a barren scanner legitimately emits no
 > signals for long stretches. `runCount === 0` on its own is **never** breakage — it means "no trade this
 > cycle," which is normal. Judge liveness by `lastAliveAt` first, then `health`; `runCount > 0` is a bonus, not a
 > requirement.
@@ -129,7 +129,7 @@ with `intervalSeconds: 0`). Saying "the runtime never wired it" off those two fi
 their money is in a broken thing while it scans.
 
 > **Never call a strategy dead without a tick check.** Before any "not running" / "never wired" /
-> "sat dead" wording: read `health`, then `lastAliveAt` (or the scaffold tick events) for that wallet in
+> "sat dead" wording: read `lastAliveAt` (or the scaffold tick events), then `health`, for that wallet in
 > the window you are describing. Ticks landing `ok` with no candidates is a strategy that is working and
 > finding nothing — say that instead, and take the question to the gates or the budget.
 
