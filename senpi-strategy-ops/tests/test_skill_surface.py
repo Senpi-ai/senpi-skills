@@ -59,7 +59,7 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # rather than absorbed: the first draft held 425 by growing one line to 828 chars against a 341
 # next-longest, which is the same resident context without the line count showing it.
 # ops 344: the scanner fields mean different things per scheduleMode — runCount climbs every tick on
-# `interval` but only on an emitting tick on `external`, where `initialized` also stays false until the
+# `interval` but only on an accepted signal or an error on `external`, where `initialized` also stays false until the
 # first non-empty POST. Resident because it fires whenever anyone reads a scanner. Taken in LINES: the
 # first draft held 335 by growing one line to 914 chars (main's longest is 839), which is the same
 # resident context with the count hiding it (2026-09-23).
