@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.9.0"
+  version: "1.10.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -183,8 +183,10 @@ Then **replay the full spec, get an explicit "yes"**, and place.
 - **Open:** `strategy_create_custom_strategy` (fresh wallet + position [+ static SL/TP]) or `create_position`
   (into an existing un-managed wallet) — and **always pass `skillName` + `skillVersion`** (real params on both;
   `strategy_create_custom_strategy` creates a wallet outside `deploy.py`, so without them the position is
-  **orphaned** / unattributed per CLAUDE.md). Async — poll `strategy_list` to ACTIVE; **report the real returned
-  status**, never assume success.
+  **orphaned** / unattributed per CLAUDE.md). Async — **report the real returned status**, never assume success.
+  Poll `strategy_list` to ACTIVE only when a next step needs the new wallet live: you will `create_position`
+  into it, protect or read back the position it opened (below), or the user asked to wait. Never poll just to
+  confirm the create.
 - **Protect (if chosen):** `ratchet_stop_add` on the open position (asset + tier config; it auto-reads the live position).
 - **Read back the leverage:** the position's `leverage.value` from `strategy_get_clearinghouse_state` is
   the one that applies — quote it, not the request; when the venue clipped it, say so and fix any name or
@@ -287,10 +289,12 @@ barely trades.
 ### Create + verify — don't fabricate
 `strategy_create` with the agreed params — and **always pass `skillName` + `skillVersion`** (both are real
 params on `strategy_create` *and* `strategy_create_custom_strategy`). This skill creates the wallet directly,
-outside `deploy.py`, so without them every mirror it opens is **orphaned** (unattributed) per CLAUDE.md. Poll
-`strategy_list` to ACTIVE, then read
-`strategy_get_clearinghouse_state` and confirm positions actually opened. If the wallet is idle past a short
-window, **tell the user** and adjust target / budget / multiplier — **do not** close+recreate (see below).
+outside `deploy.py`, so without them every mirror it opens is **orphaned** (unattributed) per CLAUDE.md.
+**Report the status the call returned**; never say a position opened that no read showed. Poll `strategy_list`
+to ACTIVE and read `strategy_get_clearinghouse_state` only when a next step needs the opened positions: the
+ladder below, or the user asked to wait or to see what opened. Never poll just to confirm the create. If that
+read shows the wallet idle past a short window, **tell the user** and adjust target / budget / multiplier —
+**do not** close+recreate (see below).
 
 ### DSL on the mirror
 `ratchet_stop_add` per opened position adds the **profit-lock ladder** (no runtime) — but that's
