@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.35.2"
+  version: "1.35.3"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -312,9 +312,9 @@ question needs before you answer. These hold always:
   with this skill's. Its **`degraded`** is this skill's **`recovering`** (one errored tick); its
   **`unhealthy`** is this skill's **`degraded`** (the real fault). Reference the right tool to *confirm* —
   never re-derive its analysis here.
-- **Before the ladder: if the row carries `runtime_reason`, say it.** Quote it in those words: a scanner
-  that cannot stay up is why it has not traded. No `runtime_reason` means the runtime gave none — never
-  invent one; the ladder finds it.
+- **Before the ladder: if the row carries `runtime_reason`, say it.** Quote it in those words: it is why
+  the scanner has not traded. Call it a crash loop only when it says crashes. No `runtime_reason` means the
+  runtime gave none — never invent one; the ladder finds it.
 - **When it IS genuinely broken, act — don't hand the user a to-do.** For `degraded` corroborated by no
   activity, or `not_running`, work the ladder yourself and report what you found (the ladder:
   `references/runtime-health.md`). Its step 3: **Re-run the deploy** — a deploy interrupted by a gateway

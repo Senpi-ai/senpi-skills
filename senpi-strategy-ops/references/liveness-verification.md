@@ -132,7 +132,7 @@ emits no failure signature at all. That is what `senpi validate` is for, before 
 | Symptom | Field signature | Likely cause |
 |---|---|---|
 | Runtime says it's broken | `health === "unhealthy"` (in `status` or `state`) | The runtime's own verdict — trust it; read `lastError` |
-| Crash-looping | `health === "unhealthy"` with a restart count + cause on the scanner's own line in `status` | The supervisor is restarting a rapidly-failing scanner (it keeps retrying at capped backoff — restarts never stop on their own); fix the scanner code. Events carry `senpi.error.code: E_SCANNER_CRASH_LOOP` (tick failures: `E_SCANNER_TICK_ERROR` / `E_SCANNER_TICK_TIMEOUT`); read `lastError` for the cause |
+| Crash-looping | `health === "unhealthy"` with a restart count + a crash cause (`N crashes in a row, …`) on the scanner's own line in `status` — a reason like `error: …` is the last tick error, see "Repeatedly failing" | The supervisor is restarting a rapidly-failing scanner (it keeps retrying at capped backoff — restarts never stop on their own); fix the scanner code. Events carry `senpi.error.code: E_SCANNER_CRASH_LOOP` (tick failures: `E_SCANNER_TICK_ERROR` / `E_SCANNER_TICK_TIMEOUT`); read `lastError` for the cause |
 | Repeatedly failing | `consecutiveErrorCount ≥ 1` or a persistent `lastError` | `scan()` is throwing — print `lastError`, `lastErrorAt` (usually an upstream MCP/RPC read in `scan()`) |
 | Disabled | `enabled === false` | Scanner is turned off — not wired to run |
 | Hung mid-tick | `inFlight === true` & `lastRunStartedAt` older than `timeout_seconds` | `scan()` exceeded its time box — the runtime kills + restarts it; persistent hangs point at a slow upstream read |

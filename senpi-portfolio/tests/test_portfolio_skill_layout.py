@@ -243,7 +243,8 @@ RULES_BACK_IN_CORE = (
     "**`degraded`** (the real fault).",
     "Reference the right tool to *confirm* — never re-derive its analysis here.",
     "**Before the ladder: if the row carries `runtime_reason`, say it.**",
-    "Quote it in those words: a scanner that cannot stay up is why it has not traded.",
+    "Quote it in those words: it is why the scanner has not traded.",
+    "Call it a crash loop only when it says crashes.",
     "No `runtime_reason` means the runtime gave none — never invent one; the ladder finds it.",
     "**When it IS genuinely broken, act — don't hand the user a to-do.**",
     "For `degraded` corroborated by no activity, or `not_running`, work the ladder yourself and report what you "
