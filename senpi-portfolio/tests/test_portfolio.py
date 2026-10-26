@@ -530,8 +530,8 @@ def test_two_consecutive_errors_is_a_real_fault_and_warns():
 
 
 def test_a_degraded_runtime_quotes_the_runtimes_own_reason():
-    """The health row's `degradedReason` is the runtime's own words for why — today the supervisor's
-    crash-loop cause (long-running-supervisor.ts recordFailure). Carried on the row and quoted in the
+    """The health row's `degradedReason` is the runtime's own words for why — the supervisor's
+    crash-loop cause (long-running-supervisor.ts recordFailure) or the last tick error. Carried on the row and quoted in the
     warning, verbatim."""
     reason = "5 crashes in a row, each within 10s of starting"
     res = _run_with_status({"kodiak-main": status_doc({

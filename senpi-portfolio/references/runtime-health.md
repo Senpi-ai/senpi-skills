@@ -90,10 +90,12 @@ For `degraded` corroborated by no activity, or `not_running`, work the ladder yo
 found. Only the last step touches their money, and only that one needs their consent:
 
 **Before the ladder: if the row carries `runtime_reason`, say it.** It is the runtime's own words, read off
-`senpi status --json`'s scanner rows (`degradedReason`) — on today's runtime only a crash loop, e.g.
-`jackal_main_signals: 5 crashes in a row, each within 10s of starting` (`senpi status` prints it as
-`crash loop: …`). Quote it in those words: a scanner that cannot stay up is why it has not traded. No
-`runtime_reason` means the runtime gave none — never invent one; the ladder finds it.
+`senpi status --json`'s scanner rows (`degradedReason`): a crash-loop cause, e.g.
+`jackal_main_signals: 5 crashes in a row, each within 10s of starting`, or the scanner's last tick error,
+e.g. `jackal_main_signals: error: boom` (older runtimes give only the crash-loop kind, and `senpi status`
+prints it as `crash loop: …`). Quote it in those words: it is why the scanner has not traded. Call it a
+crash loop only when it says crashes. No `runtime_reason` means the runtime gave none — never invent one;
+the ladder finds it.
 
 1. **`python3 senpi-strategy-ops/scripts/status.py <id>`** — re-ask the runtime. Verdict + position count.
    **Mind the vocabulary:** `status.py` reports the engine's raw words, and they do not line up with this
