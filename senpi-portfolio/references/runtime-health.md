@@ -102,8 +102,9 @@ the ladder finds it.
    skill's. Its **`degraded`** is this skill's **`recovering`** (one errored tick); its **`unhealthy`** is
    this skill's **`degraded`** (the real fault). Reading its "degraded" as ours is how a confirmation step
    confirms the wrong thing.
-2. **`openclaw senpi scanner -r <rt>`** — is it ticking at all? `runs` / `errors` / `consec_errors` /
-   `signals` / `alive`. High `runs` with `signals=0` is a different problem from `errors` climbing.
+2. **`openclaw senpi scanner -r <rt>`** — is it alive at all? `health` / `alive` / `errors` /
+   `consec_errors` / `signals`. A recent `alive` is a live scanner. An external scanner's run count
+   (`runs=` on older runtimes) stays 0 while it finds nothing; that is normal. `errors` climbing is the fault.
 3. **Re-run the deploy** — a deploy interrupted by a gateway restart does not resume on its own, and
    re-running reconciles rather than duplicating. This is the fix for `not_running` after a broken deploy.
 4. **`close.py` → redeploy** — **last resort, and ask first.** It is a market exit of every open position

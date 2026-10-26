@@ -33,7 +33,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.27.11"
+  version: "3.27.12"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -343,7 +343,7 @@ above) and nothing here is it:
 - `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py verify <id>` — the per-instance verdict over the surfaces below
 - `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/status.py <id>` — the fleet view + each runtime's own health verdict
 - `openclaw senpi deploy status` / `deploy.py status [<id>]` — the agent's ONE last-deploy-job record
-- `openclaw senpi scanner -r <runtime_id>` — the scanner rows (`lastRunStatus`, `runCount`), the tick itself
+- `openclaw senpi scanner -r <runtime_id>` — the scanner rows; an external scanner is live on `health` + `alive` (heartbeat age), and its 0 run count is normal
 - `openclaw senpi status -r <runtime_id> --json` / `state -r <runtime_id> --json`; liveness decision
   tree → [`references/liveness-verification.md`](references/liveness-verification.md); DSL / action /
   position troubleshooting → `openclaw senpi dsl|action …` and

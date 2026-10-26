@@ -82,11 +82,15 @@ class TheNeverTradedAnswerIsTaught(unittest.TestCase):
 
     def test_fired_count_reads_signal_events_not_a_tick_history(self):
         """`senpi events` is the domain-event log (position/dsl/order/signal), not ticks; and an external
-        scanner's runCount climbs only on an emitting tick, so `(no signals yet)` never shows there."""
+        scanner records a run only when it delivers a signal or an error, so a quiet one never gets
+        `(no signals yet)` and its run count stays 0."""
         flat = " ".join(LIVENESS.read_text().split())
         self.assertIn("its `signal.*` events in `openclaw senpi events -r <runtime_id>`", flat)
         self.assertNotIn("for the tick history", flat)
-        self.assertIn("an external one stays at `runs=0` until a tick emits", flat)
+        self.assertIn("an external one never gets that flag while quiet: its run count stays 0 until it "
+                      "delivers a signal or an error", flat)
+        # Newer runtimes drop `runs=` from the external row; the doc must not teach reading it there.
+        self.assertNotIn("`runs=0`", flat)
 
     def test_portfolio_says_the_same_thing(self):
         """senpi-portfolio interprets the same quiet scanner; it called "nothing qualified" the right answer

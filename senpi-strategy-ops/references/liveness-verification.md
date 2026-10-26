@@ -58,8 +58,8 @@ doing real work, with timestamps and counters as proof. `runtime_id` = the runti
 ## Self-questions checklist
 
 1. **Is the target runtime in `runtime list` with `status: running`?**
-2. **Has its `external_scanner` executed at least once and recently** (a positive run count + a fresh
-   `lastRunFinishedAt`)?
+2. **Is its `external_scanner` alive** (`health` healthy or degraded + a fresh `lastAliveAt`)? Never
+   require a positive run count: a quiet one stays at 0.
 3. **Are its actions either operating or dormant-by-design** — never a wiring problem or failing?
 
 **On DSL.** The DSL monitor exposes counters (`tickSuccessCount`, `lastTickFinishedAt`) in `state`, but
@@ -203,7 +203,7 @@ Everything above proves the strategy is **operating**. It does not answer the qu
 actually asked: *why has it not opened anything?* "It's live and being selective" is the end of the
 liveness check, **not** an answer — and repeated back three or four times it reads as a brush-off from a
 system holding their money. `senpi scanner` showing `signals=0` (and `(no signals yet)` on an interval scanner —
-an external one stays at `runs=0` until a tick emits) says *that* it found nothing; it never says *why*. Once liveness is established, answer with the strategy's **own arithmetic**:
+an external one never gets that flag while quiet: its run count stays 0 until it delivers a signal or an error) says *that* it found nothing; it never says *why*. Once liveness is established, answer with the strategy's **own arithmetic**:
 
 1. **Name the binding gate and its threshold**, from that instance's `runtime.yaml` `inputs` (the
    running recipe — when `status.py` flags `✎ running recipe ≠ disk`, the disk copy is an unapplied edit). "Waiting
