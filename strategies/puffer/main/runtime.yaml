@@ -13,9 +13,10 @@
 #   - the fee gate priced a round trip at 0.06% (4.5 bps taker + 1.5 bps maker: HL's base
 #     fee alone, without the Senpi builder fee every wallet also pays). The defaults are now
 #     8 bps taker / 6 bps maker per side, HL + builder fee as measured on live fills: 0.14%
-#     maker-in/taker-out, 0.16% taker/taker. The builder fee is per user and volume-tiered
-#     (get_loyalty_tiers), so a wallet's own rate differs. The cover multiple (2.5x) is
-#     unchanged, so the capture the tape must offer moves from 0.15% to 0.35% of price.
+#     maker-in/taker-out, 0.16% taker/taker. The builder fee follows the plan (none on a paid
+#     plan, a flat 0.03% without one; `user_get_senpi_points` `builderFeePercent`), so a wallet's
+#     own rate differs. The cover multiple (2.5x) is unchanged, so the capture the tape must
+#     offer moves from 0.15% to 0.35% of price.
 #   - sizing: four slots at 20% margin and 4x everywhere (was five slots at 10-12% and 4-5x by
 #     conviction band). The bands still rank candidates; they no longer change the size.
 #   - the first ratchet rung locks 40% of high-water (was 25%); the three clock cuts are
@@ -62,8 +63,9 @@ scanners:
       maxSlots: 4                     # = strategy.slots
       recentSignalTtlSeconds: 21600   # 6h per-name debounce
       # ── fee gate — per side, HL fee + the Senpi builder fee as measured on live fills (1.1.0;
-      # 1.0 shipped HL's base 4.5/1.5 bps alone, 0.06% a round trip). The builder fee is per user
-      # and volume-tiered (get_loyalty_tiers): set these to the wallet's own rate. A round trip is
+      # 1.0 shipped HL's base 4.5/1.5 bps alone, 0.06% a round trip). The builder fee follows the
+      # plan (none on a paid plan, a flat 0.03% without one; `user_get_senpi_points`
+      # `builderFeePercent`): set these to the wallet's own rate. A round trip is
       # the entry plus a taker exit (the DSL closes): 0.14% maker-in, 0.16% taker-in;
       # x feeCoverMultiple is the capture the tape must offer before a release is tradeable. ──
       takerFeeBps: 8

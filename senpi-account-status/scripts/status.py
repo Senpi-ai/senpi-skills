@@ -2,7 +2,7 @@
 """senpi-account-status engine — the user's standing across Senpi programs (hidden, deterministic).
 
 The agent (LLM) runs this via the OpenClaw `exec` tool, reads the JSON on stdout, and NARRATES the
-user's standing (see SKILL.md): Senpi points + rank, loyalty tier + fee, and referral earnings.
+user's standing (see SKILL.md): Senpi points + rank, the Senpi trading fee, and referral earnings.
 One real-time pull across all the status tools.
 
   python3 status.py                 # full standing
@@ -52,17 +52,6 @@ def _field(d, *names, default=None):
             if n in d and d[n] is not None:
                 return d[n]
     return default
-
-
-def _rows(data, *keys):
-    if isinstance(data, list):
-        return data
-    if isinstance(data, dict):
-        for k in keys + ("entries", "data", "tiers", "results"):
-            v = data.get(k)
-            if isinstance(v, list):
-                return v
-    return []
 
 
 # ──────────────────────────────────────────────────────────────── client
@@ -122,48 +111,13 @@ def fetch_points(client, meta, wallet, user_id):
         "rank_change": _f(p, "rankChange", "rank_change"),
         "found": _field(p, "found", default=True),
     }
-    loyalty = {
-        "tier": _field(p, "loyaltyTier", "tier", "tierName"),
-        "fee_bps": _f(p, "loyaltyTierFee", "feeBps", "builderFeeBps"),
-        "fee_pct": _field(p, "builderFeePercent"),
-        "fee_discount_pct": None,  # not in the points payload — enriched from the tier table below
-        "maintenance": _field(p, "maintenanceStatus", "maintenance"),
-        "maintenance_deadline": _field(p, "tierMaintenanceDeadline"),
-        "demoted": _field(p, "isDemoted", default=False),
-        "previous_tier": _field(p, "previousLoyaltyTier"),
-        "next_tier": _field(p, "nextTier", "next_tier"),
-        "points_to_next": _f(p, "pointsToNextTier", "points_to_next", "nextTierPoints"),
-        "next_tier_threshold": _f(p, "nextTierThreshold"),
+    # The fee this user pays, as the backend reports it: 0 on a paid plan, the flat free rate
+    # otherwise. The payload field is still named loyaltyTierFee, but the tier no longer sets it.
+    fee = {
+        "bps": _f(p, "loyaltyTierFee", "feeBps", "builderFeeBps"),
+        "pct": _field(p, "builderFeePercent"),
     }
-    return points, loyalty
-
-
-def enrich_from_tiers(client, meta, loyalty, points_total):
-    """Fill what the points payload doesn't carry from the tier table: the current tier's fee
-    discount (only lives in get_loyalty_tiers) and, if missing, next-tier progress."""
-    need_discount = loyalty.get("tier") is not None
-    need_next = loyalty.get("points_to_next") is None and points_total is not None
-    if not (need_discount or need_next):
-        return
-    try:
-        tiers = _rows(_ok(client.mcp_call("get_loyalty_tiers", timeout=12)), "tiers")
-    except Exception as e:  # noqa
-        meta.setdefault("warnings", []).append(f"get_loyalty_tiers failed: {e}")
-        return
-    if need_discount:
-        cur = next((t for t in tiers if str(_field(t, "tier", "name", default="")).upper()
-                    == str(loyalty["tier"]).upper()), None)
-        if cur:
-            loyalty["fee_discount_pct"] = _f(cur, "discountPercent", "discount")
-    if need_next:
-        thresholds = sorted((thr, _field(t, "tier", "name"))
-                            for t in tiers
-                            if (thr := _f(t, "threshold", "pointsThreshold", "minPoints")) is not None)
-        for thr, name in thresholds:
-            if thr > points_total:
-                loyalty["next_tier"] = loyalty.get("next_tier") or name
-                loyalty["points_to_next"] = round(thr - points_total, 0)
-                break
+    return points, fee
 
 
 def fetch_referral(client, meta):
@@ -180,8 +134,7 @@ def fetch_referral(client, meta):
 def run(client):
     meta = {"warnings": []}
     user = resolve_user(client, meta)
-    points, loyalty = fetch_points(client, meta, user.get("wallet"), user.get("senpi_user_id"))
-    enrich_from_tiers(client, meta, loyalty, points.get("total"))
+    points, fee = fetch_points(client, meta, user.get("wallet"), user.get("senpi_user_id"))
     referral = fetch_referral(client, meta)
     if not user.get("senpi_user_id") and not user.get("wallet"):
         meta["degraded"] = "no user resolved — check the token is USER-scoped"
@@ -189,7 +142,7 @@ def run(client):
         "as_of": "live",
         "identity": user,
         "points": points,
-        "loyalty": loyalty,
+        "fee": fee,
         "referral": referral,
         "meta": meta,
     }
@@ -198,10 +151,9 @@ def run(client):
 # ──────────────────────────────────────────────────────────────── CLI
 def _dry(client):
     out = {}
-    for tool, kw in (("user_get_me", {}), ("user_get_referral_rewards", {}),
-                    ("get_loyalty_tiers", {})):
+    for tool in ("user_get_me", "user_get_referral_rewards"):
         try:
-            out[tool] = client.mcp_call(tool, timeout=12, **kw)
+            out[tool] = client.mcp_call(tool, timeout=12)
         except Exception as e:  # noqa
             out[tool] = {"error": str(e)}
     return out

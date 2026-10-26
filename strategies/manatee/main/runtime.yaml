@@ -61,15 +61,17 @@ scanners:
       # ── fee gate: a SANITY CEILING, not a quote of your fees ──────────────────────────────
       #    These are upper bounds used for one purpose: refusing a harvest target too small to clear
       #    a round trip. They are NOT this wallet's rates and the strategy does not assume a tier.
-      #    Your real cost is lower — the venue rate depends on your HL volume and the builder fee is
-      #    volume-tiered per account — so every number below is the widest case on the schedule.
+      #    Your real cost is lower or equal — the venue rate depends on your HL volume and the builder
+      #    fee is 0 on a paid plan and a flat 0.03% without one — so every number below is a ceiling.
       #    The gate is inert at the shipped 1.4% harvest and only bites if someone tunes it down.
       takerFeeBps: 4.5
       makerFeeBps: 1.5
-      builderFeeBps: 5.0                 # the widest builder rate on the schedule, charged on BOTH
-                                         #   legs. Omitting it entirely understated a round trip by
-                                         #   half, which is the error this replaces — not a claim
-                                         #   about what you pay.
+      builderFeeBps: 5.0                 # a ceiling: the free plan pays a flat 0.03%, a paid plan 0.
+                                         #   5.0 is the old Bronze rate, the widest the tier schedule ever
+                                         #   charged, kept so the gate never understates; it is charged on
+                                         #   BOTH legs. Omitting the builder fee entirely understated a
+                                         #   round trip by half, which is the error this replaces — not a
+                                         #   claim about what you pay.
       feeCoverMultiple: 3.0             # the harvest must cover a worst-case round trip 3x over
       expectedCapturePct: 2.8           # = the DSL's first trigger, in ROE (2.8 ROE = 1.4% of price at 2x)
       # ── sizing (marginPct is a PERCENT of withdrawable): every entry and every add is one clip ──
