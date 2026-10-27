@@ -89,7 +89,10 @@ import _fetch  # noqa: E402
 import _pkg  # noqa: E402
 from mcp_client import MCPClient  # noqa: E402
 
-START_TIMEOUT = 60      # the verb detaches in ~1s; this is only the spawn budget
+# The verb detaches once the gateway takes the job, but an OpenClaw 10.x CLI call is slow before it
+# gets there (whole `senpi status` calls took 161-165 s on a 10.10 box). At 60 s this gave up while
+# the START was still in flight, and the job then ran and funded a wallet after the script exited 1.
+START_TIMEOUT = 180
 STATUS_TIMEOUT = 30
 # The JOB's wallet-ACTIVE budget, forwarded verbatim to the verb — so this default MIRRORS the verb's
 # own (`--max-wait <seconds>`, default 150). It is not just a wait: the verb sizes its wall-clock

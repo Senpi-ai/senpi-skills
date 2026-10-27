@@ -211,9 +211,11 @@ class FakeCli:
     def __init__(self, responses):
         self.responses = list(responses)
         self.calls = []
+        self.timeouts = []
 
     def __call__(self, args, timeout=60):
         self.calls.append(list(args))
+        self.timeouts.append(timeout)
         return self.responses.pop(0) if self.responses else (0, "", "")
 
     def argv_for(self, method):
@@ -274,19 +276,27 @@ class StartDeploy(unittest.TestCase):
         self.assertIn("[E_FUNDS_BELOW_FLOOR]", err.getvalue())
 
     def test_a_spawn_failure_or_start_timeout_exits_one_not_refused(self):
-        # `run_cli` returns rc=-1 for a spawn failure and for the 60s START_TIMEOUT. Neither is a gate
+        # `run_cli` returns rc=-1 for a spawn failure and for the 180s START_TIMEOUT. Neither is a gate
         # saying no: mapping them to 2 tells the agent "refused, nothing created" while a dispatched
         # job may be funding a wallet. Transport breakage is 1, per this wrapper's own contract.
-        for rc, text in ((-1, _cli.SPAWN_FAILED_PREFIX + "openclaw"), (-1, "timed out after 60s: openclaw …")):
+        for rc, text in ((-1, _cli.SPAWN_FAILED_PREFIX + "openclaw"), (-1, "timed out after 180s: openclaw …")):
             _cli.run_cli = FakeCli([(rc, "", text)])
             with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(io.StringIO()):
                 deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
             self.assertEqual(ctx.exception.code, 1)
 
+    def test_the_start_call_waits_180s_for_a_slow_10x_cli(self):
+        # A 10.10 CLI call took 161-165 s on a box; at 60 s the wrapper gave up on a START the gateway
+        # then took, and the job funded a wallet after the script had already exited 1.
+        fake = FakeCli([_ok({"deployId": "dpl-1"})])
+        _cli.run_cli = fake
+        self.assertEqual(deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None), "dpl-1")
+        self.assertEqual(fake.timeouts, [180])
+
     def test_a_start_timeout_points_at_deploy_status_because_the_job_may_be_running(self):
         # The START call timed out AFTER the gateway was reached: same shape as the no-deployId case.
         # The exit code alone doesn't tell the agent that; the stderr it reads at failure time must.
-        _cli.run_cli = FakeCli([(-1, "", "timed out after 60s: openclaw senpi deploy -p /pkg/spider")])
+        _cli.run_cli = FakeCli([(-1, "", "timed out after 180s: openclaw senpi deploy -p /pkg/spider")])
         err = io.StringIO()
         with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(err):
             deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
