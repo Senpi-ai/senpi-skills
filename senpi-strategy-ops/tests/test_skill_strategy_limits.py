@@ -1,5 +1,5 @@
 """A backend `SERR183` (the user's plan is at its limit of running strategies) or `SERR184` (the user has
-used every new strategy their plan allows in 30 days) is the user's plan, not a defect the agent can fix.
+used every new strategy their plan allows this billing cycle, or in the last 30 days without a plan) is the user's plan, not a defect the agent can fix.
 The outcome table's generic "read the quoted cause, fix it, re-run" would turn either one into a retry
 loop, or into the agent closing a strategy or deploying a smaller package to squeeze under the limit.
 The skill names both as exceptions: nothing was created, tell the user the limit and the ways forward
@@ -42,6 +42,7 @@ class StrategyLimitIsThePlanNotARetry(unittest.TestCase):
             "`SERR183`",
             "`SERR184`",
             "the user's plan limit",
+            "new strategies per billing cycle (the last 30 days without a plan)",
             "nothing was created",
             "never retry",
             "never close a strategy for them",
@@ -81,19 +82,27 @@ class StrategyLimitIsThePlanNotARetry(unittest.TestCase):
     def test_serr184_says_wait_and_that_closing_frees_nothing(self):
         section = _playbook_section("SERR184")
         for needle in (
-            "new strategies per 30 days",
+            # Both strategy-manager texts: per billing cycle for a plan or trial, the last 30
+            # days without one.
+            "new strategies per billing cycle. Your count resets at",
+            "new strategies per 30 days. Your next one frees up at",
+            "on a plan or trial",
+            "without one",
             "the time the backend names",
             "Closing a strategy does not free a start",
             "only after that time has passed or the user has upgraded",
         ):
             self.assertIn(needle, section, needle)
+        # A closed strategy keeps counting in either window, so the section must not promise
+        # it frees up after its own 30 days on a plan with a cycle.
+        self.assertIn("a closed strategy still counts until the count resets or its 30 days pass", section)
         # Closing is the SERR183 way forward, not this one.
         self.assertNotIn("`close.py <id>`", section)
 
     def test_a_zero_limit_leaves_upgrade_as_the_only_way_forward(self):
         # strategy-manager words a limit of 0 as "allows 0 running strategies and you have 0. Close one
-        # or upgrade" and, for starts, "allows 0 new strategies per 30 days. Upgrade your plan to start
-        # one." with no time. Offering a close or a wait there points at something that does not exist.
+        # or upgrade" and, for starts, "allows 0 new strategies per billing cycle. Upgrade your plan to
+        # start one." (or "per 30 days") with no time. Offering a close or a wait there points at something that does not exist.
         self.assertIn("When the limit is 0, upgrading is the only way forward", _playbook_section("SERR183"))
         section = _playbook_section("SERR184")
         self.assertIn("When the sentence names no time (a limit of 0), upgrading is the only way forward",
@@ -107,7 +116,10 @@ class StrategyLimitIsThePlanNotARetry(unittest.TestCase):
             self.skipTest("taxonomy not present (installed skill layout)")
         text = TAXONOMY.read_text()
         self.assertIn("| `SERR183` (backend) |", text)
-        self.assertIn("| `SERR184` (backend) |", text)
+        row = next(l for l in text.splitlines() if l.startswith("| `SERR184` (backend) |"))
+        for needle in ("current billing cycle", "the last 30 days without a plan", "when the count resets",
+                       "when the next start frees up", "closing a strategy does not free a start"):
+            self.assertIn(needle, row, needle)
 
 
 if __name__ == "__main__":
