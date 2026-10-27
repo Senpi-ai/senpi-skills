@@ -33,7 +33,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.27.11"
+  version: "3.27.12"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -315,7 +315,7 @@ Keep it to ~5 short lines per strategy. Multi-instance packages whose legs diffe
 On `interval`, `runCount` climbs **every tick** (complete, skip and error alike; the signals it emitted are
 `signalsProduced`, a separate counter). On `external` — every signal scanner the catalog ships; `position_tracker`
 is `interval` — the scaffold POSTs on every tick, but an empty list updates the liveness clock and returns before
-ingest, so `runCount` climbs **only on a tick that emits**, `initialized` stays `false` until the first non-empty
+ingest, so `runCount` climbs **only on an accepted signal or an error**, `initialized` stays `false` until the first non-empty
 POST, and `intervalSeconds: 0` / `nextRunAt: null` are the correct values rather than an unwired runtime.
 `lastAliveAt` is the tick. So `runCount: 0` with a fresh `lastAliveAt` is a scanner finding nothing, not one that
 never ran — and the recipe's own `interval_seconds` is the scaffold's POST cadence, so a file saying 60 while the
@@ -343,7 +343,7 @@ above) and nothing here is it:
 - `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py verify <id>` — the per-instance verdict over the surfaces below
 - `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/status.py <id>` — the fleet view + each runtime's own health verdict
 - `openclaw senpi deploy status` / `deploy.py status [<id>]` — the agent's ONE last-deploy-job record
-- `openclaw senpi scanner -r <runtime_id>` — the scanner rows (`lastRunStatus`, `runCount`), the tick itself
+- `openclaw senpi scanner -r <runtime_id>` — the scanner rows. External: live when `alive` is recent; `health` second — `degraded`/`unhealthy` + `last=error` + fresh `alive` = a past delivery error (read `reason`); `unhealthy` + `inFlight=true`, or a crash-loop reason = real fault; `unknown` + `alive=—` = not heard from yet
 - `openclaw senpi status -r <runtime_id> --json` / `state -r <runtime_id> --json`; liveness decision
   tree → [`references/liveness-verification.md`](references/liveness-verification.md); DSL / action /
   position troubleshooting → `openclaw senpi dsl|action …` and
