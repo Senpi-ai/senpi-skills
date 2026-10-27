@@ -148,7 +148,8 @@ decision_mode: none    # after: opens nothing
    manages your N open positions." Name any `CLOSE_POSITION` action that is still active.
 
 While paused, these still run: the entry scanner (it ticks, emits signals and makes its MCP calls), every
-`CLOSE_POSITION` action, the position tracker and DSL.
+`CLOSE_POSITION` action, the position tracker and DSL. To turn off one exit instead, delete that
+`CLOSE_POSITION` action (and its scanner if nothing else lists it); do not set `decision_mode: none` on it.
 
 **Resume:** set `decision_mode` back to its old value (`rule` or `llm`) and run the same steps.
 
