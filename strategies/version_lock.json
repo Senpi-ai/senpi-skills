@@ -66,8 +66,8 @@
       "version": "1.1.2"
     },
     "camel": {
-      "behaviour": "f24cefbb296a9e65",
-      "version": "2.0.0"
+      "behaviour": "bdbf2fd4abcca0da",
+      "version": "2.1.0"
     },
     "camel-spread": {
       "behaviour": "91b846e7909cbdfc",
@@ -134,8 +134,8 @@
       "version": "1.2.2"
     },
     "dugong": {
-      "behaviour": "f25a035f56150efd",
-      "version": "1.0.0"
+      "behaviour": "ebf7ec4d4c5aad3d",
+      "version": "1.1.0"
     },
     "eel": {
       "behaviour": "6bfc8e9755b472b5",
@@ -278,8 +278,8 @@
       "version": "1.2.0"
     },
     "manatee": {
-      "behaviour": "1f77e2beb27df39a",
-      "version": "2.0.1"
+      "behaviour": "d8510ca1a77838a6",
+      "version": "2.1.0"
     },
     "mandate": {
       "behaviour": "082b3e3792ef9029",
@@ -410,8 +410,8 @@
       "version": "1.1.1"
     },
     "puffer": {
-      "behaviour": "d2845a4539747f94",
-      "version": "1.1.0"
+      "behaviour": "20b4db671b750754",
+      "version": "1.2.0"
     },
     "puffin": {
       "behaviour": "6e3bdfdde2cf2f24",
@@ -446,8 +446,8 @@
       "version": "1.2.2"
     },
     "relativity-xyz": {
-      "behaviour": "f890873a22b4ebcb",
-      "version": "1.0.0"
+      "behaviour": "67ba23118c54e3dc",
+      "version": "1.1.0"
     },
     "remora": {
       "behaviour": "723bdc73ce59c8b2",

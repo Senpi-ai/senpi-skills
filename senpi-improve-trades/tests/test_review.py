@@ -1175,9 +1175,9 @@ if __name__ == "__main__":
 #   3. the PRIMARY (discovery) path carried no fee field whatsoever — and that is the path a
 #      CURRENT strategy runs on, so the headline stayed gross no matter what else was fixed.
 # NOT a defect: `fee` vs `builderFee`. HL's `fee` already INCLUDES the builder leg. Shown across two
-# wallets on different loyalty tiers — builder 5.00 bps (fee 9.32/6.44) and builder 4.00 bps (fee
-# 8.32/5.44) — where subtracting the builder leg leaves the same exchange rate (4.32/1.44) both times.
-# Summing them overstates by the builder leg. The builder rate is tier-dependent, never a constant.
+# wallets on different builder legs, where subtracting the builder leg leaves the same exchange rate
+# (4.32/1.44 bps) both times. Summing them overstates by the builder leg. Never a constant: read it
+# from the fill.
 
 def test_fee_is_inclusive_of_builder_and_counts_BOTH_legs():
     """`builderFee` is a breakdown of `fee`, never an addition — and a round trip pays on both legs."""
@@ -1288,18 +1288,18 @@ def test_skill_forbids_taking_leverage_from_the_config():
         "the rule must explain that the venue clips without erroring"
 
 
-def test_skill_treats_the_builder_fee_as_plan_dependent():
-    """From 2026-10-26 Senpi's builder fee follows the plan — none on a paid plan, a flat 0.03% without
-    one — and tiers no longer change it. A fill keeps the fee it was signed with, so a review still
-    meets older fills at a tier rate. The skill must name where to read the user's own."""
+def test_skill_states_no_builder_fee_on_a_paid_plan_and_no_nonzero_rate():
+    """From 2026-10-26 Senpi charges no builder fee on a paid plan, and the skill quotes no nonzero
+    Senpi rate anywhere. A fill keeps the fee it was signed with, so a review still meets older fills
+    with a builder leg — read from the fill, never from memory. The skill must name where to read the
+    user's own rate."""
     skill = " ".join(open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read().split())
     assert "user_get_senpi_points" in skill, "the skill must name where to read the user's own fee"
     assert "not a constant" in skill.lower(), "the skill must say the rate is not a constant"
-    assert "**none on a paid plan**" in skill and "**a flat 0.03% without one**" in skill, \
-        "the plan rule is not stated"
-    assert "flat 0.05%" not in skill, "the old flat rate is still quoted"
-    assert "A fill keeps the fee it was signed with" in skill, "older fills at a tier rate go unexplained"
-    assert "0.047% Silver" not in skill, "the tier ladder is stated as the current schedule"
+    assert "**no builder fee on a paid plan**" in skill, "the plan rule is not stated"
+    for rate in ("0.025%", "0.03%", "0.05%", "0.047% Silver"):
+        assert rate not in skill, f"a nonzero Senpi rate is quoted: {rate}"
+    assert "A fill keeps the fee it was signed with" in skill, "older fills with a builder leg go unexplained"
 
 
 def test_the_raw_mcp_rule_does_not_contradict_the_6b_reads():

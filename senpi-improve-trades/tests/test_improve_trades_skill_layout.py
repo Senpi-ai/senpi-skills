@@ -490,14 +490,15 @@ def test_moved_examples_live_in_their_reference():
 
 
 def test_the_fee_evidence_in_guardrails_says_the_fee_follows_the_plan():
-    """From 2026-10-26 the builder fee is none on a paid plan and a flat 0.03% without one; the per-tier
-    story is only how older fills read."""
+    """From 2026-10-26 Senpi charges no builder fee on a paid plan; an older fill's builder leg is only
+    how that fill reads. No nonzero Senpi rate is quoted."""
     with open(os.path.join(SKILL_DIR, "references", "guardrails.md"), encoding="utf-8") as f:
         g = " ".join(f.read().split())
-    assert ("The builder fee follows the plan, not a constant: none on a paid plan, a flat 0.03% without one. "
-            "Read it from the fills. Older fills carry the old tier rates") in g
+    assert ("Senpi charges no builder fee on a paid plan, and the fee is not a constant: read it from the "
+            "fills.") in g
     assert "per tier" not in g
-    assert "flat 0.05%" not in g
+    for rate in ("0.03%", "0.05%", "5.00 bps"):
+        assert rate not in g, rate
 
 
 # senpi-portfolio/tests/test_your_wallets_wording.py, SECTION_BANNED + its "own book" ban, read whole here.
