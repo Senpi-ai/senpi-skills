@@ -169,10 +169,12 @@ Phase 2 is exchange-SL driven. It starts when the first tier is reached (always 
 
 Each tier is a profit milestone. Tiers must be sorted ascending by `trigger_pct`. Each tier has exactly two fields.
 
+**Keep `lock_hw_pct` the same or higher at every tier.** A newly active tier recomputes the floor from its own lock; the old floor is not carried over. `{2, 80}` then `{30, 40}` drops the floor from +23.2% to +12% ROE as the position crosses +30%. Not rejected at load.
+
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
 | `trigger_pct` | number | Yes | ROE % from entry that activates this tier. Must be > 0; strictly increasing across tiers. |
-| `lock_hw_pct` | number | Yes | Lock floor at this % of current high-water ROE (0-100). Floor trails every tick as high water advances. |
+| `lock_hw_pct` | number | Yes | Lock floor at this % of current high-water ROE (0-100). Floor trails every tick as high water advances, within the tier. |
 
 Example: `{ trigger_pct: 7, lock_hw_pct: 40 }` means: when ROE reaches 7% from entry, lock a floor at 40% of the high-water ROE. If high-water ROE is 10%, the floor locks at 4% ROE equivalent price.
 
@@ -181,7 +183,7 @@ Example: `{ trigger_pct: 7, lock_hw_pct: 40 }` means: when ROE reaches 7% from e
 ## How phases and tiers combine
 
 **While a tier is active:**
-1. **Tier floor** = `lock_hw_pct`% of `highWaterRoe`, converted to price. Ratchets (never loosens).
+1. **Tier floor** = `lock_hw_pct`% of `highWaterRoe`, converted to price. Only moves up within a tier; a new tier recomputes it from its own lock.
 2. **Effective floor** = stricter of tier floor and any phase-level trailing floor.
 
 **Phase transition:** Phase becomes 2 when the first tier is reached (tier index 0) and `phase2.enabled` is not false. Tiers can be active in Phase 1 before the transition.
@@ -190,7 +192,7 @@ Example: `{ trigger_pct: 7, lock_hw_pct: 40 }` means: when ROE reaches 7% from e
 1. Update high water -> recompute floors.
 2. If breached enough times (Phase 1 only) -> close (`dsl_breach`).
 3. Else apply time cuts (`hard_timeout`, `dead_weight_cut`, `weak_peak_cut`) — evaluated in both phases; first match wins.
-4. Else detect tier from current ROE; on new higher tier, update tier floor and possibly transition to Phase 2.
+4. Else detect tier from current ROE; on a new higher tier, replace the tier floor with that tier's value and possibly transition to Phase 2.
 5. If tier active, recompute tier floor every tick so `lock_hw_pct` trails high-water ROE.
 
 ---
