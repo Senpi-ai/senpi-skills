@@ -90,6 +90,15 @@ class StrategyLimitIsThePlanNotARetry(unittest.TestCase):
         # Closing is the SERR183 way forward, not this one.
         self.assertNotIn("`close.py <id>`", section)
 
+    def test_a_zero_limit_leaves_upgrade_as_the_only_way_forward(self):
+        # strategy-manager words a limit of 0 as "allows 0 running strategies and you have 0. Close one
+        # or upgrade" and, for starts, "allows 0 new strategies per 30 days. Upgrade your plan to start
+        # one." with no time. Offering a close or a wait there points at something that does not exist.
+        self.assertIn("When the limit is 0, upgrading is the only way forward", _playbook_section("SERR183"))
+        section = _playbook_section("SERR184")
+        self.assertIn("When the sentence names no time (a limit of 0), upgrading is the only way forward",
+                      section)
+
     def test_the_taxonomy_carries_both_rows(self):
         if not TAXONOMY.is_file():
             self.skipTest("taxonomy not present (installed skill layout)")

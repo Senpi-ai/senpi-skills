@@ -266,7 +266,8 @@ say which ones are.
 
 - **Tell the user in one or two sentences.** Quote the backend's sentence (it names the plan, the
   limit and the count), then the two ways forward: close one of their running strategies, or upgrade
-  their plan.
+  their plan. When the limit is 0, upgrading is the only way forward: the sentence still says "Close
+  one", but there is nothing to close.
 - **Closing is the user's call**: the user picks which one. When they name it, that is an ordinary
   teardown they asked for (`close.py <id>`, or `--instance` for one sleeve). Do not suggest which one.
 - **Try again only after the user has closed one or upgraded** and asks: then re-run the same
@@ -288,7 +289,8 @@ it may be live: read `status.py <id>` and say which ones are.
 
 - **Tell the user in one or two sentences.** Quote the backend's sentence (it names the plan, the
   limit and the time the backend names for the next free start, in UTC), then the two ways forward:
-  wait until that time, or upgrade their plan.
+  wait until that time, or upgrade their plan. When the sentence names no time (a limit of 0),
+  upgrading is the only way forward; never estimate a time.
 - **Closing a strategy does not free a start**: a closed strategy still counts for its 30 days. Do not
   offer closing as a way forward.
 - **Try again only after that time has passed or the user has upgraded** and asks: then re-run the
