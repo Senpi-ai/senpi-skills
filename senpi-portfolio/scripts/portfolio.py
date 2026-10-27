@@ -1494,7 +1494,7 @@ def fetch_strategies(client, meta):
         meta.setdefault("warnings", []).append(
             f"{len(degraded)} strategy(ies) have a runtime the engine reports UNHEALTHY (degraded) — two or more "
             f"consecutive scan errors, not a blip. Confirm the cause with senpi-strategy-ops "
-            f"`status.py <id>` (runtime verdict + position count; `openclaw senpi scanner -r <rt>` for runs/errors/signals): "
+            f"`status.py <id>` (runtime verdict + position count; `openclaw senpi scanner -r <rt>` for health/alive/errors): "
             f"{degraded_text}. A reason in parentheses is the runtime's own words (a crash-loop cause or the scanner's "
             f"last tick error) — tell the user that, in those words, before anything else; call it a crash loop "
             f"only when it says crashes.")
