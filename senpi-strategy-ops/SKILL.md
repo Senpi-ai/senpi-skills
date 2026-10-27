@@ -33,7 +33,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.27.12"
+  version: "3.27.13"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -393,7 +393,7 @@ the user it is **saved, not applied** — never "done" or "live".
 
 **Only a changed `strategy.wallet` needs a new wallet** (`update` refuses it with `E_UPDATE_WALLET_CHANGED`): a close,
 which market-exits every open position and drops any custom ratchet ladder — take **explicit consent in those
-words first**. Its other refusals name an in-place fix. Everything else: [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md).
+words first**. Its other refusals name an in-place fix. Everything else: [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md). **"Pause" / "stop new trades" / "watch only" = `decision_mode: none` on every `OPEN_POSITION` action**, applied with `update`; keep the position tracker and `exit`, so DSL still manages open positions. `enabled: false`, `slots: 0` and `max_entries_per_day: 0` pause nothing (same reference, §Pause new entries).
 
 ## Invariants
 

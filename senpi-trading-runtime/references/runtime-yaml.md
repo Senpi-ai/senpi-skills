@@ -65,7 +65,7 @@ actions:
     scanners: [position_tracker]
   - name: iguana_entry
     action_type: OPEN_POSITION
-    decision_mode: rule             # rule | llm | no_decision
+    decision_mode: rule             # rule | llm | none
     scanners: [iguana_signals]
     params:
       order_type: FEE_OPTIMIZED_LIMIT
@@ -143,7 +143,7 @@ the resolved config.
 | `default_leverage` | — | default leverage multiplier |
 | `leverage_multipliers` | — | per-risk-level leverage `{ conservative?, moderate?, aggressive? }` |
 | `trading_risk` | — | `conservative` \| `moderate` \| `aggressive` |
-| `enabled` | — | whether the runtime is active |
+| `enabled` | — | parsed but not read by the runtime. It does not pause anything. Leave it `true`; to pause new entries set `decision_mode: none` on each `OPEN_POSITION` action |
 
 ---
 
@@ -201,7 +201,9 @@ why deploy refuses it:
 ## `actions` block
 
 Each entry needs a unique `name` and an `action_type` ∈ `OPEN_POSITION` | `CLOSE_POSITION` |
-`POSITION_TRACKER`. `decision_mode` ∈ `rule` | `llm` | `no_decision`.
+`POSITION_TRACKER`. `decision_mode` ∈ `rule` | `llm` | `none`. `none` means the action never trades:
+every signal is skipped with `execute: false`. On `OPEN_POSITION` it pauses new entries, while the
+position tracker and DSL keep managing open positions.
 
 | Field | Notes |
 |---|---|
