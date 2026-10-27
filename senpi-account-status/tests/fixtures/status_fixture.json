@@ -30,9 +30,9 @@
       "lastUpdated": "2026-07-05T14:05:01.922Z",
       "loyaltyTier": "SILVER",
       "loyaltyTierIcon": "🥈",
-      "loyaltyTierFee": 47,
-      "builderFeePercent": "0.047%",
-      "nextTierFee": "0.045%",
+      "loyaltyTierFee": 30,
+      "builderFeePercent": "0.03%",
+      "nextTierFee": "0.03%",
       "monthlyPoints": 120,
       "maintenanceActive": true,
       "maintenanceStatus": null,
@@ -45,20 +45,6 @@
       "currentTierThreshold": 100,
       "nextTierThreshold": 20000,
       "maintenanceThreshold": 10
-    }
-  },
-  "get_loyalty_tiers": {
-    "success": true,
-    "data": {
-      "tiers": [
-        {"tier": "BRONZE", "threshold": 0, "feeBps": 50, "feePercent": "0.05%", "maintenance": 0, "discountPercent": 0},
-        {"tier": "SILVER", "threshold": 100, "feeBps": 47, "feePercent": "0.047%", "maintenance": 10, "discountPercent": 6},
-        {"tier": "GOLD", "threshold": 500, "feeBps": 45, "feePercent": "0.045%", "maintenance": 50, "discountPercent": 10},
-        {"tier": "PLATINUM", "threshold": 1000, "feeBps": 40, "feePercent": "0.04%", "maintenance": 100, "discountPercent": 20},
-        {"tier": "DIAMOND", "threshold": 2000, "feeBps": 35, "feePercent": "0.035%", "maintenance": 200, "discountPercent": 30},
-        {"tier": "APEX", "threshold": 2500, "feeBps": 30, "feePercent": "0.03%", "maintenance": 250, "discountPercent": 40},
-        {"tier": "LEGEND", "threshold": 3000, "feeBps": 25, "feePercent": "0.025%", "maintenance": 300, "discountPercent": 50}
-      ]
     }
   },
   "user_get_referral_rewards": {

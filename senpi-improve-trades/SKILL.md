@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.20.2"
+  version: "1.21.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -142,9 +142,9 @@ imply Senpi checked who controls them. The engine adds every one to the review s
    `closedPnl` — **GROSS**. Quote `pnl_summary.realized_net` for the closed book and show the fee line; when
    `fees` is `null` say *"gross — fees not netted"*. `fee` already INCLUDES
    `builderFee` — never add them.
-   **The fee rate is NOT a constant — never quote one from memory.** Read the user's own rate with **`user_get_senpi_points`**
-   (their tier + fee), or the whole table with **`get_loyalty_tiers`**. Quote the *measured* fee from the
-   trade whenever you can; when you must state a rate, state theirs.
+   **The fee rate is NOT a constant — never quote one from memory.** Read the user's own rate with
+   **`user_get_senpi_points`** (`builderFeePercent`). Quote the *measured* fee from the trade whenever you
+   can; when you must state a rate, state theirs.
 0b. **Never take leverage from the config — read what the position ACTUALLY opened at.** The venue caps
    leverage per asset and **clips silently**: `default_leverage` is a request, not what opened.
    **ROE = price move % x ACTUAL leverage** — read it from `DslState.leverage` (`senpi dsl inspect <asset>
@@ -278,9 +278,10 @@ join is the future upgrade; it's intentionally **not** called per-trade (rate-li
 wired, quote the maker ratio as a fee-tier signal, never a fee dollar total. (`pnl_summary.fees` and the
 trade rows do carry fee $.)
 
-**Fee rate (hard rule 0):** Senpi's builder fee falls with the
-user's points tier: **0.05% Bronze → 0.047% Silver → 0.045% Gold → 0.04% Platinum → 0.035% Diamond →
-0.03% Apex → 0.025% Legend**.
+**Fee rate (hard rule 0):** Senpi's builder fee follows the plan: **none on a paid plan** (Starter,
+Pro, Advanced, Quant), **a flat 0.03% without one**, free trials included; tiers and points no longer
+change it. A fill keeps the fee it was signed with, so fills from orders placed before 2026-10-26 (a
+resting stop included) show the old tier rate, between 0.025% and 0.05%.
 
 **Quick action 4 — the `explain` command in full.** For "walk me through / explain my BTC trade," the agent
 runs the native lifecycle command directly (it's not in `review.py` — it's the runtime CLI):

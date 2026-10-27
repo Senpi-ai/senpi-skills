@@ -530,8 +530,8 @@ def test_two_consecutive_errors_is_a_real_fault_and_warns():
 
 
 def test_a_degraded_runtime_quotes_the_runtimes_own_reason():
-    """The health row's `degradedReason` is the runtime's own words for why — today the supervisor's
-    crash-loop cause (long-running-supervisor.ts recordFailure). Carried on the row and quoted in the
+    """The health row's `degradedReason` is the runtime's own words for why — the supervisor's
+    crash-loop cause (long-running-supervisor.ts recordFailure) or the last tick error. Carried on the row and quoted in the
     warning, verbatim."""
     reason = "5 crashes in a row, each within 10s of starting"
     res = _run_with_status({"kodiak-main": status_doc({
@@ -887,7 +887,7 @@ def test_live_position_dsl_fails_open_when_ratchet_call_absent():
     assert any("ratchet_stop_list" in w and "unrecognised shape" in w for w in res["meta"]["warnings"])
 
 
-# ── sub-Tier-1 ratchet records (1.35.3) ───────────────────────────────────────────────────────────────
+# ── sub-Tier-1 ratchet records (1.36.0) ───────────────────────────────────────────────────────────────
 # A strategy with `phase1.enabled: false` starts in phase 2, so the runtime hands the position to the
 # backend at open: `ratchet_stop_list` returns a record FROM OPEN with currentTierIndex -1, a null floor
 # and no SL order of its own (a live xyz:CL short, 22 Oct). The runtime's max-loss stop still rests

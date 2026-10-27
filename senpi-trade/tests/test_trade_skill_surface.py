@@ -87,6 +87,14 @@ class ProtectionProtocolIsResident(unittest.TestCase):
         # re-sending the same price is the one move that cannot work
         self.assertIn("Re-sending the same price", body)
 
+    def test_polling_after_a_create_is_conditional(self):
+        # The MCP polling rule: poll strategy_list only when a next step needs ACTIVE, never to confirm a
+        # create. Both create paths (custom and mirror) carry the condition; neither polls unconditionally.
+        flat = " ".join(_body(SKILL).split())
+        self.assertEqual(flat.count("Never poll just to confirm the create"), 2)
+        self.assertNotIn("Async — poll `strategy_list` to ACTIVE;", flat)
+        self.assertNotIn("Poll `strategy_list` to ACTIVE, then read", flat)
+
     def test_readme_row_matches_the_skill_version(self):
         version = re.search(r'version: "([0-9.]+)"', SKILL.read_text(encoding="utf-8")).group(1)
         readme = (REPO / "README.md").read_text(encoding="utf-8")

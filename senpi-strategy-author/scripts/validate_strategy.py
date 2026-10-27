@@ -832,6 +832,8 @@ WARN_STOP_PRICE_PCT = 1.0
 # cadence / cap / slots / margin / leverage at an ASSUMED 0.05% per side (taker + builder, stated in the
 # message, never a quote): 1,314 fills on a $200 book paid $59 in fees against −$46 of PnL — fees, not
 # direction, took the money, and nothing said so before the user funded it.
+# Since 2026-10-26 Senpi's builder leg is 0 on a paid plan and a flat 0.03% without one, so 0.05% per side
+# is about a paid plan's cost (HL taker 0.045% + 0) and about two thirds of a free plan's (0.045% + 0.03%).
 WARN_FEE_PCT_PER_DAY = 0.5
 # The order types the runtime's open path accepts (its constants/order-types.ts VALID_OPEN_ORDER_TYPES).
 # Anything else is not refused by the runtime: it logs a warning and falls back to MARKET (`LIMIT` included).
