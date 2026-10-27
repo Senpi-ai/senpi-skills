@@ -172,7 +172,7 @@ floor_roe   = high_water_roe × (lock_hw_pct / 100)
 floor_price = entry_price + floor_roe converted to price
 ```
 
-The floor **only ratchets up**. In Phase 2 all exits are **exchange-driven**: the runtime places and
+Within a tier the floor only moves up. Keep `lock_hw_pct` the same or higher across tiers: a lower lock at a higher tier never tightens the stop, and can loosen it. In Phase 2 all exits are **exchange-driven**: the runtime places and
 continuously updates a stop-loss order at the current floor; when price hits it the exchange executes
 and the position closes with reason `exchange_sl_hit`. There is **no breach counting and no retrace
 knob in Phase 2** — tier `retrace`/`breaches` and `phase2.retrace_threshold` /
@@ -299,7 +299,7 @@ Telegram notification (if dsl_lifecycle enabled)
 | `consecutive_breaches_required` | Consecutive ticks below the Phase 1 floor before exit. |
 | `max_loss_pct` | Hard absolute floor — never lose more than this ROE% from entry. Positive number. |
 | `trigger_pct` (tier) | ROE% that activates this tier and enters Phase 2. Strictly ascending across tiers. |
-| `lock_hw_pct` (tier) | % of peak high-water ROE to protect as the Phase 2 trailing floor. Higher = tighter. |
+| `lock_hw_pct` (tier) | % of peak high-water ROE to protect as the Phase 2 trailing floor. Higher = tighter. Keep the same or higher across tiers. |
 | `hard_timeout` | Max minutes since open before the position is closed, whatever its phase. |
 | `weak_peak_cut` | Exits faded positions whose peak never reached `min_value` ROE. |
 | `dead_weight_cut` | Exits positions held continuously non-positive past the interval. |

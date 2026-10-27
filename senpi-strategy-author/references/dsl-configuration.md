@@ -169,6 +169,8 @@ Phase 2 is exchange-SL driven. It starts when the first tier is reached (always 
 
 Each tier is a profit milestone. Tiers must be sorted ascending by `trigger_pct`. Each tier has exactly two fields.
 
+**Keep `lock_hw_pct` the same or higher at every tier.** A lower lock never protects more profit. At best the tier does nothing. At worst it loosens the stop. Not rejected at load.
+
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
 | `trigger_pct` | number | Yes | ROE % from entry that activates this tier. Must be > 0; strictly increasing across tiers. |
@@ -181,7 +183,7 @@ Example: `{ trigger_pct: 7, lock_hw_pct: 40 }` means: when ROE reaches 7% from e
 ## How phases and tiers combine
 
 **While a tier is active:**
-1. **Tier floor** = `lock_hw_pct`% of `highWaterRoe`, converted to price. Ratchets (never loosens).
+1. **Tier floor** = `lock_hw_pct`% of `highWaterRoe`, converted to price. Moves up as high water rises. A lower lock at a later tier never raises it.
 2. **Effective floor** = stricter of tier floor and any phase-level trailing floor.
 
 **Phase transition:** Phase becomes 2 when the first tier is reached (tier index 0) and `phase2.enabled` is not false. Tiers can be active in Phase 1 before the transition.
