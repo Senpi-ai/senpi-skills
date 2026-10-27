@@ -201,9 +201,11 @@ why deploy refuses it:
 ## `actions` block
 
 Each entry needs a unique `name` and an `action_type` ∈ `OPEN_POSITION` | `CLOSE_POSITION` |
-`POSITION_TRACKER`. `decision_mode` ∈ `rule` | `llm` | `none`. `none` means the action never trades:
-every signal is skipped with `execute: false`. On `OPEN_POSITION` it pauses new entries, while the
-position tracker and DSL keep managing open positions.
+`POSITION_TRACKER`. `decision_mode` ∈ `rule` | `llm` | `none`; leaving it out means `none`. On
+`OPEN_POSITION`, `none` skips every signal with `execute: false`: it pauses new entries, while the
+position tracker and DSL keep managing open positions. Do not use `none` to turn off a
+`CLOSE_POSITION` action: with `params.asset` set it takes the static path and closes that asset on
+every trigger. To stop one exit, delete the action.
 
 | Field | Notes |
 |---|---|
