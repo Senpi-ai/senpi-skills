@@ -259,15 +259,17 @@ debited**; the budget never left the funding wallet. No retry refills the pool: 
 Reaches you as a **`failed` report (exit 3)** on `create` with the backend's text quoted
 (`SERR183: Your Pro plan allows 3 running strategies and you have 3. Close one or upgrade your plan
 to start another.`), or as the raw MCP error if a create was called directly. This is the user's plan,
-not a defect: the limit counts every strategy that is not closed or failed, paused ones included.
+not a defect: the limit counts every strategy that is not closed, closing or failed, paused ones included.
 **Nothing was created** by the refused create and nothing was debited for it. The check is per wallet,
 so on a multi-instance package the sleeves created before it may be live: read `status.py <id>` and
 say which ones are.
 
 - **Tell the user in one or two sentences.** Quote the backend's sentence (it names the plan, the
   limit and the count), then the two ways forward: close one of their running strategies, or upgrade
-  their plan. When the limit is 0, upgrading is the only way forward: the sentence still says "Close
-  one", but there is nothing to close.
+  their plan. When the count is above the limit (the plan's limit was lowered, e.g. "allows 2 … and you
+  have 4"), closing one is not enough: they need to close enough to get under it (here, 3). When the
+  limit is 0, upgrading is the only way forward: the sentence still says "Close one", but there is
+  nothing to close.
 - **Closing is the user's call**: the user picks which one. When they name it, that is an ordinary
   teardown they asked for (`close.py <id>`, or `--instance` for one sleeve). Do not suggest which one.
 - **Try again only after the user has closed one or upgraded** and asks: then re-run the same

@@ -99,6 +99,9 @@ class StrategyLimitIsThePlanNotARetry(unittest.TestCase):
         self.assertIn("When the sentence names no time (a limit of 0), upgrading is the only way forward",
                       section)
 
+    def test_a_lowered_limit_means_closing_enough_to_get_under_it(self):
+        self.assertIn("they need to close enough to get under it", _playbook_section("SERR183"))
+
     def test_the_taxonomy_carries_both_rows(self):
         if not TAXONOMY.is_file():
             self.skipTest("taxonomy not present (installed skill layout)")
