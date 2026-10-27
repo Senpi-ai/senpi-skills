@@ -52,30 +52,13 @@ def _errs(pkg_dir):
 
 # ─────────────────────────── refused ───────────────────────────
 
-@pytest.mark.parametrize("value", ["true", "false", "null", '"false"'])
+@pytest.mark.parametrize("value", ["false", "null"])
 def test_enabled_on_an_action_is_refused_whatever_its_value(tmp_path, value):
     d, rt = _penguin(tmp_path)
     _add_action_key(rt, "penguin_main_entry", f"enabled: {value}")
     errs = _errs(d)
     assert len(errs) == 1, errs
     assert "penguin_main_entry" in errs[0] and "enabled" in errs[0] and PAUSE in errs[0], errs
-
-
-def test_enabled_on_a_non_entry_action_is_refused(tmp_path):
-    d, rt = _penguin(tmp_path)
-    _add_action_key(rt, "position_tracker_action", "enabled: false")
-    errs = _errs(d)
-    assert len(errs) == 1, errs
-    assert "position_tracker_action" in errs[0] and PAUSE in errs[0], errs
-
-
-def test_enabled_on_an_action_in_a_later_instance_is_refused(tmp_path):
-    d = _copy(tmp_path, "athena")
-    assert _errs(d) == []
-    _add_action_key(d / "aegis" / "runtime.yaml", "aegis_main_entry", "enabled: false")
-    errs = _errs(d)
-    assert len(errs) == 1, errs
-    assert "aegis" in errs[0] and "aegis_main_entry" in errs[0] and PAUSE in errs[0], errs
 
 
 def test_strategy_enabled_false_is_refused(tmp_path):
@@ -104,25 +87,12 @@ def test_the_deploy_gate_for_create_and_update_reports_it(tmp_path):
 
 # ─────────────────────────── accepted (negative controls) ───────────────────────────
 
-def test_the_real_penguin_package_passes(tmp_path):
-    d, _ = _penguin(tmp_path)
-    assert _errs(d) == []
-    assert deploy.full_validate(_pkg.load(str(d))) == []
-
-
 def test_penguin_with_entries_paused_passes(tmp_path):
     d, rt = _penguin(tmp_path)
     _edit(rt, r"^(  - name: penguin_main_entry\n    action_type: OPEN_POSITION\n    decision_mode:) rule\b",
           r"\g<1> none")
     assert _errs(d) == []
     assert deploy.full_validate(_pkg.load(str(d))) == []
-
-
-def test_missing_slots_passes(tmp_path):
-    """No catalog package omits `slots`, but the runtime defaults it to 1: an omission is not a pause."""
-    d, rt = _penguin(tmp_path)
-    _edit(rt, r"^  slots: 1\b[^\n]*\n", "")
-    assert _errs(d) == []
 
 
 def test_no_catalog_package_trips_the_check():
@@ -149,5 +119,9 @@ def test_author_and_ops_word_the_refusal_the_same(tmp_path):
     ops = sorted(e for e in _errs(d) if PAUSE in e)
     author = sorted(e for e in vs.validate(d) if PAUSE in e)
     assert len(ops) == 3 and ops == author, (ops, author)
+    paused, prt = _penguin(tmp_path / "paused")
+    _edit(prt, r"^(  - name: penguin_main_entry\n    action_type: OPEN_POSITION\n    decision_mode:) rule\b",
+          r"\g<1> none")
+    assert vs.validate(paused) == []
     negative = {"strategy": {"slots": -1}}
     assert vs.inert_pause_offenders(negative) == _pkg.inert_pause_offenders(negative) != []

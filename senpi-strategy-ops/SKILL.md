@@ -12,7 +12,7 @@ description: >-
   never a GitHub user or repo named after the strategy. A package missing from disk is
   normal (it was closed, or never fetched) and `deploy.py` fetches it by id.
   "are my positions protected? / do they have a stop-loss (DSL)?",
-  "stop/close/uninstall polar" — and for teardown like "close all strategies",
+  "close/uninstall polar", "pause / stop new trades" (→ decision_mode: none) — and for teardown like "close all strategies",
   "return funds to main", "tear everything down" (→ close.py --all). ALWAYS tear
   down via close.py, never a raw strategy_close (that strands the runtime). ops
   deploys / closes / monitors; it does NOT author or edit strategy files — an edit
@@ -74,8 +74,8 @@ lists their fork). VERIFIED = nothing to relaunch; "my edit isn't live" / "it is
 its ✎ / ⏸ rows; healthy but has never traded → its binding gate, threshold and universe count, never "being
 selective" ([`references/liveness-verification.md`](references/liveness-verification.md)). A step verify marks `RUNS THE DEPLOY VERB` needs their yes first: `runtime <id>` starts trading
 the wallet it adopts, `create --budget` funds a NEW one (say the amount). PAUSED has no resume: tell the user,
-run nothing. Close only on "close" / "tear down" in their own words, or a yes to your sentence that every
-position closes at market — "stop" or "pause" gets that sentence too: the only stop is a close.
+run nothing. Close only on "close" / "tear down" / "withdraw" in their own words, or a yes to your sentence that every position closes at market.
+A bare "stop" / "pause" / "stop trading" is ambiguous: ask once, "pause new entries (open positions keep their DSL stops) or close everything at market?" A pause is `decision_mode: none` (below).
 Pass the **strategy `id`** for a CATALOG strategy (what `senpi-strategy-discover` hands over, e.g.
 `spider`), fetched from the remote if not on disk; for a **locally-authored package, pass its DIRECTORY
 path**. Either way the package belongs in the **durable strategies root** (`SENPI_STRATEGIES_DIR` if
