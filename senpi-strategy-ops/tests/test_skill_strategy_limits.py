@@ -1,7 +1,8 @@
 """A backend `SERR183` (the user's plan is at its limit of running strategies) or `SERR184` (the user has
-used every new strategy their plan allows this billing cycle, or in the last 30 days without a plan) is the user's plan, not a defect the agent can fix.
-The outcome table's generic "read the quoted cause, fix it, re-run" would turn either one into a retry
-loop, or into the agent closing a strategy or deploying a smaller package to squeeze under the limit.
+used every new strategy their plan allows this billing cycle, or in the last 30 days without a plan) is
+the user's plan, not a defect the agent can fix. The outcome table's generic "read the quoted cause, fix
+it, re-run" would turn either one into a retry loop, or into the agent closing a strategy or deploying a
+smaller package to squeeze under the limit.
 The skill names both as exceptions: nothing was created, tell the user the limit and the ways forward
 (close a strategy themselves for SERR183, wait until the stated time for SERR184, or upgrade), and never
 retry, never close a strategy for them, never split the request into smaller creates."""
@@ -102,7 +103,8 @@ class StrategyLimitIsThePlanNotARetry(unittest.TestCase):
     def test_a_zero_limit_leaves_upgrade_as_the_only_way_forward(self):
         # strategy-manager words a limit of 0 as "allows 0 running strategies and you have 0. Close one
         # or upgrade" and, for starts, "allows 0 new strategies per billing cycle. Upgrade your plan to
-        # start one." (or "per 30 days") with no time. Offering a close or a wait there points at something that does not exist.
+        # start one." (or "per 30 days") with no time. Offering a close or a wait there points at
+        # something that does not exist.
         self.assertIn("When the limit is 0, upgrading is the only way forward", _playbook_section("SERR183"))
         section = _playbook_section("SERR184")
         self.assertIn("When the sentence names no time (a limit of 0), upgrading is the only way forward",
