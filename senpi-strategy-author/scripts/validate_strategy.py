@@ -59,6 +59,39 @@ def margin_fraction_offenders(doc, path="", parent=None):
     return out
 
 
+_WATCH_ONLY_FIX = "for watch-only (no new entries, DSL keeps managing open positions) set `decision_mode: none` on each OPEN_POSITION action"
+
+
+def inert_entry_stop_offenders(doc):
+    """runtime.yaml keys that look like a way to stop new entries but stop nothing, each as a ready error message.
+    The runtime never reads `enabled` on an action (the action schema passes unknown keys through) or
+    `strategy.enabled`, and it turns `strategy.slots: 0` into 1, so each of these deploys clean and keeps
+    trading. A negative `slots` is not turned into 1, so it gets its own message: an invalid count.
+    Kept identical to senpi-strategy-ops `_pkg.inert_entry_stop_offenders`, so author-green == deploy-green."""
+    out = []
+    if not isinstance(doc, dict):
+        return out
+    actions = doc.get("actions")
+    for a in actions if isinstance(actions, list) else []:
+        if isinstance(a, dict) and "enabled" in a:
+            out.append(f"action {a.get('name')!r} has `enabled`, which the runtime does not read on an "
+                       f"action, so this action would keep trading. Remove it; {_WATCH_ONLY_FIX}")
+    strat = doc.get("strategy")
+    if isinstance(strat, dict):
+        if strat.get("enabled") is False:
+            out.append(f"`strategy.enabled: false` is not read by the runtime and stops no entries. "
+                       f"Set it to `true`; {_WATCH_ONLY_FIX}")
+        slots = strat.get("slots")
+        if isinstance(slots, (int, float)) and not isinstance(slots, bool):
+            if slots == 0:
+                out.append(f"`strategy.slots: {slots}` stops no entries (the runtime turns 0 into 1). "
+                           f"Set it to 1 or more; {_WATCH_ONLY_FIX}")
+            elif slots < 0:
+                out.append(f"`strategy.slots: {slots}` is not a valid slot count. "
+                           f"Set it to 1 or more; {_WATCH_ONLY_FIX}")
+    return out
+
+
 # Candles (market_get_asset_data) are keyed o/h/l/c/v; the long forms (open/high/low/close) don't exist,
 # so `candle.get("close")` is always None → the scan silently emits nothing. A file that reads a long key
 # with NO short-form counterpart anywhere is the bug (0 fleet false positives). volume/v is EXCLUDED —
@@ -586,6 +619,8 @@ def validate(pkg: Path) -> list:
             for kp, val in margin_fraction_offenders(rt_doc):
                 errs.append(f"instance {name}: `{kp}` must be a PERCENT in (0,100] — set {val * 100:g} "
                             f"(not {val})")
+            for msg in inert_entry_stop_offenders(rt_doc):
+                errs.append(f"instance {name}: {msg}")
 
         # data_retention: Runtime 3.0 uses data_retention_seconds (integer 3600–604800);
         # the v2 data_retention_hours field is deprecated. (See senpi-trading-runtime/references/runtime-yaml.md.)
