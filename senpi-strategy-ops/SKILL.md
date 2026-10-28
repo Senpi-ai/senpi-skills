@@ -75,7 +75,7 @@ its ✎ / ⏸ rows; healthy but has never traded → its binding gate, threshold
 selective" ([`references/liveness-verification.md`](references/liveness-verification.md)). A step verify marks `RUNS THE DEPLOY VERB` needs their yes first: `runtime <id>` starts trading
 the wallet it adopts, `create --budget` funds a NEW one (say the amount). PAUSED has no resume: tell the user,
 run nothing. Close only on "close" / "tear down" / "withdraw" in their own words, or a yes to your sentence that every position closes at market.
-A bare "stop" / "pause" / "stop trading" is ambiguous: ask once, "turn on watch-only (no new entries; open positions keep their DSL stops) or close everything at market?" Watch-only is `decision_mode: none` (below).
+A bare "stop" / "pause" / "stop trading" is ambiguous: ask once, "turn on watch-only (no new entries; open positions keep their DSL stops) or close everything at market?" Watch-only is `decision_mode: none` (below). Never call the MCP `strategy_pause` on a runtime strategy: it is for mirror strategies and has no resume.
 Pass the **strategy `id`** for a CATALOG strategy (what `senpi-strategy-discover` hands over, e.g.
 `spider`), fetched from the remote if not on disk; for a **locally-authored package, pass its DIRECTORY
 path**. Either way the package belongs in the **durable strategies root** (`SENPI_STRATEGIES_DIR` if
