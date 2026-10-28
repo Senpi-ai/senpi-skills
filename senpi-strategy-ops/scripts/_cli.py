@@ -339,7 +339,7 @@ def runtime_status(name, timeout=15):
     already retries) and only falls here when a runtime is missing from that map; retry across reads is
     the caller's job (re-run `verify`, or its `--max-wait` poll loop) — NOT per call. Each openclaw
     invocation pays ~2-3s startup, so a per-call retry loop silently blows verify's fast-single-check
-    budget (regression seen live: 2× retries here + on `state` pushed one pass past the tool timeout)."""
+    budget (regression seen live: 2× retries here + on `state` pushed one pass past verify's single-pass budget)."""
     return cli_json(["openclaw", "senpi", "status", "-r", name, "--json"], timeout)
 
 

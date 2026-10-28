@@ -18,7 +18,7 @@ nothing else to keep alive.
 
 Deploy is **one verb running as a detached job**, not a blocking call and not a chain of scripted steps:
 wallet funding (CREATE → FUND → ACTIVE, incl. bridging) and the first scan tick (up to an instance's
-`interval_seconds`) are each multi-minute waits that would blow the ~180s tool/session timeout. The verb
+`interval_seconds`) are each multi-minute waits that should not hold one foreground call. The verb
 returns in ~1s with a `deployId`; the agent polls `openclaw senpi deploy status` until the job is terminal.
 
 **Before any of this, the package must have been proven runnable** — `openclaw senpi validate
@@ -275,9 +275,10 @@ preflight (`validate` also makes one read-only `market_list_instruments` call to
 so it needs `SENPI_AUTH_TOKEN` and can take a few seconds — up to ~25s on a slow or token-less host,
 which ends in the loud note, never in a failed validate) — then starts the verb, polls `deploy
 status`, and relays the report **verbatim**.
-It polls for **~150s** by default and then returns, which keeps the call inside the ~180s tool/session
-timeout the detached job exists to escape; a longer foreground wait would simply get the call killed,
-losing the report and the exit code while the job runs on. A job still running at the lapse is
+It polls for **~150s** by default and then returns. OpenClaw's exec tool has no ~180s cap: it yields
+after 10s with "Command still running", the agent reads the result with `process poll` (≤30s per
+poll), and the hard kill is 1800s. A short poll keeps that loop short; a killed or abandoned call
+loses the report and the exit code while the job runs on. A job still running at the lapse is
 reported as **pending
 (exit 6)** with the snapshot and the `openclaw senpi deploy status` command to watch it — the honest
 outcome, not a failure. An explicit `--max-wait` replaces that budget in either direction. Its two
