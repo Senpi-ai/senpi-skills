@@ -138,8 +138,7 @@ never a calendar month.
   account, quote its own `fee.pct` from the engine; never state a rate from memory.
 - **Referrals pay 15% of a referred friend's monthly Senpi spend, for their first 12 months** — from
   what the friend spends on Senpi, not from their trading. A friend on $100 a month earns the referrer
-  $15 a month × 12 months = $180. Earnings land in the referral balance (`balance_usdc`), claimed
-  separately.
+  $15 a month × 12 months = $180.
 - **$1 of credit = $1 of AI usage.** Full credits land at the start of the cycle and expire at the end
   of it: **no rollover, no top-ups, no overage**. Out of credits = upgrade (instant) or wait for renewal.
 - **Upgrading is instant, any day** — the new plan's full credits land immediately, the 30-day cycle
