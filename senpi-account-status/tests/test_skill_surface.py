@@ -268,6 +268,9 @@ class ReferralsPayAShareOfSpend(unittest.TestCase):
             "Referrals pay 15% of a referred friend's monthly Senpi spend, for their first 12 months",
             "not from their trading",
             "$15 a month × 12 months = $180",
+            # Payout is TBD: without this the agent falls back on the old daily-USDC payout.
+            "How and when the share is paid out is not announced yet: if asked, say so, and never "
+            "describe a payout schedule, token or threshold for it.",
         ):
             self.assertIn(needle, section, needle)
 
