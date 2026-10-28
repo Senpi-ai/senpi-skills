@@ -89,9 +89,9 @@ import _fetch  # noqa: E402
 import _pkg  # noqa: E402
 from mcp_client import MCPClient  # noqa: E402
 
-# The verb detaches once the gateway takes the job, but an OpenClaw 10.x CLI call is slow before it
-# gets there (whole `senpi status` calls took 161-165 s on a 10.10 box). At 60 s this gave up while
-# the START was still in flight, and the job then ran and funded a wallet after the script exited 1.
+# The verb detaches once the gateway takes the job, but on OpenClaw 10.x the START call took over
+# 60 s. At 60 s this gave up while the START was still in flight, and the job then ran and funded a
+# wallet after the script exited 1. 180 s is far inside OpenClaw's exec limits (see POLL_BUDGET).
 START_TIMEOUT = 180
 STATUS_TIMEOUT = 30
 # The JOB's wallet-ACTIVE budget, forwarded verbatim to the verb — so this default MIRRORS the verb's
@@ -100,9 +100,10 @@ STATUS_TIMEOUT = 30
 # multiply how long a wedged deploy holds the single-flight slot on a multi-instance package.
 DEFAULT_MAX_WAIT = 150
 # How long THIS script polls the detached job for a terminal state when the caller says nothing — a
-# different clock from the forwarded one, and a BOUNDED one. An agent's tool harness kills an exec at
-# ~180s: a longer foreground poll (this was 600) loses the report AND the exit code while the detached
-# job runs on, which is the whole failure the detached design exists to avoid. Lapsing is not a
+# different clock from the forwarded one, and a BOUNDED one. OpenClaw's exec tool has no ~180 s cap:
+# it yields after 10 s with "Command still running" and the agent reads the result with `process poll`
+# (≤30 s per poll); the hard kill is 1800 s. A short budget keeps that loop short, and a killed or
+# abandoned exec loses the report AND the exit code while the detached job runs on. Lapsing is not a
 # failure — a job still running is the pending path (exit 6, the snapshot printed, `deploy status` to
 # watch it), which is why a budget that RETURNS beats one that waits. An EXPLICIT --max-wait replaces
 # it in BOTH directions: a larger one so the wrapper never gives up on a job it just told the verb to
@@ -1963,8 +1964,8 @@ def main(argv):
 
     # An EXPLICIT --max-wait is the caller's answer to BOTH clocks: it is forwarded to the verb and
     # it is how long this script polls — a shorter one has to return sooner, a larger one is honoured
-    # even past the ~180s tool timeout, because the caller asked for it by name. Unset: the verb's own
-    # default is forwarded, and polling keeps its own budget, sized to return inside that timeout.
+    # because the caller asked for it by name. Unset: the verb's own default is forwarded, and polling
+    # keeps its own short budget.
     #
     # ONE path can exceed that budget, and it is bounded: the stale-proof repair spends
     # `poll₁ + VALIDATE_TIMEOUT + poll₂` (see `run_deploy`). It is not sized down to fit, because the

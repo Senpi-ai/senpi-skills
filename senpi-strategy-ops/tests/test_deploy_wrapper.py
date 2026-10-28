@@ -286,8 +286,8 @@ class StartDeploy(unittest.TestCase):
             self.assertEqual(ctx.exception.code, 1)
 
     def test_the_start_call_waits_180s_for_a_slow_10x_cli(self):
-        # A 10.10 CLI call took 161-165 s on a box; at 60 s the wrapper gave up on a START the gateway
-        # then took, and the job funded a wallet after the script had already exited 1.
+        # On OpenClaw 10.x the START call took over 60 s; at 60 s the wrapper gave up on a START the
+        # gateway then took, and the job funded a wallet after the script had already exited 1.
         fake = FakeCli([_ok({"deployId": "dpl-1"})])
         _cli.run_cli = fake
         self.assertEqual(deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None), "dpl-1")
@@ -390,11 +390,13 @@ class ForwardedMaxWaitDefault(unittest.TestCase):
     """One flag, one meaning, one clock each: the number we FORWARD is the verb's wallet-ACTIVE budget
     (and it also sizes the job's wall-clock watchdog), while how long this script polls is its own
     budget. Defaulting the forwarded flag to 600 silently tripled the job cap on a multi-instance
-    package. The poll budget has its own ceiling: an agent's tool harness kills the exec at ~180s, so
-    a 600s foreground poll lost the report AND the exit code while the detached job ran on."""
+    package. The poll budget stays short on purpose: a 600s foreground poll kept the agent polling the
+    exec for ten minutes, and a killed or abandoned exec lost the report AND the exit code while the
+    detached job ran on."""
 
-    # The agent tool/session timeout the whole detached design exists to stay under (~180s).
-    TOOL_TIMEOUT = 180
+    # Not an OpenClaw limit (exec yields at 10s, `process poll` ≤30s each, hard kill 1800s): the
+    # ceiling this repo keeps the default poll budget under.
+    POLL_CEILING = 180
 
     def setUp(self):
         self._cli_real = _cli.run_cli
@@ -427,11 +429,11 @@ class ForwardedMaxWaitDefault(unittest.TestCase):
         argv, _code = self._create("--max-wait", "900")
         self.assertEqual(argv[argv.index("--max-wait") + 1], "900")
 
-    def test_the_default_poll_budget_returns_inside_the_tool_timeout(self):
+    def test_the_default_poll_budget_stays_short(self):
         # A job still running at the lapse is the PENDING path — exit 6, snapshot printed, "watch it
-        # with deploy status" — which is the honest outcome. A budget past the harness timeout is
-        # not: the exec is killed, so the agent gets neither the report nor a code.
-        self.assertLess(deploy.POLL_BUDGET, self.TOOL_TIMEOUT)
+        # with deploy status" — which is the honest outcome. A long foreground poll is not: a killed
+        # or abandoned exec gives the agent neither the report nor a code.
+        self.assertLess(deploy.POLL_BUDGET, self.POLL_CEILING)
         self._create()
         self.assertEqual(self.waited, [deploy.POLL_BUDGET])
 

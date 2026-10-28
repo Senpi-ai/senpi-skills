@@ -33,7 +33,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.27.12"
+  version: "3.27.15"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -166,8 +166,8 @@ Fund/free USDC or confirm a smaller amount, then re-run — **never lower `--bud
 error**. When the user names a budget per strategy ("$1k on X, $2k on Y"), deploy each with its own
 and **confirm the split before funding**.
 
-`deploy.py` polls for ~150s and then **returns**, staying inside the ~180s tool timeout — with one
-bounded exception, the stale-proof repair
+`deploy.py` polls for ~150s and then **returns** (exec says "Command still running" after 10s: `process
+poll` it until it exits) — with one bounded exception, the stale-proof repair
 ([`references/refusal-playbook.md`](references/refusal-playbook.md)), whose note reaches stderr
 *before* validation starts, so **a call killed mid-repair still says nothing was created**: read
 `openclaw senpi deploy status`, and do NOT re-run `create`. A job still running at the lapse is **exit

@@ -222,8 +222,8 @@ runtime self-updates in place, so this hits packages nobody has touched). **`dep
 create|runtime` repairs that one for you**: it re-runs `senpi validate` once, re-runs the deploy,
 and does this for this reason only. If that re-validation does not PASS it prints validate's own
 findings and does **not** re-run the deploy — fix those, then re-run.
-That repair is the one **automatic** path that can outrun the ~180s tool timeout (re-validate +
-a second poll); an explicit `--max-wait` above 150 is the other, and you asked for that one.
+That repair is the one **automatic** path that can run past the ~150s poll (re-validate + a
+second poll); an explicit `--max-wait` above 150 is the other, and you asked for that one.
 **If the call is killed mid-repair, nothing was created** — read `openclaw senpi deploy status`
 and do NOT re-run `create`; the repair note is printed to stderr before validation starts, so a
 killed call still says what it was doing. Deploy needs **every**
