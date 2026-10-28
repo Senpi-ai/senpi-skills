@@ -285,9 +285,9 @@ class StartDeploy(unittest.TestCase):
                 deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
             self.assertEqual(ctx.exception.code, 1)
 
-    def test_the_start_call_waits_180s_for_a_slow_10x_cli(self):
-        # On OpenClaw 10.x the START call took over 60 s; at 60 s the wrapper gave up on a START the
-        # gateway then took, and the job funded a wallet after the script had already exited 1.
+    def test_the_start_call_waits_180s_for_a_slow_cli(self):
+        # A slow CLI or gateway made the START call take over 60 s; at 60 s the wrapper gave up on a
+        # START the gateway then took, and the job funded a wallet after the script had exited 1.
         fake = FakeCli([_ok({"deployId": "dpl-1"})])
         _cli.run_cli = fake
         self.assertEqual(deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None), "dpl-1")

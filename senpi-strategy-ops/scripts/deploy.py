@@ -89,9 +89,9 @@ import _fetch  # noqa: E402
 import _pkg  # noqa: E402
 from mcp_client import MCPClient  # noqa: E402
 
-# The verb detaches once the gateway takes the job, but on OpenClaw 10.x the START call took over
-# 60 s. At 60 s this gave up while the START was still in flight, and the job then ran and funded a
-# wallet after the script exited 1. 180 s is far inside OpenClaw's exec limits (see POLL_BUDGET).
+# The verb detaches once the gateway takes the job, but a slow CLI or gateway can make the START call
+# take over 60 s. At 60 s this gave up while the START was still in flight, and the job then ran and
+# funded a wallet after the script exited 1. 180 s is far inside OpenClaw's exec limits (see POLL_BUDGET).
 START_TIMEOUT = 180
 STATUS_TIMEOUT = 30
 # The JOB's wallet-ACTIVE budget, forwarded verbatim to the verb — so this default MIRRORS the verb's
