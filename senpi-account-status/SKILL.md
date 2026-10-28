@@ -57,7 +57,7 @@ Returns `{as_of, identity, points, fee, referral, meta}`:
   points rate), `rank`, `rank_change`.
 - `fee` — `bps` + `pct`, the Senpi fee this user pays, as the backend reports it: `0` / `0%` on a
   paid plan (`bps` is in tenths of a bp).
-- `referral` — `balance_usdc` (pending referral earnings, 25% of builder fee on referred trades).
+- `referral` — `balance_usdc` (referral earnings not yet claimed; referrals earn nothing new).
 - `meta.warnings` / `meta.degraded` — narrate honestly.
 - Fails open — partial data still returns valid JSON.
 
