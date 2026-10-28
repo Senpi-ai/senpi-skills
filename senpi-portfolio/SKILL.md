@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.35.4"
+  version: "1.35.5"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -347,7 +347,9 @@ question needs before you answer. These hold always:
 
 **Fees are read, never estimated.** A P&L claim about a strategy — "it is up", "it is not losing" —
 quotes the wallet's **signed** fees from its fills (`totalFees` / the closed-trade history), net of
-them, with the fee figure beside the PnL. If the fee read fails, say the number is gross and why.
+them, with the fee figure beside the PnL. Those fees are Hyperliquid's exchange fees — say so: Senpi
+charges no trading fee on a paid plan, and any Senpi part shows as the fills' `builderFee`, never a rate
+from memory. If the fee read fails, say the number is gross and why.
 
 **Paper is not live.** A `senpi validate` tick, a scanner signal, a simulation or an estimate is not a
 trade; only a fill on the strategy wallet (`positions`, `closed`) is. Never narrate a shadow run as
