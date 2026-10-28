@@ -91,7 +91,7 @@ tracking) and closes (to clean up). Without this scanner the DSL never learns ab
 ## Actions: how signals become trades and exits
 
 An action consumes signals from one or more scanners and reacts. `decision_mode` is `rule`, `llm`, or
-`no_decision`.
+`none` (an `OPEN_POSITION` opens nothing; leaving the field out means `none`).
 
 - **`OPEN_POSITION`** consumes the signals your `external_scanner` returns and opens a position via
   `FEE_OPTIMIZED_LIMIT`. In `rule` mode it opens on every accepted signal; in `llm` mode a decision
