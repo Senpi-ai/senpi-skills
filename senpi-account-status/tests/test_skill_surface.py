@@ -257,6 +257,33 @@ class TheFeeFollowsThePlan(unittest.TestCase):
         self.assertIn("Quote `fee.pct` as returned", notes)
 
 
+class ReferralsPayAShareOfSpend(unittest.TestCase):
+    """Referrals pay 15% of a referred friend's monthly Senpi spend for their first 12 months (the
+    senpi.ai/referrals program), not a share of the builder fee, and they do earn: the interim
+    "referrals earn nothing new" line is gone."""
+
+    def test_the_catalog_states_the_referral_share(self):
+        section = _flat(_section(_split(SKILL)[1], PLANS))
+        for needle in (
+            "Referrals pay 15% of a referred friend's monthly Senpi spend, for their first 12 months",
+            "not from their trading",
+            "$15 a month × 12 months = $180",
+            # Payout is TBD: without this the agent falls back on the old daily-USDC payout.
+            "How and when the share is paid out is not announced yet: if asked, say so, and never "
+            "describe a payout schedule, token or threshold for it.",
+        ):
+            self.assertIn(needle, section, needle)
+
+    def test_no_file_says_referrals_earn_nothing(self):
+        for path in (SKILL, NOTES):
+            text = _flat(path.read_text(encoding="utf-8"))
+            self.assertNotIn("earn nothing", text, path.name)
+            self.assertNotIn("builder fee on referred", text, path.name)
+
+    def test_the_router_finds_the_referral_question(self):
+        self.assertIn("how do referrals work?", _flat(_split(SKILL)[0]))
+
+
 class TiersCarryNoBenefit(unittest.TestCase):
     """Loyalty tiers carry no benefit for now. The agent does not bring them up, never suggests
     reaching one, and answers a question about one with a single sentence."""
