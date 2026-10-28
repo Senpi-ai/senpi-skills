@@ -12,7 +12,7 @@ description: >-
   never a GitHub user or repo named after the strategy. A package missing from disk is
   normal (it was closed, or never fetched) and `deploy.py` fetches it by id.
   "are my positions protected? / do they have a stop-loss (DSL)?",
-  "close/uninstall polar", "stop new trades" / "watch only" (→ watch-only, decision_mode: none) — and for teardown like "close all strategies",
+  "close/uninstall polar", "pause polar" / "stop new trades" / "stop opening positions" (→ watch-only, decision_mode: none; never the MCP strategy_pause) — and for teardown like "close all strategies",
   "return funds to main", "tear everything down" (→ close.py --all). ALWAYS tear
   down via close.py, never a raw strategy_close (that strands the runtime). ops
   deploys / closes / monitors; it does NOT author or edit strategy files — an edit
