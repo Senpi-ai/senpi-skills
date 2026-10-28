@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.7.0"
+  version: "1.8.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -55,9 +55,9 @@ python3 scripts/status.py
 Returns `{as_of, identity, points, fee, referral, meta}`:
 - `points` — `total`, `base` (Base copy-trading), `perp` (Hyperliquid), `multiplier` (the plan's
   points rate), `rank`, `rank_change`.
-- `fee` — `bps` + `pct`, the Senpi fee this user pays: `0` / `0%` on a paid plan, the flat free rate
-  otherwise (`bps` is in tenths of a bp, so 30 = 0.03%).
-- `referral` — `balance_usdc` (pending referral earnings, 25% of builder fee on referred trades).
+- `fee` — `bps` + `pct`, the Senpi fee this user pays, as the backend reports it: `0` / `0%` on a
+  paid plan (`bps` is in tenths of a bp).
+- `referral` — `balance_usdc` (referral earnings not yet claimed; referrals earn nothing new).
 - `meta.warnings` / `meta.degraded` — narrate honestly.
 - Fails open — partial data still returns valid JSON.
 
@@ -134,8 +134,8 @@ never a calendar month.
 
 - **Every plan includes every model.** Plans differ on credits and points rate only — never on model
   access, so a cheaper plan never locks anyone out of the better model.
-- **No Senpi trading fee on any paid plan** — only Hyperliquid's own exchange fees. Without a paid
-  plan, free trials included, Senpi charges a flat 0.03% on trades; points do not change it.
+- **No Senpi trading fee on any paid plan** — only Hyperliquid's own exchange fees. For any other
+  account, quote its own `fee.pct` from the engine; never state a rate from memory.
 - **$1 of credit = $1 of AI usage.** Full credits land at the start of the cycle and expire at the end
   of it: **no rollover, no top-ups, no overage**. Out of credits = upgrade (instant) or wait for renewal.
 - **Upgrading is instant, any day** — the new plan's full credits land immediately, the 30-day cycle
