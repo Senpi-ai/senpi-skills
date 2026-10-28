@@ -12,7 +12,7 @@ description: >-
   never a GitHub user or repo named after the strategy. A package missing from disk is
   normal (it was closed, or never fetched) and `deploy.py` fetches it by id.
   "are my positions protected? / do they have a stop-loss (DSL)?",
-  "stop/close/uninstall polar" — and for teardown like "close all strategies",
+  "close/uninstall polar", "pause polar" / "stop new trades" / "stop opening positions" (→ watch-only, decision_mode: none; never the MCP strategy_pause) — and for teardown like "close all strategies",
   "return funds to main", "tear everything down" (→ close.py --all). ALWAYS tear
   down via close.py, never a raw strategy_close (that strands the runtime). ops
   deploys / closes / monitors; it does NOT author or edit strategy files — an edit
@@ -74,8 +74,8 @@ lists their fork). VERIFIED = nothing to relaunch; "my edit isn't live" / "it is
 its ✎ / ⏸ rows; healthy but has never traded → its binding gate, threshold and universe count, never "being
 selective" ([`references/liveness-verification.md`](references/liveness-verification.md)). A step verify marks `RUNS THE DEPLOY VERB` needs their yes first: `runtime <id>` starts trading
 the wallet it adopts, `create --budget` funds a NEW one (say the amount). PAUSED has no resume: tell the user,
-run nothing. Close only on "close" / "tear down" in their own words, or a yes to your sentence that every
-position closes at market — "stop" or "pause" gets that sentence too: the only stop is a close.
+run nothing. Close only on "close" / "tear down" / "withdraw" in their own words, or a yes to your sentence that every position closes at market.
+A bare "stop" / "pause" / "stop trading" is ambiguous: ask once, "turn on watch-only (no new entries; open positions keep their DSL stops) or close everything at market?" Watch-only is `decision_mode: none` (below). Never call the MCP `strategy_pause` on a runtime strategy: it is for mirror strategies and has no resume.
 Pass the **strategy `id`** for a CATALOG strategy (what `senpi-strategy-discover` hands over, e.g.
 `spider`), fetched from the remote if not on disk; for a **locally-authored package, pass its DIRECTORY
 path**. Either way the package belongs in the **durable strategies root** (`SENPI_STRATEGIES_DIR` if
@@ -315,7 +315,7 @@ Keep it to ~5 short lines per strategy. Multi-instance packages whose legs diffe
 On `interval`, `runCount` climbs **every tick** (complete, skip and error alike; the signals it emitted are
 `signalsProduced`, a separate counter). On `external` — every signal scanner the catalog ships; `position_tracker`
 is `interval` — the scaffold POSTs on every tick, but an empty list updates the liveness clock and returns before
-ingest, so `runCount` climbs **only on a tick that emits**, `initialized` stays `false` until the first non-empty
+ingest, so `runCount` climbs **only on an accepted signal or an error**, `initialized` stays `false` until the first non-empty
 POST, and `intervalSeconds: 0` / `nextRunAt: null` are the correct values rather than an unwired runtime.
 `lastAliveAt` is the tick. So `runCount: 0` with a fresh `lastAliveAt` is a scanner finding nothing, not one that
 never ran — and the recipe's own `interval_seconds` is the scaffold's POST cadence, so a file saying 60 while the
@@ -343,7 +343,7 @@ above) and nothing here is it:
 - `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py verify <id>` — the per-instance verdict over the surfaces below
 - `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/status.py <id>` — the fleet view + each runtime's own health verdict
 - `openclaw senpi deploy status` / `deploy.py status [<id>]` — the agent's ONE last-deploy-job record
-- `openclaw senpi scanner -r <runtime_id>` — the scanner rows (`lastRunStatus`, `runCount`), the tick itself
+- `openclaw senpi scanner -r <runtime_id>` — the scanner rows. External: live when `alive` is recent; `health` second — `degraded`/`unhealthy` + `last=error` + fresh `alive` = a past delivery error (read `reason`); `unhealthy` + `inFlight=true`, or a crash-loop reason = real fault; `unknown` + `alive=—` = not heard from yet
 - `openclaw senpi status -r <runtime_id> --json` / `state -r <runtime_id> --json`; liveness decision
   tree → [`references/liveness-verification.md`](references/liveness-verification.md); DSL / action /
   position troubleshooting → `openclaw senpi dsl|action …` and
@@ -393,7 +393,7 @@ the user it is **saved, not applied** — never "done" or "live".
 
 **Only a changed `strategy.wallet` needs a new wallet** (`update` refuses it with `E_UPDATE_WALLET_CHANGED`): a close,
 which market-exits every open position and drops any custom ratchet ladder — take **explicit consent in those
-words first**. Its other refusals name an in-place fix. Everything else: [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md).
+words first**. Its other refusals name an in-place fix. Everything else: [`references/editing-a-live-strategy.md`](references/editing-a-live-strategy.md). **Watch-only ("stop new trades", "watch only") = `decision_mode: none` on every `OPEN_POSITION` action**, applied with `update`; keep the position tracker and `exit`, so DSL still manages open positions. `enabled: false`, `slots: 0` and `max_entries_per_day: 0` stop no entries (same reference, §Watch-only).
 
 ## Invariants
 

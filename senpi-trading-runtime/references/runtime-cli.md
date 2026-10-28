@@ -125,7 +125,7 @@ behind: **`references/dsl-protection-check.md`**.
 
 | Command | What it does | Options |
 |---|---|---|
-| `scanner` | Per-scanner health: schedule mode, run/error/consecutive-error counts, next-run time, in-flight, cumulative `signals` produced, and external-scanner `alive` (heartbeat from the intake liveness clock; `n/a` for interval scanners). A scanner that is alive and has run but produced no signals is flagged `(no signals yet)`. Reuses the `state` RPC. | `-r, --runtime <id>` · `--json` |
+| `scanner` | Per-scanner health: schedule mode, error/consecutive-error counts, in-flight, cumulative `signals` produced, `last` run status. Interval scanners add `runs=` and `next=`. External scanners show `alive` (heartbeat age, e.g. `alive=12s_ago`; older runtimes print it as epoch ms, plus `runs=` and an empty `next=`). An external scanner records a run only when it delivers a signal or an error, so a quiet one has a run count of 0. Judge it by `alive` first, then `health`: an error keeps `health` `degraded` (two in a row: `unhealthy`) until the next accepted signal, while `alive` stays fresh. `alive` is `n/a` for interval scanners. A scanner that is alive and has run but produced no signals is flagged `(no signals yet)`. Reuses the `state` RPC. | `-r, --runtime <id>` · `--json` |
 
 ## `senpi audit` — backend trade-audit trail
 
