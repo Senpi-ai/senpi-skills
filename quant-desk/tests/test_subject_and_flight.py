@@ -253,6 +253,16 @@ def test_the_skill_forbids_re_running_a_desk_that_is_still_going():
     assert "at least 180s" in sk, "the timeout that SIGTERMs a wide book is not named"
 
 
+def test_the_skill_names_the_exec_hard_kill_timeoutSeconds_never_timeout():
+    """OpenClaw 10.x refuses exec's `timeout` key ("use timeoutSeconds instead") and aliases neither
+    name to the other, so every `timeout` the skill told the agent to pass cost a refused call."""
+    sk = _skill()
+    assert "`yieldMs: 190000` together with `timeoutSeconds: 200`" in sk
+    assert "`timeout: 200`" not in sk
+    assert "never `timeout`" in sk, "the refused key is not named as the one not to pass"
+    assert sk.replace("never `timeout`", "").count("`timeout`") == 0, "an exec `timeout` key is still taught"
+
+
 def test_the_skill_tells_the_agent_what_a_vault_exit_means():
     sk = _skill()
     assert "exit 4" in sk and "not_a_trader" in sk
