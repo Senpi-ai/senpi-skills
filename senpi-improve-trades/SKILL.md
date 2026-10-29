@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.20.2"
+  version: "1.24.2"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -278,9 +278,11 @@ join is the future upgrade; it's intentionally **not** called per-trade (rate-li
 wired, quote the maker ratio as a fee-tier signal, never a fee dollar total. (`pnl_summary.fees` and the
 trade rows do carry fee $.)
 
-**Fee rate (hard rule 0):** Senpi's builder fee falls with the
-user's points tier: **0.05% Bronze → 0.047% Silver → 0.045% Gold → 0.04% Platinum → 0.035% Diamond →
-0.03% Apex → 0.025% Legend**.
+**Fee rate (hard rule 0):** Senpi charges **no builder fee on a paid plan** (Starter, Pro, Advanced,
+Quant); tiers and points no longer change it. Quote fees from the fills, never a rate from memory —
+the rate is not a constant. A fill keeps the fee it was signed with, so an order placed before
+2026-10-26 (a resting stop included) can still carry a builder leg: read it from the fill's own
+`builderFee`.
 
 **Quick action 4 — the `explain` command in full.** For "walk me through / explain my BTC trade," the agent
 runs the native lifecycle command directly (it's not in `review.py` — it's the runtime CLI):
@@ -498,7 +500,7 @@ otherwise it's just an asset the strategy was never designed to trade.
 - **Judge each strategy against its OWN mandate** (`strategies[].mandate`, from the deployed `runtime.yaml`),
   not a generic momentum benchmark. Realized PnL is *evidence for the mandate verdict*, not the headline.
 - **A strategy is ALL its wallets.** A multi-wallet strategy (long+short, core+ballast, multi-sleeve) is ONE
-  strategy — **never** recommend closing / repurposing a single sleeve ("close the duplicate wallet"). One
+  strategy (each wallet still takes its own strategy-limit slot) — **never** recommend closing / repurposing a single sleeve ("close the duplicate wallet"). One
   sleeve of a long/short book is a **naked directional position**, the opposite of the design.
 - **NEVER recommend merging or closing one of two ACTIVE wallets that share `group` or `skill_name`.**
   They are the **`long` + `short` sleeves** (or `core` + `ballast`) of ONE multi-wallet strategy; merging

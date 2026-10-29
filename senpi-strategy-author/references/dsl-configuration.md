@@ -34,7 +34,7 @@ Configured under the `exit` key in the recipe YAML.
 | `order_type` | string | No | `MARKET` | Execution method for DSL exit closes: `MARKET` or `FEE_OPTIMIZED_LIMIT`. |
 | `fee_optimized_limit_options` | object | No | — | Only valid when `order_type` is `FEE_OPTIMIZED_LIMIT`. |
 | `fee_optimized_limit_options.ensure_execution_as_taker` | boolean | No | — | When `true`, falls back to market order if maker doesn't fill within timeout. |
-| `fee_optimized_limit_options.execution_timeout_seconds` | integer | No | `45` | Seconds to wait for maker fill (1–300). |
+| `fee_optimized_limit_options.execution_timeout_seconds` | integer | No | `30` with the taker fallback, else 45 | Seconds to wait for a maker fill before the taker fallback (schema 1–300). The MCP server caps it at 30 when `ensure_execution_as_taker` is `true`: omitted or above 30 runs as 30. With the flag `false` or omitted the MCP forwards it untouched, and an omitted value runs as the engine's own 45. |
 | `dsl_preset` | object | Yes | — | Single preset config (see below). |
 
 ```yaml
@@ -169,6 +169,8 @@ Phase 2 is exchange-SL driven. It starts when the first tier is reached (always 
 
 Each tier is a profit milestone. Tiers must be sorted ascending by `trigger_pct`. Each tier has exactly two fields.
 
+**Keep `lock_hw_pct` the same or higher at every tier.** A lower lock never protects more profit. At best the tier does nothing. At worst it loosens the stop. Not rejected at load.
+
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
 | `trigger_pct` | number | Yes | ROE % from entry that activates this tier. Must be > 0; strictly increasing across tiers. |
@@ -181,7 +183,7 @@ Example: `{ trigger_pct: 7, lock_hw_pct: 40 }` means: when ROE reaches 7% from e
 ## How phases and tiers combine
 
 **While a tier is active:**
-1. **Tier floor** = `lock_hw_pct`% of `highWaterRoe`, converted to price. Ratchets (never loosens).
+1. **Tier floor** = `lock_hw_pct`% of `highWaterRoe`, converted to price. Moves up as high water rises. A lower lock at a later tier never raises it.
 2. **Effective floor** = stricter of tier floor and any phase-level trailing floor.
 
 **Phase transition:** Phase becomes 2 when the first tier is reached (tier index 0) and `phase2.enabled` is not false. Tiers can be active in Phase 1 before the transition.

@@ -254,6 +254,79 @@ debited**; the budget never left the funding wallet. No retry refills the pool: 
   (that is a live strategy with the user's money in it, and it does nothing for the pool); or tell the
   user Senpi is down (it is not — other accounts are deploying).
 
+### `SERR183` — the plan's limit on running strategies
+
+Reaches you as a **`failed` report (exit 3)** on `create` with the backend's text quoted
+(`SERR183: Your Example plan allows 4 running strategies and you have 4. Close one or upgrade your plan
+to start another.`), or as the raw MCP error if a create was called directly. This is the user's plan,
+not a defect: the limit counts every strategy except CLOSED, FAILED, CLOSING_POSITIONS and MANUAL_REVIEW
+ones, so a PAUSED one counts.
+**Nothing was created** by the refused create and nothing was debited for it. The check is per wallet,
+so on a multi-instance package the sleeves created before it may be live: read `status.py <id>` and
+say which ones are.
+
+- **Tell the user in one or two sentences.** Quote the backend's sentence (it names the plan, the
+  limit and the count), then the two ways forward: close one of their running strategies, or upgrade
+  their plan. When the count is above the limit (the plan's limit was lowered, e.g. "allows 2 … and you
+  have 4"), closing one is not enough: they need to close enough to get under it (here, 3). When the
+  limit is 0, upgrading is the only way forward: the sentence still says "Close one", but there is
+  nothing to close.
+- **Closing is the user's call**: the user picks which one. When they name it, that is an ordinary
+  teardown they asked for (`close.py <id>`, or `--instance` for one sleeve). Do not suggest which one.
+- **Try again only after the user has closed one or upgraded** and asks: then re-run the same
+  `deploy.py create` command once. It adopts any sleeve that already exists.
+- **Never**: re-run on a timer or in a loop (the count does not change on its own); close a strategy on
+  the user's behalf, or pick one for them, to make room; split the request into smaller creates (deploy
+  fewer sleeves, or call `strategy_create` / `strategy_create_custom_strategy` directly; every create
+  is counted, and a raw create is not a runtime strategy); or tell the user Senpi is down.
+
+### `SERR184` — the plan's limit on new strategies per billing cycle
+
+Reaches you as a **`failed` report (exit 3)** on `create` with the backend's text quoted, or as the
+raw MCP error if a create was called directly. The text takes one of two forms:
+
+- for a user on a plan or trial, per billing cycle: `SERR184: Your Pro plan allows 5 new strategies
+  per billing cycle. Your count resets at 2026-11-14 00:00 UTC, or upgrade your plan.`
+- for a user without one, the last 30 days: `SERR184: Your free account allows 1 new strategies
+  per 30 days. Your next one frees up at 2026-11-02 14:00 UTC, or upgrade your plan.`
+
+This is the user's plan, not a defect: every strategy started in the current billing cycle (the last
+30 days without a plan) counts, except ones that failed while being set up. **Nothing was created** by
+the refused create and nothing was debited for it. The check is per wallet, so on a multi-instance
+package the sleeves created before it may be live: read `status.py <id>` and say which ones are.
+
+- **Tell the user in one or two sentences.** Quote the backend's sentence (it names the plan, the
+  limit and the time the backend names, in UTC: when the count resets or the next start frees up),
+  then the two ways forward: wait until that time, or upgrade their plan. When the sentence names no
+  time (a limit of 0), upgrading is the only way forward; never estimate a time.
+- **Closing a strategy does not free a start**: a closed strategy still counts until the count resets
+  or its 30 days pass. Do not offer closing as a way forward.
+- **Try again only after that time has passed or the user has upgraded** and asks: then re-run the
+  same `deploy.py create` command once. It adopts any sleeve that already exists.
+- **Never**: re-run on a timer or in a loop (and never set a timer to retry at the stated time; the
+  user decides); close a strategy on the user's behalf (it frees nothing); split the request into
+  smaller creates (deploy fewer sleeves, or call `strategy_create` / `strategy_create_custom_strategy`
+  directly; every create is counted, and a raw create is not a runtime strategy); or tell the user
+  Senpi is down.
+
+### `[STRATEGY_LIMIT_PREFLIGHT]` — the whole package needs more strategy slots than are left
+
+Reaches you as a **`refused` report (exit 2)** on `create`. The deploy read `strategy_get_limits`
+before the first create and found that the wallets it would create (every wallet is one strategy; a
+resume counts only the ones still missing) exceed `runningLeft` or `startsLeft`. **Nothing was created**
+and no money moved, on any sleeve. It is the same limit as `SERR183` / `SERR184`, caught for the whole
+package instead of halfway through it. Step 0.6 of the skill catches it earlier, before the walkthrough.
+
+- **Tell the user in one or two sentences.** Quote its lines: how many the package needs, what is left of
+  each short limit, and the `summary` sentence. Then the ways forward: for the running limit, close a
+  running strategy themselves (the user picks which one, `close.py <id>`); for the starts limit, wait
+  until the reset time it names, or upgrade — closing never gives a start back.
+- **Try again only after the user has done one and asks**: then re-run the same `deploy.py create`
+  command once.
+- **Never**: re-run on a timer or in a loop; close a strategy on the user's behalf; deploy fewer
+  instances or call `strategy_create` / `strategy_create_custom_strategy` directly to squeeze under the
+  limit; or tell the user Senpi is down.
+
 ## Budget warnings (`W_`)
 
 **The `W_` prefix means WARNING — it blocked nothing.** Every `E_` code stops something; a `W_`

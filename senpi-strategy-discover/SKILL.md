@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.51.0"
+  version: "2.53.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -254,6 +254,11 @@ otherwise put it in `--theme` and rank on `archetype_label`/`belief_plain`/`thes
      deploying — a sensible share of available funds per pick, each **≥ its `min_budget`**, leaving a cash
      buffer — then **confirm before install** ("you've got ~$X free; I'd put ~$Y in Rhino, ~$Z in Spider —
      good?"). Never invent a number the user hasn't confirmed, and never default everyone to the floor.
+   - **Several picks at once only within the user's strategy limits.** Every wallet is one strategy (a
+     multi-instance card needs one per instance). Before proposing more than one to deploy, call
+     `strategy_get_limits`; when `enforced` is true and the picks need more wallets than `runningLeft` or
+     `startsLeft` (a `null` left is no limit), say so (quote `summary`) and size the set to fit, never
+     limit numbers from memory.
    - If funds are unavailable (`user_context` missing/errored), ask for the budget rather than assuming.
    - **"Can I try it first / paper trade it?"** — there is no paper-trading mode. The trial IS a live run at
      the floor, after `senpi validate` proves it runs — and the floor is the card's `min_budget`, which is
@@ -410,7 +415,7 @@ days.
   winner."* Read the market; lead with the best current setup from `market_facts`. Never imply a real
   per-package performance leaderboard. The live read covers only the candidates returned, so an unthemed
   run reads an alphabetical slice — ask which style first, then run themed.
-- **Micro-specs** ("$1 a trade", "never lose more than 20 cents", "a hundred small wins") → do the fee math out loud before matching anything: read the round-trip cost — Hyperliquid's taker rate on both legs (the wallet's `userFees`, never assumed) plus Senpi's builder fee (`get_loyalty_tiers`, `feePercent` — the only fee that tool carries) — and put it next to their stop — a position big enough to make $1 pays a fee that is a large share of a 20-cent stop, and a stop that tight is hit by normal noise. Say the numbers, then offer what exists: a template's stop and lock ladder sized to its budget. Never save an impossible spec as their "risk profile" and never answer "Senpi has exactly that".
+- **Micro-specs** ("$1 a trade", "never lose more than 20 cents", "a hundred small wins") → do the fee math out loud before matching anything: read the round-trip cost — Hyperliquid's taker rate on both legs (the wallet's `userFees`, never assumed; Senpi adds no fee on a paid plan, and any other account's own rate is `user_get_senpi_points` `builderFeePercent`) — and put it next to their stop — a position big enough to make $1 pays a fee that is a large share of a 20-cent stop, and a stop that tight is hit by normal noise. Say the numbers, then offer what exists: a template's stop and lock ladder sized to its budget. Never save an impossible spec as their "risk profile" and never answer "Senpi has exactly that".
 - **"Show me the source" / "I want an outside audit"** → the catalog is public: link `https://github.com/Senpi-ai/senpi-skills/tree/main/strategies/<id>`, and for a fork point at their package (`<username>-<template>`, as ops names it) and its diff against that link. Never hand-roll a tarball or a hash-stamped dump in place of the link.
 - **"Proven / backtested / track record" templates** → say it plainly, and say WHY (Golden rules): a
   template has no live track record and no per-template performance board, because every live copy of it

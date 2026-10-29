@@ -285,18 +285,15 @@ def test_a_name_skipped_for_margin_is_retried_rather_than_marked_judged():
     assert "DOT" in [o["asset"] for o in scan.scan(INPUTS, _ctx({"SOL": (10, 93.0)}, {"DOT": 94.0}, st, listed=("DOT", "SOL")))]
 
 
-def test_a_round_trip_counts_the_builder_fee_on_both_legs_at_the_widest_rate():
-    """6 bps was the venue's half; the hurdle built on it was half the real one. The fee inputs are
-    a CEILING for an inert gate, never a quote: the venue rate follows the account's HL volume and
-    the builder fee is tiered per account, so no constant is any wallet's real cost. Erring high is
-    the safe direction for a gate whose only job is refusing a harvest too small to clear a round
-    trip — what it must not do is understate."""
-    assert scoring.roundtrip_fee_pct(INPUTS) == (1.5 + 5.0 + 4.5 + 5.0) / 100.0
-    assert scoring.roundtrip_fee_pct(INPUTS) > 0.15
-    # a better tier is strictly cheaper, and must stay so
-    cheap = {**INPUTS, "builderFeeBps": 2.5}
-    assert scoring.roundtrip_fee_pct(cheap) < scoring.roundtrip_fee_pct(INPUTS)
-    # inert at the shipped harvest, by design — but now against the worst-case number
+def test_a_round_trip_counts_the_venue_base_rates_and_no_senpi_fee():
+    """The fee inputs are a CEILING for an inert gate, never a quote: the venue's base rates, which the
+    account's HL volume tier only lowers. Senpi adds no fee on a paid plan, so none is assumed; an
+    account can still count another fee on both legs through `builderFeeBps`."""
+    assert "builderFeeBps" not in INPUTS
+    assert scoring.roundtrip_fee_pct(INPUTS) == (1.5 + 4.5) / 100.0
+    own = {**INPUTS, "builderFeeBps": 2.0}
+    assert scoring.roundtrip_fee_pct(own) == (1.5 + 2.0 + 4.5 + 2.0) / 100.0
+    # inert at the shipped harvest, by design
     assert float(INPUTS["expectedCapturePct"]) > scoring.roundtrip_fee_pct(INPUTS) * float(INPUTS["feeCoverMultiple"])
 
 

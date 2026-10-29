@@ -229,7 +229,7 @@ actions:
     action_type: OPEN_POSITION
     decision_mode: rule                   # 'rule' unless you genuinely need an LLM gate
     scanners: [<id>_signals]
-    params: { order_type: FEE_OPTIMIZED_LIMIT, fee_optimized_limit_options: { ensure_execution_as_taker: true, execution_timeout_seconds: 60 } }
+    params: { order_type: FEE_OPTIMIZED_LIMIT, fee_optimized_limit_options: { ensure_execution_as_taker: true, execution_timeout_seconds: 30 } }
     context: [ { type: signal, scanner: <id>_signals } ]
 exit:   { engine: dsl, dsl_preset: { ... } }   # <-- a named preset (§7)
 risk:   { guard_rails: { drawdown_halt_pct: 25, daily_loss_limit_pct: 15, cooldown_seconds: 3600, ... } }
@@ -307,7 +307,7 @@ Want to *watch* it before funding? `senpi validate` is the shadow run, and the r
 strategy for free — **never schedule agent turns to poll it** (each firing is a model call):
 [`shadow-testing.md`](shadow-testing.md).
 
-**"running" ≠ "operating."** Don't trust `status: running`. Confirm the scanner has a **positive run count + a fresh `lastRunFinishedAt`** (`openclaw senpi state -r <id>-main --json`, or `openclaw senpi scanner -r <id>-main` — `-r` is the runtime id, so `<id>-<leg>` per leg on §2's exception), and that it **emits a non-empty set on a tick where it should** — a `live` report proves it *ticked*, not that it produced a signal. Those reads are read-only, and so is `deploy.py verify <id>` (it composes them into a per-instance verdict and deploys nothing); the command that moves money is the resume, `deploy.py runtime <id>` / `create <id> --budget <usd>`. This is an **agent-side check** — run it yourself; never ask the user "is it working?".
+**"running" ≠ "operating."** Don't trust `status: running`. Confirm the scanner is **live: a recent `lastAliveAt`** (`openclaw senpi state -r <id>-main --json`, or `alive=` in `openclaw senpi scanner -r <id>-main` — `-r` is the runtime id, so `<id>-<leg>` per leg on §2's exception). Then read `health`: `degraded`/`unhealthy` with `last=error` and a fresh `alive` is a past delivery error (read `reason`), not a dead scanner; `unhealthy` with `inFlight=true`, or a crash-loop reason, is a real fault; `health=unknown` with `alive=—` is a child not heard from yet. Never judge it by the run count: it moves only on an accepted signal or an error, so 0 is normal on a quiet scanner (`runs=0` on older runtimes). Then confirm it **emits a non-empty set on a tick where it should** — a `live` report proves it *ticked*, not that it produced a signal. Those reads are read-only, and so is `deploy.py verify <id>` (it composes them into a per-instance verdict and deploys nothing); the command that moves money is the resume, `deploy.py runtime <id>` / `create <id> --budget <usd>`. This is an **agent-side check** — run it yourself; never ask the user "is it working?".
 
 ### The gate — `senpi validate`, before any wallet exists
 
@@ -353,7 +353,7 @@ both are reported, check both.
 
 Fix what it reports, re-run, and only hand to ops once it says PASS. **A clean lint is not a pass; only `senpi validate` is.**
 
-Two things it deliberately does *not* prove, so don't over-claim on its behalf: branches this tick didn't take, and logic that depends on open positions (it runs against an empty account by default — which is exactly the state a freshly funded strategy starts in). It prints both as `does not prove:` lines on a PASS. **A PASS is therefore a floor, not a finish line: it proves the strategy *runs*, never that its logic is *right*.** Two from testing, both of which passed cleanly — a Supertrend that returned the same direction for every input, so the strategy could never open a long; and a cooldown keyed on `ctx.now_utc`, which does not exist on the ctx surface, so it never fired. Read your own indicator math against a known trend before you call it done. After deploy, still confirm the strategy **operates** — `deploy.py verify <id>`, then a positive run count and an accepted signal in `openclaw senpi state -r <id>-main --json` (`<id>-<leg>` per leg on §2's exception).
+Two things it deliberately does *not* prove, so don't over-claim on its behalf: branches this tick didn't take, and logic that depends on open positions (it runs against an empty account by default — which is exactly the state a freshly funded strategy starts in). It prints both as `does not prove:` lines on a PASS. **A PASS is therefore a floor, not a finish line: it proves the strategy *runs*, never that its logic is *right*.** Two from testing, both of which passed cleanly — a Supertrend that returned the same direction for every input, so the strategy could never open a long; and a cooldown keyed on `ctx.now_utc`, which does not exist on the ctx surface, so it never fired. Read your own indicator math against a known trend before you call it done. After deploy, still confirm the strategy **operates** — `deploy.py verify <id>`, then an accepted signal in `openclaw senpi state -r <id>-main --json` (`<id>-<leg>` per leg on §2's exception).
 
 ## 10. The author's checklist (the silent-failure guards)
 
@@ -430,7 +430,7 @@ scanners:
 actions:
   - { name: position_tracker_action, action_type: POSITION_TRACKER, decision_mode: rule, scanners: [position_tracker] }
   - { name: us_rebound_entry, action_type: OPEN_POSITION, decision_mode: rule, scanners: [us_rebound_signals],
-      params: { order_type: FEE_OPTIMIZED_LIMIT, fee_optimized_limit_options: { ensure_execution_as_taker: true, execution_timeout_seconds: 60 } },
+      params: { order_type: FEE_OPTIMIZED_LIMIT, fee_optimized_limit_options: { ensure_execution_as_taker: true, execution_timeout_seconds: 30 } },
       context: [ { type: signal, scanner: us_rebound_signals } ] }
 exit:
   engine: dsl
@@ -527,7 +527,11 @@ came in at 398 and 390 calls against a 240s budget and both timed out.
   ceiling (~400 on a 240s tick), not a target.
 - Fetch candles/state **once per unique asset** and reuse across every pair or leg that needs them.
 - Hoist board-wide reads (`leaderboard_get_markets`, `discovery_get_top_traders`) out of the
-  per-asset loop — they return the whole board in one call.
+  per-asset loop — one read per tick serves every asset.
+- A ranked list is NOT the whole board: without `limit`, `discovery_get_top_traders` and
+  `leaderboard_get_top` return 20 rows. Pass `limit` for the rows you use. `discovery_get_top_traders`
+  takes up to 1000 per call and pages with `offset` (the ≥ $1M realized-cohort templates read 1000 per
+  page; clone the paging from `starling`); `leaderboard_get_top` takes up to 500 and has no `offset`.
 - Batch wallet reads (`discovery_get_trader_state` takes a list) rather than looping one per wallet.
 - If the count really is irreducible, raise `timeout_seconds` deliberately and say why in the
   recipe. Don't discover the ceiling by failing validation: each attempt costs a multi-minute

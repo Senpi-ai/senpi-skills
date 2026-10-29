@@ -389,7 +389,8 @@ def scanner_rows(status_entry):
 
 def scanner_reasons(status_entry):
     """The runtime's own words for why a scanner is not healthy — each row's `degradedReason`
-    (the supervisor's crash-loop cause, set only while it holds the scanner degraded — runtime #272).
+    (the supervisor's crash-loop cause, or the scanner's last tick error while its last run errored;
+    older runtimes set only the crash-loop cause).
     ['<scanner>: <reason>', …] for QUOTING; [] when the runtime carried none."""
     return [f"{dig(r, 'scannerId', 'name', 'scanner') or 'scanner'}: {r['degradedReason']}"
             for r in scanner_rows(status_entry) if isinstance(r, dict) and r.get("degradedReason")]

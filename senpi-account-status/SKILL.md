@@ -1,21 +1,23 @@
 ---
 name: senpi-account-status
 description: >-
-  Show the user's standing across Senpi programs — points and rank, loyalty tier and fees, referral
-  earnings — and explain the AI-credits usage meter. Use for "how many points do I have?", "what's my
-  rank/tier?", "what are my fees?", "my referral rewards", and for credits: "what is the bubble/meter
-  in the header?", "why are my credits going down?", "how much did that cost?", "does my strategy use
-  credits?", "can I trade or withdraw my credits?", and for plans: "what plans are there?", "how much
+  Show the user's standing across Senpi programs — points and rank, the Senpi trading fee (none on a
+  paid plan), referral earnings — and explain the AI-credits usage meter. Use for "how many points
+  do I have?", "what's my rank/tier?", "where did my tier go?", "what are my fees?", "my referral
+  rewards", "how do referrals work?", and for credits: "what is the bubble/meter in the header?", "why are my credits going
+  down?", "how much did that cost?", "does my strategy use credits?", "can I trade or withdraw my
+  credits?", and for plans: "what plans are there?", "how much
   does Senpi cost?", "what do I get on Pro/Quant?", "how do I get free credits?", "where are my
   milestone credits?", "do I need a subscription to keep my strategy running?", "what happens when my
-  trial ends?". Use this instead of calling user_get_senpi_points +
-  get_loyalty_tiers one by one. A hidden engine (scripts/status.py) pulls points/loyalty/referral in one call; the credit
-  BALANCE is explained, never read — no tool returns it — while the plan catalog and the free-credit
-  ladder are published here and may be quoted. Requires a USER-scoped Senpi token.
+  trial ends?", and for strategy limits: "what are my strategy limits?", "when can I start a new
+  strategy?". Use this instead of calling user_get_senpi_points by hand. A hidden engine
+  (scripts/status.py) pulls points, the fee, referral and strategy limits in one call; the credit
+  BALANCE is explained, never read — no tool returns it — while the plan catalog and the end of the
+  free-credit milestones are published here and may be quoted. Requires a USER-scoped Senpi token.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.5.0"
+  version: "1.10.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -23,26 +25,27 @@ metadata:
 # Senpi Account Status — your standing across Senpi
 
 A hidden engine pulls the user's standing in one real-time call; **your job is to present it
-cleanly** and point at the next milestone (next loyalty tier, etc.).
+cleanly**: points and rank, the Senpi fee, referral earnings, and strategy limits.
 
 ## Golden rules
 
-- **Run the engine; never hand-pull.** `python3 scripts/status.py` gathers points, loyalty, and
-  referral together. Read its JSON.
+- **Run the engine; never hand-pull.** `python3 scripts/status.py` gathers points, the fee,
+  referral and strategy limits together. Read its JSON.
 - **Real-time, not from memory.** Points/rank move — never quote a figure from earlier in the
   conversation; re-run.
-- **Fees come from the data, never from memory.** Quote `loyalty.fee_bps` / `fee_discount_pct` as
-  returned — the tier table changes; stale numbers mislead. (For the *full* tier table, that's
-  `get_loyalty_tiers`; this skill returns the user's *own* tier.)
-- **Lead with what they asked, then the milestone.** If they asked about points, lead with points +
-  rank, then "X to the next tier." Don't dump every section if they asked one question — but the
-  engine returns all of it so you can.
+- **The fee comes from the data, never from memory.** Quote `fee.pct` as returned: `0%` on a paid
+  plan (Starter, Pro, Advanced, Quant), the flat free rate without one, free trials included.
+- **Tiers carry no benefit right now: no fee change, nothing unlocked. Do not bring tiers up.** Never
+  suggest reaching, keeping or regaining a tier, and never close with a next-tier offer. If the user
+  asks about their tier or where it went, say tiers carry no benefit right now. Points still accrue
+  at the plan multiplier and still set leaderboard rank.
+- **Lead with what they asked.** If they asked about points, lead with points + rank. Don't dump
+  every section if they asked one question — but the engine returns all of it so you can.
 - **Credits are explained, never read.** No tool returns the AI-credit balance; the meter in the app
   header is the balance. Rules in "AI credits — the usage meter" below.
-- **Plans and free credits are published; the balance is not.** Quote the catalog and the milestone
-  ladder in "Plans & free credits" below — and only from there. A figure about *this user* (what is
-  left, what they were charged, where their bar sits) comes from their page, never from you.
-- **Always end with the CTA** (below) — for standing answers; a credits answer closes on the meter.
+- **Plans and free credits are published; the balance is not.** Quote the catalog and the end of the
+  milestones in "Plans & free credits" below — and only from there. A figure about *this user* (what
+  is left, what they were charged, where their bar sits) comes from their page, never from you.
 
 ## How to run the engine
 
@@ -50,13 +53,13 @@ cleanly** and point at the next milestone (next loyalty tier, etc.).
 python3 scripts/status.py
 ```
 
-Returns `{identity, points, loyalty, referral, meta}`:
-- `points` — `total`, `base` (Base copy-trading), `perp` (Hyperliquid), `multiplier`, `rank`,
-  `rank_change`.
-- `loyalty` — `tier`, `fee_bps` + `fee_pct`, `fee_discount_pct`, `next_tier`, `points_to_next` (the
-  milestone), plus `demoted` / `previous_tier` / `maintenance_deadline` — if `demoted` is true,
-  mention the tier they fell from and that maintenance volume wins it back.
-- `referral` — `balance_usdc` (pending referral earnings, 25% of builder fee on referred trades).
+Returns `{as_of, identity, points, fee, referral, limits, meta}`:
+- `points` — `total`, `base` (Base copy-trading), `perp` (Hyperliquid), `multiplier` (the plan's
+  points rate), `rank`, `rank_change`.
+- `fee` — `bps` + `pct`, the Senpi fee this user pays, as the backend reports it: `0` / `0%` on a
+  paid plan (`bps` is in tenths of a bp).
+- `referral` — `balance_usdc` (referral earnings not yet claimed).
+- `limits` — MCP `strategy_get_limits` as returned; rules in "Strategy limits" below.
 - `meta.warnings` / `meta.degraded` — narrate honestly.
 - Fails open — partial data still returns valid JSON.
 
@@ -65,17 +68,36 @@ Returns `{identity, points, loyalty, referral, meta}`:
 Lead with the section they asked about; otherwise a tight standing card:
 
 1. **Points & rank** — total, base/perp split, multiplier, rank (+ change).
-2. **Loyalty** — current tier + fee/discount, and **`points_to_next` → next_tier** (the actionable
-   milestone).
+2. **Fee** — `fee.pct` (`0%` = a paid plan, no Senpi fee).
 3. **Referral** — pending `balance_usdc` (and that it's claimable if > 0).
+4. **Strategy limits** — only when a limit is enforced: `limits.summary`, usage and the reset time. No
+   limits apply (grandfathered, or both limits `null`): one line at most, "no strategy limits apply".
+   `enforced: false` or `limits: {}`: leave it off. Full detail only when asked (see below).
 
-Formatting: clean, scannable, numbers from the data; emoji sparingly (🎯 next tier).
+Formatting: clean, scannable, numbers from the data; emoji sparingly.
 
-## Mandatory closing (verbatim)
+## Strategy limits
 
-> **Want me to break down what it takes to reach the next tier?**
+`limits` is MCP `strategy_get_limits`: the user's own plan, usage and reset time. When a limit is
+enforced, lead with `limits.summary`, the sentence to quote. Then: `running` of `maxRunning` running,
+`starts` of `maxStarts` new this cycle (the last 30 days when `window` is not `CYCLE`), and
+`startsResetAt` in UTC (when the count resets in a cycle; otherwise when the next start frees up).
+Never quote limit numbers from memory or from the plan table.
 
-On yes: use `loyalty.points_to_next` + `get_loyalty_tiers` for the tier path.
+- **A `null` limit is no limit, never 0.** `source: "grandfathered"`: their account predates strategy
+  limits, so none apply. Both limits `null` (some `source: "override"` accounts): no limits apply to
+  their account. Either way the card says "no strategy limits apply" at most.
+- **`enforced: false`**: limits are not enforced right now, whatever the numbers say. Leave limits off
+  the card; explain only when the user asks about their limits.
+- **How it counts**: every wallet is one strategy (a 3-wallet strategy uses 3); a PAUSED strategy counts
+  as running; closing frees a running slot, never a start;
+  only a strategy that ends FAILED uses no start (one stuck in MANUAL_REVIEW still uses it);
+  the browser extension's own wallet never counts.
+- **Unread**: `limits: {}` with a `strategy_get_limits failed` warning. Leave limits off the card and
+  say nothing about it unless the user asked about their limits. If they did, run the engine once more at most
+  (not when the warning says `NOT_FOUND`) and, if it still fails, say their limits couldn't be read
+  right now. Never guess, and never say they have none. Deploys never wait on this read: the runtime
+  and strategy-manager still enforce the limits.
 
 ## AI credits — the usage meter
 
@@ -99,7 +121,7 @@ on your plan and your usage, and only the user's own page shows that.
   anywhere — they are separate from the funding wallet and from every strategy budget. A shrinking
   meter is usage, never a trading loss; a losing trade never touches the meter.
 - **You cannot read the balance.** No Senpi tool returns it (`user_get_me` → id / wallets / createdAt
-  / referralCode; `user_get_senpi_points` → points / tier / fees) and the engine has no `credits`
+  / referralCode; `user_get_senpi_points` → points / fees) and the engine has no `credits`
   section. Point at the meter in the app header, or at their subscription page for the exact figure —
   the in-app indicator surfaces only when credits run low, so a missing indicator is expected, not a
   lost balance. Never invent a number, a percentage or a "roughly", and never guess what the meter
@@ -121,7 +143,7 @@ did that cost?", "does my strategy use credits?", "can I trade / withdraw / depo
 come here, in any language. "Credits" (Ukrainian "кредити", Spanish "créditos") means these AI credits
 unless the user says leverage, a loan or funding; when it is unclear, ask which before answering. A
 credits question is answered from this section alone — no engine run, no number — and closes by
-pointing at the meter; the next-tier CTA is for standing answers. "What plans are there / how much
+pointing at the meter. "What plans are there / how much
 does it cost / what do I get on Pro / how do I get free credits / where are my milestone credits /
 do I need a subscription / what happens when my trial ends" are **catalog** questions: answer them from "Plans & free credits" below, still without a figure
 about this user.
@@ -134,13 +156,18 @@ never a calendar month.
 | Plan | Price | Credits | Points per $1 volume |
 |---|---|---|---|
 | Starter | $25 | $25 | 1 |
-| Pro (default) | $50 | $50 | 1.5 |
-| Advanced | $100 | $130 (+30%) | 2 |
-| Quant | $200 | $270 (+35%) | 3 |
+| Pro (default) | $50 | $55 (+10%) | 1.5 |
+| Advanced | $100 | $115 (+15%) | 2 |
+| Quant | $200 | $240 (+20%) | 3 |
 
 - **Every plan includes every model.** Plans differ on credits and points rate only — never on model
-  access, so a cheaper plan never locks anyone out of the better model. Trading fees are separate and
-  start at 0.05% on every plan.
+  access, so a cheaper plan never locks anyone out of the better model.
+- **No Senpi trading fee on any paid plan** — only Hyperliquid's own exchange fees. For any other
+  account, quote its own `fee.pct` from the engine; never state a rate from memory.
+- **Referrals pay 15% of a referred friend's monthly Senpi spend, for their first 12 months** — from
+  what the friend spends on Senpi, not from their trading. A friend on $100 a month earns the referrer
+  $15 a month × 12 months = $180. How and when the share is paid out is not announced yet: if asked,
+  say so, and never describe a payout schedule, token or threshold for it.
 - **$1 of credit = $1 of AI usage.** Full credits land at the start of the cycle and expire at the end
   of it: **no rollover, no top-ups, no overage**. Out of credits = upgrade (instant) or wait for renewal.
 - **Upgrading is instant, any day** — the new plan's full credits land immediately, the 30-day cycle
@@ -158,33 +185,22 @@ never a calendar month.
   every strategy on it stops with it: no scans, no new entries, no stop moves. Open positions stay
   open, and a stop-loss already resting on the exchange still triggers. Funds stay in their wallets,
   withdrawable in the app. Subscribing, a successful renewal or an upgrade brings the agent and its
-  strategies back. You cannot see the user's plan, trial or renewal dates: point at
-  senpi.ai/settings/subscription, and never tell them a subscription is not needed.
+  strategies back. `limits.plan` names their plan only when one is set: it is `null` for free,
+  grandfathered and some override accounts, so never conclude "no plan" from a `null`.
+  `source: "trial"` means a trial; `limits: {}` means the read failed. You cannot see trial or renewal
+  dates: point at senpi.ai/settings/subscription, and never tell them a subscription is not needed.
 
-**Free credits — the milestone ladder.** $315 of AI credit across 12 milestones, on the "Unlock Free
-AI Credits" card:
+**Free credits — the milestones ended on 2026-10-26.** Every free-credit milestone is over: your
+first strategy, funding a wallet, the trading-volume ladder and the first-subscription bonus. None of
+them pays any more, and the "Unlock Free AI Credits" card shows nothing. Its "Deploy your agent" row
+went with it: the app built that row from the trial credit, and it was never a milestone.
 
-| Milestone | Free credits |
-|---|---|
-| Deploy your agent | $10 |
-| Launch your first strategy | $10 |
-| Subscribe to a plan | $15 |
-| Trade $2K / $25K / $50K volume | $10 each |
-| Trade $100K / $250K volume | $20 / $30 |
-| Trade $500K / $1M / $2M / $4M volume | $50 each |
-
-- **Deploying the agent is the only one credited on day one.** Everything else is earned.
-- **Not retroactive** — a milestone credits the next time it is achieved, counting from when
-  milestones launched; activity before that does not fill the bar.
-- **Milestone credits expire at the next renewal** — a different clock from the 14-day trial expiry,
-  so credit that vanished at a renewal boundary is working as designed.
-- **Volume progress is not live** — the card refreshes on a timer and shows a countdown, so a trade
-  that has not moved the bar yet is normal, not a missed milestone.
-- The bonus is **always AI credit** — it never lands in Balances as USDC.
-
-**The card is the source of truth.** If the user's own page or card disagrees with any figure here,
-their page is right and this table is stale — never argue a user out of what is on their screen, and
-never tell them what their bar ought to read.
+- **Milestone credit already earned stays until the next renewal** — a different clock from the
+  14-day trial expiry, so credit that vanished at a renewal boundary is working as designed.
+- **The trial credit still activates when the user deploys their agent** (see Free trial above).
+- Never offer a bonus for a strategy, a deposit, volume or subscribing. If the user's own page or
+  card disagrees with this text, their page is right — never argue a user out of what is on their
+  screen.
 
 ## ⚠ Token scope
 

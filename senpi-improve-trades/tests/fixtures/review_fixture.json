@@ -21,10 +21,24 @@
      "openTime": 1782650000000, "closeTime": 1782800000000}
   ]},
 
-  "ratchet_stop_list::0xkodiak00000000000000000000000000000kdk": {"configs": [
-    {"asset": "SOL", "status": "SL_TRIGGERED", "currentTierIndex": 2, "highWaterRoe": 41.0},
-    {"asset": "ETH", "status": "ACTIVE", "currentTierIndex": 0, "highWaterRoe": 6.0}
-  ]},
+  "ratchet_stop_list::0xkodiak00000000000000000000000000000kdk": {"success": true, "data": {"positions": [
+    {"id": "dsl-kodiak-sol", "strategyId": "strat-kodiak-1", "asset": "SOL",
+     "strategyWalletAddress": "0xkodiak00000000000000000000000000000kdk", "dex": "", "direction": "LONG",
+     "entryPrice": 120.0, "size": 3.0, "leverage": 5, "status": "SL_TRIGGERED",
+     "currentTierIndex": 2, "tierFloorPrice": null, "highWaterPrice": null, "highWaterRoe": 41.0,
+     "currentBreachCount": 0, "activeSLOrderId": "910000000001",
+     "dslConfig": {"tiered": {"tiers": [{"triggerRoe": 8, "lockRoe": 0}, {"triggerRoe": 14, "lockRoe": 40}, {"triggerRoe": 24, "lockRoe": 62}, {"triggerRoe": 40, "lockRoe": 80}]}},
+     "lastEvaluatedAt": "2026-06-29T02:26:41.500000Z", "lastPrice": null, "lastPriceSource": "price-feed",
+     "createdAt": "2026-06-26T18:53:50.000000Z", "updatedAt": "2026-06-29T02:26:41.500000Z"},
+    {"id": "dsl-kodiak-eth", "strategyId": "strat-kodiak-1", "asset": "ETH",
+     "strategyWalletAddress": "0xkodiak00000000000000000000000000000kdk", "dex": "", "direction": "LONG",
+     "entryPrice": 1900.0, "size": 0.5, "leverage": 4, "status": "ACTIVE",
+     "currentTierIndex": 0, "tierFloorPrice": null, "highWaterPrice": null, "highWaterRoe": 6.0,
+     "currentBreachCount": 0, "activeSLOrderId": "910000000002",
+     "dslConfig": {"tiered": {"tiers": [{"triggerRoe": 8, "lockRoe": 0}, {"triggerRoe": 14, "lockRoe": 40}, {"triggerRoe": 24, "lockRoe": 62}, {"triggerRoe": 40, "lockRoe": 80}]}},
+     "lastEvaluatedAt": "2026-06-29T16:20:03.000000Z", "lastPrice": null, "lastPriceSource": "price-feed",
+     "createdAt": "2026-06-27T22:40:40.000000Z", "updatedAt": "2026-06-29T16:20:03.000000Z"}
+  ], "count": 2, "query": {"filter": {"strategyId": "strat-kodiak-1", "strategyWalletAddress": "0xkodiak00000000000000000000000000000kdk"}, "status": "ALL", "limit": 100}}},
 
   "strategy_get_clearinghouse_state::0xkodiak00000000000000000000000000000kdk": {
     "main": {"assetPositions": [

@@ -65,7 +65,7 @@ actions:
     scanners: [position_tracker]
   - name: iguana_entry
     action_type: OPEN_POSITION
-    decision_mode: rule             # rule | llm | no_decision
+    decision_mode: rule             # rule | llm | none
     scanners: [iguana_signals]
     params:
       order_type: FEE_OPTIMIZED_LIMIT
@@ -143,7 +143,7 @@ the resolved config.
 | `default_leverage` | — | default leverage multiplier |
 | `leverage_multipliers` | — | per-risk-level leverage `{ conservative?, moderate?, aggressive? }` |
 | `trading_risk` | — | `conservative` \| `moderate` \| `aggressive` |
-| `enabled` | — | whether the runtime is active |
+| `enabled` | — | parsed but not read by the runtime. It does not stop anything. Leave it `true`; for watch-only (no new entries) set `decision_mode: none` on each `OPEN_POSITION` action |
 
 ---
 
@@ -201,7 +201,11 @@ why deploy refuses it:
 ## `actions` block
 
 Each entry needs a unique `name` and an `action_type` ∈ `OPEN_POSITION` | `CLOSE_POSITION` |
-`POSITION_TRACKER`. `decision_mode` ∈ `rule` | `llm` | `no_decision`.
+`POSITION_TRACKER`. `decision_mode` ∈ `rule` | `llm` | `none`; leaving it out means `none`. On
+`OPEN_POSITION`, `none` skips every signal with `execute: false`: watch-only, no new entries, while the
+position tracker and DSL keep managing open positions. Do not use `none` to turn off a
+`CLOSE_POSITION` action: with `params.asset` set it takes the static path and closes that asset on
+every trigger. To stop one exit, delete the action.
 
 | Field | Notes |
 |---|---|
