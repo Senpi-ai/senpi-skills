@@ -39,13 +39,13 @@ class _Recording:
 
 
 LIMITS = {
-    "enforced": True, "source": "plan", "plan": "Starter",
-    "running": 2, "maxRunning": 3, "runningLeft": 1,
-    "starts": 5, "maxStarts": 8, "startsLeft": 3,
+    "enforced": True, "source": "plan", "plan": "Example",
+    "running": 2, "maxRunning": 5, "runningLeft": 3,
+    "starts": 4, "maxStarts": 11, "startsLeft": 7,
     "window": "CYCLE", "windowStart": "2026-10-19T00:00:00.000Z",
     "startsResetAt": "2026-11-19T00:00:00.000Z", "canStartNow": True,
-    "summary": "Your Starter plan allows 3 running strategies (2 running, 1 left) and 8 new strategies per "
-               "billing cycle (5 used, 3 left), resetting 2026-11-19 00:00 UTC.",
+    "summary": "Your Example plan allows 5 running strategies (2 running, 3 left) and 11 new strategies per "
+               "billing cycle (4 used, 7 left), resetting 2026-11-19 00:00 UTC.",
 }
 
 
@@ -143,13 +143,57 @@ def test_fields_the_tool_does_not_document_are_dropped():
     assert r["limits"] == LIMITS
 
 
-def test_an_unreadable_limits_read_is_a_warning_not_a_failure():
-    client = _Failing(_recorded(), "strategy_get_limits",
-                      "SERR185: Strategy limits couldn't be read right now.")
-    r = status.run(client)
+SERR185_MESSAGE = ("SERR185: Strategy limits couldn't be read right now. This is not a create failure: creates do "
+                   "not depend on this read. Retry strategy_get_limits once at most; if it fails again, tell the "
+                   "user their limits couldn't be read and continue without them. Never block or refuse a create "
+                   "because of this.")
+
+
+def _limits_reply(reply):
+    """The fixture user with strategy_get_limits answering `reply` as the whole tool result."""
+    recorded = _recorded()
+    recorded["strategy_get_limits"] = reply
+    return status.run(status._FixtureClient(recorded))
+
+
+def test_a_serr185_reply_is_a_warning_not_a_failure():
+    # senpi-hyperliquid-mcp createErrorResponse: a normal result, not a raised error
+    r = _limits_reply({
+        "success": False,
+        "error": {"code": "SERR185", "message": SERR185_MESSAGE, "retryable": True, "category": "UNAVAILABLE",
+                  "details": {"service": "senpi", "operation": "StrategyLimitsUsage"}},
+        "meta": {"tool": "strategy_get_limits", "action_type": "read", "timestamp": "2026-10-29T16:00:00.000Z",
+                 "request_id": "00000000-0000-0000-0000-000000000000"},
+    })
+    assert r["limits"] == {}
+    assert r["meta"]["warnings"] == [f"strategy_get_limits failed: SERR185: {SERR185_MESSAGE}"]
+    assert r["points"]["total"] == 15000 and "degraded" not in r["meta"]
+
+
+def test_an_mcp_without_the_tool_is_a_warning_not_a_failure():
+    # senpi-hyperliquid-mcp server.ts answers an unknown tool name this way
+    r = _limits_reply({"success": False, "error": {
+        "code": "NOT_FOUND", "retryable": False,
+        "message": "Unknown tool: strategy_get_limits. This error is deterministic. Do not retry with the same "
+                   "tool name."}})
     assert r["limits"] == {}
     assert r["meta"]["warnings"] == [
-        "strategy_get_limits failed: SERR185: Strategy limits couldn't be read right now."]
+        "strategy_get_limits failed: NOT_FOUND: Unknown tool: strategy_get_limits. This error is deterministic. "
+        "Do not retry with the same tool name."]
+
+
+def test_a_reply_that_is_not_an_object_is_a_warning():
+    r = _limits_reply("upstream timeout")
+    assert r["limits"] == {}
+    assert r["meta"]["warnings"] == ["strategy_get_limits failed: unexpected reply upstream timeout"]
+
+
+def test_a_raised_call_is_a_warning_not_a_failure():
+    # mcp_client raises on a transport failure, and on a success:false document it unwraps itself
+    client = _Failing(_recorded(), "strategy_get_limits", f"tool failed: SERR185: {SERR185_MESSAGE}")
+    r = status.run(client)
+    assert r["limits"] == {}
+    assert r["meta"]["warnings"] == [f"strategy_get_limits failed: tool failed: SERR185: {SERR185_MESSAGE}"]
     assert r["points"]["total"] == 15000 and "degraded" not in r["meta"]
 
 

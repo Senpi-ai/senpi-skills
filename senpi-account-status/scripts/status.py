@@ -137,12 +137,21 @@ LIMIT_FIELDS = ("enforced", "source", "plan", "running", "maxRunning", "runningL
 
 
 def fetch_limits(client, meta):
+    # Any reply but a successful object is a failed read: an older MCP answers NOT_FOUND, a backend
+    # outage SERR185, both as {success: false, error} rather than a raised error.
     try:
-        lim = _ok(client.mcp_call("strategy_get_limits", timeout=12)) or {}
+        resp = client.mcp_call("strategy_get_limits", timeout=12)
     except Exception as e:  # noqa
         meta.setdefault("warnings", []).append(f"strategy_get_limits failed: {e}")
         return {}
-    return {k: lim.get(k) for k in LIMIT_FIELDS} if isinstance(lim, dict) and lim else {}
+    lim = _ok(resp)
+    if isinstance(lim, dict) and lim:
+        return {k: lim.get(k) for k in LIMIT_FIELDS}
+    err = resp.get("error") if isinstance(resp, dict) else None
+    reason = (f"{err.get('code')}: {err.get('message')}" if isinstance(err, dict)
+              else f"unexpected reply {str(resp)[:120]}")
+    meta.setdefault("warnings", []).append(f"strategy_get_limits failed: {reason}")
+    return {}
 
 
 # ──────────────────────────────────────────────────────────────── orchestration
