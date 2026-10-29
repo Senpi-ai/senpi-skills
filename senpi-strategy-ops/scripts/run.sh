@@ -60,6 +60,6 @@ case "$RC" in
   6) echo ">> $ID: the deploy job is STILL RUNNING (a wallet may still be funding) — nothing failed."
      echo ">> Watch it:  python3 deploy.py status      (do not re-run this script while the job runs)" ;;
   *) echo "error: the deploy did not complete (exit $RC) — read the report above, it carries the cause and the next step." >&2
-     echo "       The job's own record:  python3 deploy.py status   (on exit 1, do not re-run until it shows no job for $ID)" >&2
+     echo "       The job's own record:  python3 deploy.py status   (on exit 1: read it until it shows the job's outcome, and report that; do not re-run create)" >&2
      exit "$RC" ;;
 esac

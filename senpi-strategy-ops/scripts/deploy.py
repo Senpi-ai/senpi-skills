@@ -90,6 +90,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _cli  # noqa: E402
 import _fork  # noqa: E402
+import _journal  # noqa: E402
 import _fetch  # noqa: E402
 import _pkg  # noqa: E402
 from mcp_client import MCPClient  # noqa: E402
@@ -133,6 +134,10 @@ POLL_EVERY = 5
 # SIGTERM grace `_cli._kill_tree` spends after a timeout.
 START_RESERVE_S = 90
 KILL_RESERVE_S = 3
+# START is never sent with less than this much wall clock left: a START that times out on a sliver of
+# budget is a MAY BE RUNNING the agent then has to chase. Below it nothing is sent (NOTHING WAS
+# DISPATCHED).
+START_MIN_WALL_S = 10
 
 # The request id on `senpi.deploy.start` (K2). Sent only when the runtime advertises
 # `deploy.capabilities.deployStartRequestId` on `senpi.getHealthStatus`: an older runtime ignores the
@@ -146,7 +151,7 @@ KILL_RESERVE_S = 3
 # reused only with the same parameters (`paramsKey`: package dir + budget); a different set is refused.
 # Only an answer naming a job closes an entry this run did not mint, so a later deliberate deploy
 # gets a new id once the first START is accounted for.
-REQUEST_DIR = ".deploy-requests"
+REQUEST_DIR = _journal.REQUEST_DIR
 
 # D-12: the verb's exit-code contract (runtime `exitCodeForDeploy`), mirrored here so `deploy.py
 # status` and `openclaw senpi deploy status` answer identically.
@@ -534,14 +539,14 @@ def _sleep(seconds):
     time.sleep(seconds if left is None else max(0.0, min(seconds, left - KILL_RESERVE_S)))
 
 
-def _gw(method, params, rpc_ms, wall_s):
+def _gw(method, params, rpc_ms, wall_s, min_wall_s=1):
     """`_cli.gateway_call` with its wall clock clipped to what is left of the command budget (and its
-    RPC timeout kept under that wall clock). A budget already spent sends nothing and answers kind
-    `budget_spent`."""
+    RPC timeout kept under that wall clock). With less than `min_wall_s` left nothing is sent and the
+    answer is kind `budget_spent`."""
     left = _remaining()
     if left is not None:
         wall = min(float(wall_s), left - KILL_RESERVE_S)
-        if wall < 1:
+        if wall < min_wall_s:
             return {"kind": "budget_spent", "payload": None, "code": None, "elapsed": 0,
                     "message": f"not sent: the command budget is spent {_budget_note()}",
                     "rc": None, "stderr": "", "argv": None, "transport": None}
@@ -566,30 +571,12 @@ def start_request_ids_supported(log):
     return ok
 
 
-def _request_journal(pkg_id):
-    return _pkg.strategies_root() / REQUEST_DIR / f"{pkg_id}.json"
-
-
 def _journal_read(pkg_id):
-    try:
-        entry = json.loads(_request_journal(pkg_id).read_text())
-    except (OSError, ValueError):
-        return None
-    return entry if isinstance(entry, dict) else None
+    return _journal.read(pkg_id)
 
 
 def _journal_write(pkg_id, entry):
-    path = _request_journal(pkg_id)
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-        tmp.write_text(json.dumps(entry, indent=2) + "\n")
-        os.replace(tmp, path)
-        return True
-    except OSError as e:
-        print(f"warning: could not write the deploy request journal {path} ({e}). The request id "
-              f"still goes on this START, but a later create will not find it.", file=sys.stderr)
-        return False
+    return _journal.write(pkg_id, entry)
 
 
 _REQUEST_ID_SHAPE = re.compile(r"^dpl-req-\d{8}T\d{6}Z-[0-9a-f]{8}$")
@@ -610,6 +597,10 @@ def _open_entry(pkg):
     return None
 
 
+def _usd(v):
+    return f"${v:.2f}" if isinstance(v, (int, float)) else "no budget"
+
+
 def _refuse_changed_params(pkg, entry, params):
     """An open id is never reused with other parameters, and never replaced by a new one: the first
     START may have started (and funded) a job with ITS parameters. The way out depends on what
@@ -620,9 +611,7 @@ def _refuse_changed_params(pkg, entry, params):
     rid = entry["requestId"]
     verb = entry.get("verb") if entry.get("verb") in ("create", "runtime") else "create"
 
-    def usd(v):
-        return f"${v:.2f}" if isinstance(v, (int, float)) else "no budget"
-
+    usd = _usd
     old_budget, old_dir = usd(old.get("budget")), old.get("packageDir", "?")
     print(f"[E_OPEN_DEPLOY_REQUEST] An earlier `{verb}` START for {pkg.id} (request id {rid}, sent at "
           f"{entry.get('sentAt', '?')}, budget {old_budget}, package {old_dir}) never got an answer, "
@@ -644,47 +633,44 @@ def resolve_seen_request(snap):
     """`deploy.py status` closes an open journal entry when the job it read carries that entry's
     request id: the START is then accounted for. A different id, or none, leaves the entry open."""
     meta = (snap or {}).get("meta") or {}
-    rid, pkg_id = meta.get("requestId"), meta.get("packageId")
-    # The package id names a file under the journal dir: never follow one that is not a plain name.
-    if not rid or not isinstance(pkg_id, str) or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9._-]*", pkg_id):
-        return
-    entry = _journal_read(pkg_id)
-    if entry and entry.get("requestId") == rid and entry.get("resolved") is None:
-        entry.update(resolved=meta.get("deployId") or "seen-by-status",
-                     resolvedAt=_utc_stamp(time.time()))
-        _journal_write(pkg_id, entry)
+    if meta.get("requestId"):
+        _journal.resolve(meta.get("packageId"), meta["requestId"],
+                         meta.get("deployId") or "seen-by-status")
 
 
-def _request_id_for(pkg, params, log, mint=True, verb="create"):
-    """`(request id, reused)` for this START, or `(None, False)`.
+def _request_id_for(pkg, params, log, caps, verb="create"):
+    """`(request id | None, reused, the open entry | None, params changed)` for this START.
 
-    An open entry (its START never got an answer) is reused, however old, when its parameters match,
-    and refused otherwise. With no open entry a new id is minted (only if `mint`) and journaled,
-    unresolved, before this returns."""
+    An open entry (its START never got an answer) is reused, however old. With other parameters it is
+    still SENT when the runtime advertised ids (`caps is True`): the runtime answers with the earlier
+    job (`repeated`, the new parameters not applied, nothing funded) or starts fresh. Without the
+    advertisement other parameters are refused (`[E_OPEN_DEPLOY_REQUEST]`). `caps is False` (a runtime
+    that does not honour ids) sends no id. With no open entry a new id is minted under True and None
+    (an older runtime ignores it; matching on it stays gated on True) and journaled, unresolved,
+    before this returns."""
     entry = _open_entry(pkg)
     if entry:
-        if entry.get("paramsKey") is not None and entry["paramsKey"] != _params_key(params):
+        changed = entry.get("paramsKey") is not None and entry["paramsKey"] != _params_key(params)
+        if changed and caps is not True:
             _refuse_changed_params(pkg, entry, params)
+        if caps is False:
+            return None, False, entry, changed
         rid = entry["requestId"]
         log(f"  reusing request id {rid}: the START sent at {entry.get('sentAt', '?')} never got an answer")
-        return rid, True
-    if not mint:
-        return None, False
+        return rid, True, entry, changed
+    if caps is False:
+        return None, False, None, False
     now = time.time()
     rid = f"dpl-req-{datetime.fromtimestamp(now, timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{os.urandom(4).hex()}"
     _journal_write(pkg.id, {"packageId": str(pkg.id), "requestId": rid, "sentAt": _utc_stamp(now),
                             "verb": verb, "paramsKey": _params_key(params), "resolved": None})
-    return rid, False
+    return rid, False, None, False
 
 
 def _journal_resolve(pkg, rid, outcome):
     """Close the journal entry for `rid` (only if it is still the open one)."""
-    if not rid:
-        return
-    entry = _journal_read(pkg.id)
-    if entry and entry.get("requestId") == rid and entry.get("resolved") is None:
-        entry.update(resolved=outcome, resolvedAt=_utc_stamp(time.time()))
-        _journal_write(pkg.id, entry)
+    if rid:
+        _journal.resolve(pkg.id, rid, outcome)
 
 
 def _rid_tag(rid):
@@ -749,19 +735,27 @@ def start_deploy(pkg, a, log):
     """Start the detached job with a direct `senpi.deploy.start` gateway call. Returns the deployId,
     or exits with the gateway's own refusal text.
 
-    `a.request_ids` is what `start_request_ids_supported` read: True (advertised) sends a journaled
-    request id, minted or reused; None (the read failed) sends only an OPEN journal id, because the
-    retry is exactly when the gateway is sick and an older runtime ignores the param anyway; False
-    sends none. Matching a job by its id (recovery, the steers) needs True; a reply that says
-    `repeated: true` is trusted either way, since only a runtime that honours ids says it."""
+    `a.request_ids` is what `start_request_ids_supported` read: True (advertised) or None (the read
+    failed: the retry is exactly when the gateway is sick, and an older runtime ignores the param)
+    send a journaled request id, minted or reused; False sends none. Matching a job by its id
+    (recovery, the steers) needs True; a reply that says `repeated: true` is trusted either way, since
+    only a runtime that honours ids says it."""
     params = _start_params(pkg, a)
     if getattr(a, "dry_run", False):
         print("planned: " + shlex.join(_cli.gateway_argv("senpi.deploy.start", params, START_RPC_MS)))
         raise SystemExit(0)
-    caps = getattr(a, "request_ids", False)
-    verb = getattr(a, "cmd", None) if getattr(a, "cmd", None) in ("create", "runtime") else "create"
-    rid, reused = (_request_id_for(pkg, params, log, mint=caps is True, verb=verb) if caps in (True, None)
-                   else (None, False))
+    # A caller that never read the capability (no `request_ids`) neither sends an id nor touches the
+    # journal; `main` always reads it for create/runtime.
+    if not hasattr(a, "request_ids"):
+        caps, rid, reused, entry, changed = False, None, False, None, False
+    else:
+        caps = a.request_ids
+        verb = getattr(a, "cmd", None) if getattr(a, "cmd", None) in ("create", "runtime") else "create"
+        rid, reused, entry, changed = _request_id_for(pkg, params, log, caps, verb)
+    try:
+        a.repeated_terminal = None
+    except AttributeError:
+        pass
     if rid:
         params["requestId"] = rid
     rid_by = rid if caps is True else None     # the id a job can be matched on
@@ -771,7 +765,7 @@ def start_deploy(pkg, a, log):
         pass
     log("  starting the deploy job…" + _rid_tag(rid))
     t0 = time.time()
-    r = _gw("senpi.deploy.start", params, START_RPC_MS, START_WALL_S)
+    r = _gw("senpi.deploy.start", params, START_RPC_MS, START_WALL_S, min_wall_s=START_MIN_WALL_S)
     log(f"  (senpi.deploy.start: {r['kind']} in {r['elapsed']}s)")
     kind = r["kind"]
     if kind == "ok":
@@ -779,9 +773,24 @@ def start_deploy(pkg, a, log):
         deploy_id = payload.get("deployId")
         if deploy_id:
             if rid and payload.get("repeated") is True:
-                print(f"note: request id {rid} already started job {deploy_id} (state "
-                      f"{payload.get('state', '?')}); nothing new was started or funded. Following "
-                      f"that job.", file=sys.stderr)
+                state = payload.get("state", "?")
+                sent = (entry or {}).get("sentAt", "?") if reused else "?"
+                print(f"note: request id {rid} already started job {deploy_id} (state {state}); "
+                      f"nothing new was started or funded. Following that job.", file=sys.stderr)
+                if changed:
+                    old = (entry or {}).get("paramsKey") or {}
+                    print(f"  That job belongs to the earlier START sent at {sent} (budget "
+                          f"{_usd(old.get('budget'))}, package {old.get('packageDir', '?')}). This "
+                          f"command's parameters (budget {_usd(params.get('budget'))}, package "
+                          f"{params.get('packageDir')}) were NOT applied.", file=sys.stderr)
+                if state in ("done", "interrupted"):
+                    print(f"  Job {deploy_id} had already ended ({state}) before this command ran: "
+                          f"what follows is the outcome of the earlier START sent at {sent}, not a "
+                          f"new deploy.", file=sys.stderr)
+                    try:
+                        a.repeated_terminal = {"deployId": deploy_id, "sentAt": sent}
+                    except AttributeError:
+                        pass
                 if payload.get("next"):
                     print(f"  {payload['next']}", file=sys.stderr)
             _journal_resolve(pkg, rid, deploy_id)
@@ -799,8 +808,9 @@ def start_deploy(pkg, a, log):
     if kind == "budget_spent":
         if not reused:
             _journal_resolve(pkg, rid, "not-sent")
-        print(f"NOTHING WAS DISPATCHED: this command's budget was spent before START was sent "
-              f"{_budget_note()}. No job started, no wallet created, no funds moved.",
+        print(f"NOTHING WAS DISPATCHED: less than {START_MIN_WALL_S}s of this command's budget was "
+              f"left for START, so it was not sent {_budget_note()}. No job started, no wallet "
+              f"created, no funds moved. Re-running this command starts over with a fresh budget.",
               file=sys.stderr)
         raise SystemExit(EXIT_INTERNAL)
     if kind == "refused":
@@ -1081,13 +1091,16 @@ def revalidate(dirs, log):
         timeout = VALIDATE_TIMEOUT if left is None else min(VALIDATE_TIMEOUT, left - KILL_RESERVE_S)
         if timeout < 1:
             return False, (f"openclaw senpi validate {d} was not run: this command's budget is "
-                           f"spent {_budget_note()}.")
+                           f"spent {_budget_note()}."), True
         rc, out, err = _cli.run_cli(["openclaw", "senpi", "validate", str(d), "--stage", "live"],
                                     timeout=timeout)
         if rc != 0:
+            # A timeout under a clipped budget is this command's clock, not a validate verdict.
+            cut_short = (timeout < VALIDATE_TIMEOUT and rc == -1
+                         and str(err or "").startswith("timed out after"))
             return False, (_cli.error_tail(err, out, limit=2000)
-                           or f"openclaw senpi validate {d} exited {rc} and printed nothing.")
-    return True, ""
+                           or f"openclaw senpi validate {d} exited {rc} and printed nothing."), cut_short
+    return True, "", False
 
 
 def _poll_deploy(pkg, a, log):
@@ -1126,12 +1139,19 @@ def run_deploy(pkg, a, log):
               f"deploy is re-run ONCE, and if it does not, its findings are printed here and the "
               f"deploy is not re-run. Nothing was created, funded or installed by the refused run.",
               file=sys.stderr)
-        ok, text = revalidate(dirs, log)
+        ok, text, cut_short = revalidate(dirs, log)
         if ok:
             deploy_id, fresh, poll_budget = _poll_deploy(pkg, a, log)
             if fresh is None:
                 return _unreadable_job(pkg, deploy_id, getattr(a, "request_id", None))
             snap = fresh
+        elif cut_short:
+            print(text, file=sys.stderr)
+            print(f"This command's budget ran out before `openclaw senpi validate` finished "
+                  f"{_budget_note()}, so no proof was recorded and the deploy was NOT re-run — its "
+                  f"refusal is reported below, unchanged. That is this command's clock, not a "
+                  f"validate verdict. Nothing was created, funded or installed by either call. "
+                  f"Re-run this command with a larger --max-wait (or none).", file=sys.stderr)
         else:
             print(text, file=sys.stderr)
             print(f"`openclaw senpi validate` did not PASS, so no proof was recorded and the deploy "
@@ -1149,7 +1169,18 @@ def run_deploy(pkg, a, log):
         print(f"\nStill running when this command stopped polling — job {deploy_id}{_rid_tag(rid)} "
               f"continues in the background.\n" + _poll_steer(pkg.id, rid, deploy_id),
               file=sys.stderr if a.json else sys.stdout)
-    return exit_code_for(snap)
+    code = exit_code_for(snap)
+    earlier = getattr(a, "repeated_terminal", None)
+    if earlier and code == 0:
+        # The job is the EARLIER START's, and it had ended before this command ran. 0 would read as
+        # "this deploy went live just now"; it did not deploy anything.
+        print(f"\nExit 1: this command started no deploy. Job {earlier['deployId']} is the outcome of "
+              f"the earlier START sent at {earlier['sentAt']}, and it ended before this command ran; "
+              f"whether that strategy still trades is not checked here.\n"
+              f"  Next: python3 {Path(__file__).with_name('status.py').name} {pkg.id}   — read what "
+              f"is live now, and report that.", file=sys.stderr)
+        return EXIT_INTERNAL
+    return code
 
 
 # ---------- verify: a READ-ONLY composite (it never starts the verb) ----------
@@ -1924,7 +1955,15 @@ def _fork_for_deploy(pkg, a, log):
         # `openclaw senpi validate --stage live` the agent would otherwise be sent to run by hand.
         unproven = [d for _n, st, d in proof_state(forked) if st == "no_proof"]
         if unproven:
-            ok, text = revalidate(unproven, log)
+            ok, text, cut_short = revalidate(unproven, log)
+            if not ok and cut_short:
+                print(text, file=sys.stderr)
+                print(f"✗ {info['id']}: this command's budget ran out before `openclaw senpi validate` finished on "
+                      f"the fork {_budget_note()}, so no proof was recorded and the deploy was not started. That is "
+                      f"this command's clock, not a validate verdict. The fork is on disk at {dest}; re-run this "
+                      f"command with a larger --max-wait (or none). Nothing was created, funded or installed.",
+                      file=sys.stderr)
+                sys.exit(EXIT_CODES["refused"])
             if not ok:
                 print(text, file=sys.stderr)
                 print(f"✗ {info['id']}: `openclaw senpi validate` did not PASS on the fork, so no proof was recorded and "

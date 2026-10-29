@@ -127,7 +127,9 @@ def is_refusal_message(message):
 
 
 def _classify_gateway_message(method, message):
-    if str(message or "").strip() == f"unknown method: {method}":
+    # The FIRST line only: on 5.x the message is the rest of stderr, and warning lines can follow it.
+    first = (str(message or "").strip().splitlines() or [""])[0].strip()
+    if first == f"unknown method: {method}":
         return "unknown_method"
     return "refused" if is_refusal_message(message) else "error"
 

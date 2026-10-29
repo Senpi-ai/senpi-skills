@@ -15,7 +15,11 @@ path it guards with no coverage at all. (Same move as `18a72d34`, which kept the
 import contextlib
 import io
 import json
+import os
+import shutil
 import sys
+import tempfile
+import types
 import unittest
 from pathlib import Path
 
@@ -24,6 +28,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 import _cli    # noqa: E402
 import close   # noqa: E402
+import _journal  # noqa: E402
 
 
 def _gw(kind, payload=None, message=None):
@@ -415,6 +420,48 @@ class MainPackagePollReportsClosed(unittest.TestCase):
 
     _CLOSED_ROW = {"strategyId": "s1", "strategyWalletAddress": "0xabc", "status": "CLOSED"}
     _ACTIVE_ROW = {"strategyId": "s1", "strategyWalletAddress": "0xabc", "status": "ACTIVE"}
+
+    def _seed_open_request(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        old = os.environ.get("SENPI_STRATEGIES_DIR")
+        os.environ["SENPI_STRATEGIES_DIR"] = tmp
+        self.addCleanup(lambda: os.environ.__setitem__("SENPI_STRATEGIES_DIR", old) if old is not None
+                        else os.environ.pop("SENPI_STRATEGIES_DIR", None))
+        rid = "dpl-req-20261028T000000Z-deadbeef"
+        _journal.write("omega", {"packageId": "omega", "requestId": rid, "sentAt": "2026-10-28T00:00:00Z",
+                                 "verb": "create", "paramsKey": {"packageDir": f"{tmp}/omega", "budget": 30.0},
+                                 "resolved": None})
+        return Path(tmp), rid
+
+    def test_a_triggered_close_closes_the_packages_open_deploy_request(self):
+        # START lost → recovery missed → the user closes → redeploys: the reused id would hand the next
+        # create the OLD (now closed) job as `repeated`, and nothing would run.
+        root, rid = self._seed_open_request()
+        self.rows = [self._ACTIVE_ROW]
+        _out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertEqual(_journal.read("omega")["resolved"], "closed-by-close.py")
+        # …so the next create mints a new id.
+        import deploy
+        real = _cli._spawn
+        self.addCleanup(setattr, _cli, "_spawn", real)
+        sent = []
+        _cli._spawn = lambda argv, timeout=60: (sent.append(argv) or
+                                                (0, json.dumps({"deployId": "dpl-new"}), "", False, None))
+        pkg = types.SimpleNamespace(dir=str(root / "omega"), id="omega", version="1.0.0", instances=[])
+        args = types.SimpleNamespace(budget=30.0, decision_model=None, tick_wait=None, max_wait=60,
+                                     json=False, dry_run=False, request_ids=True, cmd="create")
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(deploy.start_deploy(pkg, args, lambda m: None), "dpl-new")
+        params = json.loads(sent[0][sent[0].index("--params") + 1])
+        self.assertNotEqual(params["requestId"], rid)
+
+    def test_a_close_that_triggered_nothing_leaves_the_request_open(self):
+        _root, _rid = self._seed_open_request()
+        self.rows = []                                       # never deployed: nothing to close
+        self._run("omega")
+        self.assertIsNone(_journal.read("omega")["resolved"])
 
     def test_poll_after_a_completed_close_reports_closed(self):
         """THE defect: this is the terminal poll and it must say `closed`, not the all-clear."""

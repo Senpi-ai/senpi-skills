@@ -40,24 +40,30 @@ the host) exits `1` with NOTHING WAS DISPATCHED.
 
 **Request id (runtime with `deploy.capabilities.deployStartRequestId` on `senpi.getHealthStatus`).**
 `create`/`runtime` read that capability once, then send one `requestId` (`dpl-req-<UTC stamp>-<8 hex>`)
-on `senpi.deploy.start`, written first to `<strategies root>/.deploy-requests/<id>.json` with the package
-dir and budget. The runtime answers a repeated id with the job it already started (`repeated: true`) and
-funds nothing, so a retry after a lost reply funds once. An entry whose START never got an answer stays
-open with no age limit and is reused by the next `create`/`runtime` of that package; a call with a
-different budget or package dir is refused `[E_OPEN_DEPLOY_REQUEST]`: read `deploy.py status`. If it
-shows a job with the open id, status closes the request (report that job; the new command is then a NEW
-deploy, run only on the user's ask); if not, re-run nothing and ask the user. Only a reply naming a job,
-or `deploy.py status` showing that job, closes an entry the run did not mint. If the capability
-read fails, an open id is still sent (an older runtime ignores it) and `repeated: true` is still trusted,
-but nothing is matched by id. Lost-reply recovery matches `meta.requestId` exactly when advertised;
-otherwise it is this package plus a start no earlier than 5 s before the call. A definite reply without
-the capability sends no id. Every timeout / MAY BE RUNNING line names the request id (or the START time)
-to look for in `deploy.py status`, whose summary line shows `request id …`.
+on `senpi.deploy.start`, written first to `<strategies root>/.deploy-requests/<id>.json` with the verb,
+package dir and budget. The runtime answers a repeated id with the job it already started
+(`repeated: true`) and funds nothing, so a retry after a lost reply funds once. An entry whose START
+never got an answer stays open with no age limit and is reused by the next `create`/`runtime` of that
+package. It closes when a reply names a job, when `deploy.py status` shows the job carrying that id, or
+when `close.py <id>` triggers the package's close.
+- **Other parameters.** Advertised: the open id is sent with the new parameters; a `repeated` reply
+  returns the earlier job, says the new parameters were NOT applied, and nothing new starts. Not
+  confirmed: refused `[E_OPEN_DEPLOY_REQUEST]` (read `deploy.py status`; if it shows the job, report it;
+  if not, re-run nothing and ask the user).
+- **An earlier job that had already ended.** A `repeated` job that is `done`/`interrupted` is reported
+  as the earlier START's outcome, not a new deploy, and never exits `0`.
+- **Capability read failed.** An id is still sent (minted or open; an older runtime ignores it) and
+  `repeated: true` is trusted, but nothing is matched by id. A definite reply without the capability
+  sends no id.
+- Lost-reply recovery matches `meta.requestId` exactly when advertised; otherwise it is this package
+  plus a start no earlier than 5 s before the call. Every timeout / MAY BE RUNNING line names the request
+  id (or the START time) to look for in `deploy.py status`, whose summary line shows `request id …`.
 
 **One budget per command.** `create`/`runtime` run inside one wall-clock budget: the poll budget plus
 90 s (240 s by default; `--max-wait M` makes it M + 90). Every gateway call, recovery read, poll and
 the stale-proof re-validation gets what is left of it, and the last line states the budget and the time
-used.
+used. START is never sent with under 10 s left (NOTHING WAS DISPATCHED), and a re-validation cut short by
+the budget says so instead of reporting a validate failure.
 
 **Before any of this, the package must have been proven runnable** — `openclaw senpi validate
 <recipe-dir>` returning `PASS`. That answers a different question ("does the scanner actually run

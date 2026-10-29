@@ -719,32 +719,82 @@ class RequestIdRetry(_JournalDir, unittest.TestCase):
         self.assertEqual(out, ("exit", 1))
         self.assertEqual(self._journal()["resolved"], "not-dispatched")
 
-    def test_an_open_id_is_never_reused_with_other_parameters(self):
+    def test_advertised_an_open_id_goes_out_with_new_parameters_and_they_are_not_applied(self):
         rid = "dpl-req-20261028T000000Z-deadbeef"
-        self._seed_journal(rid, params={"packageDir": str(self.pkg.dir), "budget": 50.0}, verb="runtime")
-        fake = FakeCli([])
+        self._seed_journal(rid, params={"packageDir": str(self.pkg.dir), "budget": 50.0})
+        fake = FakeCli([_ok({"deployId": "dpl-old", "state": "running", "requestId": rid,
+                             "repeated": True})])
         out, err = self._start(fake)                          # this run asks for budget 30
-        self.assertEqual(out, ("exit", 2))
-        self.assertEqual(fake.calls, [])                      # nothing sent
-        self.assertIn("[E_OPEN_DEPLOY_REQUEST]", err)
-        self.assertIn(f"request id {rid}", err)
-        self.assertIn("$50.00", err)
-        self.assertIn("python3 deploy.py status", err)
-        self.assertIn("Nothing was started", err)
-        self.assertIsNone(self._journal()["resolved"])        # still open
-        # The way out is CONDITIONAL on what status shows, and names the verb that sent the request.
-        self.assertIn("An earlier `runtime` START for spider", err)
-        self.assertIn(f"It shows a job with request id {rid}: that START is accounted for", err)
-        self.assertIn(f"It shows no job with request id {rid}: do not re-run anything", err)
-        self.assertIn("A re-run of the earlier `runtime` would start a NEW deploy at $50.00", err)
-        self.assertIn("ask what they want", err)
-        self.assertNotIn("funds nothing twice", err)
-        self.assertNotIn(".deploy-requests", err)              # never teach deleting the journal
+        self.assertEqual(out, "dpl-old")
+        params = _gw_params(fake.argv_for("senpi.deploy.start")[0])
+        self.assertEqual((params["requestId"], params["budget"]), (rid, 30.0))
+        self.assertIn("nothing new was started or funded", err)
+        self.assertIn("budget $50.00", err)
+        self.assertIn("(budget $30.00", err)
+        self.assertIn("were NOT applied", err)
+        self.assertEqual(self._journal()["resolved"], "dpl-old")   # closed
+
+    def test_advertised_an_open_id_with_new_parameters_may_start_fresh(self):
+        rid = "dpl-req-20261028T000000Z-deadbeef"
+        self._seed_journal(rid, params={"packageDir": str(self.pkg.dir), "budget": 50.0})
+        fake = FakeCli([_ok({"deployId": "dpl-new", "state": "running", "requestId": rid})])
+        out, err = self._start(fake)
+        self.assertEqual(out, "dpl-new")
+        self.assertNotIn("NOT applied", err)
+        self.assertEqual(self._journal()["resolved"], "dpl-new")
+
+    def test_unconfirmed_support_refuses_an_open_id_with_other_parameters(self):
+        rid = "dpl-req-20261028T000000Z-deadbeef"
+        for caps in (None, False):
+            self._seed_journal(rid, params={"packageDir": str(self.pkg.dir), "budget": 50.0}, verb="runtime")
+            fake = FakeCli([])
+            out, err = self._start(fake, request_ids=caps)    # this run asks for budget 30
+            self.assertEqual(out, ("exit", 2), caps)
+            self.assertEqual(fake.calls, [])                  # nothing sent
+            self.assertIn("[E_OPEN_DEPLOY_REQUEST]", err)
+            self.assertIn(f"request id {rid}", err)
+            self.assertIn("$50.00", err)
+            self.assertIn("python3 deploy.py status", err)
+            self.assertIn("Nothing was started", err)
+            self.assertIsNone(self._journal()["resolved"])    # still open
+            # The way out is CONDITIONAL on what status shows, and names the verb.
+            self.assertIn("An earlier `runtime` START for spider", err)
+            self.assertIn(f"It shows a job with request id {rid}: that START is accounted for", err)
+            self.assertIn(f"It shows no job with request id {rid}: do not re-run anything", err)
+            self.assertIn("A re-run of the earlier `runtime` would start a NEW deploy at $50.00", err)
+            self.assertIn("ask what they want", err)
+            self.assertNotIn("funds nothing twice", err)
+            self.assertNotIn(".deploy-requests", err)
         # The same parameters reuse it.
         self._seed_journal(rid, params={"packageDir": str(self.pkg.dir), "budget": 30.0})
         fake = FakeCli([_ok({"deployId": "dpl-old", "state": "running", "requestId": rid,
                              "repeated": True})])
-        self.assertEqual(self._start(fake)[0], "dpl-old")
+        self.assertEqual(self._start(fake, request_ids=None)[0], "dpl-old")
+
+    def test_a_repeated_job_that_had_already_ended_live_never_exits_zero(self):
+        rid = "dpl-req-20261028T000000Z-deadbeef"
+        self._seed_journal(rid)
+        fake = FakeCli([HEALTH_ADVERTISED,
+                        _ok({"deployId": "dpl-old", "state": "done", "monitor": "…", "requestId": rid,
+                             "repeated": True}),
+                        _status({"meta": {"deployId": "dpl-old", "packageId": "spider", "requestId": rid},
+                                 "state": {"status": "done", "overall": "live"}})])
+        code, _out, err = self._main_create(fake)
+        self.assertEqual(code, 1)
+        self.assertIn("outcome of the earlier START sent at", err)
+        self.assertIn("not a new deploy", err)
+        self.assertIn("this command started no deploy", err)
+        self.assertIn("python3 status.py spider", err)
+
+    def test_start_is_not_sent_with_under_the_minimum_wall_clock_left(self):
+        deploy.begin_command_budget(deploy.KILL_RESERVE_S + 2)   # 2 s of wall clock for START
+        self.addCleanup(deploy.end_command_budget)
+        fake = FakeCli([])
+        out, err = self._start(fake)
+        self.assertEqual(out, ("exit", 1))
+        self.assertEqual(fake.calls, [])
+        self.assertIn("NOTHING WAS DISPATCHED", err)
+        self.assertEqual(self._journal()["resolved"], "not-sent")  # the minted id is closed
 
     def _status_cmd(self, snap):
         _cli._spawn = FakeCli([_status(snap)])
@@ -816,8 +866,8 @@ class RequestIdRetry(_JournalDir, unittest.TestCase):
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
             try:
-                out = deploy.start_deploy(self.pkg, _args(budget=30.0, request_ids=True, **kw),
-                                          lambda m: None)
+                kw.setdefault("request_ids", True)
+                out = deploy.start_deploy(self.pkg, _args(budget=30.0, **kw), lambda m: None)
             except SystemExit as e:
                 out = ("exit", e.code)
         return out, err.getvalue()
@@ -849,12 +899,22 @@ class RequestIdNotAdvertised(_JournalDir, unittest.TestCase):
         self.assertIn("the gateway took job dpl-0000beef", err)    # K1's match, unchanged
         self.assertNotIn("request id", err)
 
-    def test_an_unreadable_health_read_counts_as_not_advertised(self):
-        fake = FakeCli([TIMEOUT, _ok({"deployId": "dpl-1"}),
-                        _status({"state": {"status": "done", "overall": "live"}})])
-        code, _out, _err = self._main_create(fake)
-        self.assertEqual(code, 0)
-        self.assertNotIn("requestId", _gw_params(fake.argv_for("senpi.deploy.start")[0]))
+    def test_an_unreadable_health_read_still_mints_an_id_but_matches_nothing_by_it(self):
+        # Minting under an unknown capability is harmless (an older runtime ignores the param) and is
+        # what lets a retry of THIS start be idempotent; matching a job by the id still needs True.
+        fresh = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time() + 1))
+        other = {"meta": {"deployId": "dpl-x", "packageId": "spider", "startedAt": fresh,
+                          "requestId": "dpl-req-20261028T000001Z-0badf00d"},
+                 "state": {"status": "done", "overall": "live"}}
+        fake = FakeCli([TIMEOUT, TIMEOUT, _status(other), _status(other)])
+        code, _out, err = self._main_create(fake)
+        sent = _gw_params(fake.argv_for("senpi.deploy.start")[0])["requestId"]
+        self.assertRegex(sent, "^" + REQUEST_ID + "$")
+        entry = json.loads((self.root / ".deploy-requests" / "spider.json").read_text())
+        self.assertEqual(entry["requestId"], sent)
+        # Not advertised: K1's package + start-time match adopts, the id is not consulted.
+        self.assertEqual(code, 0, err)
+        self.assertIn("the gateway took job dpl-x", err)
 
     def _seed_open(self, rid):
         RequestIdRetry._seed_journal(self, rid)
@@ -980,8 +1040,11 @@ class OneCommandBudget(_JournalDir, unittest.TestCase):
         code, _out, _err = self._main_create(fake, "--max-wait", "30")
         self.assertLessEqual(self.clock.now - t0, budget)
         self.assertIn(code, (1, 2, 6))
-        # validate's own timeout was clipped to what was left, not its 180 s.
+        # validate's own timeout was clipped to what was left, not its 180 s, and the text says the
+        # budget ran out rather than "validate did not PASS … fix what validate reported".
         self.assertLess(max(fake.timeouts), budget)
+        self.assertIn("budget ran out before `openclaw senpi validate` finished", _err)
+        self.assertNotIn("did not PASS", _err)
 
     def test_a_poll_that_outlives_the_budget_says_so_on_its_last_line(self):
         budget = 30 + deploy.START_RESERVE_S

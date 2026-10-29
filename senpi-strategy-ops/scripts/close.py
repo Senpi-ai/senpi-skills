@@ -32,6 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _cli  # noqa: E402
 import _fetch  # noqa: E402
+import _journal  # noqa: E402
 import _pkg  # noqa: E402
 from mcp_client import MCPClient, MCPError  # noqa: E402
 
@@ -336,6 +337,13 @@ def main(argv):
                 poll = "close.py --all"
             print(f"\nClose triggered (runtimes stopped). strategy_close is async — positions flatten "
                   f"on-chain. Poll until closed by re-running: {poll}  (or check strategy_list status).")
+
+    # A START for this package whose reply never came back left its request id open in the deploy
+    # journal, and the next `deploy.py create` would reuse it: the runtime then answers with the OLD
+    # job (`repeated`), now closed, and nothing new runs. Once the close is triggered, that START is
+    # accounted for, so close the entry and let the next deploy mint a new id.
+    if pkg and not a.dry_run and overall in ("closing", "closed"):
+        _journal.resolve(pkg.id, None, "closed-by-close.py")
 
     # state is ephemeral: once a package is torn down, clear its deploy state so the next deploy is clean
     if pkg and not a.dry_run:

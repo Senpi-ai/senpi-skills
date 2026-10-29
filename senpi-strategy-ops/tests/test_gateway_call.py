@@ -90,6 +90,14 @@ class Classification(unittest.TestCase):
         _cli._spawn = FakeSpawn([answer])
         return _cli.gateway_call(method, {})
 
+    def test_unknown_method_is_read_off_the_first_line_when_warnings_trail_it(self):
+        # 5.x: the message is the rest of stderr, and with OPENCLAW_NO_RESPAWN warning lines can
+        # follow it. Matching the whole tail turned a missing method into `error` (lost-reply path).
+        err = ("Gateway call failed: GatewayClientRequestError: unknown method: senpi.deploy.start\n"
+               "[plugins] warning: forced retirement after 5000ms: 1 still-running call(s)\n")
+        r = self.call((1, "", err, False, None), "senpi.deploy.start")
+        self.assertEqual(r["kind"], "unknown_method")
+
     def test_ok_is_the_raw_payload_on_both_hosts(self):
         r = self.call((0, '{\n  "runtimes": []\n}\n', "", False, None), "senpi.listRuntimes")
         self.assertEqual((r["kind"], r["payload"]), ("ok", {"runtimes": []}))
