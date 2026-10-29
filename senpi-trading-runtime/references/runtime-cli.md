@@ -62,7 +62,8 @@ openclaw senpi validate ./my-strategy --stage import   # fast, offline, no crede
 
 One verb, run as a **detached job**: reconcile → funds preflight → wallet create+fund (carrying the
 package's `skillName`/`skillVersion` attribution) → install → one **observed** scanner tick. It
-returns in ~1s with a `deployId`; you poll `deploy status` until the job is terminal. Package-level
+returns in ~1s with a `deployId`; poll it with `python3 deploy.py status` until the job is terminal
+(do NOT re-run `create` to check on it). Package-level
 gates run **pre-money** — no DSL exit on an instance, an unsupported scanner-level `enabled` key, and
 the live-universe check (`[E_UNIVERSE_NOT_LIVE]`, fail-closed when the instrument list is unreadable).
 
@@ -88,7 +89,7 @@ the package (a bare catalog id is fetched), runs the structural preflight and dr
 | `runtime delete [runtime_id]` | Remove a runtime by id or wallet address. | `--id <runtime_id>` (from `runtime list`) · `--address <wallet>` |
 
 ```bash
-openclaw senpi deploy -p strategies/spider --budget 300   # the deploy path (detached; then: deploy status)
+openclaw senpi deploy -p strategies/spider --budget 300   # the deploy path (detached; then poll: deploy.py status)
 openclaw senpi runtime list                               # verify it is running
 openclaw senpi runtime delete --id iguana-tracker         # tear down (packages: close.py <id>, which also closes the strategy)
 ```
@@ -146,7 +147,7 @@ The trade narrative (position/dsl/order/signal/runtime events) is persisted to a
 
 | Command | What it does | Options |
 |---|---|---|
-| `status` | Lightweight runtime health digest for running runtimes: overall health, scanner summary (with a degraded-scanner count) followed by one line per non-healthy scanner carrying its restart count and its reason (a crash-loop cause, or the last tick error while the last run errored; older runtimes print only a crash-loop cause, prefixed `crash loop:`), DSL monitor liveness (running/stopped, tick-in-flight, next tick, last tick error), and — when risk is enabled — trade eligibility (OPEN/COOLDOWN/CLOSED) and the per-gate table. Scanner health is fail-closed: an external scanner never proven by a recent tick reads `unknown`, not `healthy`; when entry scanners never wired the scanner line reads `running — NO ENTRY SCANNERS (<phase> failed; see events)`. | `-r, --runtime <id>` · `--json` |
+| `status` | Lightweight runtime health digest for running runtimes: overall health, scanner summary (with a degraded-scanner count) followed by one line per non-healthy scanner carrying its restart count and its reason (a crash-loop cause, or the last tick error while the last run errored; older runtimes print only a crash-loop cause, prefixed `crash loop:`), DSL monitor liveness (running/stopped, tick-in-flight, next tick, last tick error), and — when risk is enabled — trade eligibility (OPEN/COOLDOWN/CLOSED) and the per-gate table. Scanner health is fail-closed: an external scanner never proven by a recent tick reads `unknown`, not `healthy`; when entry scanners never wired the scanner line reads `running — NO ENTRY SCANNERS (<phase> failed; see events)`. On OpenClaw 10.x it can begin with a box-level `WARNING trade approvals` line → SKILL.md "Trade approvals (OpenClaw 10.x)". | `-r, --runtime <id>` · `--json` |
 | `state` | Full runtime state for running runtimes — the escape hatch when the `status` digest isn't enough. | `-r` · `--json` |
 
 ## `senpi skills` — manage Senpi skills
