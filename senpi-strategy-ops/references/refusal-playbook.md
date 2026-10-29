@@ -290,7 +290,7 @@ raw MCP error if a create was called directly. The text takes one of two forms:
   per 30 days. Your next one frees up at 2026-11-02 14:00 UTC, or upgrade your plan.`
 
 This is the user's plan, not a defect: every strategy started in the current billing cycle (the last
-30 days without a plan) counts, except ones that failed while being set up. **Nothing was created** by
+30 days when there is no billing cycle) counts, except ones that failed while being set up. **Nothing was created** by
 the refused create and nothing was debited for it. The check is per wallet, so on a multi-instance
 package the sleeves created before it may be live: read `status.py <id>` and say which ones are.
 

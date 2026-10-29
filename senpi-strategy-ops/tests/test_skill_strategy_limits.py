@@ -1,5 +1,5 @@
 """A backend `SERR183` (the user's plan is at its limit of running strategies) or `SERR184` (the user has
-used every new strategy their plan allows this billing cycle, or in the last 30 days without a plan) is
+used every new strategy their plan allows this billing cycle, or in the last 30 days when there is no billing cycle) is
 the user's plan, not a defect the agent can fix. The outcome table's generic "read the quoted cause, fix
 it, re-run" would turn either one into a retry loop, or into the agent closing a strategy or deploying a
 smaller package to squeeze under the limit.
@@ -43,7 +43,7 @@ class StrategyLimitIsThePlanNotARetry(unittest.TestCase):
             "`SERR183`",
             "`SERR184`",
             "the user's plan limit",
-            "new strategies per billing cycle (the last 30 days without a plan)",
+            "new strategies per billing cycle (the last 30 days when there is no billing cycle)",
             "nothing was created",
             "never retry",
             "never close a strategy for them",
@@ -119,7 +119,7 @@ class StrategyLimitIsThePlanNotARetry(unittest.TestCase):
         text = TAXONOMY.read_text()
         self.assertIn("| `SERR183` (backend) |", text)
         row = next(l for l in text.splitlines() if l.startswith("| `SERR184` (backend) |"))
-        for needle in ("current billing cycle", "the last 30 days without a plan", "when the count resets",
+        for needle in ("current billing cycle", "the last 30 days when there is no billing cycle", "when the count resets",
                        "when the next start frees up", "closing a strategy does not free a start"):
             self.assertIn(needle, row, needle)
 
