@@ -14,7 +14,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "4.1.14"
+  version: "4.1.15"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -78,7 +78,7 @@ The plugin registers a `senpi` command group on the gateway. Deploying a strateg
 openclaw plugins install @senpi-ai/runtime
 openclaw senpi validate <dir-with-runtime.yaml>        # THE GATE, pre-money: one real tick, no wallet; a PASS records the proof deploy requires
 openclaw senpi deploy -p <package-dir> --budget <usd>  # ONE verb, detached: funds preflight → wallet create+fund → install → one observed tick
-openclaw senpi deploy status                           # poll until terminal; the verified report (read-only)
+openclaw senpi deploy status                           # the job's verified report (read-only); poll it with deploy.py status, below
 openclaw senpi runtime list                            # id, source, status ("running — NO ENTRY SCANNERS" = scanners never wired)
 ```
 
@@ -86,7 +86,9 @@ openclaw senpi runtime list                            # id, source, status ("ru
 resolves the package, runs the structural preflight and drives that same verb. The verb owns the
 gates — the live-universe check (`[E_UNIVERSE_NOT_LIVE]`, pre-money), the funds preflight, the
 `skillName`/`skillVersion` attribution and the verified tick. **`runtime create` is internal**: it
-installs a runtime and skips every one of those, so it is not the deploy path.
+installs a runtime and skips every one of those, so it is not the deploy path. Then run
+**`python3 deploy.py status`** until the job is terminal (it calls the gateway directly, ~1 s per read)
+and relay its report; do NOT re-run `create` to check on a deploy.
 
 **`senpi validate` is the gate every deploy runs through** — it loads the scanners and runs one
 real tick with no wallet and no funding, and a full unscoped PASS at live depth is what writes the
@@ -146,6 +148,20 @@ asset's stitched lifecycle), `senpi status`/`senpi state` (health — fail-close
 never proven by a tick reads `unknown`, not `healthy`; non-healthy scanners get their own line with
 restart count and cause), and `senpi guide …` (in-shell reference). Full surface with every option →
 `references/runtime-cli.md`.
+
+**Trade approvals (OpenClaw 10.x).** `status` can begin with one box-level line, `WARNING trade
+approvals: this box cannot tell chat turns from scheduled runs, so every run is asked, scheduled ones
+included. Reason: <reason>.` It appears whatever the runtimes say, only on a 10.x box whose config
+needs a fix (the reason names the setting). It is about the box, not a runtime: it does not mean a
+runtime is unhealthy. Relay it to the user as a box setup problem for Senpi support; nothing on the
+strategy side changes it. On 5.x there is no such line (every run is asked there by design). `--json`
+carries it as `approvals.turnClassification` (`available` / `unavailable`, with `reason`, and
+`hostLimit: true` on 5.x). When the box can classify runs, a trade tool that needs approval asks the
+user only from a direct chat turn; from a cron, heartbeat or other background run the call is refused
+before it runs: `The trade was not executed: <tool> needs the user's approval, and this scheduled run
+(cron) has no way to ask for it. …`. Nothing was executed. Do what the refusal says: tell the user what
+you were about to do and that they can ask for it in chat, and do not retry it from that run through
+another tool or script. A trade the user set to "Always allow" runs in any run kind.
 
 **To confirm open positions are actually stop-loss protected** (a position with no DSL shows up as an
 *absence* in `dsl positions`, so it's easy to miss) → the verdict procedure in
