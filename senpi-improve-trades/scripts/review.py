@@ -36,6 +36,7 @@ import datetime
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -804,6 +805,54 @@ def _iso8601(ms):
         return None
 
 
+# Vendored from senpi-strategy-ops/scripts/_cli.py; held identical by
+# senpi-portfolio/tests/test_name_reader_parity.py. Edit both or neither.
+def _kill_tree(p):
+    """Stop a child started with `start_new_session=True` and everything in its process group:
+    SIGTERM to the group, 2 s grace, then SIGKILL to the group ALWAYS, then reap. Never raises.
+
+    The SIGKILL is unconditional: the leader exiting on SIGTERM says nothing about the rest of its
+    group, and a member that ignores SIGTERM would otherwise outlive the call and hold the output
+    pipes open (so the caller's read blocks on it)."""
+    try:
+        os.killpg(p.pid, signal.SIGTERM)
+    except OSError:
+        pass
+    try:
+        p.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    try:
+        p.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def _run_grouped(cmd, timeout):
+    """`subprocess.run` for an `openclaw` call, with what a timeout needs on OpenClaw 10.x: the child
+    runs in its own session with stdin closed and `OPENCLAW_NO_RESPAWN=1` (so `openclaw` stays one
+    process instead of re-executing a detached worker), and on timeout its whole process group is
+    killed (`_kill_tree`: SIGTERM, 2 s, SIGKILL always, reap) before `TimeoutExpired` is raised. Same spawn as
+    senpi-strategy-ops `_cli._spawn`. Raises what `subprocess.run` raises (OSError, TimeoutExpired)."""
+    env = dict(os.environ, SENPI_LOG_LEVEL="error", OPENCLAW_NO_RESPAWN="1")
+    p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         text=True, env=env, start_new_session=True)
+    try:
+        out, err = p.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_tree(p)
+        try:
+            p.communicate(timeout=5)
+        except (subprocess.TimeoutExpired, ValueError, OSError):
+            pass
+        raise subprocess.TimeoutExpired(cmd, timeout)
+    return subprocess.CompletedProcess(cmd, p.returncode, out or "", err or "")
+
+
 def _fetch_events(runtime_id, since_ms, meta):
     """Read a runtime's on-disk event ring → a list of event dicts ({name, ts, attrs, …}). FAIL-OPEN:
     missing `openclaw` / non-zero exit / `unknown method: senpi.getEvents` (older build that lacks the RPC)
@@ -832,7 +881,7 @@ def _fetch_events(runtime_id, since_ms, meta):
     if since_iso:
         cmd += ["--since", since_iso]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=EVENTS_CALL_TIMEOUT_S)
+        proc = _run_grouped(cmd, EVENTS_CALL_TIMEOUT_S)
     except FileNotFoundError:                # no `openclaw` on PATH (not a runtime host)
         meta["_telemetry_dead"] = True       # no CLI at all → every runtime fails; stop shelling out
         _note_telemetry_unavailable(meta, "openclaw CLI not found; exit reasons from ratchet fallback only")
