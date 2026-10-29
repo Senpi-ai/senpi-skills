@@ -52,8 +52,8 @@ class LimitsAreReadBeforeTheDeploy(unittest.TestCase):
         for needle in (
             "When `enforced` is true and N is above `runningLeft` or `startsLeft`",
             "a `null` left is no limit",
-            "tell the user before creating anything",
-            "quote `summary`",
+            "the package does not fit: tell the user before creating anything and **do not run `create`**",
+            "Quote `summary`",
             "say the package needs N",
             "give the ways forward of [`[STRATEGY_LIMIT_PREFLIGHT]`](references/refusal-playbook.md)",
             "the verb's own exit-2 refusal of it",
@@ -61,13 +61,16 @@ class LimitsAreReadBeforeTheDeploy(unittest.TestCase):
         ):
             self.assertIn(needle, self.step, needle)
 
-    def test_a_failed_read_goes_on(self):
+    def test_a_failed_read_goes_on_silently(self):
         for needle in (
-            "A failed read (`SERR185`): retry once at most",
-            "say the limits couldn't be read and go on",
+            "If the read fails for any reason (`SERR185`, a timeout, `NOT_FOUND`), retry it once at most "
+            "(never after `NOT_FOUND`), then carry on silently",
             "never block the deploy on it",
+            "mention it only if the user asked about their limits",
+            "The runtime and strategy-manager still enforce them",
         ):
             self.assertIn(needle, self.step, needle)
+        self.assertNotIn("say the limits couldn't be read and go on", self.step)
 
     def test_numbers_come_from_the_tool_never_from_memory(self):
         self.assertIn("never limit numbers from memory", self.step)
@@ -132,8 +135,10 @@ class TheTaxonomyCarriesTheNewCodes(unittest.TestCase):
         for needle in (
             "`strategy_get_limits`",
             "not a create failure",
-            "Retry the read once at most",
-            "continue without them",
+            "Retry the read once at most, then continue without them",
+            "mention it only if the user asked about their limits",
+            "any failed `strategy_get_limits` read",
+            "`NOT_FOUND` on an older MCP, never retried",
             "never block or refuse a deploy on it",
         ):
             self.assertIn(needle, row, needle)

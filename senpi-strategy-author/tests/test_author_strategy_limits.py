@@ -37,14 +37,15 @@ class ManyAtOnceOnlyWithinTheLimits(unittest.TestCase):
         ):
             self.assertIn(needle, section, needle)
 
-    def test_a_running_limit_is_the_one_thing_that_blocks(self):
+    def test_only_the_strategy_limits_block(self):
         section = _section()
         for needle in (
             "**Never tell the user they must stop an existing strategy to start a new one**",
-            "only a plan's running limit can",
-            "closing one is then the user's choice",
+            "only the strategy limits can (running and new per cycle)",
+            "Closing one frees only a running slot, and is the user's choice",
         ):
             self.assertIn(needle, section, needle)
+        self.assertNotIn("only a plan's running limit can", section)
 
     def test_no_limit_figure_is_written_down(self):
         self.assertIsNone(re.search(r"\b\d+ (running|new) strateg", _section()))

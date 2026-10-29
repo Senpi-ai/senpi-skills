@@ -346,8 +346,8 @@ or shut down anything the user is already running. So:
 
 - **Default to running it alongside.** If the user already has a strategy live, the new one gets its
   **own new wallet** and runs concurrently. **Never tell the user they must stop an existing strategy
-  to start a new one** — wallets never block each other; only a plan's running limit can, and closing
-  one is then the user's choice. "You're already running X, so this needs its own wallet" is a fact.
+  to start a new one** — wallets never block each other; only the strategy limits can (running and new
+  per cycle). Closing one frees only a running slot, and is the user's choice. "You're already running X, so this needs its own wallet" is a fact.
 - **Multiple strategies / wallets at once is normal — within the user's strategy limits.** Each is fully
   isolated (own wallet, slots, risk gates), but every wallet is one strategy against the plan's limits:
   before proposing more than one, call `strategy_get_limits`; when `enforced` is true, size the proposal

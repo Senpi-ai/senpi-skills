@@ -70,25 +70,32 @@ Lead with the section they asked about; otherwise a tight standing card:
 1. **Points & rank** — total, base/perp split, multiplier, rank (+ change).
 2. **Fee** — `fee.pct` (`0%` = a paid plan, no Senpi fee).
 3. **Referral** — pending `balance_usdc` (and that it's claimable if > 0).
-4. **Strategy limits** — `limits.summary`, then usage and the reset time (see below).
+4. **Strategy limits** — only when a limit is enforced: `limits.summary`, usage and the reset time. No
+   limits apply (grandfathered, or both limits `null`): one line at most, "no strategy limits apply".
+   `enforced: false` or `limits: {}`: leave it off. Full detail only when asked (see below).
 
 Formatting: clean, scannable, numbers from the data; emoji sparingly.
 
 ## Strategy limits
 
-`limits` is MCP `strategy_get_limits`: the user's own plan, usage and reset time. Lead with
-`limits.summary`, the sentence to quote. Then, when asked: `running` of `maxRunning` running,
+`limits` is MCP `strategy_get_limits`: the user's own plan, usage and reset time. When a limit is
+enforced, lead with `limits.summary`, the sentence to quote. Then: `running` of `maxRunning` running,
 `starts` of `maxStarts` new this cycle (the last 30 days when `window` is not `CYCLE`), and
 `startsResetAt` in UTC (when the count resets in a cycle; otherwise when the next start frees up).
 Never quote limit numbers from memory or from the plan table.
 
 - **A `null` limit is no limit, never 0.** `source: "grandfathered"`: their account predates strategy
-  limits, so none apply. `source: "override"` with both limits `null`: no limits apply to their account.
-  `enforced: false`: limits are not enforced right now, whatever the numbers say.
+  limits, so none apply. Both limits `null` (some `source: "override"` accounts): no limits apply to
+  their account. Either way the card says "no strategy limits apply" at most.
+- **`enforced: false`**: limits are not enforced right now, whatever the numbers say. Leave limits off
+  the card; explain only when the user asks about their limits.
 - **How it counts**: every wallet is one strategy (a 3-wallet strategy uses 3); a PAUSED strategy counts
   as running; closing frees a running slot, never a start; a create that failed never used a start.
-- **Unread**: `limits: {}` with a `strategy_get_limits failed` warning. Run the engine once more at most,
-  then say their limits couldn't be read right now. Never guess, and never say they have none.
+- **Unread**: `limits: {}` with a `strategy_get_limits failed` warning. Leave limits off the card and
+  say nothing about it unless the user asked about their limits. If they did, run the engine once more at most
+  (not when the warning says `NOT_FOUND`) and, if it still fails, say their limits couldn't be read
+  right now. Never guess, and never say they have none. Deploys never wait on this read: the runtime
+  and strategy-manager still enforce the limits.
 
 ## AI credits — the usage meter
 
@@ -176,8 +183,10 @@ never a calendar month.
   every strategy on it stops with it: no scans, no new entries, no stop moves. Open positions stay
   open, and a stop-loss already resting on the exchange still triggers. Funds stay in their wallets,
   withdrawable in the app. Subscribing, a successful renewal or an upgrade brings the agent and its
-  strategies back. `limits.plan` names their plan; you cannot see trial or renewal dates: point at
-  senpi.ai/settings/subscription, and never tell them a subscription is not needed.
+  strategies back. `limits.plan` names their plan only when one is set: it is `null` for free,
+  grandfathered and some override accounts, so never conclude "no plan" from a `null`.
+  `source: "trial"` means a trial; `limits: {}` means the read failed. You cannot see trial or renewal
+  dates: point at senpi.ai/settings/subscription, and never tell them a subscription is not needed.
 
 **Free credits — the milestones ended on 2026-10-26.** Every free-credit milestone is over: your
 first strategy, funding a wallet, the trading-volume ladder and the first-subscription bonus. None of

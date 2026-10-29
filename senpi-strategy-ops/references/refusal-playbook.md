@@ -257,7 +257,7 @@ debited**; the budget never left the funding wallet. No retry refills the pool: 
 ### `SERR183` — the plan's limit on running strategies
 
 Reaches you as a **`failed` report (exit 3)** on `create` with the backend's text quoted
-(`SERR183: Your Pro plan allows 3 running strategies and you have 3. Close one or upgrade your plan
+(`SERR183: Your Example plan allows 4 running strategies and you have 4. Close one or upgrade your plan
 to start another.`), or as the raw MCP error if a create was called directly. This is the user's plan,
 not a defect: the limit counts every strategy except CLOSED, FAILED, CLOSING_POSITIONS and MANUAL_REVIEW
 ones, so a PAUSED one counts.

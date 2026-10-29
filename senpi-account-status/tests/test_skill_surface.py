@@ -342,7 +342,7 @@ class StrategyLimitsComeFromTheEngine(unittest.TestCase):
         section = self._limits()
         for needle in (
             "`limits` is MCP `strategy_get_limits`",
-            "Lead with `limits.summary`",
+            "When a limit is enforced, lead with `limits.summary`",
             "`running` of `maxRunning`",
             "`starts` of `maxStarts` new this cycle",
             "`startsResetAt`",
@@ -356,12 +356,23 @@ class StrategyLimitsComeFromTheEngine(unittest.TestCase):
             "A `null` limit is no limit, never 0",
             '`source: "grandfathered"`',
             "their account predates strategy limits, so none apply",
-            '`source: "override"`',
-            "no limits apply to their account",
+            'Both limits `null` (some `source: "override"` accounts): no limits apply to their account',
+            'the card says "no strategy limits apply" at most',
             "`enforced: false`",
             "not enforced right now",
+            "Leave limits off the card; explain only when the user asks about their limits",
         ):
             self.assertIn(needle, section, needle)
+
+    def test_the_standing_card_shows_limits_only_when_one_is_enforced(self):
+        card = _flat(_section(_split(SKILL)[1], "## Output contract"))
+        for needle in (
+            "**Strategy limits** — only when a limit is enforced: `limits.summary`, usage and the reset time",
+            'No limits apply (grandfathered, or both limits `null`): one line at most, "no strategy limits apply"',
+            "`enforced: false` or `limits: {}`: leave it off",
+            "Full detail only when asked",
+        ):
+            self.assertIn(needle, card, needle)
 
     def test_the_counting_rules_are_stated(self):
         section = self._limits()
@@ -375,8 +386,14 @@ class StrategyLimitsComeFromTheEngine(unittest.TestCase):
 
     def test_an_unread_limit_is_said_never_guessed(self):
         section = self._limits()
-        self.assertIn("`limits: {}` with a `strategy_get_limits failed` warning", section)
-        self.assertIn("say their limits couldn't be read right now", section)
+        for needle in (
+            "`limits: {}` with a `strategy_get_limits failed` warning",
+            "Leave limits off the card and say nothing about it unless the user asked about their limits",
+            "If they did, run the engine once more at most (not when the warning says `NOT_FOUND`)",
+            "say their limits couldn't be read right now",
+            "Deploys never wait on this read: the runtime and strategy-manager still enforce the limits",
+        ):
+            self.assertIn(needle, section, needle)
 
     def test_no_limit_figure_is_written_down(self):
         self.assertIsNone(re.search(r"\b\d+ (running|new) strateg", self._limits()))
@@ -384,7 +401,14 @@ class StrategyLimitsComeFromTheEngine(unittest.TestCase):
     def test_the_plan_is_no_longer_called_invisible(self):
         plans = _flat(_section(_split(SKILL)[1], PLANS))
         self.assertNotIn("You cannot see the user's plan, trial or renewal dates", plans)
-        self.assertIn("`limits.plan` names their plan; you cannot see trial or renewal dates", plans)
+        for needle in (
+            "`limits.plan` names their plan only when one is set",
+            "`null` for free, grandfathered and some override accounts",
+            'never conclude "no plan" from a `null`',
+            '`source: "trial"` means a trial; `limits: {}` means the read failed',
+            "You cannot see trial or renewal dates",
+        ):
+            self.assertIn(needle, plans, needle)
 
     def test_the_router_finds_the_limits_questions(self):
         front = _flat(_split(SKILL)[0])
