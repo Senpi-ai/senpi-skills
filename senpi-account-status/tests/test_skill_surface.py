@@ -154,8 +154,8 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
         )
         self.assertNotIn("$25 |", section)
         self.assertIn(
-            "Starter ($25) is closed to new subscribers; people already on it keep it and can "
-            "upgrade, but cannot return to it after leaving.",
+            "Starter ($25 a month, $25 credits, 1 point per $1 volume) is closed to new subscribers; "
+            "people already on it keep it and can upgrade, but cannot return to it after leaving.",
             _flat(section),
         )
 

@@ -132,8 +132,8 @@ never a calendar month.
 | Advanced | $100 | $115 (+15%) | 2 |
 | Quant | $200 | $240 (+20%) | 3 |
 
-Starter ($25) is closed to new subscribers; people already on it keep it and can upgrade, but
-cannot return to it after leaving.
+Starter ($25 a month, $25 credits, 1 point per $1 volume) is closed to new subscribers; people
+already on it keep it and can upgrade, but cannot return to it after leaving.
 
 - **Every plan includes every model.** Plans differ on credits and points rate only — never on model
   access, so a cheaper plan never locks anyone out of the better model.
