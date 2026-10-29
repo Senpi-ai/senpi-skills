@@ -127,6 +127,37 @@ it is a money conversation before it is a command:
 - raw `strategy_create_custom_strategy` — that is a naked wallet with no runtime.
 - claim "upgraded / live" before the deploy report says `overall: live`.
 
+## Watch-only: no new entries, DSL keeps managing open positions ("stop new trades", "watch only")
+
+Watch-only is **`decision_mode: none` on every `OPEN_POSITION` action**. It is the only working way to stop new entries. The action then
+skips every signal with `execute: false`, so nothing new opens. Change nothing else.
+
+```yaml
+# strategies/penguin/main/runtime.yaml, action penguin_main_entry
+decision_mode: rule    # before
+decision_mode: none    # after: opens nothing
+```
+
+1. Keep the `exit` block: it is the DSL that manages open positions. Keep the `position_tracker` scanner
+   and the `POSITION_TRACKER` action: with DSL on, the runtime does not boot without them. Keep the entry
+   scanner too: the entry action lists it under `scanners:`.
+2. Apply it with the edit steps above. The plan must show exactly one change,
+   `actions[<entry>].decision_mode: <old> → none`, and a "These fields have no effect as written" block
+   that says the action never trades. If the plan shows anything else, stop.
+3. After `--apply` and the two confirming reads, tell the user: "Watch-only is on. No new entries. DSL still
+   manages your N open positions." Name any `CLOSE_POSITION` action that is still active.
+
+In watch-only, these still run: the entry scanner (it ticks, emits signals and makes its MCP calls), every
+`CLOSE_POSITION` action, the position tracker and DSL. To turn off one exit instead, delete that
+`CLOSE_POSITION` action (and its scanner if nothing else lists it); do not set `decision_mode: none` on it.
+
+**Turn watch-only off:** set `decision_mode` back to its old value (`rule` or `llm`) and run the same steps.
+
+**These stop no entries. Never use them:** `enabled: false` on an action or on `strategy:` (not read);
+`enabled` on a scanner (deploy refuses it); `slots: 0` (the runtime turns it into 1);
+`max_entries_per_day: 0` (the minimum is 1). `deploy.py` refuses `enabled` on an action,
+`strategy.enabled: false` and `slots: 0`.
+
 # DSL changes — the file and the open positions are two different edits
 
 The runtime **snapshots the exit ladder when a position is created**. Editing `exit.dsl_preset` in

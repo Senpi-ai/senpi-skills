@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.51.1"
+  version: "2.52.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -410,7 +410,7 @@ days.
   winner."* Read the market; lead with the best current setup from `market_facts`. Never imply a real
   per-package performance leaderboard. The live read covers only the candidates returned, so an unthemed
   run reads an alphabetical slice — ask which style first, then run themed.
-- **Micro-specs** ("$1 a trade", "never lose more than 20 cents", "a hundred small wins") → do the fee math out loud before matching anything: read the round-trip cost — Hyperliquid's taker rate on both legs (the wallet's `userFees`, never assumed) plus Senpi's builder fee (the user's own, `user_get_senpi_points` `builderFeePercent`: 0 on a paid plan, a flat 0.03% without one) — and put it next to their stop — a position big enough to make $1 pays a fee that is a large share of a 20-cent stop, and a stop that tight is hit by normal noise. Say the numbers, then offer what exists: a template's stop and lock ladder sized to its budget. Never save an impossible spec as their "risk profile" and never answer "Senpi has exactly that".
+- **Micro-specs** ("$1 a trade", "never lose more than 20 cents", "a hundred small wins") → do the fee math out loud before matching anything: read the round-trip cost — Hyperliquid's taker rate on both legs (the wallet's `userFees`, never assumed; Senpi adds no fee on a paid plan, and any other account's own rate is `user_get_senpi_points` `builderFeePercent`) — and put it next to their stop — a position big enough to make $1 pays a fee that is a large share of a 20-cent stop, and a stop that tight is hit by normal noise. Say the numbers, then offer what exists: a template's stop and lock ladder sized to its budget. Never save an impossible spec as their "risk profile" and never answer "Senpi has exactly that".
 - **"Show me the source" / "I want an outside audit"** → the catalog is public: link `https://github.com/Senpi-ai/senpi-skills/tree/main/strategies/<id>`, and for a fork point at their package (`<username>-<template>`, as ops names it) and its diff against that link. Never hand-roll a tarball or a hash-stamped dump in place of the link.
 - **"Proven / backtested / track record" templates** → say it plainly, and say WHY (Golden rules): a
   template has no live track record and no per-template performance board, because every live copy of it

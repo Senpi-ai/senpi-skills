@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.21.0"
+  version: "1.23.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -278,10 +278,11 @@ join is the future upgrade; it's intentionally **not** called per-trade (rate-li
 wired, quote the maker ratio as a fee-tier signal, never a fee dollar total. (`pnl_summary.fees` and the
 trade rows do carry fee $.)
 
-**Fee rate (hard rule 0):** Senpi's builder fee follows the plan: **none on a paid plan** (Starter,
-Pro, Advanced, Quant), **a flat 0.03% without one**, free trials included; tiers and points no longer
-change it. A fill keeps the fee it was signed with, so fills from orders placed before 2026-10-26 (a
-resting stop included) show the old tier rate, between 0.025% and 0.05%.
+**Fee rate (hard rule 0):** Senpi charges **no builder fee on a paid plan** (Starter, Pro, Advanced,
+Quant); tiers and points no longer change it. Quote fees from the fills, never a rate from memory —
+the rate is not a constant. A fill keeps the fee it was signed with, so an order placed before
+2026-10-26 (a resting stop included) can still carry a builder leg: read it from the fill's own
+`builderFee`.
 
 **Quick action 4 — the `explain` command in full.** For "walk me through / explain my BTC trade," the agent
 runs the native lifecycle command directly (it's not in `review.py` — it's the runtime CLI):

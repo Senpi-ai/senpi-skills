@@ -1,10 +1,10 @@
-"""Puffer 1.1.0: four slots at 20% and 4x, a 3%-of-price stop, the fee gate at measured live rates.
+"""Puffer 1.2.0: four slots at 20% and 4x, a 3%-of-price stop, the fee gate at the venue's base rates.
 
 From the 2026-10-12 template audit: in a 208-day replay on four majors, as 1.0 was written, Puffer
 traded about seven times per coin per month with 28% winners, and 88% of its live closes were the
 exchange stop — an 8% ROE stop 1.6% of price away at 5x, inside the release candle's own range. The
-fee gate priced a round trip at 0.06% (HL's base fee alone, 4.5/1.5 bps) against 8 bps taker / 6 bps
-maker per side measured on live fills (0.14-0.16%; HL + the builder fee, which is per user). These tests pin the shipped numbers, the fee
+fee gate prices a round trip at the venue's base rates (4.5 bps taker / 1.5 bps maker per side,
+0.06-0.09%); Senpi adds no fee on a paid plan. These tests pin the shipped numbers, the fee
 arithmetic, and scan() ticks against a fake desk. The wider stop's trip rate is not measured yet, so
 nothing here (or on the card) promises one.
 
@@ -91,18 +91,18 @@ def test_four_slots_at_twenty_percent_and_four_x_everywhere():
     assert scoring.sizing_for("base", {}) == (4, 20.0)
 
 
-def test_the_fee_gate_is_priced_at_the_measured_rates():
-    assert (INPUTS["takerFeeBps"], INPUTS["makerFeeBps"], INPUTS["feeCoverMultiple"]) == (8, 6, 2.5)
-    assert abs(scoring.roundtrip_fee_pct(INPUTS) - 0.14) < 1e-9                       # maker in, taker out
-    assert abs(scoring.roundtrip_fee_pct(INPUTS, maker_entry=False) - 0.16) < 1e-9    # taker both ways
-    assert abs(scoring.roundtrip_fee_pct({}) - 0.14) < 1e-9       # 1.0's fallback was 0.06: the base schedule
+def test_the_fee_gate_is_priced_at_the_venue_base_rates():
+    assert (INPUTS["takerFeeBps"], INPUTS["makerFeeBps"], INPUTS["feeCoverMultiple"]) == (4.5, 1.5, 2.5)
+    assert abs(scoring.roundtrip_fee_pct(INPUTS) - 0.06) < 1e-9                       # maker in, taker out
+    assert abs(scoring.roundtrip_fee_pct(INPUTS, maker_entry=False) - 0.09) < 1e-9    # taker both ways
+    assert abs(scoring.roundtrip_fee_pct({}) - 0.06) < 1e-9       # the fallbacks agree with the file
     ok, detail = scoring.clears_fees(_released(), INPUTS)
-    assert ok and abs(detail["required_pct"] - 0.35) < 1e-9 and detail["expected_capture_pct"] >= 0.35
-    # a tape offering 0.6 x ATR between 0.15% and 0.35% of price was tradeable at 1.0's pricing and is
-    # priced out at the measured rates — the audit's finding, as arithmetic
+    assert ok and abs(detail["required_pct"] - 0.15) < 1e-9 and detail["expected_capture_pct"] >= 0.15
+    # 2.5x a 0.06% round trip: a tape offering 0.6 x ATR above 0.15% of price clears, one under it does not
     thin = _feed([(100.2, 99.8, 100.0, 1000.0)] * 20)                                  # ATR 0.4% -> capture 0.24%
-    assert scoring.clears_fees(thin, INPUTS)[0] is False
-    assert scoring.clears_fees(thin, dict(INPUTS, takerFeeBps=4.5, makerFeeBps=1.5))[0] is True
+    assert scoring.clears_fees(thin, INPUTS)[0] is True
+    flat = _feed([(100.1, 99.9, 100.0, 1000.0)] * 20)                                  # ATR 0.2% -> capture 0.12%
+    assert scoring.clears_fees(flat, INPUTS)[0] is False
 
 
 def test_rails_cadence_card_and_version():
@@ -110,7 +110,7 @@ def test_rails_cadence_card_and_version():
     assert rails["max_entries_per_day"] > RUNTIME["strategy"]["slots"]
     assert rails["drawdown_reset_on_day_rollover"] is False and rails["bypass_max_entries_per_day_on_profit"] is False
     assert SCANNER["timeout_seconds"] < SCANNER["interval_seconds"]
-    assert MANIFEST["version"] == "1.1.0"
+    assert MANIFEST["version"] == "1.2.0"
     text = " ".join(str(CARD[f]) for f in ("tagline", "belief_plain", "thesis"))
     assert "3%" in text and "4x" in text and "20%" in text
     assert "5x" not in text and "widest" not in text                  # 1.0's leverage and an unmeasured superlative
@@ -119,17 +119,18 @@ def test_rails_cadence_card_and_version():
 
 # ── the engine at the shipped inputs ─────────────────────────────────────────────────────
 
-def test_a_release_is_traded_only_when_the_tape_pays_the_measured_fees():
+def test_a_release_is_traded_only_when_the_tape_pays_the_fees():
     th = scoring.build_thesis("BTC", _released(), INPUTS)
     assert th and th["direction"] == "LONG" and th["squeeze_ratio"] < INPUTS["maxSqueezeRatio"]
-    assert abs(th["fees"]["required_pct"] - 0.35) < 1e-9
+    assert abs(th["fees"]["required_pct"] - 0.15) < 1e-9
     assert scoring.build_thesis("BTC", _released("SHORT"), INPUTS)["direction"] == "SHORT"
     assert scoring.build_thesis("BTC", _coiled(), INPUTS) is None       # still inside the coil
-    # the same coil and release at 40% of the range: just as coiled, but 0.6 x ATR is under 0.35%
-    quiet = _released(scale=0.4)
+    # the same coil and release at 30% of the range: just as coiled, but 0.6 x ATR is under 0.15%
+    quiet = _released(scale=0.3)
     assert scoring.squeeze_ratio(quiet[:-1], INPUTS) < INPUTS["maxSqueezeRatio"]
     assert scoring.build_thesis("BTC", quiet, INPUTS) is None
-    assert scoring.build_thesis("BTC", quiet, dict(INPUTS, takerFeeBps=4.5, makerFeeBps=1.5)) is not None  # 1.0 took it
+    # at 40% of the range it pays 2.5x the round trip and is taken
+    assert scoring.build_thesis("BTC", _released(scale=0.4), INPUTS) is not None
 
 
 # ── scan(): ticks against a fake desk ────────────────────────────────────────────────────
@@ -194,7 +195,7 @@ def test_a_tick_sizes_every_emit_at_twenty_percent_and_four_x_clamped_to_the_ven
     for s in out:
         assert set(s["data"]) <= set(schema) and all(v is not None for v in s["data"].values())
         assert s["data"]["leverage"] == s["leverage"] and s["data"]["direction"] == s["direction"] == "LONG"
-        assert s["data"]["squeezeRatio"] < INPUTS["maxSqueezeRatio"] and abs(s["data"]["requiredPct"] - 0.35) < 1e-9
+        assert s["data"]["squeezeRatio"] < INPUTS["maxSqueezeRatio"] and abs(s["data"]["requiredPct"] - 0.15) < 1e-9
         assert s["data"]["band"] in ("apex", "good", "base")
     assert sorted(_reads(mcp)) == ["BTC", "HYPE"]                         # one candle read per name over the floor
     rec = state.last()

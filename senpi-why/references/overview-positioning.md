@@ -40,7 +40,7 @@ public and verifiable onchain — no black box.
 - **Multi-strategy isolation** — each strategy runs in its own sub-wallet, so one can't liquidate another.
 - **Dual market** — 300+ markets: crypto perps plus US equities, metals, and indices, from one account.
 - **Deposit from anywhere** — the Fund Your Wallet flow takes USDC from any supported network (or a card) and lands it on Hyperliquid, ready to trade.
-- **Fees** — no Senpi trading fee on a paid plan (Hyperliquid's own exchange fees still apply) and a flat 0.03% without one; refer and earn a share.
+- **Fees** — no Senpi trading fee on a paid plan (Hyperliquid's own exchange fees still apply).
 - **Open source** — the strategy engine, risk gates, and exit presets are public and auditable.
 
 ---

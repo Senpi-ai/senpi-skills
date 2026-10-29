@@ -58,6 +58,39 @@ def margin_fraction_offenders(doc, path="", parent=None):
     return out
 
 
+_WATCH_ONLY_FIX = "for watch-only (no new entries, DSL keeps managing open positions) set `decision_mode: none` on each OPEN_POSITION action"
+
+
+def inert_entry_stop_offenders(doc):
+    """runtime.yaml keys that look like a way to stop new entries but stop nothing, each as a ready error message.
+    The runtime never reads `enabled` on an action (the action schema passes unknown keys through) or
+    `strategy.enabled`, and it turns `strategy.slots: 0` into 1, so each of these deploys clean and keeps
+    trading. A negative `slots` is not turned into 1, so it gets its own message: an invalid count.
+    Kept identical to senpi-strategy-author `validate_strategy.inert_entry_stop_offenders`, so author-green == deploy-green."""
+    out = []
+    if not isinstance(doc, dict):
+        return out
+    actions = doc.get("actions")
+    for a in actions if isinstance(actions, list) else []:
+        if isinstance(a, dict) and "enabled" in a:
+            out.append(f"action {a.get('name')!r} has `enabled`, which the runtime does not read on an "
+                       f"action, so this action would keep trading. Remove it; {_WATCH_ONLY_FIX}")
+    strat = doc.get("strategy")
+    if isinstance(strat, dict):
+        if strat.get("enabled") is False:
+            out.append(f"`strategy.enabled: false` is not read by the runtime and stops no entries. "
+                       f"Set it to `true`; {_WATCH_ONLY_FIX}")
+        slots = strat.get("slots")
+        if isinstance(slots, (int, float)) and not isinstance(slots, bool):
+            if slots == 0:
+                out.append(f"`strategy.slots: {slots}` stops no entries (the runtime turns 0 into 1). "
+                           f"Set it to 1 or more; {_WATCH_ONLY_FIX}")
+            elif slots < 0:
+                out.append(f"`strategy.slots: {slots}` is not a valid slot count. "
+                           f"Set it to 1 or more; {_WATCH_ONLY_FIX}")
+    return out
+
+
 class BadPackage(Exception):
     """Raised on a structurally unusable package (can't even build the model)."""
 
@@ -354,6 +387,8 @@ def validate(pkg: Package) -> list:
         # small). Refuse to fund it (author's validate_strategy flags it too; ops re-checks fetched packages).
         for kp, val in margin_fraction_offenders(inst.runtime_doc):
             errs.append(f"{tag}: `{kp}` must be a PERCENT in (0,100] — set {val * 100:g} (not {val})")
+        for msg in inert_entry_stop_offenders(inst.runtime_doc):
+            errs.append(f"{tag}: {msg}")
         # wallet binding — asked of the PARSED `strategy.wallet`, not of the file's text. A text
         # search passes on a recipe that pins an address while parking the token in some field
         # nothing reads, and deploy would then fund a fresh wallet and install the strategy, exit

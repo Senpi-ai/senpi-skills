@@ -190,10 +190,9 @@ stop costs the same dollars as manatee's; a full name holds the same notional (t
 
 What to say: "Dugong is manatee at 3x with a tighter stop and fewer names: every move counts half
 again as much, in both directions, and positions stop out sooner." In a six-month backtest against
-manatee (27 Apr–22 Oct 2026) it averaged about 0.70 ROE per position after all fees at the starting
-builder-fee tier, against manatee's 0.42 (about 1.0 against 0.62 with no builder fee), with fewer
-losing months. Quote that as what one past window showed, with its window, never as a return to
-expect.
+manatee (27 Apr–22 Oct 2026) it averaged about 1.0 ROE per position after exchange fees, against
+manatee's 0.62, with fewer losing months. Quote that as what one past window showed, with its
+window, never as a return to expect.
 
 ## Not a family any more: camel
 

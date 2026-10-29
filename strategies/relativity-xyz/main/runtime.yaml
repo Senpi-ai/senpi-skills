@@ -183,14 +183,14 @@ risk:
     max_entries_per_day: 6            # ⚠ LOWERED from the fork's 8 — the one number changed
                                       #   for risk rather than correctness. At 8/day, 25%
                                       #   margin and 10x the book turns over 20x the account
-                                      #   daily: ~2.0%/day in fees, ~60% a month, before
-                                      #   direction. The measured fork never came close — 4
-                                      #   entries in 4 days, ~0.12%/day — so 8 shipped a
-                                      #   regime nothing had tested. 6 is the floor that still
-                                      #   works: it must exceed the 4 slots or a stopped-out
-                                      #   slot cannot refill until 00:00 UTC and the strategy
-                                      #   reads as dead. At 6/day: ~1.5%/day at 10x, ~0.75% at
-                                      #   the 5x base. That cost is in the card.
+                                      #   daily: ~0.36%/day in xyz exchange fees (0.009% a
+                                      #   side), ~11% a month, before direction. The measured
+                                      #   fork never came close — 4 entries in 4 days — so 8
+                                      #   shipped a regime nothing had tested. 6 is the floor
+                                      #   that still works: it must exceed the 4 slots or a
+                                      #   stopped-out slot cannot refill until 00:00 UTC and
+                                      #   the strategy reads as dead. At 6/day: ~0.27%/day at
+                                      #   10x, ~0.14% at the 5x base. That cost is in the card.
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 5
     cooldown_seconds: 2700

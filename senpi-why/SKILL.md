@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.5.0"
+  version: "1.6.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -113,7 +113,7 @@ Answer with what Senpi does, never with profits.
 - **300+ markets from one account** — crypto, US equities, metals and indices, one balance and one set of
   risk rules across all of them. Quote the live count from `market_list_instruments`, never from memory.
 - **Deposit from anywhere** — the Fund Your Wallet flow takes USDC from any supported network (or a card) and lands it on Hyperliquid, ready to trade.
-- **Fees** — no Senpi trading fee on a paid plan (Hyperliquid's own exchange fees still apply) and a flat 0.03% without one; refer and earn a share.
+- **Fees** — no Senpi trading fee on a paid plan (Hyperliquid's own exchange fees still apply).
 - **Open source** — the strategy engine, risk gates, and exit presets are public and auditable.
 
 ## Voice guardrails (always)

@@ -59,7 +59,7 @@ class DiagnoseFromTheRuntimesOwnNumbers(unittest.TestCase):
 
     def test_the_runtime_first_rules_are_in_the_skill(self):
         text = SKILL.read_text()
-        for needle in ("climbs **every tick**", "only on a tick that emits", "never a reason to close and recreate",
+        for needle in ("climbs **every tick**", "only on an accepted signal or an error", "never a reason to close and recreate",
                        "Say every stop twice", "ROE ÷ leverage", "max_entries_per_day × marginPct",
                        "Read the runtime's own state first", "interval under 60 s"):
             self.assertIn(needle, text, needle)
