@@ -1,24 +1,24 @@
 ---
 name: senpi-strategy-author
 description: >-
-  Build or edit a Senpi trading strategy — interactively, ONE decision at a time.
-  There is no paper-trading mode: a strategy is tested with `senpi validate` and a
-  $10-floor live run, never with a scanner re-run on a timer (a model call per firing).
-  Use for "build a strategy", "create a strategy from scratch", "design a
-  strategy", "I have a trading idea", or ANY strategy that needs DSL (a
-  runtime-supervised exit: stop-loss, trailing stop, profit-lock ladder) — a
-  runtime.yaml authored here is the ONLY way to carry a DSL; raw MCP
-  strategy_create* / create_position calls cannot, and must never stand up a
-  named or protected strategy. Offers the closest TEMPLATE first (via
-  senpi-strategy-discover) as the quick start to the user's OWN strategy, with
-  fork-before-deploy, bespoke edit and scratch as peers, each with its cost class;
-  never asks for a budget to build (it is asked once, at deploy); exits default to
-  letting winners run, stated in price at leverage; the user names what you build. NOT for
-  installing (senpi-strategy-ops) or picking one to run (senpi-strategy-discover).
+  Build or edit the user's OWN Senpi trading strategy — interactively, ONE decision
+  at a time. The DEFAULT for every strategy ask: a thesis or an X take, "build a
+  strategy", "I have a trading idea", "what should I trade?" (as a strategy ask,
+  not a market read), "recommend a strategy", "set me up", and mandates ("trade for me", "you decide", "be
+  aggressive": one or two questions make it a thesis, then build). Also ANY
+  strategy that needs DSL (stop-loss, trailing stop, profit-lock ladder): raw MCP
+  strategy_create* / create_position calls can't carry a DSL and must never stand
+  up a named or protected strategy; a strategy built here does. Finds the closest
+  template (senpi-strategy-discover) as the BASE the user forks and makes theirs (a
+  lever shifted, a rule of their own) before it goes live; scratch when nothing fits.
+  No paper-trading mode: test with `senpi validate` and a $10-floor live run, never a
+  scanner re-run on a timer. Never asks for a budget to build (asked once, at
+  deploy); exits default to letting winners run, stated in price at leverage; the
+  user names what you build. NOT for installing (senpi-strategy-ops).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.14.14"
+  version: "3.16.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -56,35 +56,29 @@ much risk). Your job is to draw those out, one question at a time, and compile t
 > "succeeds," the position is gone, and the user eats the round-trip. If the user hasn't said which of
 > (A)/(B) they want, **ask before placing anything** — and never route (B) into a managed wallet to save a step.
 
-## Start here — templates first, as the quick start to THEIR strategy; the other routes are peers
+## Start here — THEIR strategy, forked from a template when one fits
 
-A template is not "our strategy" the user adopts — it is the fastest way to launch **their** strategy, and
-every one deploys under their name (`PurpleFrog's Starling`, or a name of their own) after ops walks them through what it does,
-how it is set and which levers to shift (ops Step 0.75). So **before the interview, offer the routes as
-peers — template first, each with its cost class as a fact — never a gate, never a downsell:**
+The user is the driver and Senpi is the tool: what goes live is theirs, shaped by them. Every strategy ask
+starts here — a thesis, an X take, "what should I trade?", "recommend a strategy", "set me up".
 
-1. **Start from a matching template** — *the quick start.* If the user gave any thesis hint, **hand it to
-   `senpi-strategy-discover`** with their words — that skill surfaces the closest matching template(s),
-   which you name in the offer (*"**Cougar** — equity long/short — is close to what you described"*).
-   Discover owns the catalog and the match; ops deploys it under the user's name, as-is or with levers
-   moved. Don't reach into its internals or rebuild the catalog here. Cost: the cheapest thing the agent does.
-2. **Fork it before it goes live** — the walkthrough's levers (ops Step 0.75): a threshold, the slots, the
-   leverage, the stop, the daily cap. Values only, no new code. Cost: a little more than as-is.
-3. **Make a bespoke edit to a template** — a new universe, a different signal, a changed exit shape: this
-   skill's edit path ("Editing an existing strategy") on the forked copy, **before** deploy. Cost: more than
-   a lever fork, still well under scratch.
-4. **Design your own from scratch** — first-class, fully supported; you run the interview below. Cost:
-   roughly two to three times a template. Worth it when nothing close exists, or when the user wants it.
-
-**Tone — even-handed, ownership first:** template-first is *"the quick start,"* **never** *"the right way"*;
-scratch is a **peer**, not a downsell, and it works — say so. **The user's choice is final**: if they pick
-scratch (or already gave a specific thesis), go straight into the interview — **never re-pitch or nag**.
-Calibrate to the signal (vague ask → lean template-first; clear custom thesis → surface the closest match
-**once**, then build). No close fit → say so and go straight to scratch; never force a bad-fit template.
-**Never ask for a budget to start building** — see the funding heads-up below; the number is asked once,
-at deploy.
-
-Everything below is the **scratch / bespoke** path — the interview, once the user chooses to build or to change more than a lever.
+- **Find a base first.** Hand their idea to `senpi-strategy-discover` (their words as `--theme`). A template
+  fits only if it trades the same idea (the market, the edge, the horizon), not just the same asset; if
+  you'd call it "not a tight fit", it doesn't fit. If one fits, offer it once, by name, as the base of
+  *their* strategy (*"**Cougar** is close to what you described — want to start from it and make it
+  yours?"*). No close fit → build from scratch with the interview below, without naming the near misses;
+  never force a bad-fit template, and never a menu of unrelated ones.
+- **A mandate is still their strategy.** "Trade for me", "you pick", "be aggressive": ask the one or two
+  questions that turn it into a thesis (what they believe will move, how much risk they take), then find a
+  base or build. Never hand-pick positions for them.
+- **Fork it, don't just install it.** Ops deploys a template as their fork (`<User>'s <Template>`) after its
+  walkthrough (ops Step 0.75); help them make it theirs before it goes live — shift a lever, or add a rule
+  of their own (this skill's edit path, "Editing an existing strategy", on the fork). If they want it
+  unchanged, ask once what they'd change; if they decline, ops deploys it — no re-pitch.
+- **Scratch is always there** — the interview below, when nothing fits or they'd rather start clean.
+- **Cost is a fact, never a sales line.** Building takes roughly two to three times the agent work of
+  deploying a template. Say it when asked; never use it as a reason to pick a template.
+- **Never ask for a budget to start building** — see the funding heads-up below; the number is asked once,
+  at deploy.
 
 ## ⛔ Never guess syntax — get it from the source (your memory is NOT authoritative)
 
@@ -122,7 +116,7 @@ of an import-stage run. The gate is stage 9, and it takes no `--stage` flag.
 
 ### Funding heads-up — first tool call, never a gate
 
-Before the template offer / Decision 1, read the **deployable** balance ONCE: `account_get_portfolio` → `total_in_hyperliquid` + `total_spot_usd_in_hyperliquid` + EVM stables in `token_balances[]`.
+Before Decision 1, read the **deployable** balance ONCE: `account_get_portfolio` → `total_in_hyperliquid` + `total_spot_usd_in_hyperliquid` + EVM stables in `token_balances[]`.
 Never `total_withdrawable`, never `total_balance_usd` — committed capital. **0 is a fact, not a missing read**: no `or` chain.
 Never say "$total free": say what is free, and that freeing the rest means withdrawing from a strategy — their call. [`references/deployable-balance.md`](references/deployable-balance.md). **~$11.50/wallet opens a wallet** (`deploy.py create` reserves the
 ~$1.50 fee first; exactly $10 refuses with `[E_FUNDS_BELOW_FLOOR]`) — **not what the strategy needs to trade**: under the design's own minimum it installs, scans and never opens.
@@ -181,8 +175,7 @@ For each: ask the question, offer the options as plain choices, then map the ans
    **A smart-money thesis reads the proven cohort, never the 4h board as its source of "who is smart":**
    the 4h gain leaderboard is a consequence of the move (whoever was on the winning side is at the top),
    so following it is circular. Use `discovery_get_top_traders` (ALL_TIME; 20 rows unless you pass `limit`, page with `offset`)
-   + `discovery_get_trader_state` — headcount and tick-over-tick change, the `senpi-smart-money` method — and name the
-   template that already does it (the Starling / WhaleHunter / Stingray family) as the fork option before writing a new one.
+   + `discovery_get_trader_state` — headcount and tick-over-tick change, the `senpi-smart-money` method.
 3. **Edge — "What's the actual signal?"**
    trend-follow · mean-revert · breakout · relative-strength · copy/follow · **cohort-divergence**
    (smart money vs the crowd) · event/new-listing · macro-thesis. → the math in `scoring.py`.

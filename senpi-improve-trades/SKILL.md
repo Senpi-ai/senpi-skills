@@ -10,7 +10,7 @@ description: >-
   wallet" — go to quant-desk), "walk me through / explain
   my [asset] trade", "what am I paying in fees / maker vs taker", "why is [strategy] losing". Saved
   wallets are reviewed here too, read-only, as manual trades — "review my trades" and "master my week"
-  on a saved wallet stay in this skill. When the user has NOTHING to review yet, `meta.book_state` routes it: nothing deployed -> read the market (senpi-market-pulse) then shortlist a fit (senpi-strategy-discover); deployed-but-idle -> diagnose THAT strategy, never pitch another. A hidden engine (scripts/review.py) reconstructs every
+  on a saved wallet stay in this skill. When the user has NOTHING to review yet, `meta.book_state` routes it: nothing deployed -> read the market (senpi-market-pulse) then build one (senpi-strategy-author); deployed-but-idle -> diagnose THAT strategy, never pitch another. A hidden engine (scripts/review.py) reconstructs every
   CLOSED trade from discovery, enriches each exit reason + blocked signals from the runtime telemetry
   event log, computes the honest "if I'd held to now" counterfactual, and crosses the book against what
   the market did — you narrate it under strict guardrails: process over outcome (lead with the aggregate,
@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.24.0"
+  version: "1.25.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -46,7 +46,7 @@ binds on a follow-up; when a row names a reference, read it first.
 | where am I leaking, fees, maker vs taker | `telemetry` | `guardrails.md` hard rule 0; `output-shape.md`, `sources.md` |
 | walk me through my [asset] trade | *(none — `explain` CLI)* | `exit-records.md` |
 | why is [strategy] losing | `strategies` + `telemetry` | `guardrails.md` §8; guardrail 5: judge it against its own mandate, all its wallets together, flat-by-design is not a loss |
-| nothing to review, an empty result | read `meta.book_state` first | `no_strategies` → `senpi-market-pulse`, then `senpi-strategy-discover`; no critique of an empty account ("Nothing to review?" below) |
+| nothing to review, an empty result | read `meta.book_state` first | `no_strategies` → `senpi-market-pulse`, then `senpi-strategy-author`; no critique of an empty account ("Nothing to review?" below) |
 | a saved wallet | review, master my week: the same steps; leaks, what did I miss: hand off to `quant-desk` | "Your wallets" below |
 | the wallet picked from `book.deep_dive.question` | go deep on that one | One book, rule 6; `one-book.md` |
 | the user picks a fix depth | *(none)* | `output-contract.md` (both menus) |
@@ -237,18 +237,17 @@ result means three completely different things and two of them need opposite ans
 | `external_no_trades` | Saved wallets, no Senpi strategy, nothing closed in the window. | One line, offer a longer window. **Never pitch a strategy.** |
 | `unknown` | The strategy list was **unreadable** (token/scope), or there are no strategies and the saved wallets couldn't be loaded. | Say the read failed. **Never** say "you have no strategies" or "nothing to review." |
 
-### `no_strategies` — pivot to market-pulse → strategy-discover
+### `no_strategies` — pivot to market-pulse → build one
 
 **Say the truth in one line, then pivot — don't dwell.** *"Nothing to review yet — you haven't deployed a
 strategy."* Then:
 
 1. **Read the market first** — compose **`senpi-market-pulse`**. What's actually moving today, which asset
    classes lead, risk-on or risk-off.
-2. **Then shortlist against THAT read** — compose **`senpi-strategy-discover`**, and let today's market
-   drive the shortlist. *"Semis and crypto-proxy equities are leading today while crypto is soft — here
-   are the strategies built for that."*
-3. **Offer, never push.** Two or three named fits with risk level and minimum budget; let them choose. If
-   they'd rather wait, that's a fine outcome — say so.
+2. **Then offer to build one on THAT read** — compose **`senpi-strategy-author`** with the read as the
+   brief (*"semis and crypto-proxy equities lead while crypto is soft — want to build a strategy on
+   that?"*). Name no template here; author forks the closest one when it fits.
+3. **Offer, never push.** If they'd rather wait, that's a fine outcome — say so.
 
 **Still forbidden here** (guardrail 9 binds): no manufactured critique of an account with nothing in it, no
 "your idle cash is a $0/day leak" framing, no DSL alarms. Idle cash is an **option**, never a loss.
@@ -263,7 +262,7 @@ The **actionable lever** (the fix) per intent; its step(s) are in the Router, it
 | *"Did I sell too early / late? / improve my last 10"* | NEUTRAL context — a reversal is one data point, never "premature"; the counterfactual is not a grade (guardrail 1) → the DSL tier that fired (`exit_reason`) |
 | *"Master my week" / "analyze my strategies and trades" / "suggest improvements"* | Process recap, each strategy vs its own mandate |
 | *"What did I miss this week? / compare to market"* | Is the missed mover in the mandate? loosen a gate only if so |
-| *"How could I make more gains?"* | Strategy tune (DSL / entry gate), never a $/week promise. If the book has no Hyperfeed exposure at all — and only when `meta.strategy_count` > 0 (never for a saved-only user: coach their own process, no strategy pitch) — name it as the gap: **Penguin** (crypto) or **Pelican** (all assets) react only to the strongest live rotations on the feed, one position at up to 10x, 90% margin, with a DSL floor that ratchets up to lock gains — high risk, high reward, with -15% SL. That SL is **15% ROE**, a 1.5% price move at 10x, ~13.5% of that wallet **per stop-out**, and stops compound with the guard rails off. Say **rotations**, never "pumps" |
+| *"How could I make more gains?"* | Strategy tune (DSL / entry gate), never a $/week promise — and never for a saved-only user: coach their own process, no strategy pitch |
 | *"Compare me to the whales / the market"* | Compose `senpi-smart-money` / `senpi-market-pulse` |
 | **1.** *"Am I getting shaken out too early? / how are my exits firing?"* | The **DSL preset lever** — widen phase1 retrace / retune a tier → `senpi-strategy-author` / `-ops` |
 | **2.** *"What did my own limits block? / what couldn't I take?"* | Add a slot · fund margin · loosen a risk gate — the exact gate the `reason_code` names |

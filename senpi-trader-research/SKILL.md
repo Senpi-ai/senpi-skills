@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.7.0"
+  version: "1.8.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -81,7 +81,8 @@ who's worth copying, and is *this* trader's record real or a hot streak. Two job
   wide pool for exactly this; if the cleanest track records (ELITE / solid / no `blowup_risk`, still
   trading today) landed outside the enriched set, **vet them before you settle** — don't recommend a
   flagged trader while a cleaner one sits un-scored. And when the proven names have all run their books,
-  the **fresh-entry templates are the good options** — present them as the smart play, not a shrug.
+  a **managed mirror that enters only on fresh opens** is the good option — present it as the smart play,
+  not a shrug.
 - **Don't make the user pick a sort — the engine blends windows.** The default find unions 7d-hot (ROI),
   30d-return (ROI) and 30d-realized (profit actually banked, not paper gains), then ranks within by the
   consistency *score* — so proven *and* currently-performing names land in one pool. (It deliberately does
@@ -123,7 +124,7 @@ who's worth copying, and is *this* trader's record real or a hot streak. Two job
 - **A trader with no open book can still be worth copying later — just say so now (`no_open_positions`).**
   When their current book is empty there's **nothing for a fresh mirror to open today** — it fires only
   when they next trade. Don't hide them and don't drop them; surface the flag so the user knows the mirror
-  starts idle, and point out a fresh-entry template (Shadow) fires the moment the OG re-enters.
+  starts idle, and point out that a managed mirror that opens only on fresh entries fires the moment the OG re-enters.
 - **Never say "safe."** Copying inherits their risk. Be honest.
 - **Mechanics live in `senpi-trade` — don't improvise them.** How a mirror actually *works* (sizing /
   `mirrorMultiplier`, slippage-as-entry-gate, protection, minimums, "how much do I need", "spot or perps")
@@ -202,7 +203,7 @@ comprehensive, decision-first answer on every call, never a bare ROI list.
      what's actually working."* The `pulse.py` beats stream underneath it.
 1. **The call** — one line with the decision (not a menu): *"the best trader you can actually mirror right
    now is …"* — **or**, when no single trader is cleanly mirrorable, *"the best play right now is a
-   fresh-entry template, because the proven books have already run"* (a real recommendation framed as the
+   managed mirror that enters only on fresh opens, because the proven books have already run"* (a real recommendation framed as the
    smart move — see step 5; never "senpi can't help"). **Default your pick to row #1** — the sort already
    weighs cleanliness + reliability, not just fit, so a clean, active *partial*-fit trader can correctly lead
    a flagged *good*-fit one; don't re-pick by fit alone. **The one thing that may move the pick off row #1 is
@@ -242,16 +243,11 @@ comprehensive, decision-first answer on every call, never a bare ROI list.
    doesn't belong on screen. These are *not* rows in the shortlist table above (those are the real options);
    this is the cutting-room floor, clearly labelled as such.
 5. **A more sophisticated approach — ALWAYS close with this section, even when you have a great mirror pick.**
-   It's an upsell, not a consolation: a **managed template** carries **auto-DSL** and **budget-relative sizing**
-   a raw mirror doesn't, and the **fresh-entry** ones open **with** a trader on their *next* move instead of
-   copying a book that may already have run. **Name + differentiate** so the user can choose — cover **both
-   flavors**, and be precise about which actually enter fresh:
-   - *copy specific traders*: **Shadow** (2–3 proven traders, opens *only* on a fresh entry) and **Jackal**
-     (a top-pool trader's brand-new position, <10 min old) are the true **fresh-entry** ones — the right
-     answer for an already-run book. **Raptor** (rides a hot streak), **Remora** (a whale cohort), **Oxpecker**
-     (one elite's biggest bet) and **Cuckoo** (consensus of top copy strategies) mirror the *current* book
-     (auto-DSL'd, budget-sized) — a different style, **not** a cure for a stale book;
-   - *follow the smart money by signal* (many traders at once, not 1:1): **Stingray** · **Starling** · **Whalehunter**.
+   It's an upsell, not a consolation: offer to **build a managed mirror for this trader** (`senpi-strategy-author`)
+   — **auto-DSL on every fill**, **sized to their budget**, which a raw mirror doesn't do. Be precise about the
+   two shapes: one that opens **only on the trader's next fresh entry** (the answer for an already-run book),
+   or one that copies the *current* book (a different style, **not** a cure for a stale book). Or one that
+   follows the whole proven cohort by signal — many traders at once, not 1:1.
 
    **When no single trader is cleanly mirrorable** (all `poor` fit, or the good/partial ones are flag-disqualified
    — `blowup_risk` / against the tape / `dormant`), this becomes the **lead** recommendation, not just the closer.
@@ -284,7 +280,7 @@ Formatting: short addresses, `Δ%`, labels as given; emoji sparingly.
   + `fresh_entry_surface_pct` from how far each position's *price* sits from the trader's entry (what
   slippage actually gates on) — not the leveraged ROE, which overstates the distance (a −51% ROE can be
   −5% at price). A book that's already run is un-mirrorable at a sane slippage: the mirror opens little
-  or chases. Lead with `mirror_fit`; when it's `poor`, recommend a fresh-entry template over a stale book.
+  or chases. Lead with `mirror_fit`; when it's `poor`, recommend a fresh-entry managed mirror over a stale book.
 - **A great trader on the wrong trade is a bad copy today.** Cross-reference the shortlist against the
   current regime (`senpi-market-pulse`) up front — the best proven, mirrorable trader is still a pass if
   they're positioned against what's working now.
@@ -303,11 +299,10 @@ End with these two as a real numbered list on **separate lines** — never colla
   form) to `senpi-trade` and let it drive.
 - **CTA 2 → compare / vet / hands-off.** Re-run the engine (`--trader <addr>` to vet one in depth, or the
   default ranking to compare). For the **hands-off** route, hand to **senpi-signals** — it owns the read of
-  the live smart-money feed and closes with the full set of strategy routes built on it (Signals Hunter,
-  Puffin, Athena, the Hyperfeed strikers Penguin and Pelican, or one rolled with the user). Prefer that
-  over naming a single template from here: mirroring one wallet and trading the whole cohort's feed are
-  different bets, and the reader is choosing between them. A managed **Copy-Trader template** via
-  `senpi-strategy-discover` remains the route for someone who specifically wants one wallet copied.
+  the live smart-money feed and closes with building a strategy on it (`senpi-strategy-author`). Mirroring
+  one wallet and trading the whole cohort's feed are different bets, and the reader is choosing between
+  them. A managed mirror of one wallet is built with `senpi-strategy-author` too (it forks the
+  closest template when one fits).
 
 ## ⚠ Token scope
 

@@ -8,19 +8,18 @@ description: >-
   paths can carry protection and it is OPTIONAL: bare, a static stop/TP, or a profit-lock
   trailing ladder (`ratchet_stop_add`, no runtime) — but that ladder is profit-lock ONLY (no
   downside floor); the full two-phase DSL (a ratcheting max-loss floor + the profit locks) is
-  runtime-only, so route to a managed mirror template for real two-sided protection. Any question
+  runtime-only, so route to a managed strategy for real two-sided protection. Any question
   about a stop or a ladder, and any change to one, runs the protection protocol: read it in the same
   turn, quote the engine's floor (never compute one), say what a change replaces and get a yes, read
   it back. Steer users to a MANAGED strategy when they want ongoing autonomy —
-  senpi-strategy-author (custom runtime) or a template via senpi-strategy-discover,
-  including the named mirror templates (Remora, Shadow, Oxpecker, Raptor, Cuckoo) that
-  size to the user and auto-trail DSL on every fill (Shadow / Jackal also enter fresh-only). Pairs with senpi-trader-research, which finds and vets the trader
+  senpi-strategy-author builds their own (a managed mirror included: sized to the user,
+  DSL on every fill), forking the closest template when one fits. Pairs with senpi-trader-research, which finds and vets the trader
   (this skill runs the mirror once one is chosen). NOT for
   authoring a strategy or deploying a template yourself.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.10.0"
+  version: "1.11.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -51,9 +50,9 @@ it, execute it, and confirm the **real** returned result — never firing a mone
 >
 > **The real, integrated two-phase DSL** — a max-loss floor that ratchets up through breakeven into the
 > profit locks, the engine replacing the stop at each tier — is a **runtime** feature (`exit.dsl_preset`);
-> a **managed mirror template** has it built in and auto-applies it on every fill. **Don't** tell a user a
+> a **managed strategy** has it built in and auto-applies it on every fill. **Don't** tell a user a
 > raw position "can't be protected" (it can — profit-lock + a static SL), **but don't oversell it as DSL**
-> either. When they want a true two-sided ratcheting stop → managed template.
+> either. When they want a true two-sided ratcheting stop → a managed strategy (author).
 
 ## The protection protocol — reading and changing a stop on a position
 
@@ -98,35 +97,21 @@ explicitly include **integrated two-phase DSL** (a raw position gets only profit
 static SL, per above):
 
 - they want it **managed for them going forward** — DSL auto-attached to **every** new fill without
-  you babysitting, **budget-relative sizing** (and, with **Shadow / Jackal**, **fresh-entry-only** — no chasing a runner). A raw mirror
-  + per-position DSL means *you* wrap each new fill by hand; a template does all of it automatically.
-- they want to **mirror more than one trader at once, by signal** — a template can position by where the
+  you babysitting, **budget-relative sizing** (and, if they want it, **fresh-entry-only** — no chasing a runner). A raw mirror
+  + per-position DSL means *you* wrap each new fill by hand; a managed strategy does all of it automatically.
+- they want to **mirror more than one trader at once, by signal** — a managed strategy can position by where the
   **smart-money cohort** leans (the aggregate of many proven traders), not copy one trader's book. A raw
-  mirror is strictly **1:1**; multi-trader, signal-driven copying is only possible with a runtime template.
+  mirror is strictly **1:1**; multi-trader, signal-driven copying is only possible with a runtime strategy.
 
 | The user wants… | Route to | Why (real reason) |
 |---|---|---|
-| Ongoing, hands-off, protected-on-every-fill | **senpi-strategy-author** (custom runtime) | continuous management + DSL on every fill |
-| "Something already built" | **senpi-strategy-discover** (100+ templates) | DSL + risk gates + budget-relative sizing built in |
-| To **copy / mirror a trader, managed** | **senpi-strategy-discover** → a **named mirror template** | budget-relative sizing, auto-DSL; Shadow/Jackal add fresh-entry-only |
+| Ongoing, hands-off, protected-on-every-fill | **senpi-strategy-author** (their own runtime) | continuous management + DSL on every fill |
+| To browse what's already built | **senpi-strategy-discover** | DSL + risk gates + budget-relative sizing built in |
+| To **copy / mirror a trader, managed** | **senpi-strategy-author** → a managed mirror of their own (author forks the closest template when one fits) | budget-relative sizing, auto-DSL, fresh-entry-only if they want |
 | A genuine one-off, or to mirror **one specific trader hands-on** | **stay here** | direct execution the user is driving |
 
-**The named copy templates — surface them by name for the copy intent.**
-*Direct-mirror* (copy specific traders' books): **Remora** (whale-cohort, or name your whales) · **Shadow**
-(multi-trader fresh-entry, name 2–3) · **Oxpecker** (elite conviction — their single biggest concentrated
-bet) · **Raptor** (hot-streak — traders winning right now) · **Cuckoo** (copy-the-copiers — consensus of
-top strategies).
-*Smart-money by signal* (position by where the whole cohort leans — **many traders at once, not 1:1**):
-**Stingray** (ranks the entire smart-money board and rotates long/short by net conviction) · **Starling**
-(buys when a flock of top wallets pile into the same name at once) · **Whalehunter** (with the smart cohort,
-against the crowd) · **Phalanx** (follows the proven cohort's headcount flow — enters only while conviction is
-growing, boosted when the cohort diverges from the 4h crowd, wide stops that let winners run) · **Signals
-Hunter** (runs the Senpi Signals detector library on an hourly clock over the whole book — whale opens and
-adds, funding dislocation, OI surges and cohort positioning scored together, taking what clears the score
-floor, long or short). These are the answer for *"follow the smart money"* rather than one specific trader.
-
-Offer the managed option **once**, then respect a "no." For mirror, the templates fix the exact pains
-a raw mirror causes (tiny size, stale entries) — offer one before you reach for a raw `strategy_create`.
+Offer the managed option **once**, then respect a "no." For mirror, a managed mirror fixes the exact
+pains a raw mirror causes (tiny size, stale entries) — offer to build one before you reach for a raw `strategy_create`.
 
 ---
 
@@ -225,48 +210,44 @@ will try to fool you on:
   distance is the slippage gate: a trader whose winners have **already run** (mark far past entry) is
   **un-mirrorable right now — the mirror opens nothing** (every position slippage-skips), and a flat trader
   has nothing to copy. The "best track record" is often the worst mirror *today* for exactly this reason.
-  When the book has already moved, **lead with a fresh-entry template — Shadow (or Jackal), the ones that wait
-  for the trader's *next* open instead of copying the old book** — or find a trader entering now. Still show
-  the full template menu (more choice is better); just label it honestly: Remora / Raptor / Oxpecker / Cuckoo
-  mirror the cohort's *current* positions, so they're a valid copy style but **not** the fresh-entry fix for an
-  already-run book — don't sell them as such.
+  When the book has already moved, **lead with a managed mirror that waits for the trader's *next* open
+  instead of copying the old book** (built with author) — or find a trader entering now. A mirror of the
+  *current* book is a valid copy style but **not** the fix for an already-run book — don't sell it as one.
 
 If the user pasted an address, still run **both** checks on it before mirroring.
 
 ### Steer the product FIRST — the copy questionnaire (lead with capital use)
 Before you run a raw mirror, find the right **shape**. Ask one at a time, pre-fill from the opening ask;
-the goal is to land them on **raw mirror / a named template / custom** — offer as peers, recommend the fit.
+the goal is to land them on a **raw mirror** or a **managed mirror they build** — recommend the fit.
 
 1. **Capital use — ask this first; it is the #1 pain.** *"Do you want to use **most** of your capital in a
    few concentrated positions, or replicate the trader's exact proportional book?"*
-   - *"use most of my funds / a few big orders / not 5% sitting idle"* → **a budget-relative template
-     (Shadow / Remora)** — they size to *your* capital and open a few full-size positions, which a
+   - *"use most of my funds / a few big orders / not 5% sitting idle"* → **a budget-relative managed
+     mirror** (built with author) — it sizes to *your* capital and opens a few full-size positions, which a
      proportional mirror won't (it tracks the trader's proportions). **Common answer.**
    - *"exactly proportional to the trader"* → **raw mirror** (below), sized via the multiplier. If the
      trader's account **dwarfs** the budget, match a closer-sized trader or raise the multiplier so
      positions clear the $10 floor — a proportional mirror preserves *their* utilization %, it doesn't
      shrink yours.
 2. **Hands-on or hands-off?** Drive one trader yourself → **raw mirror**. Set-and-forget, auto-DSL every
-   fill → **template**.
-3. **What shape of copy?** → one specific trader (**raw**) · a whale cohort (**Remora**) · 2–3 named
-   traders, fresh entries only (**Shadow**) · one elite's single biggest conviction bet (**Oxpecker**) ·
-   traders hot right now (**Raptor**) · consensus of the top copy strategies (**Cuckoo**) · a rule the
-   templates don't cover (**→ senpi-strategy-author**).
+   fill → **a managed mirror** (author).
+3. **What shape of copy?** → one specific trader (**raw**) · anything managed — a whale cohort, 2–3 named
+   traders on fresh entries only, one elite's biggest conviction bet, traders hot right now, the consensus
+   of the top copy strategies, a rule of their own — is a managed mirror they build (**→ senpi-strategy-author**).
 4. **Budget — their call; don't advise how much to trade.** Just state the trader's **minimum to run it
    properly** (`senpi-trader-research` `min_mirror_budget.min_budget_usd`). If their budget is below it,
    say plainly it won't open their full book (below `opens_nothing_below_usd`, nothing opens) and offer a
-   closer-sized trader, a higher multiplier, or a budget-relative template. The pre-fund sim confirms it.
+   closer-sized trader, a higher multiplier, or a budget-relative managed mirror. The pre-fund sim confirms it.
 5. **Protection** — default **follow their exits**; offer an added DSL safety-net, especially if the
    trader runs without stops.
 
-**Route the answer:** template → hand to **senpi-strategy-discover** by name · custom → **senpi-strategy-author**
-· raw mirror of one specific trader → continue below. Offer the managed option **once**, then respect a "no."
+**Route the answer:** managed → **senpi-strategy-author** (it forks the closest template when one fits) · raw mirror of one specific trader → continue below. Offer the managed option **once**, then respect a "no."
 
 ### How a mirror actually works — explain it from the single source
 When the user needs the mechanics — and many do (*"why did it open at a 30% different entry?"*, *"why so
 small?"*, *"do I need my own stop?"*, *"spot or perps?"*, *"how much do I need?"*) — explain from
 **`references/mirror-trading-explained.md`**, the one source every skill quotes. Always hit: **sizing
-reality** (small budget vs big trader = dust; the multiplier is locked; concentrated-use → a template),
+reality** (small budget vs big trader = dust; the multiplier is locked; concentrated-use → a managed mirror),
 **slippage is the entry gate** (too tight opens nothing), **you mirror their exits** (unrealised PnL
 doesn't transfer), **protection is optional and stacks** (default: follow their exits). Never paraphrase a
 different version of this anywhere.
@@ -283,7 +264,7 @@ Run `execution_estimate_position_opening` at the user's budget × multiplier × 
 anything. It returns, per position, `open` / `skipped(slippage)` / `skipped(budget)` + `minimumBudgetRequired`
 — i.e. **exactly what would open for them and at what size.** Show the real **$ and %**. If little would
 open, STOP and offer: (a) more budget, (b) a higher multiplier, (c) a trader closer to their size, or
-(d) a fresh-entry template (Shadow). This one check prevents the core failure: funding capital that then
+(d) a managed mirror that enters only on fresh opens (author). This one check prevents the core failure: funding capital that then
 barely trades.
 
 ### Create + verify — don't fabricate
@@ -300,12 +281,12 @@ read shows the wallet idle past a short window, **tell the user** and adjust tar
 `ratchet_stop_add` per opened position adds the **profit-lock ladder** (no runtime) — but that's
 **profit-lock only**, and it takes over the position's stop order: a **static SL** (`edit_position`) is the
 other option, not a companion — adding the ratchet replaces it, so say which one the user keeps. The **real two-phase DSL** (a ratcheting max-loss floor + the locks, integrated) needs
-a **runtime** → a managed template (**Shadow / Remora**) that auto-applies it on **every** fill. Don't
+a **runtime** → a managed strategy (author) that auto-applies it on **every** fill. Don't
 hand-wrap 40 fills a day.
 
 ### Closing — present next steps as a LIST, never a paragraph
-Whenever you end a mirror or template flow with options ("set it up / simulate first / compare / point a
-template at a specific whale"), render them as a short **numbered or bulleted list, one option per line** —
+Whenever you end a mirror or template flow with options ("set it up / simulate first / compare / build a
+managed mirror on a specific whale"), render them as a short **numbered or bulleted list, one option per line** —
 never a run-on sentence with `1.` `2.` buried inline. Bold the action verb; one clear next step per line.
 
 ---
@@ -316,12 +297,12 @@ never a run-on sentence with `1.` `2.` buried inline. Bold the action verb; one 
 |---|---|---|
 | Fund a mirror without simulating it | It can deploy a **tiny fraction of the budget** — the rest sits idle | Run `execution_estimate_position_opening` first (Branch B) |
 | Mirror a whale whose account dwarfs the budget | A small budget on a whale-sized account = **dust** — positions round below the $10 floor | Check trader-account ÷ budget up front; if ~100×+, raise the multiplier or pick a closer-sized trader |
-| Call `ratchet_stop_add` on a raw position "DSL protection", or say it "can't be protected" | It's **profit-lock only** (no downside floor — Phase-1 is dropped); integrated two-phase DSL is runtime-only | Offer profit-lock **+ a static SL** on a raw position; steer to a **managed template** for real two-sided DSL |
+| Call `ratchet_stop_add` on a raw position "DSL protection", or say it "can't be protected" | It's **profit-lock only** (no downside floor — Phase-1 is dropped); integrated two-phase DSL is runtime-only | Offer profit-lock **+ a static SL** on a raw position; steer to a **managed strategy** for real two-sided DSL |
 | Say funds are "stuck" / "lost" / "file a ticket" | `PENDING_FUNDING` **self-completes**; `FAILED` **auto-refunds** to the embedded wallet | Poll transient states with backoff; check the on-chain balance before any alarm |
 | Report a trade as placed off an EMPTY tool result, or keep polling for it | Trade tools run behind the agent's **approval gate**: a call the user does not approve in time is **denied** and comes back empty — nothing reached the venue, so there is nothing to poll for | Say the approval timed out and **nothing was placed**; offer to re-run it for approval. An errored call is different — it carries its own message: surface the **verbatim** tool text. Read `strategy_list` / positions only to confirm what actually exists |
 | Fire a fund-movement tool on partial args | A bridge call with `{amount:0.01}` errored `nan` | Build fund calls from a validated template; never proceed as if funds moved when it errored |
 | Rank copy targets by raw ROI | Surfaced 100%-win / −100%-drawdown / 99.6%-margin wallets as "best" | Filter on drawdown + margin + closed-trade count + copyability first |
-| Recommend a "top" trader without checking their book is mirrorable | The best track record is often the worst mirror *today* — the winners already ran, so the mirror opens **nothing** | Read current-position **distance-from-entry** first; if it's run, steer to a fresh-entry template |
+| Recommend a "top" trader without checking their book is mirrorable | The best track record is often the worst mirror *today* — the winners already ran, so the mirror opens **nothing** | Read current-position **distance-from-entry** first; if it's run, steer to a managed mirror that waits for fresh entries |
 | Leave slippage at a silent / too-tight default | 1% on a trader whose positions already moved opens **nothing** — the mirror sits flat and looks broken | Set slippage against the trader's current distance-from-entry; warn before funding if nothing would open |
 | Close + recreate a mirror to "fix" it not trading | Each round-trip skims ~$1.50 in fees; funds fragment | The fix is **target / budget / multiplier**, not re-create |
 | Re-derive state fresh each session and misread it | User had to repeat "you didn't do what I asked" 3× | Persist intent + strategy IDs; **reconcile intended-vs-actual** before replying |
@@ -354,12 +335,11 @@ never a run-on sentence with `1.` `2.` buried inline. Bold the action verb; one 
   hands the *action* (set up the mirror) back to this skill; you own the mechanics — slippage, sizing,
   the pre-fund sim, execution.
 - **Ongoing hands-off management / DSL-on-every-fill / fresh-entry / budget-relative sizing →**
-  `senpi-strategy-author` (custom) or a template via `senpi-strategy-discover` (mirror: Remora / Shadow /
-  Oxpecker / Raptor / Cuckoo). This skill executes the **direct** trade and can add **per-position** protection.
-- **Mirror with *custom rules* the templates don't cover** — a position-count cap ("max 5; if he opens
+  `senpi-strategy-author` (their own managed mirror or strategy; it forks the closest template
+  when one fits). This skill executes the **direct** trade and can add **per-position** protection.
+- **Mirror with *custom rules*** — a position-count cap ("max 5; if he opens
   more, don't mirror"), a per-position % cap ("each ≤ 5% of my capital"), "don't copy his shorts",
-  "capture his adds", or a conditional exit → a **custom mirror runtime** via `senpi-strategy-author`; the
-  named templates are the fast path for common shapes, author covers bespoke rules. Note the
+  "capture his adds", or a conditional exit → a **custom mirror runtime** via `senpi-strategy-author`. Note the
   **`mirrorMultiplier` is immutable after creation** — a user who wants to change size live must redeploy;
   there is no in-place edit.
 - **"How's my mirror doing?" / compare my mirrors / is my trader still active / why didn't it fire →**
@@ -379,7 +359,7 @@ never a run-on sentence with `1.` `2.` buried inline. Bold the action verb; one 
 
 ## Red flags — STOP and re-check
 - You're about to `strategy_create` a mirror without having run the deployability sim.
-- You're about to call `ratchet_stop_add` on a raw position "DSL protection" — it's **profit-lock only** (no downside floor without a runtime); offer a static SL and/or a managed template for real two-sided DSL.
+- You're about to call `ratchet_stop_add` on a raw position "DSL protection" — it's **profit-lock only** (no downside floor without a runtime); offer a static SL and/or a managed strategy for real two-sided DSL.
 - You're about to tell the user funds are "stuck", or to treat an EMPTY tool result as a placed trade — an unapproved (timed-out) call is denied and executes nothing; say so and offer the re-run.
 - You're about to open a manual position into a wallet a runtime is managing.
 - You're about to close+recreate a mirror that "isn't trading."

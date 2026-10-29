@@ -71,11 +71,12 @@ The word "strategy" is overloaded in Senpi and the wrong path is the most common
 - **Operational** — "Buy me HYPE 10x", "Open a short on BTC", "Copy this trader". The user named
   the position or trader. Execute via MCP `strategy_create_custom_strategy` (multi-asset
   positions) or `strategy_create` (copy-trader). No recommendation, no package.
-- **Strategic** — "Help me pick a strategy", "What should I trade?", "Recommend a strategy" →
-  **`senpi-strategy-discover`** (the analyst-style picker over `catalog.json`; deploy handoff to
-  ops). "Build a strategy", "I have a trading idea", or anything needing a DSL exit →
-  **`senpi-strategy-author`** (template-first, then interview). A NAMED strategy to
-  install/monitor/close ("deploy spider") → **`senpi-strategy-ops`**.
+- **Strategic** — "Help me pick a strategy", "What should I trade?", "Recommend a strategy", "Build a
+  strategy", a thesis, "trade for me", or anything needing a DSL exit → **`senpi-strategy-author`**
+  (fork-first: the closest template is the base the user forks and makes their own; scratch when
+  nothing fits). Browsing, or a named template → **`senpi-strategy-discover`** (the picker over
+  `catalog.json`; the pick deploys as their fork). A
+  NAMED strategy to install/monitor/close ("deploy spider") → **`senpi-strategy-ops`**.
 - **Ambiguous** — ask the user before acting. A single disambiguation question costs nothing.
 
 **Never default to `strategy_create_custom_strategy` for an ambiguous "what should I trade?"**
@@ -89,7 +90,7 @@ is author → ops.
 ## ▶ Writing or editing a trading strategy? Start here
 
 Do **not** improvise a strategy from scratch. **`senpi-strategy-author/SKILL.md`** owns the flow
-(template-first offer → the 7-decision interview → staged build), and its
+(fork-first start → the 7-decision interview → staged build), and its
 **`references/creating-a-strategy.md`** is the self-contained build guide — archetype table with a
 **Clone from** column of real packages under `strategies/`, the `scan(inputs, ctx)` skeleton, a
 complete `runtime.yaml`, DSL presets, and the gotchas.

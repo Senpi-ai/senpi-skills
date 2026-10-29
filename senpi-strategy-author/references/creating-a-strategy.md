@@ -4,17 +4,9 @@
 
 ---
 
-## 0. Before the build — two notes on the conversation `SKILL.md` runs
+## 0. Before the build — a note on the conversation `SKILL.md` runs
 
-`SKILL.md` owns the template-first offer and the funding heads-up. This section holds the two things
-that make them concrete but that no rendered message and no rule can carry.
-
-**An example of the offer, for a new-ish user who hinted a thesis** (the shape, not a script to read
-out — name whatever template `senpi-strategy-discover` actually matched):
-
-> *"Two ways to go: I can get you running fast from a proven template — **Cougar** is close to what
-> you described, and you can tweak it to make it yours — or if you'd rather, we design one from
-> scratch together. Your call — what sounds better?"*
+`SKILL.md` owns the fork-first start and the funding heads-up.
 
 **Why the funding heads-up happens at minute one and never gates the interview:** users have
 completed the entire interview and build, then hit the funding wall at the last step and left. The
@@ -103,7 +95,8 @@ Decide these in prose first; the files just encode them.
 
 Match the idea to a row, copy the settings, write the edge. The **Clone from** column names real
 packages under `strategies/` with that shape — read their `scan.py`/`scoring.py`/`runtime.yaml`
-as the working example (validated, current-idiom code; never resurrect old doc snippets).
+as the working example (validated, current-idiom code; never resurrect old doc snippets). They are
+code references only — never offer them to the user as picks.
 
 | Archetype | Universe | Data | Edge | Shape | Card. | State | DSL preset / cadence | Clone from |
 |---|---|---|---|---|---|---|---|---|
@@ -111,6 +104,7 @@ as the working example (validated, current-idiom code; never resurrect old doc s
 | Mean-reversion | majors basket | candles + RSI | fade extremes | L/S | all | dedup | `mean_reversion` / fast | `lemon`, `bald-eagle` |
 | Breakout | basket | candles + range | range break / new high | long | all | dedup | `let_winners_run` / medium | `hawk`, `badger` |
 | Trader-follower | **derived** (board) | `leaderboard_*`/`discovery_*` | mirror proven traders | L/S | all | dedup + baseline | `let_winners_run` / medium | `raptor` |
+| Trader-follower, fresh entries only | **derived** (cohort) | live books from Hyperliquid's public info endpoint (`clearinghouseState`); never `discovery_get_trader_state` for freshness, its positions land hours late (`strategies/shadow/DESIGN.md`) | mirror only what a trader newly opened (held now, not last tick), inside an entry-slippage cap | L/S | all | per-trader seen-set; the first read seeds the book | as `squid` / 120 s | `squid` |
 | Cohort-divergence | **derived** (realized-PnL cohorts) | `discovery_*` | smart-money vs crowd | L+S (2 inst.) | all | daily ledger + cohort cache | `let_winners_run` / slow | `whalehunter`, `egret` |
 | Managed-futures | multi-class basket | candles | cross-asset trend, vol-parity | L+S | all | minimal | `let_winners_run` / slow | `caribou`, `ox` |
 | Microstructure / flow | majors | funding/OI + candles | liquidation cascade / volume | L/S | one or all | dedup | `balanced` or `scalp` / fast | `piranha`, `camel` |

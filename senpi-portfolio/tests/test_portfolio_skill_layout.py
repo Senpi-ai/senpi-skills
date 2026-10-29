@@ -59,10 +59,9 @@ REPLAY_NEEDLES = (
     "never re-send the wallet list, the book total, or verdicts and figures already shown",
     "| The ask | Step to run | Read first |",
     "| close / pause / keep / top up ONE wallet of a strategy | — | the no-no below: whole strategy only |",
-    "| a yes to CTA 1 / CTA 2, or a digit (after the CTAs: that CTA; after the idle menu: that option), or a "
-    "question about a menu option or its numbers | the levers / the ready options | "
-    "`references/output-contract.md` (the menu) |",
-    "CTA 2: -15% SL is 15% ROE; up to 10x, never a flat 10x; say rotations, never \"pumps\".",
+    "| a yes to CTA 1 / CTA 2, or a digit after the CTAs | the levers / build for the idle (author) | "
+    "`references/output-contract.md` |",
+    "CTA 2: build their own (author, forking the closest template when one fits); name none here.",
     "| a read failed: `meta.degraded`, `meta.warnings`, `reconciles: false`, a `null` figure | re-run that step | "
     "`references/output-contract.md` (\"Resilience\") |",
     "| `strategies` | `references/dsl.md` (protection), `references/mandate.md` (verdicts), `references/runtime-health.md` "
@@ -320,7 +319,7 @@ def test_the_wallet_model_resilience_and_closing_rules_stay_in_skill_md():
                    "STOP and re-run first (see above); if it persists, surface it and trust the per-wallet (live) figures.",
                    "**Never** report `total_withdrawable` as embedded idle, never skip a wallet, never skip the CTAs",
                    "Confirm before any change; never trade unprompted.",
-                   "**Up to 10x**, never a flat 10x", "Say **rotations**, never \"pumps\".",
+                   "offer to **build a strategy for the idle**", "name no template",
                    "Propose; never deploy without confirmation.",
                    "**Present each group as one strategy**; never present its wallets/instances as separate strategies."):
         assert needle in sk, needle
@@ -416,7 +415,7 @@ def _cta_block(text, end_marker):
 
 def test_the_cta_block_copy_in_output_contract_is_the_whole_block():
     # The whole "Mandatory closing" CTA block, from "Then the two CTAs." to the end of the section,
-    # compared as one text: every sentence (CTA 1's whole-strategy rule, CTA 2's menu and numbers,
+    # compared as one text: every sentence (CTA 1's whole-strategy rule, CTA 2's build-first offer,
     # the top-up line) must read the same in both copies.
     skill = _cta_block(SKILL, "\n## ")
     contract_text = _read(os.path.join(REFS, "output-contract.md"))

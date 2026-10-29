@@ -1,26 +1,20 @@
 ---
 name: senpi-strategy-discover
 description: >-
-  Help a user choose a Senpi trading strategy to deploy — a conversational,
-  analyst-style picker. Use when the user asks "what should I trade?", "recommend
-  a strategy", "help me pick a strategy", "what's winning?", "set me up", "I have
-  a view on the world (a war, the economy, one coin winning) — trade it", "run a
-  hedge fund / all-weather / tail-risk book", or wants a strategy but has NOT
-  named a specific one — and every discretionary mandate: "deploy whatever you think is
-  profitable", "trade for me", "be aggressive", "put it to work", "you decide". A mandate is a
-  strategy request even when it names no strategy and no coin; it is never answered with
-  hand-picked raw positions. Surface the closest matching TEMPLATE first — the quick start
-  to the user's OWN strategy (every template deploys as `<User>'s <Template>` — or a
-  name of their own — as-is or with levers moved, after ops walks them through it) — passing their
-  worldview as `--theme` to rank the closest fits; offer building one as a peer with
-  its cost class, never a downsell. You talk and RANK; a hidden engine
-  (scripts/discover.py) fetches data + filters. NOT for installing a NAMED
-  strategy (that's senpi-strategy-ops), or building/designing one from scratch or
-  with a custom DSL (that's senpi-strategy-author).
+  Find the Senpi template that best fits the user's idea, as the BASE of their own
+  strategy: they fork it and make it theirs (a lever shifted, a rule of their own)
+  before it goes live. Called by senpi-strategy-author to find a base for a thesis,
+  and directly when the user asks to browse ("show me your templates", "a
+  ready-made fund") or names a template. Strategy asks ("what should I trade?",
+  "recommend a strategy", "trade for me") start in senpi-strategy-author. Every pick
+  deploys as `<User>'s <Template>` (or a name of their own) after ops walks them
+  through it. You talk and RANK (their worldview as `--theme`); a
+  hidden engine (scripts/discover.py) fetches data + filters. NOT for installing a
+  NAMED strategy (senpi-strategy-ops) or building one (senpi-strategy-author).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.52.0"
+  version: "2.54.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -48,15 +42,12 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
 
 ## Golden rules
 
-- **It's their strategy.** A template is a quick start to the user's own strategy, never "our strategy"
-  deployed for them. Say *"a starting point you can fork"*; never "our strategies", "Senpi's Starling",
-  "I'll deploy our template". Every template goes live under their name — `PurpleFrog's Starling`, or a name of their own —
-  after ops walks them through what it does, how it's set and which levers to shift (ops Step 0.75).
-  Building one from scratch is a peer route, not a downsell: state the four cost classes as facts —
-  template as-is ≈ the cheapest thing the agent does · a lever fork (values only) adds a little · a
-  bespoke edit of a template (a new universe, a different signal — author's edit path) adds more ·
-  scratch ≈ 2–3× a template — and let them choose. The same four rungs appear in ops, author and the
-  workspace guardrail; the menu must read identically everywhere.
+- **It's their strategy.** A template is the base of a strategy they make their own, never "our strategy" deployed for them. Say *"a starting point you can
+  fork"*; never "our strategies", "Senpi's Starling", "I'll deploy our template". Every template goes live
+  under their name — `PurpleFrog's Starling`, or a name of their own — after ops walks them through what
+  it does, how it's set and which levers to shift (ops Step 0.75). Cost is a fact, said when asked and
+  never as a reason to pick a template: as-is is the cheapest · a lever fork adds a little · a bespoke
+  edit (author's edit path) adds more · building their own ≈ 2–3× a template.
 - **No template has a PnL, and a mirror ranking is never the answer.** Two separate rules, one cause.
   (1) There is no per-template PnL or ROE and there cannot be one: the moment the user works on a
   template with their agent it becomes *their fork* — their universe, sizing, leverage and exit ladder,
@@ -65,8 +56,7 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
   number beside a template's name. (2) `discovery_get_top_strategies` ranks COPY-TRADING wallets only — no
   template is ever in it. "Which strategy does best?", "what's most successful?", "which bot should I
   run?" are TEMPLATE questions: answer them from the picker. Pasting a mirror leaderboard is a
-  bait-and-switch and it buries the thing we actually want them doing — forking a template with their
-  agent. Mirroring is a real route, offered when they ask to copy a *person* (see Special paths), never
+  bait-and-switch. Mirroring is a real route, offered when they ask to copy a *person* (see Special paths), never
   as the answer to "what performs best".
 
 - **You talk and rank; the engine only filters.** Run `scripts/discover.py` for data + the eligible
@@ -77,7 +67,7 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
   the run had no `--theme`, the candidates are an alphabetical slice, not a ranking. Re-run with
   `--theme` built from what the user has told you (risk appetite, belief, horizon, worldview). If they've
   told you none of that, say how many fit (`eligible_count`) and ask one short question about what
-  they're after — a user who says they don't know gets *Start here* (Special paths). Candidates below
+  they're after — a user who says they don't know gets the *Layer 0 fallback*. Candidates below
   the last `meta.theme_matches` entry are neutral order too; if the matches are thin, widen the words.
 - **Pass only CONCRETE constraints as filter flags** — an explicit asset class / named ticker, a hard
   direction, an explicit exclusion, a budget. **Risk, belief, horizon, and worldview go in `--theme`**
@@ -92,9 +82,7 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
 - **Stack, don't isolate.** One strategy is one bet. On any pick that isn't already a multi-wallet fund,
   offer a complementary hedge (see *Stack, don't isolate*).
 - **Say how often it will trade, before the budget question.** One line, every pick. A user who is
-  not told supplies their own number and reads normal silence as a fault — measured 2026-10-12,
-  `shadow` had **0 fills across 10 installs with all 10 wallets withdrawn**, and `moose` runs about
-  **one trade a week with a 24-day gap**. Give the number AND what makes it go quiet: *"about one a
+  not told supplies their own number and reads normal silence as a fault. Give the number AND what makes it go quiet: *"about one a
   week; it needs a 20/50 cross with the daily trend agreeing, so a quiet month means no cross yet."*
   Say which tier the number is on — **measured** (replayed or counted), **ceiling** (from
   `max_entries_per_day`, `slots`, the cooldowns — an upper bound, never an expectation), or **shape**
@@ -116,7 +104,11 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
 - **Don't re-ask what they've told you.** If they named an asset/direction, use it; only ask real gaps.
 - **Never say "safe."** Be honest about risk; surface **EVERY** entry in a candidate's `caveats[]`
   **verbatim** — never omit, merge, or soften them.
-- **Always offer build-custom as a peer; never dead-end, never downsell.** Say its cost class beside it.
+- **Asked by author for a base, a pick has to fit** the thesis: the same idea (the market, the edge, the
+  horizon), not just the same asset. If the top card doesn't fit, say no template fits and hand back to
+  author to build; never offer the best of a poor list.
+- **Every pick gets made theirs.** Ops' walkthrough ends on what they want to change (a lever, a rule of
+  their own); unchanged only if they decline. Never dead-end: no fit → build it with them (author).
 
 ## How to run the engine
 
@@ -228,11 +220,9 @@ otherwise put it in `--theme` and rank on `archetype_label`/`belief_plain`/`thes
       or a coin?" → this IS concrete → `--assets xyz_equities|pre_ipo|commodities|indices|<class/ticker>`.
    4. "Copy traders already winning?" → **hand off to `senpi-trader-research`** to find the best wallets to
       mirror — it blends proven + hot and ranks by who you can actually copy *right now*, so **the user never
-      picks a window.** For the **hands-off** route, managed copy templates come in **two flavors — surface
-      both, don't show only one**: *copy specific traders* (**Shadow / Remora / Raptor / Cuckoo / Oxpecker /
-      Jackal** — mirror a trader's fresh entries or book) **and** *follow the smart money by signal* (**Athena / Phalanx
-      / Starling / Whalehunter / Pilotfish** — position by where the whole proven cohort leans, many wallets at once, not
-      1:1; Athena is Phalanx with its Aegis hedge as one fund). All auto-apply DSL + budget-relative sizing. (`senpi-trade` carries the full flavor breakdown.)
+      picks a window.** Hands-off → a managed mirror: one they build (author), or pre-built copy templates
+      ranked by the engine (`--theme "copy mirror follow-trader smart-money cohort"`) — both kinds, mirroring
+      a trader 1:1 and following the whole proven cohort by signal.
    5. 🏆 "Just run what's set up best right now?" → *read the market*, lead with the best current setup
       (be honest — see "What's winning" in Special paths; there's no per-package performance board).
    6. "Catch breakouts early, or earn from market structure?" → `--theme "breakout momentum"` or
@@ -244,7 +234,7 @@ otherwise put it in `--theme` and rank on `archetype_label`/`belief_plain`/`thes
    | a fund — a style | "AI/tech, market-neutral, income, or macro?" → rank by `tags`/`thesis`. |
    | trend / contrarian | "On one name, a basket, or the whole board?" (one name → `--assets <ticker>`; else rank on `asset_scope`). |
    | a specific market | "Which — a stock, pre-IPO name, commodity, index, or coin?" → `--assets`. |
-   | copy | **Don't make them pick a window** — "proven vs hot" is exactly what the `senpi-trader-research` blend unions for them (that's the whole point of the blend). Ask only: *"a specific wallet you already have in mind, or should I find the best to copy?"* — a named wallet → `senpi-trader-research --trader <addr>` (vet, then mirror); "find the best" → hand to `senpi-trader-research` (blended shortlist, ranked by copyability); prefer hands-off → a managed copy template — **surface both flavors**: *copy specific traders* (Shadow / Remora / Raptor / Cuckoo / Oxpecker / Jackal) **and** *follow the smart money by signal* (Stingray / Starling / Whalehunter / Phalanx — many traders at once, not 1:1). |
+   | copy | **Don't make them pick a window** — "proven vs hot" is exactly what the `senpi-trader-research` blend unions for them (that's the whole point of the blend). Ask only: *"a specific wallet you already have in mind, or should I find the best to copy?"* — a named wallet → `senpi-trader-research --trader <addr>` (vet, then mirror); "find the best" → hand to `senpi-trader-research` (blended shortlist, ranked by copyability); prefer hands-off → a managed mirror, as in step 1.4. |
    | breakout / structural | the one drill-down that matters for that branch. |
 3. **Size & lock in (Layer 3)** — pick the DSL preset and size the budget. **`min_budget` on each card is
    the FLOOR to run it, not a recommended amount** — never just parrot it as "Suggested: $X". Size from
@@ -284,9 +274,8 @@ otherwise put it in `--theme` and rank on `archetype_label`/`belief_plain`/`thes
   `--no-market`; say "give me a sec to read the market." **Never pre-fetch on entry.**
 - **Orient / browse** — a short plain-English menu of what's possible (the style families + the funds +
   the non-crypto markets); never force a pick. From here they pick a belief, read the market, or build custom.
-- **Build custom** — hand to **senpi-strategy-author** at any time; a peer route with its cost class
-  stated (a bespoke edit of a template adds more than a lever fork; scratch ≈ 2–3× a template), never a
-  dead-end and never a downsell.
+- **Build custom** — hand to **senpi-strategy-author** at any time: from scratch, or a bigger change
+  to a template than a lever.
 - **Mirror a specific trader** — to copy an individual Hyperliquid wallet (not a managed template), hand to
   **senpi-trader-research** (find + vet) → **senpi-trade** (mirror). It blends the windows so the user never
   picks proven-vs-hot; a wallet they name goes straight to `--trader`.
@@ -351,7 +340,7 @@ They lack the vocabulary; recommend *without* making them self-classify:
 🦏  Rhino — Tail-Risk / Crisis-Alpha   [{tier}]
     {thesis}.   Minimum ~${min_budget}{ + funding_split if wallet_count > 1}
 {2nd / 3rd card}.   {caveats, verbatim}.
-"You've got ~${user_context.budget} free — start from {top} (I'll walk you through how it's set and the levers before we fund it; it deploys as {user}'s {top} — or a name of your own), add a hedge alongside it, or build your own?"
+"You've got ~${user_context.budget} free — start from {top} as the base of your strategy (I'll walk you through how it's set and what's worth changing before we fund it; it deploys as {user}'s {top} — or a name of your own), with a hedge alongside it, or build your own from scratch?"
 ```
 Every card is a starting point — say so once (*"each of these is a starting point you can fork"*), and
 never present a pick as our strategy the user adopts. Show the STARTER badge iff `tier == "starter"`; show `archetype_label`; lead with `thesis` for the
@@ -378,34 +367,10 @@ days.
 
 ## Special paths
 
-- **"I don't know what to try" / "what should I start with?" / no thesis at all** → **start here, do not
-  run the ranker cold.** With no worldview to rank against, a shortlist beats a filtered list: the engine
-  scores keyword overlap against what the user says, and someone who has said nothing gets noise. Offer
-  these, one per line, answerable with a digit:
-
-  > **Don't know what to try? Start here.**
-  >
-  > 1. **Penguin** — crypto only. The Hyperfeed striker: it reacts only to the strongest live rotations
-  >    on the feed — a name suddenly rocketing up what winning traders hold — then commits one position
-  >    at up to 10x, 90% margin, with a DSL floor that ratchets up to lock gains as it runs. High risk,
-  >    high reward, with -15% SL.
-  > 2. **Pelican** — the same striker across all assets: crypto plus stocks, commodities, indices
-  >    and pre-IPO.
-  > 3. **Signals Hunter** — the smart-money signal feed traded on a clock, spread across several slots.
-  >    Slower and less concentrated than 1 or 2.
-  > 4. **Athena** — a smart-money hedge fund, forked under your name.
-  > 5. Or tell me **how you want to trade** and I'll rank the whole catalog against it.
-
-  Lead with 1 and 2: a live rotation shows up fast, so the reader sees what the machinery actually does
-  early, and both are built to be forked and modified once they have a feel for it. **Unpack the numbers
-  if they ask, and never leave them to be misread.** **-15% SL is 15% ROE, not a 15% price move** — at 10x
-  that is a **1.5%** move, so answer in price when asked what the stop means. On 90% margin it costs
-  **~13.5% of the wallet per stop-out**, and say **per stop-out**: their risk guard rails are off, so stops
-  compound (three ≈ 40% of the wallet). **Up to 10x**, never a flat 10x — the per-name venue cap clamps
-  many instruments below it, and that clamp moves the PRICE behind every number, not the wallet cost
-  (ROE is return on margin: ~13.5% at any leverage, while the move doubles at 5x). Say   **rotations**, never "pumps": the detector fires on a jump in what winning traders HOLD, not on price, so a pumping
-  name no smart money rotated into does not fire. Never promise a runner, a win rate or a timeframe —
-  the pitch is what the machinery does, never what it will return.
+- **No preference at all** → no hardcoded shortlist: ask one question about how they want to trade, or
+  use the *Layer 0 fallback*. **Unpack a card's
+  stop when asked, and never leave it misread:** an SL in ROE is the price move × leverage (-15% at 10x =
+  a 1.5% move), margin × SL is the wallet cost **per stop-out**, and "up to 10x" is never a flat 10x.
 - **"What's winning"** → reframe honestly: *"I rank by what's set up well right now, not last week's
   winner."* Read the market; lead with the best current setup from `market_facts`. Never imply a real
   per-package performance leaderboard. The live read covers only the candidates returned, so an unthemed

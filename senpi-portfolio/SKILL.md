@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.36.0"
+  version: "1.37.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -54,7 +54,7 @@ book total, or verdicts and figures already shown unless the user asks for them 
 | a read failed: `meta.degraded`, `meta.warnings`, `reconciles: false`, a `null` figure | re-run that step | `references/output-contract.md` ("Resilience") |
 | run this on a schedule | — | say the cost first: every firing is a full model call; at most twice a day, after a yes ("Run it in steps") |
 | close / pause / keep / top up ONE wallet of a strategy | — | the no-no below: whole strategy only |
-| a yes to CTA 1 / CTA 2, or a digit (after the CTAs: that CTA; after the idle menu: that option), or a question about a menu option or its numbers | the levers / the ready options | `references/output-contract.md` (the menu) |
+| a yes to CTA 1 / CTA 2, or a digit after the CTAs | the levers / build for the idle (author) | `references/output-contract.md` |
 
 **Still true on every follow-up** (in full further down):
 - **A failed read is not $0 or flat.** App-scoped token → can't read the account; failed clearinghouse
@@ -63,8 +63,7 @@ book total, or verdicts and figures already shown unless the user asks for them 
   wallet or the CTAs. A `timeout` open may have filled: check positions, never suggest a retry.
   ("Resilience")
 - **Acting on a CTA:** Confirm before any change; never trade unprompted. Propose; never deploy without
-  confirmation. CTA 2: -15% SL is 15% ROE; up to 10x, never a flat 10x; say rotations, never "pumps".
-  (The menu and its numbers: `references/output-contract.md`.)
+  confirmation. CTA 2: build their own (author, forking the closest template when one fits); name none here.
 - **There is no restart verb; close → redeploy is a last resort, asked first.** ("Liveness")
 
 > **Source of truth for position facts — read before you answer, even mid-trade.** This engine is the
@@ -683,32 +682,10 @@ first-class".
 - **CTA 2 → deploy idle.** If there's meaningful **truly-free** idle capital (lead from
   `signals.idle_drag_pct` and `idle_in_embedded` — NOT a flat sleeve of a live multi-wallet strategy,
   which is committed, and never `book.totals.read_only_usd` or any read-only row, which Senpi cannot
-  deploy), name the ready options rather than opening a blank picker. One per line, so it
-  can be answered with a digit:
-
-  > **What should the idle go into?**
-  >
-  > 1. **Penguin** — the Hyperfeed striker, crypto only: one position at up to 10x, 90% margin, on the
-  >    strongest live rotation, with a DSL floor that ratchets up to lock gains. High risk, high reward,
-  >    with -15% SL.
-  > 2. **Pelican** — the same striker across all assets: crypto plus stocks, commodities, indices
-  >    and pre-IPO.
-  > 3. **Puffin** — the smart-money signal feed, concentrated into one position at a time at high
-  >    leverage.
-  > 4. **Signals Hunter** — that same feed traded on a clock, spread across several slots.
-  > 5. **Athena** — a smart-money hedge fund, forked under your name.
-  > 6. Or **something else** — tell me how you want to trade and we'll find or build it.
-
-  Penguin and Pelican are the two most people start with, because a live rotation shows up fast and
-  they are built to be forked and modified. Be able to unpack the numbers: **-15% SL is 15% ROE, not a
-  15% price move** — at 10x that is a **1.5%** move, so answer in price when asked. On 90% margin it is
-  **~13.5% of that wallet per stop-out**, and say **per stop-out** — their risk guard rails are off, so
-  stops compound. **Up to 10x**, never a flat 10x: the per-name venue cap clamps many instruments, which
-  moves the price behind every number, not the wallet cost. Say **rotations**, never "pumps".
-  Routes 1-5 hand to **senpi-strategy-ops**;
-  route 6 to **senpi-strategy-discover** (find one) or **senpi-strategy-author** (build one). Topping up
-  an existing *whole* strategy via `strategy_top_up` stays available whenever that fits better.
-  Propose; never deploy without confirmation.
+  deploy), offer to **build a strategy for the idle** with them (**senpi-strategy-author**) — name no
+  template here; author forks the closest one when it fits. Topping up an existing
+  *whole* strategy via `strategy_top_up` stays available whenever that fits better. Propose; never
+  deploy without confirmation.
 
 ## Reference index (`references/`)
 
