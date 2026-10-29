@@ -639,29 +639,115 @@ def fetch_review_set(client, meta):
 
 
 # ──────────────────────────────────────────────────────────────── exit attribution (ratchet_stop_list)
+RATCHET_LIST_LIMIT = 100              # dsl-engine's cap per call (its default is 50, newest created_at first)
+RATCHET_MATCH_SLACK_MS = 5_000        # clock skew only: a row starts after its open and ends at or after its close
+
+
+def _iso_ms(ts):
+    """A DSL row timestamp ("2026-10-04T08:07:31.226751Z", any fraction length) or epoch → ms; else None."""
+    if ts is None or isinstance(ts, bool):
+        return None
+    if isinstance(ts, (int, float)):
+        return _ms(ts)
+    s = str(ts).strip()
+    m = re.match(r"^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:?\d{2})?$", s)
+    if not m:
+        return _ms(s)
+    day, hms, frac, tz = m.groups()
+    tz = "+00:00" if tz in (None, "Z") else (tz if ":" in tz else tz[:3] + ":" + tz[3:])
+    try:
+        dt = datetime.datetime.fromisoformat(f"{day}T{hms}.{(frac or '0')[:6].ljust(6, '0')}{tz}")
+    except ValueError:
+        return None
+    return dt.timestamp() * 1000.0
+
+
+def _ratchet_asset_key(asset, dex=None):
+    """One key for a trade's coin and a DSL row's asset+dex: crypto rows carry dex "" and a bare coin, xyz
+    rows carry asset "xyz:SYM" and dex "xyz" (a bare asset with a dex is prefixed). Case-folded."""
+    a = str(asset or "").strip()
+    d = str(dex or "").strip().lower()
+    if a and d and d != "main" and ":" not in a:
+        a = f"{d}:{a}"
+    return a.upper()
+
+
 def _load_ratchet_records(client, strat, meta):
-    """One ratchet_stop_list(strategyId, wallet, status:ALL) call per strategy → {asset: record}. Lifted
-    in spirit from portfolio.py's attach_position_dsl, but status:ALL so a CLOSED trade's terminal record
-    (SL_TRIGGERED / MANUALLY_CLOSED / LIQUIDATED / ADL) is included, not just ACTIVE. Read-guarded +
-    fail-open: on any error → {} + a meta.warnings note (exit_reason falls back to UNKNOWN)."""
+    """One ratchet_stop_list(strategyId, wallet, status:ALL) call per strategy → {asset key: [record, …]}.
+    The MCP returns {positions, count, query}, newest created first, and an asset re-entered over time has
+    one row per position, so EVERY row is kept and `_match_ratchet_record` picks the one per trade. status
+    ALL, so a CLOSED trade's terminal row (SL_TRIGGERED / MANUALLY_CLOSED / LIQUIDATED / ADL) is included.
+    Read-guarded + fail-open: an error or success:false → {} + a meta.warnings note (exits read UNKNOWN)."""
     sid = strat.get("strategy_id")
     wallet = strat.get("wallet")
     out = {}
     try:
-        rl = _ok(client.mcp_call("ratchet_stop_list", strategyId=sid,
-                                 strategy_wallet_address=wallet, status="ALL", timeout=10))
+        resp = client.mcp_call("ratchet_stop_list", strategyId=sid, strategy_wallet_address=wallet,
+                               status="ALL", limit=RATCHET_LIST_LIMIT, timeout=10)
+        if isinstance(resp, dict) and resp.get("success") is False:
+            raise RuntimeError(str(_field(resp, "error", "message", default="success:false"))[:160])
+        rl = _ok(resp)
     except Exception as e:  # noqa — fail-open: exit_reason becomes UNKNOWN, never guessed
         meta.setdefault("warnings", []).append(
             f"ratchet_stop_list {str(wallet)[:8]} failed: {e}; exit attribution degraded to UNKNOWN")
         return out
-    rows = rl if isinstance(rl, list) else _field(rl, "configs", "ratchetStops", "data", "items", default=[])
+    # `positions` is the MCP's key ({positions, count}); the others are older shapes, kept.
+    rows = rl if isinstance(rl, list) else _field(rl, "positions", "configs", "ratchetStops", "data", "items",
+                                                  default=[])
     for r in (rows if isinstance(rows, list) else []):
         if not isinstance(r, dict):
             continue
-        asset = _field(r, "asset", "coin")
-        if asset:
-            out[str(asset)] = r
+        key = _ratchet_asset_key(_field(r, "asset", "coin"), _field(r, "dex"))
+        if key:
+            out.setdefault(key, []).append(r)
     return out
+
+
+def _match_ratchet_record(trade, ratchet_records):
+    """The DSL row for ONE closed trade, or None. Never "the last row for the asset": rows come newest
+    first and an asset traded five times has five rows.
+      1. EXACT: the trade's `closed_order_id` == the row's `activeSLOrderId` (the stop order that filled).
+      2. else same asset (and side, when both carry one) whose life [createdAt, updatedAt] overlaps the
+         trade's [open_time, close_time] (± slack). A wallet holds one position per asset, so a row alive
+         during the trade belongs to it; a scaled-in position has several (each resize re-creates the row),
+         and the one whose last update is nearest the close is the one that ended with it.
+    No overlapping row (or a row without timestamps) → None: never borrow another trade's record."""
+    if not isinstance(ratchet_records, dict):
+        return None
+    cands = ratchet_records.get(_ratchet_asset_key(trade.get("asset"))) or []
+    oid = trade.get("closed_order_id")
+    if oid not in (None, ""):
+        for r in cands:
+            if str(_field(r, "activeSLOrderId", "active_sl_order_id", default="")) == str(oid):
+                return r
+    close_ms = _num(trade.get("close_time"))
+    if close_ms is None:
+        return None
+    open_ms = _num(trade.get("open_time"))
+    open_ms = close_ms if open_ms is None or open_ms > close_ms else open_ms
+    side = str(trade.get("direction") or "").lower()
+    best, best_key = None, None
+    for r in cands:
+        created = _iso_ms(_field(r, "createdAt", "created_at"))
+        ended = _iso_ms(_field(r, "updatedAt", "updated_at", "lastEvaluatedAt", "last_evaluated_at"))
+        if created is None or ended is None:
+            continue
+        r_side = str(_field(r, "direction", default="") or "").lower()
+        if side and r_side and side != r_side:
+            continue
+        if created > close_ms + RATCHET_MATCH_SLACK_MS or ended < open_ms - RATCHET_MATCH_SLACK_MS:
+            continue
+        key = (abs(ended - close_ms), -created)
+        if best_key is None or key < best_key:
+            best, best_key = r, key
+    return best
+
+
+def _tier_number(index):
+    """0-based DSL tier index → the 1-based rung a reader is told ("Tier 1" = tiers[0]). -1 (not armed yet)
+    or unknown → None."""
+    n = _num(index)
+    return int(n) + 1 if n is not None and n >= 0 else None
 
 
 # terminal status → the exit_reason.terminal enum in the output contract. UNKNOWN is the honest default:
@@ -679,18 +765,21 @@ _TERMINAL_MAP = {
 }
 
 
-def _exit_reason_for(asset, ratchet_records):
-    """Authoritative exit attribution for one closed trade, from the ratchet record keyed by asset. A
-    SL_TRIGGERED record → terminal SL_TRIGGERED + tier_reached (currentTierIndex) + high_water_roe (which
-    tier locked → which DSL lever to tune). No record → terminal UNKNOWN (never guessed)."""
-    rec = ratchet_records.get(str(asset)) if isinstance(ratchet_records, dict) else None
+def _exit_reason_for(trade, ratchet_records):
+    """Authoritative exit attribution for one closed trade, from ITS ratchet record (`_match_ratchet_record`).
+    A SL_TRIGGERED record → terminal SL_TRIGGERED + tier_reached (currentTierIndex, 0-based, -1 = not armed)
+    + tier_number (1-based, what a reader is told) + high_water_roe (which tier locked → which DSL lever to
+    tune). No record → terminal UNKNOWN (never guessed)."""
+    rec = _match_ratchet_record(trade, ratchet_records)
     if not isinstance(rec, dict):
-        return {"terminal": "UNKNOWN", "tier_reached": None, "high_water_roe": None}
+        return {"terminal": "UNKNOWN", "tier_reached": None, "tier_number": None, "high_water_roe": None}
     status = str(_field(rec, "status", default="") or "").upper()
     terminal = _TERMINAL_MAP.get(status, "UNKNOWN")
+    tier = _field(rec, "currentTierIndex", "current_tier_index")
     return {
         "terminal": terminal,
-        "tier_reached": _field(rec, "currentTierIndex", "current_tier_index"),
+        "tier_reached": tier,
+        "tier_number": _tier_number(tier),
         "high_water_roe": _field(rec, "highWaterRoe", "high_water_roe"),
         "status_raw": status or None,
     }
@@ -830,6 +919,7 @@ def _exit_reason_from_event(ev):
     return {
         "terminal": terminal,
         "tier_index": _num(tier_index) if tier_index is not None else None,
+        "tier_number": _tier_number(tier_index),   # 1-based, what a reader is told ("Tier 1" = index 0)
         "high_water_roe": _num(roe) if roe is not None else None,
         "source": "telemetry",
     }
@@ -1461,7 +1551,7 @@ def _collect_one_strategy(client, strat, meta, since_ms, until_ms, cap, enrich_e
             if ev is not None:
                 exit_reason = _exit_reason_from_event(ev)
             elif enrich_exit:
-                exit_reason = _exit_reason_for(asset, ratchet_records)
+                exit_reason = _exit_reason_for(t, ratchet_records)
                 # tag the reconstructed fallback so the source rollup can separate ratchet from unknown
                 exit_reason["source"] = "ratchet" if exit_reason.get("terminal") != "UNKNOWN" else "unknown"
             else:
@@ -1668,12 +1758,11 @@ def _enrich_exit_and_streams(client, trades, strategies, meta, since_ms):
                 by_order_id, by_asset = _index_exit_events(events)
                 ratchet_records = _load_ratchet_records(client, strat, priv)
                 for t in strat_trades:
-                    asset = t.get("asset")
                     ev = _match_exit_event(t, by_order_id, by_asset)
                     if ev is not None:
                         exit_reason = _exit_reason_from_event(ev)
                     else:
-                        exit_reason = _exit_reason_for(asset, ratchet_records)
+                        exit_reason = _exit_reason_for(t, ratchet_records)
                         exit_reason["source"] = ("ratchet" if exit_reason.get("terminal") != "UNKNOWN"
                                                  else "unknown")
                     # telemetry ONLY ever writes exit_reason + the row's source tag — nothing onchain.
@@ -1751,7 +1840,7 @@ def _is_premature_exit(exit_reason):
     """The 'shaken out too early' heuristic for ONE closed trade's exit_reason. TRUE when either:
       (a) terminal ∈ {trailing_floor, weak_peak, max_retrace} — the retrace/floor/weak-peak family that
           cuts a still-working position, OR
-      (b) a LOW tier locked (tier_index/tier_reached <= 1) with a SMALL high-water ROE (<= ~5%) — the
+      (b) a LOW tier locked (0 <= tier_index/tier_reached <= 1) with a SMALL high-water ROE (<= ~5%) — the
           profit-lock armed and trailed out almost immediately.
     Fail-soft: a missing/odd exit_reason → False (not premature; we don't invent an early exit)."""
     if not isinstance(exit_reason, dict):
@@ -1765,7 +1854,8 @@ def _is_premature_exit(exit_reason):
     if tier is None:
         tier = _num(exit_reason.get("tier_reached"))
     roe = _num(exit_reason.get("high_water_roe"))
-    if tier is not None and tier <= _PREMATURE_TIER_MAX and roe is not None and abs(roe) <= _PREMATURE_ROE_MAX:
+    # tier -1 = the ladder never armed (the hard stop fired): no tier locked, so never a premature lock
+    if tier is not None and 0 <= tier <= _PREMATURE_TIER_MAX and roe is not None and abs(roe) <= _PREMATURE_ROE_MAX:
         return True
     return False
 
@@ -1802,6 +1892,7 @@ def _dsl_close_reason_mix(trades):
             premature_samples.append({
                 "asset": t.get("asset"), "strategy_label": label, "terminal": terminal,
                 "tier_index": er.get("tier_index") if er.get("tier_index") is not None else er.get("tier_reached"),
+                "tier_number": er.get("tier_number"),
                 "high_water_roe": er.get("high_water_roe"), "realized_pnl": t.get("realized_pnl"),
             })
     return {

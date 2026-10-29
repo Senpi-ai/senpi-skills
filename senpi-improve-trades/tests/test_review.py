@@ -1076,10 +1076,15 @@ def _two_sleeve_fixture():
     # long sleeve closes SOL+ETH, short sleeve closes BTC → both buckets non-empty, different terminals
     fx[f"discovery_get_trader_history::{COUGAR_LONG.lower()}"] = {"closedPositions": hist[:2]}
     fx[f"discovery_get_trader_history::{COUGAR_SHORT.lower()}"] = {"closedPositions": hist[2:]}
-    fx[f"ratchet_stop_list::{COUGAR_LONG.lower()}"] = {"configs": [
-        {"asset": "SOL", "status": "SL_TRIGGERED", "currentTierIndex": 2, "highWaterRoe": 41.0}]}
-    fx[f"ratchet_stop_list::{COUGAR_SHORT.lower()}"] = {"configs": [
-        {"asset": "BTC", "status": "SL_TRIGGERED", "currentTierIndex": 0, "highWaterRoe": 5.0}]}
+    # the MCP's real envelope; each row's life spans its own trade (created after the open, updated at the close)
+    sol = dict(base["ratchet_stop_list::0xkodiak00000000000000000000000000000kdk"]["data"]["positions"][0],
+               strategyId="strat-cougar-long", strategyWalletAddress=COUGAR_LONG.lower())
+    btc = dict(sol, id="dsl-cougar-btc", strategyId="strat-cougar-short", strategyWalletAddress=COUGAR_SHORT.lower(),
+               asset="BTC", direction="SHORT", entryPrice=104000.0, size=0.05, leverage=3, currentTierIndex=0,
+               highWaterRoe=5.0, activeSLOrderId="910000000003", createdAt="2026-06-28T12:34:20.000000Z",
+               updatedAt="2026-06-30T06:13:22.000000Z", lastEvaluatedAt="2026-06-30T06:13:22.000000Z")
+    fx[f"ratchet_stop_list::{COUGAR_LONG.lower()}"] = {"success": True, "data": {"positions": [sol], "count": 1}}
+    fx[f"ratchet_stop_list::{COUGAR_SHORT.lower()}"] = {"success": True, "data": {"positions": [btc], "count": 1}}
     fx[f"strategy_get_clearinghouse_state::{COUGAR_LONG.lower()}"] = ch
     fx[f"strategy_get_clearinghouse_state::{COUGAR_SHORT.lower()}"] = ch
     return fx
