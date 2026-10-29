@@ -125,6 +125,27 @@ DEFAULT_MAX_WAIT = 150
 POLL_BUDGET = 150
 POLL_EVERY = 5
 
+# ONE wall-clock budget per `create`/`runtime` (K2). Every gateway call, sleep and the stale-proof
+# validate gets what is left of it, never more than its own cap above, so START + lost-reply recovery
+# + polling cannot add up past it. It is the poll budget plus START_RESERVE_S for the capability
+# read, START and its recovery reads: 150 + 90 = 240 s by default; an explicit --max-wait M makes it
+# M + 90 in both directions. KILL_RESERVE_S is kept back from each call's wall clock for the
+# SIGTERM grace `_cli._kill_tree` spends after a timeout.
+START_RESERVE_S = 90
+KILL_RESERVE_S = 3
+
+# The request id on `senpi.deploy.start` (K2). Sent only when the runtime advertises
+# `deploy.capabilities.deployStartRequestId` on `senpi.getHealthStatus`: an older runtime ignores the
+# param, so relying on it there would be a guard that silently does nothing. One id per START,
+# journaled under the durable strategies root BEFORE the call. A START that never resolved (the
+# "MAY BE RUNNING" exit, or a process killed mid-call) leaves its entry open, and the next
+# `create`/`runtime` of that package within REQUEST_REUSE_S sends the SAME id, which the runtime
+# answers with the job it already started (`repeated: true`), funding nothing. Any START that got an
+# answer resolves its entry, so a later deliberate deploy gets a new id (a repeated id would hand it
+# the old job back, which is also how the runtime says an interrupted job must be resumed).
+REQUEST_DIR = ".deploy-requests"
+REQUEST_REUSE_S = 3600
+
 # D-12: the verb's exit-code contract (runtime `exitCodeForDeploy`), mirrored here so `deploy.py
 # status` and `openclaw senpi deploy status` answer identically.
 # 1 is reserved for internal/transport errors and is ALSO the
@@ -468,61 +489,245 @@ def _iso_ts(v):
         return None
 
 
-def _recover_lost_start(pkg, t0, log):
+def _utc_stamp(ts):
+    return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# ---------- one budget per command (K2) ----------
+
+_BUDGET = None   # (monotonic start, seconds) while a create/runtime runs; None otherwise
+
+
+def begin_command_budget(seconds):
+    global _BUDGET
+    _BUDGET = (time.monotonic(), int(seconds))
+
+
+def end_command_budget():
+    global _BUDGET
+    _BUDGET = None
+
+
+def _remaining():
+    """Seconds left in this command's budget, or None when no budget is running."""
+    if _BUDGET is None:
+        return None
+    return _BUDGET[1] - (time.monotonic() - _BUDGET[0])
+
+
+def _budget_spent():
+    left = _remaining()
+    return left is not None and left - KILL_RESERVE_S < 1
+
+
+def _budget_note():
+    """`(command budget 240s, used 131s)`, or "" when no budget is running."""
+    if _BUDGET is None:
+        return ""
+    return f"(command budget {_BUDGET[1]}s, used {int(round(time.monotonic() - _BUDGET[0]))}s)"
+
+
+def _sleep(seconds):
+    left = _remaining()
+    time.sleep(seconds if left is None else max(0.0, min(seconds, left - KILL_RESERVE_S)))
+
+
+def _gw(method, params, rpc_ms, wall_s):
+    """`_cli.gateway_call` with its wall clock clipped to what is left of the command budget (and its
+    RPC timeout kept under that wall clock). A budget already spent sends nothing and answers kind
+    `budget_spent`."""
+    left = _remaining()
+    if left is not None:
+        wall = min(float(wall_s), left - KILL_RESERVE_S)
+        if wall < 1:
+            return {"kind": "budget_spent", "payload": None, "code": None, "elapsed": 0,
+                    "message": f"not sent: the command budget is spent {_budget_note()}",
+                    "rc": None, "stderr": "", "argv": None, "transport": None}
+        wall_s, rpc_ms = wall, min(int(rpc_ms), max(500, int((wall - 1) * 1000)))
+    return _cli.gateway_call(method, params, rpc_timeout_ms=rpc_ms, timeout_s=wall_s)
+
+
+# ---------- the request id on senpi.deploy.start (K2) ----------
+
+def start_request_ids_supported(log):
+    """True only when `senpi.getHealthStatus` answers with `deploy.capabilities.deployStartRequestId`
+    true. An unreadable health read, or a runtime that does not carry the field, is False: the id is
+    then not sent and nothing relies on it."""
+    r = _gw("senpi.getHealthStatus", {}, _cli.READ_RPC_MS, _cli.READ_WALL_S)
+    deploy_part = r["payload"].get("deploy") if r["kind"] == "ok" and isinstance(r["payload"], dict) else None
+    caps = deploy_part.get("capabilities") if isinstance(deploy_part, dict) else None
+    ok = isinstance(caps, dict) and caps.get("deployStartRequestId") is True
+    log(f"  (senpi.getHealthStatus: {r['kind']}; START request ids "
+        f"{'supported' if ok else 'not advertised'})")
+    return ok
+
+
+def _request_journal(pkg_id):
+    return _pkg.strategies_root() / REQUEST_DIR / f"{pkg_id}.json"
+
+
+def _journal_read(pkg_id):
+    try:
+        entry = json.loads(_request_journal(pkg_id).read_text())
+    except (OSError, ValueError):
+        return None
+    return entry if isinstance(entry, dict) else None
+
+
+def _journal_write(pkg_id, entry):
+    path = _request_journal(pkg_id)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(entry, indent=2) + "\n")
+        os.replace(tmp, path)
+        return True
+    except OSError as e:
+        print(f"warning: could not write the deploy request journal {path} ({e}). The request id "
+              f"still goes on this START, but a later create will not find it.", file=sys.stderr)
+        return False
+
+
+_REQUEST_ID_SHAPE = re.compile(r"^dpl-req-\d{8}T\d{6}Z-[0-9a-f]{8}$")
+
+
+def _request_id_for(pkg, log):
+    """The id for this START: the journal's, when its last START for this package never resolved and
+    was sent within REQUEST_REUSE_S; otherwise a new one. Journaled (unresolved) before returning."""
+    entry = _journal_read(pkg.id) or {}
+    sent = _iso_ts(entry.get("sentAt"))
+    rid = entry.get("requestId")
+    if (entry.get("packageId") == str(pkg.id) and entry.get("resolved") is None
+            and isinstance(rid, str) and _REQUEST_ID_SHAPE.match(rid)
+            and sent is not None and time.time() - sent < REQUEST_REUSE_S):
+        log(f"  reusing request id {rid}: the START sent at {entry['sentAt']} never got an answer")
+        return rid
+    now = time.time()
+    rid = f"dpl-req-{datetime.fromtimestamp(now, timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{os.urandom(4).hex()}"
+    _journal_write(pkg.id, {"packageId": str(pkg.id), "requestId": rid, "sentAt": _utc_stamp(now),
+                            "resolved": None})
+    return rid
+
+
+def _journal_resolve(pkg, rid, outcome):
+    """Close the journal entry for `rid` (only if it is still the open one)."""
+    if not rid:
+        return
+    entry = _journal_read(pkg.id)
+    if entry and entry.get("requestId") == rid and entry.get("resolved") is None:
+        entry.update(resolved=outcome, resolvedAt=_utc_stamp(time.time()))
+        _journal_write(pkg.id, entry)
+
+
+def _rid_tag(rid):
+    """` (request id dpl-req-…)` for a START that carried one, else ""."""
+    return f" (request id {rid})" if rid else ""
+
+
+def _poll_steer(pkg_id, rid, deploy_id=None, since=None):
+    """The one next step after a START or a poll that could not say how the deploy ended: poll
+    `deploy.py status`, never re-run create. Names what to look for (the job, its request id)."""
+    me = Path(__file__).name
+    if deploy_id:
+        want = (f"until job {deploy_id}" + (f" (request id {rid})" if rid else "")
+                + " shows a final outcome, and report THAT outcome.")
+    else:
+        target = (f"a job with request id {rid}" if rid else
+                  f"a job for {pkg_id}" + (f" started after {since}" if since else ""))
+        want = (f"until it shows {target} with a final outcome, and report THAT outcome. If no such "
+                f"job ever shows, report that the deploy's outcome is unknown.")
+    lines = [f"  Next: python3 {me} status   — read it {want}",
+             "  Do not re-run create: a second start can fund a second wallet."]
+    note = _budget_note()
+    if note:
+        lines.append(f"  {note}")
+    return "\n".join(lines)
+
+
+def _recover_lost_start(pkg, t0, log, rid=None):
     """A START whose reply never came back may still have been taken: killing our client does not
     take back a request the gateway already read. Read the job record (`senpi.deploy.status {}`) up
-    to RECOVER_READS times and adopt a job only if it is THIS package's and started no earlier than
-    RECOVER_SKEW_S before we sent the request. Returns the adopted deployId, or None. Never starts
-    anything, and None never means "nothing started".
+    to RECOVER_READS times. Returns the adopted deployId, or None. Never starts anything, and None
+    never means "nothing started".
 
-    The match is a heuristic (package + start time): a job for the same package started by someone
-    else in the same window would be adopted. That can only make this script follow and report the
-    wrong job; it never dispatches, funds or closes anything."""
-    time.sleep(2)
+    With `rid` (a request id the runtime advertised it honours) the match is exact: the job whose
+    `meta.requestId` is ours, whenever it started (a retry's job was started by the first attempt).
+    Without it the match is a heuristic (this package, started no earlier than RECOVER_SKEW_S before
+    the call): a job for the same package started by someone else in the same window would be
+    adopted. That can only make this script follow and report the wrong job; it never dispatches,
+    funds or closes anything."""
+    _sleep(2)
     for i in range(RECOVER_READS):
+        if _budget_spent():
+            break
         log(f"  reading the job record for a job the lost START may have started ({i + 1}/{RECOVER_READS})…")
-        r = _cli.gateway_call("senpi.deploy.status", {}, rpc_timeout_ms=STATUS_RPC_MS,
-                              timeout_s=STATUS_WALL_S)
+        r = _gw("senpi.deploy.status", {}, STATUS_RPC_MS, STATUS_WALL_S)
         snap = _job_snapshot(r["payload"]) if r["kind"] == "ok" else None
         meta = (snap or {}).get("meta") or {}
-        started = _iso_ts(meta.get("startedAt"))
-        if (str(meta.get("packageId") or "") == str(pkg.id) and started is not None
-                and started >= t0 - RECOVER_SKEW_S and meta.get("deployId")):
-            return meta["deployId"]
+        if rid:
+            if meta.get("requestId") == rid and meta.get("deployId"):
+                return meta["deployId"]
+        else:
+            started = _iso_ts(meta.get("startedAt"))
+            if (str(meta.get("packageId") or "") == str(pkg.id) and started is not None
+                    and started >= t0 - RECOVER_SKEW_S and meta.get("deployId")):
+                return meta["deployId"]
         if i + 1 < RECOVER_READS:
-            time.sleep(RECOVER_EVERY)
+            _sleep(RECOVER_EVERY)
     return None
 
 
 def start_deploy(pkg, a, log):
     """Start the detached job with a direct `senpi.deploy.start` gateway call. Returns the deployId,
-    or exits with the gateway's own refusal text."""
+    or exits with the gateway's own refusal text. With `a.request_ids` (the runtime advertised them)
+    the call carries a journaled request id (`a.request_id` after the call)."""
     params = _start_params(pkg, a)
     if getattr(a, "dry_run", False):
         print("planned: " + shlex.join(_cli.gateway_argv("senpi.deploy.start", params, START_RPC_MS)))
         raise SystemExit(0)
-    log("  starting the deploy job…")
+    rid = _request_id_for(pkg, log) if getattr(a, "request_ids", False) else None
+    if rid:
+        params["requestId"] = rid
+    try:
+        a.request_id = rid
+    except AttributeError:
+        pass
+    log("  starting the deploy job…" + _rid_tag(rid))
     t0 = time.time()
-    r = _cli.gateway_call("senpi.deploy.start", params, rpc_timeout_ms=START_RPC_MS,
-                          timeout_s=START_WALL_S)
+    r = _gw("senpi.deploy.start", params, START_RPC_MS, START_WALL_S)
     log(f"  (senpi.deploy.start: {r['kind']} in {r['elapsed']}s)")
     kind = r["kind"]
     if kind == "ok":
-        deploy_id = (r["payload"] or {}).get("deployId") if isinstance(r["payload"], dict) else None
+        payload = r["payload"] if isinstance(r["payload"], dict) else {}
+        deploy_id = payload.get("deployId")
         if deploy_id:
+            if rid and payload.get("repeated") is True:
+                print(f"note: request id {rid} already started job {deploy_id} (state "
+                      f"{payload.get('state', '?')}); nothing new was started or funded. Following "
+                      f"that job.", file=sys.stderr)
+                if payload.get("next"):
+                    print(f"  {payload['next']}", file=sys.stderr)
+            _journal_resolve(pkg, rid, deploy_id)
             return deploy_id
-        print("senpi.deploy.start answered but named no deployId, so this script cannot follow the job.\n"
-              "  The outcome is UNKNOWN, and no gate said no: the deploy MAY BE RUNNING right now — "
-              "reconcile → preflight → create+fund can be in flight, and a wallet may already be "
-              "funded.\n"
-              f"  Read what actually happened, and report THAT:  python3 {Path(__file__).name} status\n"
-              "  Do not re-run create: a second start can fund a second wallet.",
+        print("senpi.deploy.start answered but named no deployId, so this script cannot follow the "
+              "job.\n"
+              "  The outcome is UNKNOWN, and no gate said no: the deploy MAY BE RUNNING right now"
+              f"{_rid_tag(rid)} — reconcile → preflight → create+fund can be in flight, and a wallet "
+              "may already be funded.\n" + _poll_steer(pkg.id, rid),
+              file=sys.stderr)
+        raise SystemExit(EXIT_INTERNAL)
+    if kind == "budget_spent":
+        _journal_resolve(pkg, rid, "not-sent")
+        print(f"NOTHING WAS DISPATCHED: this command's budget was spent before START was sent "
+              f"{_budget_note()}. No job started, no wallet created, no funds moved.",
               file=sys.stderr)
         raise SystemExit(EXIT_INTERNAL)
     if kind == "refused":
+        _journal_resolve(pkg, rid, "refused")
         print(r["message"], file=sys.stderr)
         raise SystemExit(EXIT_CODES["refused"])
     if kind in ("unknown_method", "cli_parse", "spawn_failed"):
+        _journal_resolve(pkg, rid, "not-dispatched")
         # Nothing reached a deploy handler: no such method, a command line openclaw rejected, or no
         # openclaw at all. Exit 1, never 2 — no gate said no; this box cannot run the call.
         print(r["message"] or kind, file=sys.stderr)
@@ -545,19 +750,17 @@ def start_deploy(pkg, a, log):
         raise SystemExit(EXIT_INTERNAL)
     # timeout / transport / error / unreadable: the gateway may have taken the job.
     print(f"senpi.deploy.start: {kind}: {r['message'] or 'no message'}", file=sys.stderr)
-    adopted = _recover_lost_start(pkg, t0, log)
+    adopted = _recover_lost_start(pkg, t0, log, rid)
     if adopted:
-        print(f"note: the START reply was lost, but the gateway took job {adopted} for {pkg.id} "
-              f"after this command sent it; following that job.", file=sys.stderr)
+        how = (f"the job record shows request id {rid} on job {adopted}" if rid else
+               f"the gateway took job {adopted} for {pkg.id} after this command sent it")
+        print(f"note: the START reply was lost, but {how}; following that job.", file=sys.stderr)
+        _journal_resolve(pkg, rid, adopted)
         return adopted
-    stamp = datetime.fromtimestamp(t0, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    me = Path(__file__).name
-    print(f"  No answer came back for the START call, and {RECOVER_READS} reads of the job record "
-          f"found no job for {pkg.id} started by it. That is not a verdict: the gateway may have taken the deploy, so a job MAY BE "
-          f"RUNNING (a wallet may already be funded).\n"
-          f"  Read what actually happened, and report THAT:  python3 {me} status\n"
-          f"  Do not re-run create until `python3 {me} status` shows no job for {pkg.id} started "
-          f"after {stamp}: a second start can fund a second wallet.",
+    print(f"  No answer came back for the START call{_rid_tag(rid)}, and the reads of the job record "
+          f"found no job for {pkg.id} started by it. That is not a verdict: the gateway may have "
+          f"taken the deploy, so a job MAY BE RUNNING (a wallet may already be funded). The START "
+          f"was sent at {_utc_stamp(t0)}.\n" + _poll_steer(pkg.id, rid, since=_utc_stamp(t0)),
           file=sys.stderr)
     raise SystemExit(EXIT_INTERNAL)
 
@@ -567,8 +770,8 @@ def read_status(deploy_id):
     no_job)`. `no_job` is True only when the gateway itself answered `[NOT_FOUND]` (no deploy has
     ever run on this agent). Every other non-snapshot answer — including `unknown_method`, a runtime
     without the deploy verb — is a read that did not answer the question, and `no_job` is False."""
-    r = _cli.gateway_call("senpi.deploy.status", {"deployId": deploy_id} if deploy_id else {},
-                          rpc_timeout_ms=STATUS_RPC_MS, timeout_s=STATUS_WALL_S)
+    r = _gw("senpi.deploy.status", {"deployId": deploy_id} if deploy_id else {},
+            STATUS_RPC_MS, STATUS_WALL_S)
     if r["kind"] == "ok" and isinstance(r["payload"], dict):
         return r["payload"], "", False
     msg = r["message"] or ""
@@ -638,7 +841,8 @@ def print_status(deploy_id, as_json, snap):
 
 
 def wait_for_terminal(deploy_id, max_wait, log):
-    """Poll until the job leaves `running`, or the wait budget runs out. Returns the last snapshot."""
+    """Poll until the job leaves `running`, or the wait budget (or the command budget) runs out.
+    Returns the last snapshot."""
     deadline = time.time() + max_wait
     snap = None
     while True:
@@ -649,9 +853,9 @@ def wait_for_terminal(deploy_id, max_wait, log):
             if state != "running":
                 return snap
             log(f"  {(snap.get('state') or {}).get('phase', '…')}…")
-        if time.time() >= deadline:
+        if time.time() >= deadline or _budget_spent():
             return snap
-        time.sleep(POLL_EVERY)
+        _sleep(POLL_EVERY)
 
 
 def exit_code_for(snap):
@@ -787,8 +991,14 @@ def revalidate(dirs, log):
     caller to surface unedited."""
     for d in dirs:
         log(f"  re-proving {d} (openclaw senpi validate --stage live)…")
+        # Clipped to what is left of the command budget (K2), like every gateway call.
+        left = _remaining()
+        timeout = VALIDATE_TIMEOUT if left is None else min(VALIDATE_TIMEOUT, left - KILL_RESERVE_S)
+        if timeout < 1:
+            return False, (f"openclaw senpi validate {d} was not run: this command's budget is "
+                           f"spent {_budget_note()}.")
         rc, out, err = _cli.run_cli(["openclaw", "senpi", "validate", str(d), "--stage", "live"],
-                                    timeout=VALIDATE_TIMEOUT)
+                                    timeout=timeout)
         if rc != 0:
             return False, (_cli.error_tail(err, out, limit=2000)
                            or f"openclaw senpi validate {d} exited {rc} and printed nothing.")
@@ -804,11 +1014,9 @@ def _poll_deploy(pkg, a, log):
     return deploy_id, wait_for_terminal(deploy_id, poll_budget, log), poll_budget
 
 
-def _unreadable_job(deploy_id):
-    print(f"Could not read the deploy job's status, and the job {deploy_id} may still be running. "
-          f"Check it directly: python3 {Path(__file__).name} status\n"
-          f"  Do not re-run create while it may be running: a second start can fund a second wallet.",
-          file=sys.stderr)
+def _unreadable_job(pkg, deploy_id, rid=None):
+    print(f"Could not read the deploy job's status, and the job {deploy_id}{_rid_tag(rid)} may still "
+          f"be running.\n" + _poll_steer(pkg.id, rid, deploy_id), file=sys.stderr)
     return EXIT_INTERNAL
 
 
@@ -822,7 +1030,7 @@ def run_deploy(pkg, a, log):
     deploy."""
     deploy_id, snap, poll_budget = _poll_deploy(pkg, a, log)
     if snap is None:
-        return _unreadable_job(deploy_id)
+        return _unreadable_job(pkg, deploy_id, getattr(a, "request_id", None))
     dirs = stale_proof_dirs(snap, pkg)
     if dirs:
         # stderr, always: in `--json` mode stdout is the snapshot document and nothing else.
@@ -837,7 +1045,7 @@ def run_deploy(pkg, a, log):
         if ok:
             deploy_id, fresh, poll_budget = _poll_deploy(pkg, a, log)
             if fresh is None:
-                return _unreadable_job(deploy_id)
+                return _unreadable_job(pkg, deploy_id, getattr(a, "request_id", None))
             snap = fresh
         else:
             print(text, file=sys.stderr)
@@ -852,9 +1060,9 @@ def run_deploy(pkg, a, log):
         # This trailer used to land on the same stdout right after it, so `json.loads` broke on
         # exactly the pending outcome an agent must parse to decide whether to keep watching. The
         # steer is not dropped, it moves to stderr (where the human still reads it).
-        print(f"\nStill running after {poll_budget}s — the job continues in the background. "
-              f"Watch it: python3 {Path(__file__).name} status   (job {deploy_id}). Do not re-run "
-              f"create while it runs.",
+        rid = getattr(a, "request_id", None)
+        print(f"\nStill running when this command stopped polling — job {deploy_id}{_rid_tag(rid)} "
+              f"continues in the background.\n" + _poll_steer(pkg.id, rid, deploy_id),
               file=sys.stderr if a.json else sys.stdout)
     return exit_code_for(snap)
 
@@ -1664,7 +1872,7 @@ def cmd_fork(pkg, a, log):
     return 0
 
 
-def main(argv):
+def _main(argv):
     ap = argparse.ArgumentParser(
         description="Deploy a strategy package via the runtime's deploy verb (gateway method `senpi.deploy.start`).")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1768,6 +1976,10 @@ def main(argv):
         return 0
 
     log = (lambda m: None) if a.json else (lambda m: print(m))
+
+    if a.cmd in ("create", "runtime") and not getattr(a, "dry_run", False):
+        # ONE budget for the whole command (K2), started before the package fetch so it counts too.
+        begin_command_budget((POLL_BUDGET if a.max_wait is None else a.max_wait) + START_RESERVE_S)
 
     if getattr(a, "dry_run", False) and a.json:
         # `--dry-run` prints the PLANNED command as prose; there is no JSON rendering of a plan. The
@@ -1937,18 +2149,25 @@ def main(argv):
     # because the caller asked for it by name. Unset: the verb's own default is forwarded, and polling
     # keeps its own short budget.
     #
-    # ONE path can exceed that budget, and it is bounded: the stale-proof repair spends
-    # `poll₁ + VALIDATE_TIMEOUT + poll₂` (see `run_deploy`). It is not sized down to fit, because the
-    # only alternative is not repairing at all — and the typical case is nowhere near it: the proof
-    # gate is a local hash compare that refuses on the first poll, and a live validation of a healthy
-    # scanner is seconds. If the harness does kill the call, the repair note is already on stderr
-    # BEFORE validate runs, so a killed wrapper still says what it was doing and that nothing was
-    # created; the detached job, as ever, is read back with `python3 deploy.py status`.
+    # The whole command, the stale-proof repair (`poll₁ + validate + poll₂`, see `run_deploy`)
+    # included, runs inside the ONE command budget begun above: each call gets what is left of it.
+    # If the harness does kill the call, the repair note is already on stderr BEFORE validate runs,
+    # so a killed wrapper still says what it was doing and that nothing was created; the detached
+    # job, as ever, is read back with `python3 deploy.py status`.
     a.poll_budget = POLL_BUDGET if a.max_wait is None else a.max_wait
     if a.max_wait is None:
         a.max_wait = DEFAULT_MAX_WAIT
+    # K2: send a request id on START only when this runtime says it honours one.
+    a.request_ids = (not getattr(a, "dry_run", False)) and start_request_ids_supported(log)
 
     sys.exit(run_deploy(pkg, a, log))
+
+
+def main(argv):
+    try:
+        return _main(argv)
+    finally:
+        end_command_budget()
 
 
 if __name__ == "__main__":

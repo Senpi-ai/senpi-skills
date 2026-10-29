@@ -397,7 +397,8 @@ class OutputAndExitCodesUnchanged(unittest.TestCase):
         real_spawn, ensure, validate = _cli._spawn, deploy.ensure_pkg, deploy.full_validate
         _cli.gateway_call = self._gc
         calls = []
-        answers = [(0, json.dumps({"deployId": "dpl-1"}), "", False, None),
+        answers = [(0, json.dumps({"statuses": []}), "", False, None),     # K2 capability read
+                   (0, json.dumps({"deployId": "dpl-1"}), "", False, None),
                    (0, json.dumps({"meta": {"deployId": "dpl-1", "packageId": "spider"},
                                    "state": {"status": "done", "overall": "live"}}), "", False, None)]
         _cli._spawn = lambda argv, timeout: calls.append(argv) or answers.pop(0)
@@ -410,7 +411,8 @@ class OutputAndExitCodesUnchanged(unittest.TestCase):
         finally:
             _cli._spawn, deploy.ensure_pkg, deploy.full_validate = real_spawn, ensure, validate
         self.assertEqual(ctx.exception.code, 0)
-        self.assertEqual([c[:4] for c in calls], [["openclaw", "gateway", "call", "senpi.deploy.start"],
+        self.assertEqual([c[:4] for c in calls], [["openclaw", "gateway", "call", "senpi.getHealthStatus"],
+                                                  ["openclaw", "gateway", "call", "senpi.deploy.start"],
                                                   ["openclaw", "gateway", "call", "senpi.deploy.status"]])
         self.assertFalse(any(c[:3] == ["openclaw", "senpi", "deploy"] for c in calls))
 

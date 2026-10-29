@@ -33,7 +33,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.28.0"
+  version: "3.29.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -172,7 +172,7 @@ poll` it until it exits) — with one bounded exception, the stale-proof repair
 *before* validation starts, so **a call killed mid-repair still says nothing was created**: read
 `deploy.py status`, and do NOT re-run `create`. A job still running at the lapse is **exit
 `6` / pending** with the snapshot and the command to watch it — normal on a slow funding leg or a long
-scanner interval, **not** a failure and not a reason to re-run `create`. Nor is exit `1` with **a job MAY BE RUNNING** (a lost START reply): run `deploy.py status`, and no `create` until it shows no job for the package started after the time named.
+scanner interval, **not** a failure and not a reason to re-run `create`. Nor is exit `1` with **a job MAY BE RUNNING** (a lost START reply): run `deploy.py status` until it shows the job (by its request id) with an outcome, and never re-run `create`.
 
 Inside the job, per instance: **reconcile → preflight → create → install → observe** — the phase names
 `deploy.py status` prints while it runs; an existing live wallet is adopted at reconcile, never

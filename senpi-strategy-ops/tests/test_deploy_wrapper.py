@@ -488,13 +488,392 @@ class LostStartReply(unittest.TestCase):
         out, _fake, err = self._start([TIMEOUT] + [_refused(NOT_FOUND)] * 3)
         self.assertEqual(out, ("exit", 1))
         self.assertIn("python3 deploy.py status", err)
-        self.assertRegex(err, r"Do not re-run create until `python3 deploy\.py status` shows no job "
-                              r"for spider started after \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
+        # No request id (not advertised): the job to look for is named by package and START time.
+        self.assertRegex(err, r"read it until it shows a job for spider started after "
+                              r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
+        self.assertIn("Do not re-run create:", err)
+        self.assertNotIn("re-run create until", err)          # K2: no conditional retry advice
+        self.assertNotIn("request id", err)
         self.assertNotIn("openclaw senpi deploy status", err)
 
     def test_a_job_that_started_within_the_clock_skew_window_is_still_adopted(self):
         out, _fake, _err = self._start([TIMEOUT, _status(self._job(started_offset=-3))])
         self.assertEqual(out, "dpl-0000beef")
+
+
+# ---------- K2: a request id on START, one budget per command, polling text ----------
+
+# `senpi.getHealthStatus` as a runtime that supports `requestId` answers it (runtime
+# `src/index.ts`: `deploy: { capabilities: DEPLOY_CAPABILITIES }`), and as an older one does.
+HEALTH_ADVERTISED = _ok({"statuses": [], "deploy": {"capabilities": {"deployStartRequestId": True}}})
+HEALTH_PLAIN = _ok({"statuses": []})
+REQUEST_ID = r"dpl-req-\d{8}T\d{6}Z-[0-9a-f]{8}"
+
+
+class _JournalDir:
+    """Points the durable strategies root (and so the request journal) at a temp dir."""
+
+    def _use_temp_root(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        old = os.environ.get("SENPI_STRATEGIES_DIR")
+        os.environ["SENPI_STRATEGIES_DIR"] = tmp
+        self.addCleanup(lambda: os.environ.__setitem__("SENPI_STRATEGIES_DIR", old) if old is not None
+                        else os.environ.pop("SENPI_STRATEGIES_DIR", None))
+        self.root = Path(tmp)
+        self.pkg = _pkg(dir_=str(self.root / "spider"))
+        return self.pkg
+
+    def _main_create(self, spawn, *extra):
+        self.addCleanup(setattr, deploy, "ensure_pkg", deploy.ensure_pkg)
+        self.addCleanup(setattr, deploy, "full_validate", deploy.full_validate)
+        deploy.ensure_pkg = lambda arg, ref, log: self.pkg
+        deploy.full_validate = lambda pkg: []
+        _cli._spawn = spawn
+        out, err = io.StringIO(), io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            deploy.main(["deploy.py", "create", "spider", "--budget", "30", *extra])
+        return ctx.exception.code, out.getvalue(), err.getvalue()
+
+
+class FakeRuntime:
+    """A gateway that keeps jobs by `requestId` the way the runtime's deploy controller does (K2):
+    a START with an id it has seen returns that job with `repeated: true` and funds nothing; a new
+    one starts (and funds) a job. `lose_replies` START replies are lost after the job started (the
+    RT566-08 shape), and the first `unreadable_status` status reads get no answer."""
+
+    def __init__(self, lose_replies=1, unreadable_status=3, advertise=True):
+        self.lose_replies, self.unreadable_status, self.advertise = (
+            lose_replies, unreadable_status, advertise)
+        self.jobs, self.starts, self.fundings, self.calls = {}, [], 0, []
+
+    def __call__(self, args, timeout=60):
+        self.calls.append(list(args))
+        method, params = _gw_method(args), _gw_params(args)
+        r = self._answer(method, params)
+        return tuple(r) if len(r) == 5 else (*r, False, None)
+
+    def _answer(self, method, params):
+        if method == "senpi.getHealthStatus":
+            return HEALTH_ADVERTISED if self.advertise else HEALTH_PLAIN
+        if method == "senpi.deploy.start":
+            self.starts.append(params)
+            rid = params.get("requestId")
+            if rid is not None and rid in self.jobs:
+                return _ok({"deployId": self.jobs[rid], "state": "running", "phase": "create",
+                            "monitor": "…", "requestId": rid, "repeated": True})
+            did = f"dpl-{len(self.starts):08x}"
+            self.jobs[rid if rid is not None else did] = did
+            self.fundings += 1
+            if self.lose_replies:
+                self.lose_replies -= 1
+                return TIMEOUT
+            return _ok({"deployId": did, "state": "running", "phase": "reconcile", "monitor": "…",
+                        **({"requestId": rid} if rid else {})})
+        if method == "senpi.deploy.status":
+            if self.unreadable_status:
+                self.unreadable_status -= 1
+                return _transport("closed")
+            did = params.get("deployId")
+            rid = next((r for r, d in self.jobs.items() if d == did), None)
+            return _status({"meta": {"deployId": did, "packageId": "spider", "requestId": rid},
+                            "state": {"status": "done", "overall": "live"},
+                            "capabilities": {"deployStartRequestId": True}})
+        return (0, "", "")
+
+
+class RequestIdRetry(_JournalDir, unittest.TestCase):
+    """RT566-08: a START that timed out still funded a wallet after deploy.py exited, and an agent
+    retrying `create` could fund a second. With a runtime that advertises `deployStartRequestId`,
+    each `create` sends one request id, journaled BEFORE the call, and a retry of a START that never
+    resolved sends the SAME id, which the runtime answers with the existing job."""
+
+    def setUp(self):
+        self._real, self._sleep = _cli._spawn, deploy.time.sleep
+        deploy.time.sleep = lambda _s: None
+        self._use_temp_root()
+
+    def tearDown(self):
+        _cli._spawn, deploy.time.sleep = self._real, self._sleep
+
+    def test_a_retry_with_the_journals_request_id_funds_once(self):
+        gw = FakeRuntime(lose_replies=1, unreadable_status=3)
+        code, _out, err = self._main_create(gw)
+        self.assertEqual(code, 1)                                   # MAY BE RUNNING
+        self.assertIn("MAY BE RUNNING", err)
+        self.assertEqual(gw.fundings, 1)
+        # The agent retries anyway (the RT566-08 risk). The journal hands the retry the same id.
+        code, out, err = self._main_create(gw)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(gw.fundings, 1)                            # funded ONCE
+        self.assertEqual(len(gw.starts), 2)
+        self.assertRegex(gw.starts[0]["requestId"], "^" + REQUEST_ID + "$")
+        self.assertEqual(gw.starts[1]["requestId"], gw.starts[0]["requestId"])
+        self.assertIn(f"request id {gw.starts[0]['requestId']} already started job dpl-00000001", err)
+        self.assertIn("nothing new was started or funded", err)
+        self.assertIn("live", out)
+
+    def test_a_resolved_start_never_hands_its_id_to_the_next_create(self):
+        gw = FakeRuntime(lose_replies=0, unreadable_status=0)
+        self.assertEqual(self._main_create(gw)[0], 0)
+        self.assertEqual(self._main_create(gw)[0], 0)
+        self.assertNotEqual(gw.starts[0]["requestId"], gw.starts[1]["requestId"])
+
+    def test_the_id_is_journaled_before_the_start_is_sent(self):
+        seen = {}
+
+        class Spy(FakeRuntime):
+            def _answer(inner, method, params):
+                if method == "senpi.deploy.start":
+                    seen["journal"] = json.loads(next((self.root / ".deploy-requests").glob("*.json"))
+                                                 .read_text())
+                return super()._answer(method, params)
+
+        gw = Spy(lose_replies=0, unreadable_status=0)
+        self._main_create(gw)
+        self.assertEqual(seen["journal"]["requestId"], gw.starts[0]["requestId"])
+        self.assertEqual(seen["journal"]["packageId"], "spider")
+        self.assertIsNone(seen["journal"]["resolved"])
+
+    def test_a_repeated_interrupted_job_is_followed_and_its_resume_line_relayed(self):
+        rid = "dpl-req-20261028T000000Z-deadbeef"
+        self._seed_journal(rid)
+        fake = FakeCli([HEALTH_ADVERTISED,
+                        _ok({"deployId": "dpl-old", "state": "interrupted", "monitor": "…",
+                             "requestId": rid, "repeated": True,
+                             "next": "resume: python3 deploy.py create spider (needs a new requestId)"}),
+                        _status({"meta": {"deployId": "dpl-old", "packageId": "spider", "requestId": rid},
+                                 "state": {"status": "interrupted"}})])
+        code, _out, err = self._main_create(fake)
+        self.assertEqual(code, 5)
+        self.assertEqual(_gw_params(fake.argv_for("senpi.deploy.start")[0])["requestId"], rid)
+        self.assertIn("resume: python3 deploy.py create spider", err)
+        # Resolved: the resume a user asks for next must get a NEW id, or it would get this job back.
+        self.assertIsNotNone(self._journal()["resolved"])
+
+    def test_a_lost_reply_is_adopted_by_its_request_id_even_when_the_job_started_before_this_call(self):
+        # A retry's START can time out too; the job it names was started by the FIRST attempt, so
+        # the start-time window cannot match it, but the id does, exactly.
+        rid = "dpl-req-20261028T000000Z-deadbeef"
+        self._seed_journal(rid)
+        old = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time() - 600))
+        fake = FakeCli([TIMEOUT, _status({"meta": {"deployId": "dpl-first", "packageId": "spider",
+                                                    "startedAt": old, "requestId": rid},
+                                           "state": {"status": "running", "phase": "create"}})])
+        out, err = self._start(fake)
+        self.assertEqual(out, "dpl-first")
+        self.assertIn(f"request id {rid}", err)
+
+    def test_with_ids_advertised_a_job_with_another_request_id_is_never_adopted(self):
+        rid = "dpl-req-20261028T000000Z-deadbeef"
+        self._seed_journal(rid)
+        fresh = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time() + 1))
+        other = _status({"meta": {"deployId": "dpl-other", "packageId": "spider", "startedAt": fresh,
+                                  "requestId": "dpl-req-20261028T000001Z-0badf00d"},
+                         "state": {"status": "running", "phase": "create"}})
+        fake = FakeCli([TIMEOUT, other, other, other])
+        out, err = self._start(fake)
+        self.assertEqual(out, ("exit", 1))
+        self.assertIn("MAY BE RUNNING", err)
+        self.assertIsNone(self._journal()["resolved"])          # a retry must reuse this id
+
+    def test_an_old_unresolved_entry_is_not_reused(self):
+        rid = "dpl-req-20261028T000000Z-deadbeef"
+        self._seed_journal(rid, age_s=deploy.REQUEST_REUSE_S + 60)
+        fake = FakeCli([_ok({"deployId": "dpl-new"})])
+        self.assertEqual(self._start(fake)[0], "dpl-new")
+        sent = _gw_params(fake.argv_for("senpi.deploy.start")[0])["requestId"]
+        self.assertNotEqual(sent, rid)
+        self.assertRegex(sent, "^" + REQUEST_ID + "$")
+
+    # helpers
+    def _journal(self):
+        return json.loads((self.root / ".deploy-requests" / "spider.json").read_text())
+
+    def _seed_journal(self, rid, age_s=60):
+        d = self.root / ".deploy-requests"
+        d.mkdir(parents=True, exist_ok=True)
+        sent = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - age_s))
+        (d / "spider.json").write_text(json.dumps({"packageId": "spider", "requestId": rid,
+                                                   "sentAt": sent, "resolved": None}))
+
+    def _start(self, fake):
+        _cli._spawn = fake
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            try:
+                out = deploy.start_deploy(self.pkg, _args(budget=30.0, request_ids=True), lambda m: None)
+            except SystemExit as e:
+                out = ("exit", e.code)
+        return out, err.getvalue()
+
+
+class RequestIdNotAdvertised(_JournalDir, unittest.TestCase):
+    """An older runtime ignores an unknown param, so an id sent to it would be silently dropped and
+    a retry could still fund twice. Without the advertisement nothing relies on an id: none is sent,
+    none is journaled, and lost-reply recovery stays K1's package + start-time match."""
+
+    def setUp(self):
+        self._real, self._sleep = _cli._spawn, deploy.time.sleep
+        deploy.time.sleep = lambda _s: None
+        self._use_temp_root()
+
+    def tearDown(self):
+        _cli._spawn, deploy.time.sleep = self._real, self._sleep
+
+    def test_not_advertised_no_request_id_is_sent_or_relied_on(self):
+        fresh = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time() + 1))
+        job = {"meta": {"deployId": "dpl-0000beef", "packageId": "spider", "startedAt": fresh},
+               "state": {"status": "done", "overall": "live"}}
+        fake = FakeCli([HEALTH_PLAIN, TIMEOUT, _status(job), _status(job)])
+        code, _out, err = self._main_create(fake)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(fake.gateway()[0][0], "senpi.getHealthStatus")
+        self.assertNotIn("requestId", _gw_params(fake.argv_for("senpi.deploy.start")[0]))
+        self.assertFalse((self.root / ".deploy-requests").exists())
+        self.assertIn("the gateway took job dpl-0000beef", err)    # K1's match, unchanged
+        self.assertNotIn("request id", err)
+
+    def test_an_unreadable_health_read_counts_as_not_advertised(self):
+        fake = FakeCli([TIMEOUT, _ok({"deployId": "dpl-1"}),
+                        _status({"state": {"status": "done", "overall": "live"}})])
+        code, _out, _err = self._main_create(fake)
+        self.assertEqual(code, 0)
+        self.assertNotIn("requestId", _gw_params(fake.argv_for("senpi.deploy.start")[0]))
+
+    def test_dry_run_makes_no_capability_read(self):
+        fake = FakeCli([])
+        code, out, _err = self._main_create(fake, "--dry-run")
+        self.assertEqual(code, 0)
+        self.assertEqual(fake.calls, [])
+        self.assertIn("planned: openclaw gateway call senpi.deploy.start", out)
+
+
+class Clock:
+    """A fake clock for `time.time`, `time.monotonic` and `time.sleep`."""
+
+    def __init__(self, test):
+        self.now = 1_800_000_000.0
+        for name in ("time", "monotonic", "sleep"):
+            test.addCleanup(setattr, deploy.time, name, getattr(deploy.time, name))
+        deploy.time.time = deploy.time.monotonic = lambda: self.now
+        deploy.time.sleep = self.advance
+
+    def advance(self, s):
+        self.now += max(0.0, float(s))
+
+
+class ClockedCli(FakeCli):
+    """FakeCli on a fake clock: a TIMEOUT costs its whole wall budget plus the 2 s SIGTERM grace of
+    `_kill_tree`; any other answer costs one second."""
+
+    def __init__(self, clock, responses):
+        super().__init__(responses)
+        self.clock = clock
+
+    def __call__(self, args, timeout=60):
+        r = super().__call__(args, timeout)
+        self.clock.advance(timeout + 2 if r[3] else 1)
+        return r
+
+
+class OneCommandBudget(_JournalDir, unittest.TestCase):
+    """One deadline for the whole command: every gateway call (and the validate of the stale-proof
+    repair) gets what is left of it, never more, so START + recovery reads + polls cannot add up past
+    it. The terminal line states the budget and the time used."""
+
+    def setUp(self):
+        self._real = _cli._spawn
+        self.clock = Clock(self)
+        self._use_temp_root()
+
+    def tearDown(self):
+        _cli._spawn = self._real
+
+    def test_the_whole_command_stays_inside_one_budget(self):
+        # --max-wait 30 → budget 30 + START_RESERVE_S. Unclipped, START (40 s + kill) and three
+        # recovery reads (40 s + kill each) would take ~180 s.
+        budget = 30 + deploy.START_RESERVE_S
+        t0 = self.clock.now
+        fake = ClockedCli(self.clock, [HEALTH_ADVERTISED] + [TIMEOUT] * 10)
+        code, _out, err = self._main_create(fake, "--max-wait", "30")
+        used = self.clock.now - t0
+        self.assertEqual(code, 1)
+        self.assertLessEqual(used, budget)
+        self.assertIn("MAY BE RUNNING", err)
+        self.assertRegex(err, rf"command budget {budget}s, used \d+s")
+
+    def test_the_stale_proof_repair_stays_inside_the_same_budget(self):
+        budget = 30 + deploy.START_RESERVE_S
+        t0 = self.clock.now
+        fake = ClockedCli(self.clock, [HEALTH_PLAIN, _ok({"deployId": "dpl-a1b2c3d4"}),
+                                       _status(_proof_refused("runtime_version_changed")),
+                                       TIMEOUT,                    # a validate that never finishes
+                                       _ok({"deployId": "dpl-e5f6a7b8"})]
+                          + [_status({"state": {"status": "running", "phase": "create"}})] * 50)
+        code, _out, _err = self._main_create(fake, "--max-wait", "30")
+        self.assertLessEqual(self.clock.now - t0, budget)
+        self.assertIn(code, (1, 2, 6))
+        # validate's own timeout was clipped to what was left, not its 180 s.
+        self.assertLess(max(fake.timeouts), budget)
+
+    def test_a_poll_that_outlives_the_budget_says_so_on_its_last_line(self):
+        budget = 30 + deploy.START_RESERVE_S
+        fake = ClockedCli(self.clock, [HEALTH_ADVERTISED, _ok({"deployId": "dpl-a1b2c3d4"})]
+                          + [_status({"state": {"status": "running", "phase": "create"}})] * 200)
+        code, out, err = self._main_create(fake, "--max-wait", "30")
+        self.assertEqual(code, 6)
+        self.assertIn("python3 deploy.py status", out + err)
+        self.assertRegex(out + err, rf"command budget {budget}s, used \d+s")
+
+
+class PollingText(_JournalDir, unittest.TestCase):
+    """Every timeout / "may be running" line names ONE next step — `python3 deploy.py status` — says
+    never to re-run create, and carries the request id the job will show (`meta.requestId`)."""
+
+    def setUp(self):
+        self._real, self._sleep = _cli._spawn, deploy.time.sleep
+        deploy.time.sleep = lambda _s: None
+        self._use_temp_root()
+
+    def tearDown(self):
+        _cli._spawn, deploy.time.sleep = self._real, self._sleep
+
+    def _assert_polling_text(self, err, rid):
+        self.assertIn("python3 deploy.py status", err)
+        self.assertIn("Do not re-run create", err)
+        self.assertIn(f"request id {rid}", err)
+        self.assertNotIn("re-run create until", err)          # no conditional retry advice
+        self.assertNotIn("retry", err.lower())
+        self.assertNotIn("openclaw senpi deploy", err)
+
+    def test_timeout_text_tells_the_agent_to_poll_status_never_to_re_run_create(self):
+        gw = FakeRuntime(lose_replies=1, unreadable_status=3)
+        code, _out, err = self._main_create(gw)
+        self.assertEqual(code, 1)
+        self._assert_polling_text(err, gw.starts[0]["requestId"])
+
+    def test_a_start_with_no_deploy_id_carries_the_request_id(self):
+        fake = FakeCli([HEALTH_ADVERTISED, _ok({"state": "running"})])
+        code, _out, err = self._main_create(fake)
+        self.assertEqual(code, 1)
+        self._assert_polling_text(err, _gw_params(fake.argv_for("senpi.deploy.start")[0])["requestId"])
+
+    def test_an_unreadable_job_carries_the_request_id(self):
+        fake = FakeCli([HEALTH_ADVERTISED, _ok({"deployId": "dpl-1"})] + [_transport("closed")] * 200)
+        code, _out, err = self._main_create(fake, "--max-wait", "0")
+        self.assertEqual(code, 1)
+        self._assert_polling_text(err, _gw_params(fake.argv_for("senpi.deploy.start")[0])["requestId"])
+
+    def test_still_running_carries_the_request_id(self):
+        fake = FakeCli([HEALTH_ADVERTISED, _ok({"deployId": "dpl-1"})]
+                       + [_status({"state": {"status": "running", "phase": "create"}})] * 5)
+        code, out, err = self._main_create(fake, "--max-wait", "0")
+        self.assertEqual(code, 6)
+        rid = _gw_params(fake.argv_for("senpi.deploy.start")[0])["requestId"]
+        self.assertIn(f"request id {rid}", out + err)
+        self.assertIn("Do not re-run create", out + err)
 
 
 class ForwardedMaxWaitDefault(unittest.TestCase):
@@ -525,11 +904,12 @@ class ForwardedMaxWaitDefault(unittest.TestCase):
          deploy.wait_for_terminal) = (self._ensure, self._validate, self._wait)
 
     def _create(self, *extra):
-        fake = FakeCli([_ok({"deployId": "dpl-a1b2c3d4"}), (0, "done — live", "")])
+        # `main` reads `senpi.getHealthStatus` first (K2: does this runtime honour a request id?).
+        fake = FakeCli([HEALTH_PLAIN, _ok({"deployId": "dpl-a1b2c3d4"}), (0, "done — live", "")])
         _cli._spawn = fake
         with self.assertRaises(SystemExit) as ctx:
             deploy.main(["deploy.py", "create", "spider", "--budget", "300", *extra])
-        return _gw_params(fake.calls[0]), ctx.exception.code
+        return _gw_params(fake.argv_for("senpi.deploy.start")[0]), ctx.exception.code
 
     def test_the_forwarded_default_is_the_verbs_own_150(self):
         params, code = self._create()
@@ -1293,7 +1673,7 @@ class StaleProofRepair(unittest.TestCase):
         self.addCleanup(setattr, deploy, "full_validate", deploy.full_validate)
         deploy.ensure_pkg = lambda arg, ref, log: _pkg()
         deploy.full_validate = lambda pkg: []
-        fake = FakeCli(self._repaired())
+        fake = FakeCli([HEALTH_PLAIN] + self._repaired())
         _cli._spawn = fake
         out, err = io.StringIO(), io.StringIO()
         with self.assertRaises(SystemExit) as ctx, \

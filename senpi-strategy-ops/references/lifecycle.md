@@ -33,11 +33,25 @@ running after the script answers. There is no fallback to the CLI verb. `opencla
 
 **A START whose reply is lost** (timeout, dropped connection, unreadable answer) may still have been
 taken by the gateway. `deploy.py` waits 2 s, then reads `senpi.deploy.status` up to 3 times, 3 s apart,
-and follows a job only if it is for this package and started no earlier than 5 s before the call. If
-no such job turns up it exits `1`: a job MAY BE RUNNING and a wallet may already be funded; do not re-run
-`create` until `deploy.py status` shows no job for the package started after the time it names. A START
-the gateway never received (`unknown method`, a command line openclaw rejected, no `openclaw` on the
-host) exits `1` with NOTHING WAS DISPATCHED.
+and follows the job that matches. If none turns up it exits `1`: a job MAY BE RUNNING and a wallet may
+already be funded. Run `deploy.py status` until it shows that job's outcome, and do not re-run `create`.
+A START the gateway never received (`unknown method`, a command line openclaw rejected, no `openclaw` on
+the host) exits `1` with NOTHING WAS DISPATCHED.
+
+**Request id (runtime with `deploy.capabilities.deployStartRequestId` on `senpi.getHealthStatus`).**
+`create`/`runtime` read that capability once, then send one `requestId` (`dpl-req-<UTC stamp>-<8 hex>`)
+on `senpi.deploy.start`, written first to `<strategies root>/.deploy-requests/<id>.json`. The runtime
+answers a repeated id with the job it already started (`repeated: true`) and funds nothing, so a retry
+after a lost reply funds once: an entry whose START never got an answer is reused by the next
+`create`/`runtime` of that package within 1 h. Any answered START closes the entry, so the next deploy gets
+a new id. Lost-reply recovery then matches the job by `meta.requestId` (exact). Without the capability no
+id is sent or journaled and the match is this package plus a start no earlier than 5 s before the call.
+Every timeout / MAY BE RUNNING line names the request id to look for in `deploy.py status`.
+
+**One budget per command.** `create`/`runtime` run inside one wall-clock budget: the poll budget plus
+90 s (240 s by default; `--max-wait M` makes it M + 90). Every gateway call, recovery read, poll and
+the stale-proof re-validation gets what is left of it, and the last line states the budget and the time
+used.
 
 **Before any of this, the package must have been proven runnable** — `openclaw senpi validate
 <recipe-dir>` returning `PASS`. That answers a different question ("does the scanner actually run
