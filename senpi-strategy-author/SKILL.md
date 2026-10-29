@@ -61,10 +61,12 @@ much risk). Your job is to draw those out, one question at a time, and compile t
 The user is the driver and Senpi is the tool: what goes live is theirs, shaped by them. Every strategy ask
 starts here — a thesis, an X take, "what should I trade?", "recommend a strategy", "set me up".
 
-- **Find a base first.** Hand their idea to `senpi-strategy-discover` (their words as `--theme`). If a
-  template fits, offer it once, by name, as the base of *their* strategy (*"**Cougar** is close to what you
-  described — want to start from it and make it yours?"*). No close fit → build from scratch with the
-  interview below; never force a bad-fit template, and never a menu of unrelated ones.
+- **Find a base first.** Hand their idea to `senpi-strategy-discover` (their words as `--theme`). A template
+  fits only if it trades the same idea (the market, the edge, the horizon), not just the same asset; if
+  you'd call it "not a tight fit", it doesn't fit. If one fits, offer it once, by name, as the base of
+  *their* strategy (*"**Cougar** is close to what you described — want to start from it and make it
+  yours?"*). No close fit → build from scratch with the interview below, without naming the near misses;
+  never force a bad-fit template, and never a menu of unrelated ones.
 - **A mandate is still their strategy.** "Trade for me", "you pick", "be aggressive": ask the one or two
   questions that turn it into a thesis (what they believe will move, how much risk they take), then find a
   base or build. Never hand-pick positions for them.

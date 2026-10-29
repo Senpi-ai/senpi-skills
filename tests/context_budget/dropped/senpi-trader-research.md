@@ -1,4 +1,4 @@
-# senpi-trader-research 1.8.0 — build-first routing: dropped and reworded sentences
+# senpi-trader-research 1.8.0 — fork-first routing: dropped and reworded sentences
 
 Strategy conversations now start in `senpi-strategy-author`: the closest template is the base the user
 forks and makes their own (a lever shifted, a rule of their own); scratch when nothing fits. No skill
@@ -10,7 +10,7 @@ Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`
 
 >   starts idle, and point out a fresh-entry template (Shadow) fires the moment the OG re-enters.
 
-Why: A template pitched by name, unprompted. No skill names a template the user did not ask about; the build route (`senpi-strategy-author`) replaces it.
+Why: A hardcoded template pitch. A template is now offered only as a fit for the user's own idea (senpi-strategy-author, via the discover ranking, once), never from a fixed list.
 
 >    fresh-entry template, because the proven books have already run"* (a real recommendation framed as the
 
@@ -27,7 +27,7 @@ Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`
 >      (auto-DSL'd, budget-sized) — a different style, **not** a cure for a stale book;
 >    - *follow the smart money by signal* (many traders at once, not 1:1): **Stingray** · **Starling** · **Whalehunter**.
 
-Why: A template pitched by name, unprompted. No skill names a template the user did not ask about; the build route (`senpi-strategy-author`) replaces it.
+Why: A hardcoded template pitch. A template is now offered only as a fit for the user's own idea (senpi-strategy-author, via the discover ranking, once), never from a fixed list.
 
 >   or chases. Lead with `mirror_fit`; when it's `poor`, recommend a fresh-entry template over a stale book.
 
@@ -39,5 +39,5 @@ Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`
 >   different bets, and the reader is choosing between them. A managed **Copy-Trader template** via
 >   `senpi-strategy-discover` remains the route for someone who specifically wants one wallet copied.
 
-Why: A template pitched by name, unprompted. No skill names a template the user did not ask about; the build route (`senpi-strategy-author`) replaces it.
+Why: A hardcoded template pitch. A template is now offered only as a fit for the user's own idea (senpi-strategy-author, via the discover ranking, once), never from a fixed list.
 

@@ -1,4 +1,4 @@
-# quant-desk 1.50.0 — build-first routing: dropped and reworded sentences
+# quant-desk 1.50.0 — fork-first routing: dropped and reworded sentences
 
 Strategy conversations now start in `senpi-strategy-author`: the closest template is the base the user
 forks and makes their own (a lever shifted, a rule of their own); scratch when nothing fits. No skill
@@ -21,7 +21,7 @@ Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`
 
 > > Your edge is <the edge, in the desk's own words, with the numbers>. Let me see what fits.
 
-Why: Reworded in place for build-first routing; the new wording is in SKILL.md.
+Why: Reworded in place for fork-first routing; the new wording is in SKILL.md.
 
 > Then hand to `senpi-strategy-discover` with the edge as `--theme`. Two things carry across and are
 > the reason this handoff is worth more than opening discover cold: **the edge** (what to search for)

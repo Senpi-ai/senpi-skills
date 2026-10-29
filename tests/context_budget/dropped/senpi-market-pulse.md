@@ -1,4 +1,4 @@
-# senpi-market-pulse 1.11.0 — build-first routing: dropped and reworded sentences
+# senpi-market-pulse 1.11.0 — fork-first routing: dropped and reworded sentences
 
 Strategy conversations now start in `senpi-strategy-author`: the closest template is the base the user
 forks and makes their own (a lever shifted, a rule of their own); scratch when nothing fits. No skill
@@ -6,19 +6,19 @@ pitches a template by name outside that match. Each quote below is base text tha
 
 >    this is the last fifteen minutes — and it is the one place a reader sees the detector Penguin and
 
-Why: A template pitched by name, unprompted. No skill names a template the user did not ask about; the build route (`senpi-strategy-author`) replaces it.
+Why: A hardcoded template pitch. A template is now offered only as a fit for the user's own idea (senpi-strategy-author, via the discover ranking, once), never from a fixed list.
 
 > - **Strategy → Penguin or Pelican first, or one built for this market.** As the quick start, offer the
 >   Hyperfeed strikers — **senpi-strategy-ops** runs the walkthrough and deploys under their name:
 
-Why: A template pitched by name, unprompted. No skill names a template the user did not ask about; the build route (`senpi-strategy-author`) replaces it.
+Why: A hardcoded template pitch. A template is now offered only as a fit for the user's own idea (senpi-strategy-author, via the discover ranking, once), never from a fixed list.
 
 >   > Want a feel for what senpi Hyperfeed can do? **Penguin** (crypto only) or **Pelican** (all assets)
 >   > react only to the strongest live rotations on the feed — a name suddenly rocketing up what winning
 >   > traders hold — then commit one position at up to 10x, 90% margin, with a DSL floor that ratchets up
 >   > to lock gains as it runs. High risk, high reward, with -15% SL.
 
-Why: A template pitched by name, unprompted. No skill names a template the user did not ask about; the build route (`senpi-strategy-author`) replaces it.
+Why: A hardcoded template pitch. A template is now offered only as a fit for the user's own idea (senpi-strategy-author, via the discover ranking, once), never from a fixed list.
 
 >   Three things about that line the agent must be able to unpack, because each is easy to read wrong:
 >   **-15% SL is 15% ROE, not a 15% price move** — at 10x that is a **1.5%** move, so if the user asks what

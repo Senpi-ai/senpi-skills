@@ -223,7 +223,7 @@ the goal is to land them on a **raw mirror** or a **managed mirror they build** 
 1. **Capital use — ask this first; it is the #1 pain.** *"Do you want to use **most** of your capital in a
    few concentrated positions, or replicate the trader's exact proportional book?"*
    - *"use most of my funds / a few big orders / not 5% sitting idle"* → **a budget-relative managed
-     mirror** (built with author) — it sizes to *your* capital and open a few full-size positions, which a
+     mirror** (built with author) — it sizes to *your* capital and opens a few full-size positions, which a
      proportional mirror won't (it tracks the trader's proportions). **Common answer.**
    - *"exactly proportional to the trader"* → **raw mirror** (below), sized via the multiplier. If the
      trader's account **dwarfs** the budget, match a closer-sized trader or raise the multiplier so

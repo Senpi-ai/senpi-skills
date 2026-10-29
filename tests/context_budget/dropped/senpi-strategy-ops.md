@@ -1,4 +1,4 @@
-# senpi-strategy-ops 3.30.0 — build-first routing: dropped and reworded sentences
+# senpi-strategy-ops 3.30.0 — fork-first routing: dropped and reworded sentences
 
 Strategy conversations now start in `senpi-strategy-author`: the closest template is the base the user
 forks and makes their own (a lever shifted, a rule of their own); scratch when nothing fits. No skill
@@ -6,7 +6,7 @@ pitches a template by name outside that match. Each quote below is base text tha
 
 >   (senpi-strategy-discover) or authoring / editing the strategy files themselves (senpi-strategy-author).
 
-Why: Description rewritten build-first: it is the routing surface every turn. The new description is in the frontmatter.
+Why: Description rewritten fork-first: it is the routing surface every turn. The new description is in the frontmatter.
 
 > cooldowns, said as a ceiling. A user who is not told reads normal silence as breakage: `shadow` took 10
 > installs to 0 fills and every wallet was withdrawn. Never quote a rate off the package NAME. Detail:
@@ -15,7 +15,7 @@ Why: The example of a strategy that goes quiet named one that could not fire at 
 
 > list) — say a different name if you want one."* Then one question: *"Run it as-is, or shift one of these
 
-Why: Reworded in place for build-first routing; the new wording is in SKILL.md.
+Why: Reworded in place for fork-first routing; the new wording is in SKILL.md.
 
 > question comes after the answer. Cost class is a fact beside the choice, never a discouragement; named
 

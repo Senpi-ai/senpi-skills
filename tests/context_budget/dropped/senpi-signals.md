@@ -1,4 +1,4 @@
-# senpi-signals 2.12.0 — build-first routing: dropped and reworded sentences
+# senpi-signals 2.12.0 — fork-first routing: dropped and reworded sentences
 
 Strategy conversations now start in `senpi-strategy-author`: the closest template is the base the user
 forks and makes their own (a lever shifted, a rule of their own); scratch when nothing fits. No skill
@@ -7,7 +7,7 @@ pitches a template by name outside that match. Each quote below is base text tha
 > - **Penguin (crypto) and Pelican (all assets)** trade this exact detector: offer them by name when a
 >   user wants it traded, with the cost in the same breath.
 
-Why: A template pitched by name, unprompted. No skill names a template the user did not ask about; the build route (`senpi-strategy-author`) replaces it.
+Why: A hardcoded template pitch. A template is now offered only as a fit for the user's own idea (senpi-strategy-author, via the discover ranking, once), never from a fixed list.
 
 > > stop and the liquidation price before anything is placed. Or run it as a strategy:
 > > **(1) Signals Hunter** — trades the smart-money signals;
@@ -17,25 +17,25 @@ Why: A template pitched by name, unprompted. No skill names a template the user 
 > > **(4) Trade the Hyperfeed momentum** — e.g. **Penguin** (crypto) or **Pelican** (all assets), which
 > > chase live Hyperfeed rotations.
 
-Why: A template pitched by name, unprompted. No skill names a template the user did not ask about; the build route (`senpi-strategy-author`) replaces it.
+Why: A hardcoded template pitch. A template is now offered only as a fit for the user's own idea (senpi-strategy-author, via the discover ranking, once), never from a fixed list.
 
 > **This is a major entry point.** Ask it every time, in full, with all four routes. Offer **all four**
 > strategy routes, every time.
 
-Why: Reworded in place for build-first routing; the new wording is in SKILL.md.
+Why: Reworded in place for fork-first routing; the new wording is in SKILL.md.
 
 > Routes (1)-(3) trade the reads above. Route (4) deliberately does **not**, which is why its label
 > names **the Hyperfeed** rather than these signals. The label is the disclosure: Hyperfeed momentum is
 > a different source from the smart-money cohort above, so it is offered AS a different signal, never as
 > another way to trade what they just read.
 
-Why: Reworded in place for build-first routing; the new wording is in SKILL.md.
+Why: Reworded in place for fork-first routing; the new wording is in SKILL.md.
 
 > - **(1) Signals Hunter → senpi-strategy-ops.** `signals-hunter` uses the same detectors, scores and
 >   wording the backend is built from, on an hourly clock. It runs its own scan, so its reads are close
 >   to this feed but not always identical, and its score floor is higher, so it acts on fewer reads than
 
-Why: A template pitched by name, unprompted. No skill names a template the user did not ask about; the build route (`senpi-strategy-author`) replaces it.
+Why: A hardcoded template pitch. A template is now offered only as a fit for the user's own idea (senpi-strategy-author, via the discover ranking, once), never from a fixed list.
 
 > - **(2) Puffin → senpi-strategy-ops.** `puffin` is the same engine on one position: score floor 85,
 >   75-90% of the wallet at up to 10x, a 15-minute clock. Name the cost with the upside: no second
@@ -51,16 +51,16 @@ Why: A template pitched by name, unprompted. No skill names a template the user 
 >   places up the top-50 rows of the 4h leaderboard, one position at up to 10x — Orca's detector rather
 >   than this feed's — and runs with its risk guard rails off. For anything else, hand off to
 
-Why: A template pitched by name, unprompted. No skill names a template the user did not ask about; the build route (`senpi-strategy-author`) replaces it.
+Why: A hardcoded template pitch. A template is now offered only as a fit for the user's own idea (senpi-strategy-author, via the discover ranking, once), never from a fixed list.
 
 > - **Roll your own → senpi-strategy-author.** Not in the offer, but the answer as soon as a user wants
 >   something none of the four do. The read is the brief (asset, side, numbers). Guardrails: a stop on
 
-Why: Reworded in place for build-first routing; the new wording is in SKILL.md.
+Why: Reworded in place for fork-first routing; the new wording is in SKILL.md.
 
 > - **Ops runs the walkthrough, then asks the budget.** Read the minimum budget from the catalog, never
 
-Why: Reworded in place for build-first routing; the new wording is in SKILL.md.
+Why: Reworded in place for fork-first routing; the new wording is in SKILL.md.
 
 > - **When the user picks one read**, start from the template built on that kind of read:
 
@@ -72,9 +72,9 @@ Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`
 >   | Smart money vs the crowd | `athena`, or `phalanx` (the cohort sleeve alone) |
 >   | A funding extreme | `pangolin` (fades the crowd paying) or `camel` (collects the carry) |
 
-Why: Reworded in place for build-first routing; the new wording is in SKILL.md.
+Why: Reworded in place for fork-first routing; the new wording is in SKILL.md.
 
 >   | A laggard behind BTC | `mantis` |
 
-Why: Reworded in place for build-first routing; the new wording is in SKILL.md.
+Why: Reworded in place for fork-first routing; the new wording is in SKILL.md.
 

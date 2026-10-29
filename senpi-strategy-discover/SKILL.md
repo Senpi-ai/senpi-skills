@@ -104,6 +104,9 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
 - **Don't re-ask what they've told you.** If they named an asset/direction, use it; only ask real gaps.
 - **Never say "safe."** Be honest about risk; surface **EVERY** entry in a candidate's `caveats[]`
   **verbatim** — never omit, merge, or soften them.
+- **Asked by author for a base, a pick has to fit** the thesis: the same idea (the market, the edge, the
+  horizon), not just the same asset. If the top card doesn't fit, say no template fits and hand back to
+  author to build; never offer the best of a poor list.
 - **Every pick gets made theirs.** Ops' walkthrough ends on what they want to change (a lever, a rule of
   their own); unchanged only if they decline. Never dead-end: no fit → build it with them (author).
 

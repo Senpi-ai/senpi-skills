@@ -75,8 +75,8 @@ that DSL:** the integrated two-phase DSL is runtime-only. For real two-sided pro
 | Way | What it is | Best when |
 |---|---|---|
 | **Raw hands-on mirror** | You pick one trader; Senpi runs it; the user drives size / slippage / protection | Copy one specific trader and stay in control |
-| **Managed mirror** | The user's own runtime, built with `senpi-strategy-author`: **budget-relative sizing** + **auto-DSL on every fill**; it can enter **fresh-only** (the trader's *next* open), copy the *current* book, or follow the whole proven cohort by signal (many traders at once, not 1:1) | Hands-off, sized to *your* capital, protected automatically, with rules of their own |
-| **Pre-built template** | A ready-made managed mirror (`senpi-strategy-discover`), forked under the user's name | Only when they ask for something pre-built |
+| **Managed mirror** | The user's own runtime, made with `senpi-strategy-author` (forked from the closest copy template when one fits, else built from scratch): **budget-relative sizing** + **auto-DSL on every fill**; it can enter **fresh-only** (the trader's *next* open), copy the *current* book, or follow the whole proven cohort by signal (many traders at once, not 1:1) | Hands-off, sized to *your* capital, protected automatically, with rules of their own |
+| **Pre-built template** | A ready-made managed mirror (`senpi-strategy-discover`), forked under the user's name | They want to browse what's built (author starts from the closest one anyway when it fits) |
 
 A mirror of the *current* book doesn't cure an already-run book; only a fresh-entry mirror does.
 

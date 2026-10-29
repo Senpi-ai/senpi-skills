@@ -90,7 +90,7 @@ is author → ops.
 ## ▶ Writing or editing a trading strategy? Start here
 
 Do **not** improvise a strategy from scratch. **`senpi-strategy-author/SKILL.md`** owns the flow
-(build-first start → the 7-decision interview → staged build), and its
+(fork-first start → the 7-decision interview → staged build), and its
 **`references/creating-a-strategy.md`** is the self-contained build guide — archetype table with a
 **Clone from** column of real packages under `strategies/`, the `scan(inputs, ctx)` skeleton, a
 complete `runtime.yaml`, DSL presets, and the gotchas.

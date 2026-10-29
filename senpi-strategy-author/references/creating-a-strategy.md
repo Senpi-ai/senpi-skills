@@ -104,6 +104,7 @@ code references only — never offer them to the user as picks.
 | Mean-reversion | majors basket | candles + RSI | fade extremes | L/S | all | dedup | `mean_reversion` / fast | `lemon`, `bald-eagle` |
 | Breakout | basket | candles + range | range break / new high | long | all | dedup | `let_winners_run` / medium | `hawk`, `badger` |
 | Trader-follower | **derived** (board) | `leaderboard_*`/`discovery_*` | mirror proven traders | L/S | all | dedup + baseline | `let_winners_run` / medium | `raptor` |
+| Trader-follower, fresh entries only | **derived** (cohort) | live books from Hyperliquid's public info endpoint (`clearinghouseState`); never `discovery_get_trader_state` for freshness, its positions land hours late (`strategies/shadow/DESIGN.md`) | mirror only what a trader newly opened (held now, not last tick), inside an entry-slippage cap | L/S | all | per-trader seen-set; the first read seeds the book | as `squid` / 120 s | `squid` |
 | Cohort-divergence | **derived** (realized-PnL cohorts) | `discovery_*` | smart-money vs crowd | L+S (2 inst.) | all | daily ledger + cohort cache | `let_winners_run` / slow | `whalehunter`, `egret` |
 | Managed-futures | multi-class basket | candles | cross-asset trend, vol-parity | L+S | all | minimal | `let_winners_run` / slow | `caribou`, `ox` |
 | Microstructure / flow | majors | funding/OI + candles | liquidation cascade / volume | L/S | one or all | dedup | `balanced` or `scalp` / fast | `piranha`, `camel` |

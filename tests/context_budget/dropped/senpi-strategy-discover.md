@@ -1,4 +1,4 @@
-# senpi-strategy-discover 2.54.0 — build-first routing: dropped and reworded sentences
+# senpi-strategy-discover 2.54.0 — fork-first routing: dropped and reworded sentences
 
 Strategy conversations now start in `senpi-strategy-author`: the closest template is the base the user
 forks and makes their own (a lever shifted, a rule of their own); scratch when nothing fits. No skill
@@ -18,12 +18,12 @@ pitches a template by name outside that match. Each quote below is base text tha
 >   worldview as `--theme` to rank the closest fits; offer building one as a peer with
 >   its cost class, never a downsell. You talk and RANK; a hidden engine
 
-Why: Description rewritten build-first: it is the routing surface every turn. The new description is in the frontmatter.
+Why: Description rewritten fork-first: it is the routing surface every turn. The new description is in the frontmatter.
 
 >   strategy (that's senpi-strategy-ops), or building/designing one from scratch or
 >   with a custom DSL (that's senpi-strategy-author).
 
-Why: Description rewritten build-first: it is the routing surface every turn. The new description is in the frontmatter.
+Why: Description rewritten fork-first: it is the routing surface every turn. The new description is in the frontmatter.
 
 > - **It's their strategy.** A template is a quick start to the user's own strategy, never "our strategy"
 
@@ -43,7 +43,7 @@ Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`
 
 >   they're after — a user who says they don't know gets *Start here* (Special paths). Candidates below
 
-Why: Reworded in place for build-first routing; the new wording is in SKILL.md.
+Why: Reworded in place for fork-first routing; the new wording is in SKILL.md.
 
 >   not told supplies their own number and reads normal silence as a fault — measured 2026-10-12,
 >   `shadow` had **0 fills across 10 installs with all 10 wallets withdrawn**, and `moose` runs about
@@ -61,11 +61,11 @@ Why: Cost stays a true fact, said when asked, never a reason to pick a template.
 >       / Starling / Whalehunter / Pilotfish** — position by where the whole proven cohort leans, many wallets at once, not
 >       1:1; Athena is Phalanx with its Aegis hedge as one fund). All auto-apply DSL + budget-relative sizing. (`senpi-trade` carries the full flavor breakdown.)
 
-Why: A template pitched by name, unprompted. No skill names a template the user did not ask about; the build route (`senpi-strategy-author`) replaces it.
+Why: A hardcoded template pitch. A template is now offered only as a fit for the user's own idea (senpi-strategy-author, via the discover ranking, once), never from a fixed list.
 
 >    | copy | **Don't make them pick a window** — "proven vs hot" is exactly what the `senpi-trader-research` blend unions for them (that's the whole point of the blend). Ask only: *"a specific wallet you already have in mind, or should I find the best to copy?"* — a named wallet → `senpi-trader-research --trader <addr>` (vet, then mirror); "find the best" → hand to `senpi-trader-research` (blended shortlist, ranked by copyability); prefer hands-off → a managed copy template — **surface both flavors**: *copy specific traders* (Shadow / Remora / Raptor / Cuckoo / Oxpecker / Jackal) **and** *follow the smart money by signal* (Stingray / Starling / Whalehunter / Phalanx — many traders at once, not 1:1). |
 
-Why: A template pitched by name, unprompted. No skill names a template the user did not ask about; the build route (`senpi-strategy-author`) replaces it.
+Why: A hardcoded template pitch. A template is now offered only as a fit for the user's own idea (senpi-strategy-author, via the discover ranking, once), never from a fixed list.
 
 > - **Build custom** — hand to **senpi-strategy-author** at any time; a peer route with its cost class
 >   stated (a bespoke edit of a template adds more than a lever fork; scratch ≈ 2–3× a template), never a
@@ -75,7 +75,7 @@ Why: Cost stays a true fact, said when asked, never a reason to pick a template.
 
 > "You've got ~${user_context.budget} free — start from {top} (I'll walk you through how it's set and the levers before we fund it; it deploys as {user}'s {top} — or a name of your own), add a hedge alongside it, or build your own?"
 
-Why: Reworded in place for build-first routing; the new wording is in SKILL.md.
+Why: Reworded in place for fork-first routing; the new wording is in SKILL.md.
 
 > - **"I don't know what to try" / "what should I start with?" / no thesis at all** → **start here, do not
 >   run the ranker cold.** With no worldview to rank against, a shortlist beats a filtered list: the engine
@@ -86,7 +86,7 @@ Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`
 
 >   > **Don't know what to try? Start here.**
 
-Why: Reworded in place for build-first routing; the new wording is in SKILL.md.
+Why: Reworded in place for fork-first routing; the new wording is in SKILL.md.
 
 >   > 1. **Penguin** — crypto only. The Hyperfeed striker: it reacts only to the strongest live rotations
 >   >    on the feed — a name suddenly rocketing up what winning traders hold — then commits one position
@@ -94,14 +94,14 @@ Why: Reworded in place for build-first routing; the new wording is in SKILL.md.
 >   >    high reward, with -15% SL.
 >   > 2. **Pelican** — the same striker across all assets: crypto plus stocks, commodities, indices
 
-Why: A template pitched by name, unprompted. No skill names a template the user did not ask about; the build route (`senpi-strategy-author`) replaces it.
+Why: A hardcoded template pitch. A template is now offered only as a fit for the user's own idea (senpi-strategy-author, via the discover ranking, once), never from a fixed list.
 
 >   > 3. **Signals Hunter** — the smart-money signal feed traded on a clock, spread across several slots.
 >   >    Slower and less concentrated than 1 or 2.
 >   > 4. **Athena** — a smart-money hedge fund, forked under your name.
 >   > 5. Or tell me **how you want to trade** and I'll rank the whole catalog against it.
 
-Why: A template pitched by name, unprompted. No skill names a template the user did not ask about; the build route (`senpi-strategy-author`) replaces it.
+Why: A hardcoded template pitch. A template is now offered only as a fit for the user's own idea (senpi-strategy-author, via the discover ranking, once), never from a fixed list.
 
 >   Lead with 1 and 2: a live rotation shows up fast, so the reader sees what the machinery actually does
 >   early, and both are built to be forked and modified once they have a feel for it. **Unpack the numbers
