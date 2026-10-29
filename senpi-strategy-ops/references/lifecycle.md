@@ -45,7 +45,8 @@ package dir and budget. The runtime answers a repeated id with the job it alread
 (`repeated: true`) and funds nothing, so a retry after a lost reply funds once. An entry whose START
 never got an answer stays open with no age limit and is reused by the next `create`/`runtime` of that
 package. It closes when a reply names a job, when `deploy.py status` shows the job carrying that id, or
-when `close.py <id>` triggers the package's close.
+when `close.py <id>` (whole package, not `--instance`) ends with nothing of the package live: a close it
+triggered, or every strategy already closed.
 - **Other parameters.** Advertised: the open id is sent with the new parameters; a `repeated` reply
   returns the earlier job, says the new parameters were NOT applied, and nothing new starts. Not
   confirmed: refused `[E_OPEN_DEPLOY_REQUEST]` (read `deploy.py status`; if it shows the job, report it;

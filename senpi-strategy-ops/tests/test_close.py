@@ -434,15 +434,7 @@ class MainPackagePollReportsClosed(unittest.TestCase):
                                  "resolved": None})
         return Path(tmp), rid
 
-    def test_a_triggered_close_closes_the_packages_open_deploy_request(self):
-        # START lost → recovery missed → the user closes → redeploys: the reused id would hand the next
-        # create the OLD (now closed) job as `repeated`, and nothing would run.
-        root, rid = self._seed_open_request()
-        self.rows = [self._ACTIVE_ROW]
-        _out, code = self._run("omega")
-        self.assertEqual(code, 0)
-        self.assertEqual(_journal.read("omega")["resolved"], "closed-by-close.py")
-        # …so the next create mints a new id.
+    def _next_create_request_id(self, root):
         import deploy
         real = _cli._spawn
         self.addCleanup(setattr, _cli, "_spawn", real)
@@ -454,13 +446,62 @@ class MainPackagePollReportsClosed(unittest.TestCase):
                                      json=False, dry_run=False, request_ids=True, cmd="create")
         with contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(deploy.start_deploy(pkg, args, lambda m: None), "dpl-new")
-        params = json.loads(sent[0][sent[0].index("--params") + 1])
-        self.assertNotEqual(params["requestId"], rid)
+        return json.loads(sent[0][sent[0].index("--params") + 1])["requestId"]
 
-    def test_a_close_that_triggered_nothing_leaves_the_request_open(self):
+    def test_a_triggered_close_closes_the_packages_open_deploy_request(self):
+        # START lost → recovery missed → the user closes → redeploys: the reused id would hand the next
+        # create the OLD (now closed) job as `repeated`, and nothing would run.
+        root, rid = self._seed_open_request()
+        self.rows = [self._ACTIVE_ROW]
+        _out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertEqual(_journal.read("omega")["resolved"], "closed-by-close.py")
+        self.assertNotEqual(self._next_create_request_id(root), rid)
+
+    def test_box_p2_03_every_strategy_already_closed_closes_the_open_request(self):
+        # Box A T7b (2026-10-29): a lost START left the entry open; `close.py <id>` found nothing live
+        # ("closed — 4 strategies, all CLOSED.") and exited early, before the journal was touched, so
+        # the next create reused dpl-req-…-cd383dba.
+        root, rid = self._seed_open_request()
+        self.rows = [dict(self._CLOSED_ROW, strategyId=f"s{i}") for i in range(4)]
+        out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertIn("closed — 4 strategies, all CLOSED.", out)
+        self.assertEqual(_journal.read("omega")["resolved"], "closed-by-close.py")
+        self.assertNotEqual(self._next_create_request_id(root), rid)
+
+    def test_a_package_with_no_strategies_at_all_closes_the_open_request(self):
         _root, _rid = self._seed_open_request()
-        self.rows = []                                       # never deployed: nothing to close
+        self.rows = []
         self._run("omega")
+        self.assertEqual(_journal.read("omega")["resolved"], "closed-by-close.py")
+
+    def test_a_close_that_leaves_something_live_or_refuses_keeps_the_request_open(self):
+        # strategy_close submit fails → the strategy stays live (exit 2, "failed").
+        _root, _rid = self._seed_open_request()
+        self.rows = [self._ACTIVE_ROW]
+
+        class _FailingMCP:
+            def mcp_call(self, name, timeout=None, **kw):
+                raise close.MCPError("backend down")
+        close.MCPClient = _FailingMCP          # tearDown restores MCPClient and the _cli stubs
+        _out, code = self._run("omega")
+        self.assertEqual(code, 2)
+        self.assertIsNone(_journal.read("omega")["resolved"])
+        # An unreadable runtime inventory refuses: nothing closed, the request stays open.
+        _cli.list_runtimes_or_none = lambda *a, **k: None
+        with self.assertRaises(SystemExit), contextlib.redirect_stdout(io.StringIO()):
+            close.main(["close.py", "omega"])
+        self.assertIsNone(_journal.read("omega")["resolved"])
+
+    def test_closing_one_instance_keeps_the_request_open(self):
+        _root, _rid = self._seed_open_request()
+        self.rows = [self._ACTIVE_ROW]
+        self.addCleanup(setattr, _cli, "find_runtime", _cli.find_runtime)
+        _cli.find_runtime = lambda name: {"id": name, "walletAddress": "0xabc"}
+        self.addCleanup(setattr, _cli, "runtime_wallet", _cli.runtime_wallet)
+        _cli.runtime_wallet = lambda rt: "0xabc"
+        self._run("omega", "--instance", "main")
         self.assertIsNone(_journal.read("omega")["resolved"])
 
     def test_poll_after_a_completed_close_reports_closed(self):

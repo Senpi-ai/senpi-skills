@@ -173,6 +173,15 @@ def close_one(label, strat, runtimes, dry_run, log):
     return rec
 
 
+def _close_open_request(pkg, a):
+    """Close the package's open START request (deploy journal) once this command ends with nothing of
+    the package live: a close triggered now, or every strategy already terminal. A close that leaves
+    something live, or that refused, keeps it open."""
+    # `--instance` closes one instance; the package's other instances may still be live.
+    if pkg is not None and not a.dry_run and not a.instance:
+        _journal.resolve(pkg.id, None, "closed-by-close.py")
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description="Close strategies: stop runtime(s) → trigger strategy_close (no wait).")
     ap.add_argument("package", nargs="?", help="Strategy id (e.g. spider). Omit with --all.")
@@ -289,6 +298,9 @@ def main(argv):
                 print(f"{hdr}: closed — {len(ever)} {noun}, all {'/'.join(seen)}.")
             else:
                 print(f"{hdr}: no strategies for this package on this account — nothing to close.")
+            # Nothing of this package is live, so this command ends with the package torn down: an
+            # open START request is accounted for here too, not only after a triggered close (P2-03).
+            _close_open_request(pkg, a)
             sys.exit(0)
         print(f"{hdr}: no OPEN strategies to close.")
         sys.exit(0)
@@ -342,8 +354,8 @@ def main(argv):
     # journal, and the next `deploy.py create` would reuse it: the runtime then answers with the OLD
     # job (`repeated`), now closed, and nothing new runs. Once the close is triggered, that START is
     # accounted for, so close the entry and let the next deploy mint a new id.
-    if pkg and not a.dry_run and overall in ("closing", "closed"):
-        _journal.resolve(pkg.id, None, "closed-by-close.py")
+    if overall in ("closing", "closed"):
+        _close_open_request(pkg, a)
 
     # state is ephemeral: once a package is torn down, clear its deploy state so the next deploy is clean
     if pkg and not a.dry_run:
