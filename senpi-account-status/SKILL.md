@@ -90,7 +90,9 @@ Never quote limit numbers from memory or from the plan table.
 - **`enforced: false`**: limits are not enforced right now, whatever the numbers say. Leave limits off
   the card; explain only when the user asks about their limits.
 - **How it counts**: every wallet is one strategy (a 3-wallet strategy uses 3); a PAUSED strategy counts
-  as running; closing frees a running slot, never a start; a create that failed never used a start.
+  as running; closing frees a running slot, never a start;
+  only a strategy that ends FAILED uses no start (one stuck in MANUAL_REVIEW still uses it);
+  the browser extension's own wallet never counts.
 - **Unread**: `limits: {}` with a `strategy_get_limits failed` warning. Leave limits off the card and
   say nothing about it unless the user asked about their limits. If they did, run the engine once more at most
   (not when the warning says `NOT_FOUND`) and, if it still fails, say their limits couldn't be read

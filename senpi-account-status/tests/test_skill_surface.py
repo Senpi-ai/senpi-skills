@@ -380,7 +380,8 @@ class StrategyLimitsComeFromTheEngine(unittest.TestCase):
             "every wallet is one strategy",
             "a PAUSED strategy counts as running",
             "closing frees a running slot, never a start",
-            "a create that failed never used a start",
+            "only a strategy that ends FAILED uses no start",
+            "the browser extension's own wallet never counts",
         ):
             self.assertIn(needle, section, needle)
 
