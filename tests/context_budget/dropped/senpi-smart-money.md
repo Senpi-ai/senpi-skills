@@ -1,8 +1,8 @@
 # senpi-smart-money 1.8.0 — build-first routing: dropped and reworded sentences
 
-Strategy conversations now default to building the user's own strategy (`senpi-strategy-author`).
-A template is opt-in: offered only when the user asks for something pre-built, wants to browse, or
-names one, and never named unprompted. Each quote below is base text that left SKILL.md, with why.
+Strategy conversations now start in `senpi-strategy-author`: the closest template is the base the user
+forks and makes their own (a lever shifted, a rule of their own); scratch when nothing fits. No skill
+pitches a template by name outside that match. Each quote below is base text that left SKILL.md, with why.
 
 >   **whalehunter** strategy template already trades exactly this divergence — name it as the ready
 >   option. Also offer the Hyperfeed strikers, for a reader who wants the feed itself rather than a

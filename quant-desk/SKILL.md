@@ -442,8 +442,8 @@ The reader has just been shown their edge AND their leaks. Open on both:
 Then hand to `senpi-strategy-author` with the edge as the thesis. Two things carry across: **the edge**
 (what to build) and **the leaks** (what the strategy has to fix — the exits, the sizing rule, the
 maker-first entry). Name the leak each rule closes; a reader who was just told they hold losers 29.7x
-longer than winners should hear which rule takes that decision away from them. No template names; a
-template only if they ask.
+longer than winners should hear which rule takes that decision away from them. Author forks the closest
+template to the edge when one fits; name none before that.
 
 ## Resilience
 

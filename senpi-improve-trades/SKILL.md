@@ -246,7 +246,7 @@ strategy."* Then:
    classes lead, risk-on or risk-off.
 2. **Then offer to build one on THAT read** — compose **`senpi-strategy-author`** with the read as the
    brief (*"semis and crypto-proxy equities lead while crypto is soft — want to build a strategy on
-   that?"*). No template names; pre-built only if they ask.
+   that?"*). Name no template here; author forks the closest one when it fits.
 3. **Offer, never push.** If they'd rather wait, that's a fine outcome — say so.
 
 **Still forbidden here** (guardrail 9 binds): no manufactured critique of an account with nothing in it, no

@@ -1,14 +1,14 @@
 ---
 name: senpi-strategy-discover
 description: >-
-  Browse Senpi's pre-built strategy templates — ONLY when the user asks for
-  something pre-built ("show me your templates", "what's ready-made?", "a
-  ready-made fund"), wants to browse, or names a template. NOT the default for
-  strategy requests: a thesis, "what should I trade?", "recommend a strategy",
-  "set me up", "trade for me", "you decide" go to senpi-strategy-author, which
-  builds the user's own. Every pick is a starting point the user makes their own:
-  it deploys as `<User>'s <Template>` (or a name of their own) after ops walks
-  them through the levers. You talk and RANK (their worldview as `--theme`); a
+  Find the Senpi template that best fits the user's idea, as the BASE of their own
+  strategy: they fork it and make it theirs (a lever shifted, a rule of their own)
+  before it goes live. Called by senpi-strategy-author to find a base for a thesis,
+  and directly when the user asks to browse ("show me your templates", "a
+  ready-made fund") or names a template. Strategy asks ("what should I trade?",
+  "recommend a strategy", "trade for me") start in senpi-strategy-author. Every pick
+  deploys as `<User>'s <Template>` (or a name of their own) after ops walks them
+  through it. You talk and RANK (their worldview as `--theme`); a
   hidden engine (scripts/discover.py) fetches data + filters. NOT for installing a
   NAMED strategy (senpi-strategy-ops) or building one (senpi-strategy-author).
 license: Apache-2.0
@@ -42,8 +42,7 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
 
 ## Golden rules
 
-- **It's their strategy.** You are here because the user asked for pre-built. A template is a starting
-  point they make their own, never "our strategy" deployed for them. Say *"a starting point you can
+- **It's their strategy.** A template is the base of a strategy they make their own, never "our strategy" deployed for them. Say *"a starting point you can
   fork"*; never "our strategies", "Senpi's Starling", "I'll deploy our template". Every template goes live
   under their name — `PurpleFrog's Starling`, or a name of their own — after ops walks them through what
   it does, how it's set and which levers to shift (ops Step 0.75). Cost is a fact, said when asked and
@@ -105,8 +104,8 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
 - **Don't re-ask what they've told you.** If they named an asset/direction, use it; only ask real gaps.
 - **Never say "safe."** Be honest about risk; surface **EVERY** entry in a candidate's `caveats[]`
   **verbatim** — never omit, merge, or soften them.
-- **Building their own is the default (author): name it once, in the offer (Card format); once they pick
-  a template, never re-pitch it.** Never dead-end either: no fit → offer to build it with them (author).
+- **Every pick gets made theirs.** Ops' walkthrough ends on what they want to change (a lever, a rule of
+  their own); unchanged only if they decline. Never dead-end: no fit → build it with them (author).
 
 ## How to run the engine
 
@@ -272,8 +271,8 @@ otherwise put it in `--theme` and rank on `archetype_label`/`belief_plain`/`thes
   `--no-market`; say "give me a sec to read the market." **Never pre-fetch on entry.**
 - **Orient / browse** — a short plain-English menu of what's possible (the style families + the funds +
   the non-crypto markets); never force a pick. From here they pick a belief, read the market, or build custom.
-- **Build custom** — hand to **senpi-strategy-author** at any time; building their own is the default
-  everywhere outside this skill.
+- **Build custom** — hand to **senpi-strategy-author** at any time: from scratch, or a bigger change
+  to a template than a lever.
 - **Mirror a specific trader** — to copy an individual Hyperliquid wallet (not a managed template), hand to
   **senpi-trader-research** (find + vet) → **senpi-trade** (mirror). It blends the windows so the user never
   picks proven-vs-hot; a wallet they name goes straight to `--trader`.
@@ -338,7 +337,7 @@ They lack the vocabulary; recommend *without* making them self-classify:
 🦏  Rhino — Tail-Risk / Crisis-Alpha   [{tier}]
     {thesis}.   Minimum ~${min_budget}{ + funding_split if wallet_count > 1}
 {2nd / 3rd card}.   {caveats, verbatim}.
-"You've got ~${user_context.budget} free — want to build your own around this, or start from {top} as a starting point you make yours (I'll walk you through how it's set and the levers before we fund it; it deploys as {user}'s {top} — or a name of your own), with a hedge alongside it?"
+"You've got ~${user_context.budget} free — start from {top} as the base of your strategy (I'll walk you through how it's set and what's worth changing before we fund it; it deploys as {user}'s {top} — or a name of your own), with a hedge alongside it, or build your own from scratch?"
 ```
 Every card is a starting point — say so once (*"each of these is a starting point you can fork"*), and
 never present a pick as our strategy the user adopts. Show the STARTER badge iff `tier == "starter"`; show `archetype_label`; lead with `thesis` for the
@@ -366,7 +365,7 @@ days.
 ## Special paths
 
 - **No preference at all** → no hardcoded shortlist: ask one question about how they want to trade, or
-  use the *Layer 0 fallback*. A user who never asked for pre-built belongs to author. **Unpack a card's
+  use the *Layer 0 fallback*. **Unpack a card's
   stop when asked, and never leave it misread:** an SL in ROE is the price move × leverage (-15% at 10x =
   a 1.5% move), margin × SL is the wallet cost **per stop-out**, and "up to 10x" is never a flat 10x.
 - **"What's winning"** → reframe honestly: *"I rank by what's set up well right now, not last week's

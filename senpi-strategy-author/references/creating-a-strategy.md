@@ -6,7 +6,7 @@
 
 ## 0. Before the build — a note on the conversation `SKILL.md` runs
 
-`SKILL.md` owns the build-first start and the funding heads-up.
+`SKILL.md` owns the fork-first start and the funding heads-up.
 
 **Why the funding heads-up happens at minute one and never gates the interview:** users have
 completed the entire interview and build, then hit the funding wall at the last step and left. The

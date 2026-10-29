@@ -1,8 +1,8 @@
 # senpi-strategy-discover 2.54.0 — build-first routing: dropped and reworded sentences
 
-Strategy conversations now default to building the user's own strategy (`senpi-strategy-author`).
-A template is opt-in: offered only when the user asks for something pre-built, wants to browse, or
-names one, and never named unprompted. Each quote below is base text that left SKILL.md, with why.
+Strategy conversations now start in `senpi-strategy-author`: the closest template is the base the user
+forks and makes their own (a lever shifted, a rule of their own); scratch when nothing fits. No skill
+pitches a template by name outside that match. Each quote below is base text that left SKILL.md, with why.
 
 >   Help a user choose a Senpi trading strategy to deploy — a conversational,
 >   analyst-style picker. Use when the user asks "what should I trade?", "recommend
@@ -27,7 +27,7 @@ Why: Description rewritten build-first: it is the routing surface every turn. Th
 
 > - **It's their strategy.** A template is a quick start to the user's own strategy, never "our strategy"
 
-Why: Template-first routing flipped: building the user's own strategy (`senpi-strategy-author`) is the default; a template only when they ask.
+Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`, which offers the closest template as the base the user forks and makes their own.
 
 >   Building one from scratch is a peer route, not a downsell: state the four cost classes as facts —
 >   template as-is ≈ the cheapest thing the agent does · a lever fork (values only) adds a little · a
@@ -39,7 +39,7 @@ Why: Cost stays a true fact, said when asked, never a reason to pick a template.
 
 >   bait-and-switch and it buries the thing we actually want them doing — forking a template with their
 
-Why: Template-first routing flipped: building the user's own strategy (`senpi-strategy-author`) is the default; a template only when they ask.
+Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`, which offers the closest template as the base the user forks and makes their own.
 
 >   they're after — a user who says they don't know gets *Start here* (Special paths). Candidates below
 
@@ -82,7 +82,7 @@ Why: Reworded in place for build-first routing; the new wording is in SKILL.md.
 >   scores keyword overlap against what the user says, and someone who has said nothing gets noise. Offer
 >   these, one per line, answerable with a digit:
 
-Why: Template-first routing flipped: building the user's own strategy (`senpi-strategy-author`) is the default; a template only when they ask.
+Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`, which offers the closest template as the base the user forks and makes their own.
 
 >   > **Don't know what to try? Start here.**
 

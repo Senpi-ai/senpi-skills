@@ -247,7 +247,7 @@ comprehensive, decision-first answer on every call, never a bare ROI list.
    — **auto-DSL on every fill**, **sized to their budget**, which a raw mirror doesn't do. Be precise about the
    two shapes: one that opens **only on the trader's next fresh entry** (the answer for an already-run book),
    or one that copies the *current* book (a different style, **not** a cure for a stale book). Or one that
-   follows the whole proven cohort by signal — many traders at once, not 1:1. No template names.
+   follows the whole proven cohort by signal — many traders at once, not 1:1.
 
    **When no single trader is cleanly mirrorable** (all `poor` fit, or the good/partial ones are flag-disqualified
    — `blowup_risk` / against the tape / `dormant`), this becomes the **lead** recommendation, not just the closer.
@@ -301,8 +301,8 @@ End with these two as a real numbered list on **separate lines** — never colla
   default ranking to compare). For the **hands-off** route, hand to **senpi-signals** — it owns the read of
   the live smart-money feed and closes with building a strategy on it (`senpi-strategy-author`). Mirroring
   one wallet and trading the whole cohort's feed are different bets, and the reader is choosing between
-  them. A managed mirror of one wallet is built with `senpi-strategy-author` too; a pre-built one
-  (`senpi-strategy-discover`) only if they ask.
+  them. A managed mirror of one wallet is built with `senpi-strategy-author` too (it forks the
+  closest template when one fits).
 
 ## ⚠ Token scope
 

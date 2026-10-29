@@ -326,9 +326,9 @@ name the file that holds them.
 
 # senpi-improve-trades 1.25.0 — build-first routing: dropped and reworded sentences
 
-Strategy conversations now default to building the user's own strategy (`senpi-strategy-author`).
-A template is opt-in: offered only when the user asks for something pre-built, wants to browse, or
-names one, and never named unprompted. Each quote below is base text that left SKILL.md, with why.
+Strategy conversations now start in `senpi-strategy-author`: the closest template is the base the user
+forks and makes their own (a lever shifted, a rule of their own); scratch when nothing fits. No skill
+pitches a template by name outside that match. Each quote below is base text that left SKILL.md, with why.
 
 >   on a saved wallet stay in this skill. When the user has NOTHING to review yet, `meta.book_state` routes it: nothing deployed -> read the market (senpi-market-pulse) then shortlist a fit (senpi-strategy-discover); deployed-but-idle -> diagnose THAT strategy, never pitch another. A hidden engine (scripts/review.py) reconstructs every
 
@@ -336,16 +336,16 @@ Why: Description rewritten build-first: it is the routing surface every turn. Th
 
 > | nothing to review, an empty result | read `meta.book_state` first | `no_strategies` → `senpi-market-pulse`, then `senpi-strategy-discover`; no critique of an empty account ("Nothing to review?" below) |
 
-Why: Template-first routing flipped: building the user's own strategy (`senpi-strategy-author`) is the default; a template only when they ask.
+Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`, which offers the closest template as the base the user forks and makes their own.
 
 > ### `no_strategies` — pivot to market-pulse → strategy-discover
 
-Why: Template-first routing flipped: building the user's own strategy (`senpi-strategy-author`) is the default; a template only when they ask.
+Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`, which offers the closest template as the base the user forks and makes their own.
 
 > 2. **Then shortlist against THAT read** — compose **`senpi-strategy-discover`**, and let today's market
 >    drive the shortlist. *"Semis and crypto-proxy equities are leading today while crypto is soft — here
 
-Why: Template-first routing flipped: building the user's own strategy (`senpi-strategy-author`) is the default; a template only when they ask.
+Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`, which offers the closest template as the base the user forks and makes their own.
 
 > 3. **Offer, never push.** Two or three named fits with risk level and minimum budget; let them choose. If
 

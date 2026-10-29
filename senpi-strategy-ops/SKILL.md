@@ -131,8 +131,8 @@ it controls, never by its key (*"How picky it is about crowding — now 65% of t
 = more trades and more fees, higher = fewer, stronger ones"*; *"How much of the wallet each position uses —
 15%: about $95 of margin per position on your $635"*), the **fee load and the design budget**, and **the
 name as a fact, never a question**: *"It deploys as **Ignas's Phalanx** (`ignas-phalanx` in your strategy
-list) — say a different name if you want one."* Then one question: *"Run it as-is, shift one of these, or
-add a rule of your own first? Say **go** and it deploys as-is."* A bare "go" / "deploy" / "yes" = as-is under their name; a status
+list) — say a different name if you want one."* Then one question, leading with the change: *"What do you
+want to make yours — shift one of these, or add a rule of your own? Or say **go** to run it unchanged."* A bare "go" / "deploy" / "yes" = as-is under their name; a status
 check ("did you finish?", "how's it going?") is not a yes. Never a gate, never re-asked; the budget
 question comes after the answer. Cost class is a fact said when asked, never a reason to pick a template; named
 installs get the walkthrough too. Below the design budget, a guardrail removed or a threshold lowered:

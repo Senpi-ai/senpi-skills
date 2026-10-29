@@ -115,7 +115,8 @@ template needs a name that tells them apart — ask.
 
 ## 4. The question — and the two other routes
 
-*"Run it as-is, or shift one of these first? Say **go** and it deploys as-is."* A bare "go", "deploy",
+*"What do you want to make yours — shift one of these, or add a rule of your own? Or say **go** to run it
+unchanged."* Lead with the change: the fork is theirs, and a lever they chose is what makes it so. A bare "go", "deploy",
 "yes" or "as-is" = the defaults, under their name. A status check — "did you finish?", "how's it going?" —
 is not a yes: answer it and wait. Never a gate, never re-asked; the budget question comes after the answer.
 

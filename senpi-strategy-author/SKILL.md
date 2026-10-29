@@ -8,8 +8,9 @@ description: >-
   aggressive": one or two questions make it a thesis, then build). Also ANY
   strategy that needs DSL (stop-loss, trailing stop, profit-lock ladder): raw MCP
   strategy_create* / create_position calls can't carry a DSL and must never stand
-  up a named or protected strategy; a strategy built here does. No template offer,
-  no template names: pre-built is opt-in (the user asks → senpi-strategy-discover).
+  up a named or protected strategy; a strategy built here does. Finds the closest
+  template (senpi-strategy-discover) as the BASE the user forks and makes theirs (a
+  lever shifted, a rule of their own) before it goes live; scratch when nothing fits.
   No paper-trading mode: test with `senpi validate` and a $10-floor live run, never a
   scanner re-run on a timer. Never asks for a budget to build (asked once, at
   deploy); exits default to letting winners run, stated in price at leverage; the
@@ -55,21 +56,23 @@ much risk). Your job is to draw those out, one question at a time, and compile t
 > "succeeds," the position is gone, and the user eats the round-trip. If the user hasn't said which of
 > (A)/(B) they want, **ask before placing anything** — and never route (B) into a managed wallet to save a step.
 
-## Start here — build THEIR strategy; a template only when they ask for one
+## Start here — THEIR strategy, forked from a template when one fits
 
-The user is the driver and Senpi is the tool. Every strategy ask goes straight into the interview below:
-a thesis, an X take, "what should I trade?", "recommend a strategy", "set me up". **No opening menu, no
-"two ways to go", no template names.** Don't hand a thesis to discover, and don't mention a template the
-user didn't ask about, however close it looks.
+The user is the driver and Senpi is the tool: what goes live is theirs, shaped by them. Every strategy ask
+starts here — a thesis, an X take, "what should I trade?", "recommend a strategy", "set me up".
 
+- **Find a base first.** Hand their idea to `senpi-strategy-discover` (their words as `--theme`). If a
+  template fits, offer it once, by name, as the base of *their* strategy (*"**Cougar** is close to what you
+  described — want to start from it and make it yours?"*). No close fit → build from scratch with the
+  interview below; never force a bad-fit template, and never a menu of unrelated ones.
 - **A mandate is still their strategy.** "Trade for me", "you pick", "be aggressive": ask the one or two
-  questions that turn it into a thesis (what they believe will move, how much risk they take), then build.
-  Never hand-pick positions for them.
-- **Templates are opt-in.** The user asks for something pre-built, wants to browse, or names a template →
-  `senpi-strategy-discover`. Whatever they pick is a starting point they make their own: ops deploys it as
-  their fork (`<User>'s <Template>`) and walks them through the levers first (ops Step 0.75); a bigger change
-  is this skill's edit path ("Editing an existing strategy") on that fork, **before** deploy.
-- **The user's choice is final.** A template as-is → ops deploys it; never re-pitch building.
+  questions that turn it into a thesis (what they believe will move, how much risk they take), then find a
+  base or build. Never hand-pick positions for them.
+- **Fork it, don't just install it.** Ops deploys a template as their fork (`<User>'s <Template>`) after its
+  walkthrough (ops Step 0.75); help them make it theirs before it goes live — shift a lever, or add a rule
+  of their own (this skill's edit path, "Editing an existing strategy", on the fork). If they want it
+  unchanged, ask once what they'd change; if they decline, ops deploys it — no re-pitch.
+- **Scratch is always there** — the interview below, when nothing fits or they'd rather start clean.
 - **Cost is a fact, never a sales line.** Building takes roughly two to three times the agent work of
   deploying a template. Say it when asked; never use it as a reason to pick a template.
 - **Never ask for a budget to start building** — see the funding heads-up below; the number is asked once,

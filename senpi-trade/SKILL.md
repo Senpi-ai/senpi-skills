@@ -13,7 +13,7 @@ description: >-
   turn, quote the engine's floor (never compute one), say what a change replaces and get a yes, read
   it back. Steer users to a MANAGED strategy when they want ongoing autonomy —
   senpi-strategy-author builds their own (a managed mirror included: sized to the user,
-  DSL on every fill); a pre-built template (senpi-strategy-discover) only if they ask. Pairs with senpi-trader-research, which finds and vets the trader
+  DSL on every fill), forking the closest template when one fits. Pairs with senpi-trader-research, which finds and vets the trader
   (this skill runs the mirror once one is chosen). NOT for
   authoring a strategy or deploying a template yourself.
 license: Apache-2.0
@@ -106,8 +106,8 @@ static SL, per above):
 | The user wants… | Route to | Why (real reason) |
 |---|---|---|
 | Ongoing, hands-off, protected-on-every-fill | **senpi-strategy-author** (their own runtime) | continuous management + DSL on every fill |
-| "Something already built" — they asked | **senpi-strategy-discover** (opt-in) | DSL + risk gates + budget-relative sizing built in |
-| To **copy / mirror a trader, managed** | **senpi-strategy-author** → a managed mirror they build (pre-built only if they ask) | budget-relative sizing, auto-DSL, fresh-entry-only if they want |
+| To browse what's already built | **senpi-strategy-discover** | DSL + risk gates + budget-relative sizing built in |
+| To **copy / mirror a trader, managed** | **senpi-strategy-author** → a managed mirror of their own (author forks the closest template when one fits) | budget-relative sizing, auto-DSL, fresh-entry-only if they want |
 | A genuine one-off, or to mirror **one specific trader hands-on** | **stay here** | direct execution the user is driving |
 
 Offer the managed option **once**, then respect a "no." For mirror, a managed mirror fixes the exact
@@ -241,8 +241,7 @@ the goal is to land them on a **raw mirror** or a **managed mirror they build** 
 5. **Protection** — default **follow their exits**; offer an added DSL safety-net, especially if the
    trader runs without stops.
 
-**Route the answer:** managed → **senpi-strategy-author** (a pre-built template via **senpi-strategy-discover**
-only if they ask for one) · raw mirror of one specific trader → continue below. Offer the managed option **once**, then respect a "no."
+**Route the answer:** managed → **senpi-strategy-author** (it forks the closest template when one fits) · raw mirror of one specific trader → continue below. Offer the managed option **once**, then respect a "no."
 
 ### How a mirror actually works — explain it from the single source
 When the user needs the mechanics — and many do (*"why did it open at a 30% different entry?"*, *"why so
@@ -336,8 +335,8 @@ never a run-on sentence with `1.` `2.` buried inline. Bold the action verb; one 
   hands the *action* (set up the mirror) back to this skill; you own the mechanics — slippage, sizing,
   the pre-fund sim, execution.
 - **Ongoing hands-off management / DSL-on-every-fill / fresh-entry / budget-relative sizing →**
-  `senpi-strategy-author` (their own managed mirror or strategy); a pre-built template via
-  `senpi-strategy-discover` only if they ask. This skill executes the **direct** trade and can add **per-position** protection.
+  `senpi-strategy-author` (their own managed mirror or strategy; it forks the closest template
+  when one fits). This skill executes the **direct** trade and can add **per-position** protection.
 - **Mirror with *custom rules*** — a position-count cap ("max 5; if he opens
   more, don't mirror"), a per-position % cap ("each ≤ 5% of my capital"), "don't copy his shorts",
   "capture his adds", or a conditional exit → a **custom mirror runtime** via `senpi-strategy-author`. Note the

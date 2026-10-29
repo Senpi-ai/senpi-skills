@@ -1,8 +1,8 @@
 # senpi-strategy-author 3.16.0 — build-first routing: dropped and reworded sentences
 
-Strategy conversations now default to building the user's own strategy (`senpi-strategy-author`).
-A template is opt-in: offered only when the user asks for something pre-built, wants to browse, or
-names one, and never named unprompted. Each quote below is base text that left SKILL.md, with why.
+Strategy conversations now start in `senpi-strategy-author`: the closest template is the base the user
+forks and makes their own (a lever shifted, a rule of their own); scratch when nothing fits. No skill
+pitches a template by name outside that match. Each quote below is base text that left SKILL.md, with why.
 
 >   Build or edit a Senpi trading strategy — interactively, ONE decision at a time.
 >   There is no paper-trading mode: a strategy is tested with `senpi validate` and a
@@ -25,7 +25,7 @@ Why: Description rewritten build-first: it is the routing surface every turn. Th
 
 > ## Start here — templates first, as the quick start to THEIR strategy; the other routes are peers
 
-Why: Template-first routing flipped: building the user's own strategy (`senpi-strategy-author`) is the default; a template only when they ask.
+Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`, which offers the closest template as the base the user forks and makes their own.
 
 > A template is not "our strategy" the user adopts — it is the fastest way to launch **their** strategy, and
 > every one deploys under their name (`PurpleFrog's Starling`, or a name of their own) after ops walks them through what it does,
@@ -63,7 +63,7 @@ Why: Reworded in place for build-first routing; the new wording is in SKILL.md.
 
 > Before the template offer / Decision 1, read the **deployable** balance ONCE: `account_get_portfolio` → `total_in_hyperliquid` + `total_spot_usd_in_hyperliquid` + EVM stables in `token_balances[]`.
 
-Why: Template-first routing flipped: building the user's own strategy (`senpi-strategy-author`) is the default; a template only when they ask.
+Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`, which offers the closest template as the base the user forks and makes their own.
 
 >    + `discovery_get_trader_state` — headcount and tick-over-tick change, the `senpi-smart-money` method — and name the
 >    template that already does it (the Starling / WhaleHunter / Stingray family) as the fork option before writing a new one.

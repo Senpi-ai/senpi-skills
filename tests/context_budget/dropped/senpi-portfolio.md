@@ -317,9 +317,9 @@ on purpose; the old wording is quoted here.
 
 # senpi-portfolio 1.37.0 — build-first routing: dropped and reworded sentences
 
-Strategy conversations now default to building the user's own strategy (`senpi-strategy-author`).
-A template is opt-in: offered only when the user asks for something pre-built, wants to browse, or
-names one, and never named unprompted. Each quote below is base text that left SKILL.md, with why.
+Strategy conversations now start in `senpi-strategy-author`: the closest template is the base the user
+forks and makes their own (a lever shifted, a rule of their own); scratch when nothing fits. No skill
+pitches a template by name outside that match. Each quote below is base text that left SKILL.md, with why.
 
 > | a yes to CTA 1 / CTA 2, or a digit (after the CTAs: that CTA; after the idle menu: that option), or a question about a menu option or its numbers | the levers / the ready options | `references/output-contract.md` (the menu) |
 

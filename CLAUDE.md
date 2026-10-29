@@ -73,9 +73,9 @@ The word "strategy" is overloaded in Senpi and the wrong path is the most common
   positions) or `strategy_create` (copy-trader). No recommendation, no package.
 - **Strategic** — "Help me pick a strategy", "What should I trade?", "Recommend a strategy", "Build a
   strategy", a thesis, "trade for me", or anything needing a DSL exit → **`senpi-strategy-author`**
-  (build-first: the user builds their own; never a template offer, never a template named unprompted).
-  The user asks for something pre-built, wants to browse, or names a template →
-  **`senpi-strategy-discover`** (the picker over `catalog.json`; the pick deploys as their fork). A
+  (fork-first: the closest template is the base the user forks and makes their own; scratch when
+  nothing fits). Browsing, or a named template → **`senpi-strategy-discover`** (the picker over
+  `catalog.json`; the pick deploys as their fork). A
   NAMED strategy to install/monitor/close ("deploy spider") → **`senpi-strategy-ops`**.
 - **Ambiguous** — ask the user before acting. A single disambiguation question costs nothing.
 

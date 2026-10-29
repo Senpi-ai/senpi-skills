@@ -63,7 +63,7 @@ book total, or verdicts and figures already shown unless the user asks for them 
   wallet or the CTAs. A `timeout` open may have filled: check positions, never suggest a retry.
   ("Resilience")
 - **Acting on a CTA:** Confirm before any change; never trade unprompted. Propose; never deploy without
-  confirmation. CTA 2: build their own (author); a template only if they ask, never named unprompted.
+  confirmation. CTA 2: build their own (author, forking the closest template when one fits); name none here.
 - **There is no restart verb; close → redeploy is a last resort, asked first.** ("Liveness")
 
 > **Source of truth for position facts — read before you answer, even mid-trade.** This engine is the
@@ -683,7 +683,7 @@ first-class".
   `signals.idle_drag_pct` and `idle_in_embedded` — NOT a flat sleeve of a live multi-wallet strategy,
   which is committed, and never `book.totals.read_only_usd` or any read-only row, which Senpi cannot
   deploy), offer to **build a strategy for the idle** with them (**senpi-strategy-author**) — name no
-  template. A pre-built one only if they ask (**senpi-strategy-discover**). Topping up an existing
+  template here; author forks the closest one when it fits. Topping up an existing
   *whole* strategy via `strategy_top_up` stays available whenever that fits better. Propose; never
   deploy without confirmation.
 

@@ -166,6 +166,6 @@ first-class".
   `signals.idle_drag_pct` and `idle_in_embedded` — NOT a flat sleeve of a live multi-wallet strategy,
   which is committed, and never `book.totals.read_only_usd` or any read-only row, which Senpi cannot
   deploy), offer to **build a strategy for the idle** with them (**senpi-strategy-author**) — name no
-  template. A pre-built one only if they ask (**senpi-strategy-discover**). Topping up an existing
+  template here; author forks the closest one when it fits. Topping up an existing
   *whole* strategy via `strategy_top_up` stays available whenever that fits better. Propose; never
   deploy without confirmation.

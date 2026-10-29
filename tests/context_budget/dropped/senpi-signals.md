@@ -1,8 +1,8 @@
 # senpi-signals 2.12.0 — build-first routing: dropped and reworded sentences
 
-Strategy conversations now default to building the user's own strategy (`senpi-strategy-author`).
-A template is opt-in: offered only when the user asks for something pre-built, wants to browse, or
-names one, and never named unprompted. Each quote below is base text that left SKILL.md, with why.
+Strategy conversations now start in `senpi-strategy-author`: the closest template is the base the user
+forks and makes their own (a lever shifted, a rule of their own); scratch when nothing fits. No skill
+pitches a template by name outside that match. Each quote below is base text that left SKILL.md, with why.
 
 > - **Penguin (crypto) and Pelican (all assets)** trade this exact detector: offer them by name when a
 >   user wants it traded, with the cost in the same breath.
@@ -64,7 +64,7 @@ Why: Reworded in place for build-first routing; the new wording is in SKILL.md.
 
 > - **When the user picks one read**, start from the template built on that kind of read:
 
-Why: Template-first routing flipped: building the user's own strategy (`senpi-strategy-author`) is the default; a template only when they ask.
+Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`, which offers the closest template as the base the user forks and makes their own.
 
 >   | Any, traded as a feed | `signals-hunter` |
 >   | Any, one position at a time | `puffin` (state the per-stop and fee cost) |

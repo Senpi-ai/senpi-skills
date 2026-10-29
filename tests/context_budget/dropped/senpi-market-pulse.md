@@ -1,8 +1,8 @@
 # senpi-market-pulse 1.11.0 — build-first routing: dropped and reworded sentences
 
-Strategy conversations now default to building the user's own strategy (`senpi-strategy-author`).
-A template is opt-in: offered only when the user asks for something pre-built, wants to browse, or
-names one, and never named unprompted. Each quote below is base text that left SKILL.md, with why.
+Strategy conversations now start in `senpi-strategy-author`: the closest template is the base the user
+forks and makes their own (a lever shifted, a rule of their own); scratch when nothing fits. No skill
+pitches a template by name outside that match. Each quote below is base text that left SKILL.md, with why.
 
 >    this is the last fifteen minutes — and it is the one place a reader sees the detector Penguin and
 
@@ -34,5 +34,5 @@ Why: Unpacking of the numbers in the removed named pitch; it left with the pitch
 
 >   Its peer is a strategy built from the thesis you just produced: hand
 
-Why: Template-first routing flipped: building the user's own strategy (`senpi-strategy-author`) is the default; a template only when they ask.
+Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`, which offers the closest template as the base the user forks and makes their own.
 

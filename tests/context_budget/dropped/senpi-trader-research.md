@@ -1,12 +1,12 @@
 # senpi-trader-research 1.8.0 — build-first routing: dropped and reworded sentences
 
-Strategy conversations now default to building the user's own strategy (`senpi-strategy-author`).
-A template is opt-in: offered only when the user asks for something pre-built, wants to browse, or
-names one, and never named unprompted. Each quote below is base text that left SKILL.md, with why.
+Strategy conversations now start in `senpi-strategy-author`: the closest template is the base the user
+forks and makes their own (a lever shifted, a rule of their own); scratch when nothing fits. No skill
+pitches a template by name outside that match. Each quote below is base text that left SKILL.md, with why.
 
 >   the **fresh-entry templates are the good options** — present them as the smart play, not a shrug.
 
-Why: Template-first routing flipped: building the user's own strategy (`senpi-strategy-author`) is the default; a template only when they ask.
+Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`, which offers the closest template as the base the user forks and makes their own.
 
 >   starts idle, and point out a fresh-entry template (Shadow) fires the moment the OG re-enters.
 
@@ -14,7 +14,7 @@ Why: A template pitched by name, unprompted. No skill names a template the user 
 
 >    fresh-entry template, because the proven books have already run"* (a real recommendation framed as the
 
-Why: Template-first routing flipped: building the user's own strategy (`senpi-strategy-author`) is the default; a template only when they ask.
+Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`, which offers the closest template as the base the user forks and makes their own.
 
 >    It's an upsell, not a consolation: a **managed template** carries **auto-DSL** and **budget-relative sizing**
 >    a raw mirror doesn't, and the **fresh-entry** ones open **with** a trader on their *next* move instead of
@@ -31,7 +31,7 @@ Why: A template pitched by name, unprompted. No skill names a template the user 
 
 >   or chases. Lead with `mirror_fit`; when it's `poor`, recommend a fresh-entry template over a stale book.
 
-Why: Template-first routing flipped: building the user's own strategy (`senpi-strategy-author`) is the default; a template only when they ask.
+Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`, which offers the closest template as the base the user forks and makes their own.
 
 >   the live smart-money feed and closes with the full set of strategy routes built on it (Signals Hunter,
 >   Puffin, Athena, the Hyperfeed strikers Penguin and Pelican, or one rolled with the user). Prefer that
