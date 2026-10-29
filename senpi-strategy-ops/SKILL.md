@@ -33,7 +33,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.27.14"
+  version: "3.28.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -121,6 +121,9 @@ flat package, the instance's own dir once `strategy.yaml` lists them), and an ed
 fresh `openclaw senpi validate` before the next `create`. **`UNPROVEN` (exit 2) is not a pass.**
 `deploy.py validate <id>` answers the other question, **is the package well formed**. Do not deploy a
 package that has not returned `PASS`. The proof: [`references/lifecycle.md`](references/lifecycle.md).
+
+**Step 0.6 — strategy limits.** Call MCP `strategy_get_limits`; N = one wallet per `strategy.yaml` instance (a resume counts only the instances with no wallet yet).
+When `enforced` is true and N is above `runningLeft` or `startsLeft` (a `null` left is no limit), tell the user before creating anything: quote `summary`, say the package needs N, give the ways forward of [`[STRATEGY_LIMIT_PREFLIGHT]`](references/refusal-playbook.md) — the verb's own exit-2 refusal of it. Never fewer instances to fit; never limit numbers from memory. A failed read (`SERR185`): retry once at most, say the limits couldn't be read and go on; never block the deploy on it.
 
 **Step 0.75 — the walkthrough (REQUIRED before the budget question).** The package is on disk (Step 0.5).
 Read their username first (`user_get_me` → `userName`; none → ask what to call it). Before you ask for a dollar, read `strategy.yaml` (`catalog:`)
