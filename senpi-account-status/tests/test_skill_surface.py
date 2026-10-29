@@ -327,6 +327,71 @@ class TiersCarryNoBenefit(unittest.TestCase):
             self.assertIn(needle, desc, needle)
 
 
+class StrategyLimitsComeFromTheEngine(unittest.TestCase):
+    """2026-10-29: the engine reads MCP `strategy_get_limits`, so the skill answers "what are my limits"
+    with the user's own plan, usage and reset time. Plan limits change and some accounts have none
+    (grandfathered, override), so a number from memory is wrong for someone; the section says where every
+    figure comes from and what a null means."""
+
+    LIMITS = "## Strategy limits"
+
+    def _limits(self):
+        return _flat(_section(_split(SKILL)[1], self.LIMITS))
+
+    def test_the_section_reads_the_engines_limits(self):
+        section = self._limits()
+        for needle in (
+            "`limits` is MCP `strategy_get_limits`",
+            "Lead with `limits.summary`",
+            "`running` of `maxRunning`",
+            "`starts` of `maxStarts` new this cycle",
+            "`startsResetAt`",
+            "Never quote limit numbers from memory",
+        ):
+            self.assertIn(needle, section, needle)
+
+    def test_unlimited_accounts_say_no_limits(self):
+        section = self._limits()
+        for needle in (
+            "A `null` limit is no limit, never 0",
+            '`source: "grandfathered"`',
+            "their account predates strategy limits, so none apply",
+            '`source: "override"`',
+            "no limits apply to their account",
+            "`enforced: false`",
+            "not enforced right now",
+        ):
+            self.assertIn(needle, section, needle)
+
+    def test_the_counting_rules_are_stated(self):
+        section = self._limits()
+        for needle in (
+            "every wallet is one strategy",
+            "a PAUSED strategy counts as running",
+            "closing frees a running slot, never a start",
+            "a create that failed never used a start",
+        ):
+            self.assertIn(needle, section, needle)
+
+    def test_an_unread_limit_is_said_never_guessed(self):
+        section = self._limits()
+        self.assertIn("`limits: {}` with a `strategy_get_limits failed` warning", section)
+        self.assertIn("say their limits couldn't be read right now", section)
+
+    def test_no_limit_figure_is_written_down(self):
+        self.assertIsNone(re.search(r"\b\d+ (running|new) strateg", self._limits()))
+
+    def test_the_plan_is_no_longer_called_invisible(self):
+        plans = _flat(_section(_split(SKILL)[1], PLANS))
+        self.assertNotIn("You cannot see the user's plan, trial or renewal dates", plans)
+        self.assertIn("`limits.plan` names their plan; you cannot see trial or renewal dates", plans)
+
+    def test_the_router_finds_the_limits_questions(self):
+        front = _flat(_split(SKILL)[0])
+        self.assertIn('"what are my strategy limits?"', front)
+        self.assertIn('"when can I start a new strategy?"', front)
+
+
 class TheSkillDocumentsTheEnginesOutput(unittest.TestCase):
     """The agent reads the shape from SKILL.md and the values from status.py. When the two drift, it
     narrates fields that are not there."""

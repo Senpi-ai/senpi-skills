@@ -2,8 +2,8 @@
 """senpi-account-status engine — the user's standing across Senpi programs (hidden, deterministic).
 
 The agent (LLM) runs this via the OpenClaw `exec` tool, reads the JSON on stdout, and NARRATES the
-user's standing (see SKILL.md): Senpi points + rank, the Senpi trading fee, and referral earnings.
-One real-time pull across all the status tools.
+user's standing (see SKILL.md): Senpi points + rank, the Senpi trading fee, referral earnings, and
+the plan's strategy limits and usage. One real-time pull across all the status tools.
 
   python3 status.py                 # full standing
   python3 status.py --fixture f.json   # offline (tests)   |   --dry  (raw dump)
@@ -130,12 +130,28 @@ def fetch_referral(client, meta):
             "wallet": _field(r, "wallet_address", "walletAddress")}
 
 
+# The fields MCP strategy_get_limits documents, passed through as returned: a null limit is "no limit",
+# never 0, so nothing here is coerced.
+LIMIT_FIELDS = ("enforced", "source", "plan", "running", "maxRunning", "runningLeft", "starts", "maxStarts",
+                "startsLeft", "window", "windowStart", "startsResetAt", "canStartNow", "summary")
+
+
+def fetch_limits(client, meta):
+    try:
+        lim = _ok(client.mcp_call("strategy_get_limits", timeout=12)) or {}
+    except Exception as e:  # noqa
+        meta.setdefault("warnings", []).append(f"strategy_get_limits failed: {e}")
+        return {}
+    return {k: lim.get(k) for k in LIMIT_FIELDS} if isinstance(lim, dict) and lim else {}
+
+
 # ──────────────────────────────────────────────────────────────── orchestration
 def run(client):
     meta = {"warnings": []}
     user = resolve_user(client, meta)
     points, fee = fetch_points(client, meta, user.get("wallet"), user.get("senpi_user_id"))
     referral = fetch_referral(client, meta)
+    limits = fetch_limits(client, meta)
     if not user.get("senpi_user_id") and not user.get("wallet"):
         meta["degraded"] = "no user resolved — check the token is USER-scoped"
     return {
@@ -144,6 +160,7 @@ def run(client):
         "points": points,
         "fee": fee,
         "referral": referral,
+        "limits": limits,
         "meta": meta,
     }
 
@@ -151,7 +168,7 @@ def run(client):
 # ──────────────────────────────────────────────────────────────── CLI
 def _dry(client):
     out = {}
-    for tool in ("user_get_me", "user_get_referral_rewards"):
+    for tool in ("user_get_me", "user_get_referral_rewards", "strategy_get_limits"):
         try:
             out[tool] = client.mcp_call(tool, timeout=12)
         except Exception as e:  # noqa
