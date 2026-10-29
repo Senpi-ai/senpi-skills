@@ -47,7 +47,7 @@ the runtime.
 ## Read on demand — every one of these is read-only and free of model cost until you narrate it
 
 ```
-openclaw senpi scanner -r <runtime_id>           # runs / errors / signals / alive — is it ticking?
+openclaw senpi scanner -r <runtime_id>           # health / alive / errors / signals — is it alive?
 openclaw senpi status -r <runtime_id> --json     # the runtime's own health verdict + risk gates
 openclaw senpi dsl positions                     # what it holds and where each stop sits
 openclaw senpi action history                    # what it did, and why
