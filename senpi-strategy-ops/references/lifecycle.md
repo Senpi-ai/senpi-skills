@@ -40,13 +40,17 @@ the host) exits `1` with NOTHING WAS DISPATCHED.
 
 **Request id (runtime with `deploy.capabilities.deployStartRequestId` on `senpi.getHealthStatus`).**
 `create`/`runtime` read that capability once, then send one `requestId` (`dpl-req-<UTC stamp>-<8 hex>`)
-on `senpi.deploy.start`, written first to `<strategies root>/.deploy-requests/<id>.json`. The runtime
-answers a repeated id with the job it already started (`repeated: true`) and funds nothing, so a retry
-after a lost reply funds once: an entry whose START never got an answer is reused by the next
-`create`/`runtime` of that package within 1 h. Any answered START closes the entry, so the next deploy gets
-a new id. Lost-reply recovery then matches the job by `meta.requestId` (exact). Without the capability no
-id is sent or journaled and the match is this package plus a start no earlier than 5 s before the call.
-Every timeout / MAY BE RUNNING line names the request id to look for in `deploy.py status`.
+on `senpi.deploy.start`, written first to `<strategies root>/.deploy-requests/<id>.json` with the package
+dir and budget. The runtime answers a repeated id with the job it already started (`repeated: true`) and
+funds nothing, so a retry after a lost reply funds once. An entry whose START never got an answer stays
+open with no age limit and is reused by the next `create`/`runtime` of that package; a call with a
+different budget or package dir is refused `[E_OPEN_DEPLOY_REQUEST]` (it names the open id; read
+`deploy.py status`). Only a reply naming a job closes an entry the run did not mint. If the capability
+read fails, an open id is still sent (an older runtime ignores it) and `repeated: true` is still trusted,
+but nothing is matched by id. Lost-reply recovery matches `meta.requestId` exactly when advertised;
+otherwise it is this package plus a start no earlier than 5 s before the call. A definite reply without
+the capability sends no id. Every timeout / MAY BE RUNNING line names the request id (or the START time)
+to look for in `deploy.py status`, whose summary line shows `request id …`.
 
 **One budget per command.** `create`/`runtime` run inside one wall-clock budget: the poll budget plus
 90 s (240 s by default; `--max-wait M` makes it M + 90). Every gateway call, recovery read, poll and

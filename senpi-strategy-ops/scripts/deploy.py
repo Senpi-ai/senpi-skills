@@ -139,12 +139,14 @@ KILL_RESERVE_S = 3
 # param, so relying on it there would be a guard that silently does nothing. One id per START,
 # journaled under the durable strategies root BEFORE the call. A START that never resolved (the
 # "MAY BE RUNNING" exit, or a process killed mid-call) leaves its entry open, and the next
-# `create`/`runtime` of that package within REQUEST_REUSE_S sends the SAME id, which the runtime
-# answers with the job it already started (`repeated: true`), funding nothing. Any START that got an
-# answer resolves its entry, so a later deliberate deploy gets a new id (a repeated id would hand it
-# the old job back, which is also how the runtime says an interrupted job must be resumed).
+# `create`/`runtime` of that package sends the SAME id, however much later: the runtime answers it
+# with the job it already started (`repeated: true`, funding nothing) or, if it never saw the id,
+# starts normally. There is deliberately NO age limit: a fresh id over an open entry is exactly
+# RT566-08's second funding (the runtime itself only remembers its newest 20 journals). An open id is
+# reused only with the same parameters (`paramsKey`: package dir + budget); a different set is refused.
+# Only an answer naming a job closes an entry this run did not mint, so a later deliberate deploy
+# gets a new id once the first START is accounted for.
 REQUEST_DIR = ".deploy-requests"
-REQUEST_REUSE_S = 3600
 
 # D-12: the verb's exit-code contract (runtime `exitCodeForDeploy`), mirrored here so `deploy.py
 # status` and `openclaw senpi deploy status` answer identically.
@@ -550,15 +552,17 @@ def _gw(method, params, rpc_ms, wall_s):
 # ---------- the request id on senpi.deploy.start (K2) ----------
 
 def start_request_ids_supported(log):
-    """True only when `senpi.getHealthStatus` answers with `deploy.capabilities.deployStartRequestId`
-    true. An unreadable health read, or a runtime that does not carry the field, is False: the id is
-    then not sent and nothing relies on it."""
+    """`senpi.getHealthStatus` → True (`deploy.capabilities.deployStartRequestId` is true), False (a
+    readable answer without it: the runtime does not honour an id), or None (the read failed, so
+    whether it does is unknown). Only True lets anything rely on an id."""
     r = _gw("senpi.getHealthStatus", {}, _cli.READ_RPC_MS, _cli.READ_WALL_S)
-    deploy_part = r["payload"].get("deploy") if r["kind"] == "ok" and isinstance(r["payload"], dict) else None
+    if r["kind"] != "ok" or not isinstance(r["payload"], dict):
+        log(f"  (senpi.getHealthStatus: {r['kind']}; START request id support unknown)")
+        return None
+    deploy_part = r["payload"].get("deploy")
     caps = deploy_part.get("capabilities") if isinstance(deploy_part, dict) else None
     ok = isinstance(caps, dict) and caps.get("deployStartRequestId") is True
-    log(f"  (senpi.getHealthStatus: {r['kind']}; START request ids "
-        f"{'supported' if ok else 'not advertised'})")
+    log(f"  (senpi.getHealthStatus: ok; START request ids {'supported' if ok else 'not advertised'})")
     return ok
 
 
@@ -578,7 +582,7 @@ def _journal_write(pkg_id, entry):
     path = _request_journal(pkg_id)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_name(path.name + ".tmp")
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
         tmp.write_text(json.dumps(entry, indent=2) + "\n")
         os.replace(tmp, path)
         return True
@@ -591,22 +595,62 @@ def _journal_write(pkg_id, entry):
 _REQUEST_ID_SHAPE = re.compile(r"^dpl-req-\d{8}T\d{6}Z-[0-9a-f]{8}$")
 
 
-def _request_id_for(pkg, log):
-    """The id for this START: the journal's, when its last START for this package never resolved and
-    was sent within REQUEST_REUSE_S; otherwise a new one. Journaled (unresolved) before returning."""
+def _params_key(params):
+    """What a reused id must agree on: the package dir and the budget the first START asked for."""
+    return {"packageDir": params.get("packageDir"), "budget": params.get("budget")}
+
+
+def _open_entry(pkg):
+    """The journal's open entry for this package (a START that never got an answer), or None."""
     entry = _journal_read(pkg.id) or {}
-    sent = _iso_ts(entry.get("sentAt"))
     rid = entry.get("requestId")
     if (entry.get("packageId") == str(pkg.id) and entry.get("resolved") is None
-            and isinstance(rid, str) and _REQUEST_ID_SHAPE.match(rid)
-            and sent is not None and time.time() - sent < REQUEST_REUSE_S):
-        log(f"  reusing request id {rid}: the START sent at {entry['sentAt']} never got an answer")
-        return rid
+            and isinstance(rid, str) and _REQUEST_ID_SHAPE.match(rid)):
+        return entry
+    return None
+
+
+def _refuse_changed_params(pkg, entry, params):
+    """An open id is never reused with other parameters, and never replaced by a new one: the first
+    START may have started (and funded) a job with ITS parameters."""
+    old = entry.get("paramsKey") or {}
+    new = _params_key(params)
+    me = Path(__file__).name
+    budget = old.get("budget")
+    print(f"[E_OPEN_DEPLOY_REQUEST] An earlier START for {pkg.id} (request id {entry['requestId']}, "
+          f"sent at {entry.get('sentAt', '?')}, budget "
+          f"{'$%.2f' % budget if isinstance(budget, (int, float)) else 'unset'}, package dir "
+          f"{old.get('packageDir', '?')}) never got an answer, so a deploy with THOSE parameters may "
+          f"already be running and a wallet may already be funded. This command asks for "
+          f"{'budget $%.2f' % new['budget'] if isinstance(new.get('budget'), (int, float)) else 'no budget'}"
+          f" from {new.get('packageDir')}. Nothing was started.\n"
+          f"  Next: python3 {me} status   — read what that earlier START did, and report it.\n"
+          f"  Do not deploy {pkg.id} with other parameters while that request is open: re-running "
+          f"the earlier command with its own parameters is the only call that reuses request id "
+          f"{entry['requestId']}, and it funds nothing twice.", file=sys.stderr)
+    raise SystemExit(EXIT_CODES["refused"])
+
+
+def _request_id_for(pkg, params, log, mint=True):
+    """`(request id, reused)` for this START, or `(None, False)`.
+
+    An open entry (its START never got an answer) is reused, however old, when its parameters match,
+    and refused otherwise. With no open entry a new id is minted (only if `mint`) and journaled,
+    unresolved, before this returns."""
+    entry = _open_entry(pkg)
+    if entry:
+        if entry.get("paramsKey") is not None and entry["paramsKey"] != _params_key(params):
+            _refuse_changed_params(pkg, entry, params)
+        rid = entry["requestId"]
+        log(f"  reusing request id {rid}: the START sent at {entry.get('sentAt', '?')} never got an answer")
+        return rid, True
+    if not mint:
+        return None, False
     now = time.time()
     rid = f"dpl-req-{datetime.fromtimestamp(now, timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{os.urandom(4).hex()}"
     _journal_write(pkg.id, {"packageId": str(pkg.id), "requestId": rid, "sentAt": _utc_stamp(now),
-                            "resolved": None})
-    return rid
+                            "paramsKey": _params_key(params), "resolved": None})
+    return rid, False
 
 
 def _journal_resolve(pkg, rid, outcome):
@@ -679,17 +723,25 @@ def _recover_lost_start(pkg, t0, log, rid=None):
 
 def start_deploy(pkg, a, log):
     """Start the detached job with a direct `senpi.deploy.start` gateway call. Returns the deployId,
-    or exits with the gateway's own refusal text. With `a.request_ids` (the runtime advertised them)
-    the call carries a journaled request id (`a.request_id` after the call)."""
+    or exits with the gateway's own refusal text.
+
+    `a.request_ids` is what `start_request_ids_supported` read: True (advertised) sends a journaled
+    request id, minted or reused; None (the read failed) sends only an OPEN journal id, because the
+    retry is exactly when the gateway is sick and an older runtime ignores the param anyway; False
+    sends none. Matching a job by its id (recovery, the steers) needs True; a reply that says
+    `repeated: true` is trusted either way, since only a runtime that honours ids says it."""
     params = _start_params(pkg, a)
     if getattr(a, "dry_run", False):
         print("planned: " + shlex.join(_cli.gateway_argv("senpi.deploy.start", params, START_RPC_MS)))
         raise SystemExit(0)
-    rid = _request_id_for(pkg, log) if getattr(a, "request_ids", False) else None
+    caps = getattr(a, "request_ids", False)
+    rid, reused = (_request_id_for(pkg, params, log, mint=caps is True) if caps in (True, None)
+                   else (None, False))
     if rid:
         params["requestId"] = rid
+    rid_by = rid if caps is True else None     # the id a job can be matched on
     try:
-        a.request_id = rid
+        a.request_id = rid_by
     except AttributeError:
         pass
     log("  starting the deploy job…" + _rid_tag(rid))
@@ -713,21 +765,27 @@ def start_deploy(pkg, a, log):
               "job.\n"
               "  The outcome is UNKNOWN, and no gate said no: the deploy MAY BE RUNNING right now"
               f"{_rid_tag(rid)} — reconcile → preflight → create+fund can be in flight, and a wallet "
-              "may already be funded.\n" + _poll_steer(pkg.id, rid),
+              "may already be funded.\n" + _poll_steer(pkg.id, rid_by, since=_utc_stamp(t0)),
               file=sys.stderr)
         raise SystemExit(EXIT_INTERNAL)
+    # A START this run did not send (or that a gate refused) closes only an id this run MINTED. A
+    # reused id belongs to an earlier START that may have been taken; it stays open until a reply
+    # names a job.
     if kind == "budget_spent":
-        _journal_resolve(pkg, rid, "not-sent")
+        if not reused:
+            _journal_resolve(pkg, rid, "not-sent")
         print(f"NOTHING WAS DISPATCHED: this command's budget was spent before START was sent "
               f"{_budget_note()}. No job started, no wallet created, no funds moved.",
               file=sys.stderr)
         raise SystemExit(EXIT_INTERNAL)
     if kind == "refused":
-        _journal_resolve(pkg, rid, "refused")
+        if not reused:
+            _journal_resolve(pkg, rid, "refused")
         print(r["message"], file=sys.stderr)
         raise SystemExit(EXIT_CODES["refused"])
     if kind in ("unknown_method", "cli_parse", "spawn_failed"):
-        _journal_resolve(pkg, rid, "not-dispatched")
+        if not reused:
+            _journal_resolve(pkg, rid, "not-dispatched")
         # Nothing reached a deploy handler: no such method, a command line openclaw rejected, or no
         # openclaw at all. Exit 1, never 2 — no gate said no; this box cannot run the call.
         print(r["message"] or kind, file=sys.stderr)
@@ -750,9 +808,9 @@ def start_deploy(pkg, a, log):
         raise SystemExit(EXIT_INTERNAL)
     # timeout / transport / error / unreadable: the gateway may have taken the job.
     print(f"senpi.deploy.start: {kind}: {r['message'] or 'no message'}", file=sys.stderr)
-    adopted = _recover_lost_start(pkg, t0, log, rid)
+    adopted = _recover_lost_start(pkg, t0, log, rid_by)
     if adopted:
-        how = (f"the job record shows request id {rid} on job {adopted}" if rid else
+        how = (f"the job record shows request id {rid_by} on job {adopted}" if rid_by else
                f"the gateway took job {adopted} for {pkg.id} after this command sent it")
         print(f"note: the START reply was lost, but {how}; following that job.", file=sys.stderr)
         _journal_resolve(pkg, rid, adopted)
@@ -760,7 +818,7 @@ def start_deploy(pkg, a, log):
     print(f"  No answer came back for the START call{_rid_tag(rid)}, and the reads of the job record "
           f"found no job for {pkg.id} started by it. That is not a verdict: the gateway may have "
           f"taken the deploy, so a job MAY BE RUNNING (a wallet may already be funded). The START "
-          f"was sent at {_utc_stamp(t0)}.\n" + _poll_steer(pkg.id, rid, since=_utc_stamp(t0)),
+          f"was sent at {_utc_stamp(t0)}.\n" + _poll_steer(pkg.id, rid_by, since=_utc_stamp(t0)),
           file=sys.stderr)
     raise SystemExit(EXIT_INTERNAL)
 
@@ -833,7 +891,9 @@ def print_status(deploy_id, as_json, snap):
         print(json.dumps(snap, indent=2))
         return
     meta, state = (snap or {}).get("meta") or {}, (snap or {}).get("state") or {}
-    print(f"deploy {meta.get('deployId', deploy_id or '?')} — package {meta.get('packageId', '?')} "
+    print(f"deploy {meta.get('deployId', deploy_id or '?')}"
+          + (f" (request id {meta['requestId']})" if meta.get("requestId") else "")
+          + f" — package {meta.get('packageId', '?')} "
           f"v{meta.get('version', '?')}: {state.get('status', '?')}"
           + (f" / {state.get('overall')}" if state.get("overall") else "")
           + (f" (phase {state.get('phase')})" if state.get("phase") else ""))
