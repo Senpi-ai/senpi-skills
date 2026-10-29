@@ -38,7 +38,8 @@ COPIES = (os.path.join(HERE, "..", "scripts", "portfolio.py"),
 OPS_CLI = os.path.join(HERE, "..", "..", "senpi-strategy-ops", "scripts", "_cli.py")
 PORTFOLIO = os.path.join(HERE, "..", "scripts", "portfolio.py")
 
-SHARED_HELPERS = {"run_cli": "_run_cli", "_extract_json": "_extract_json"}
+SHARED_HELPERS = {"run_cli": "_run_cli", "_extract_json": "_extract_json", "_cli_env": "_cli_env",
+                  "_kill_tree": "_kill_tree", "_spawn": "_spawn"}
 
 for _d in (os.path.join(HERE, "..", "scripts"),
            os.path.join(HERE, "..", "..", "senpi-improve-trades", "scripts"),

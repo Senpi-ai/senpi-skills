@@ -97,7 +97,7 @@ instance — which is also how each instance gets its own proof.
 
 ### `[E_DEPLOY_IN_PROGRESS]`
 
-Another deploy is running. Watch it (`deploy status`). There is nothing
+Another deploy is running. Watch it (`python3 deploy.py status`) and do not re-run `create`. There is nothing
 to cancel; a wedged job times out and frees the slot on its own.
 
 ### `[E_ROLLBACK_INCOMPLETE]`
@@ -166,7 +166,7 @@ to take yourself.
 
 **Delete nothing.** `openclaw senpi runtime delete` removes the row the in-flight install is about to
 bind, and `close.py` would tear down a wallet that is seconds from being watched. Read instead —
-`openclaw senpi deploy status`, then `openclaw senpi runtime list` — and once a row names the wallet,
+`python3 deploy.py status`, then `openclaw senpi runtime list` — and once a row names the wallet,
 re-run the same deploy command. A re-run adopts the wallet; it does not fund a second one.
 
 ### A live `<id>` strategy that is PAUSED (or mid-teardown)
@@ -224,7 +224,7 @@ and does this for this reason only. If that re-validation does not PASS it print
 findings and does **not** re-run the deploy — fix those, then re-run.
 That repair is the one **automatic** path that can run past the ~150s poll (re-validate + a
 second poll); an explicit `--max-wait` above 150 is the other, and you asked for that one.
-**If the call is killed mid-repair, nothing was created** — read `openclaw senpi deploy status`
+**If the call is killed mid-repair, nothing was created** — read `python3 deploy.py status`
 and do NOT re-run `create`; the repair note is printed to stderr before validation starts, so a
 killed call still says what it was doing. Deploy needs **every**
 instance proven and stops at the first that is not, so on a multi-instance package expect to be

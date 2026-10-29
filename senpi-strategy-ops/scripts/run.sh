@@ -58,8 +58,8 @@ case "$RC" in
      echo ">> That is expected on a long interval_seconds — not a failure, and not yet proof of life."
      echo ">> Check in a few minutes:  openclaw senpi scanner -r <runtime_id>   (ids: openclaw senpi runtime list)" ;;
   6) echo ">> $ID: the deploy job is STILL RUNNING (a wallet may still be funding) — nothing failed."
-     echo ">> Watch it:  openclaw senpi deploy status      (re-running this script resumes it, it never duplicates)" ;;
+     echo ">> Watch it:  python3 deploy.py status      (do not re-run this script while the job runs)" ;;
   *) echo "error: the deploy did not complete (exit $RC) — read the report above, it carries the cause and the next step." >&2
-     echo "       The job's own record:  openclaw senpi deploy status" >&2
+     echo "       The job's own record:  python3 deploy.py status   (on exit 1, do not re-run until it shows no job for $ID)" >&2
      exit "$RC" ;;
 esac

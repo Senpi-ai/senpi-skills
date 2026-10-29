@@ -31,6 +31,7 @@ import calendar
 import json
 import math
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -84,29 +85,74 @@ CATALOG_KEYS = ("belief_plain", "thesis", "archetype", "archetype_label", "sub_s
 SPAWN_FAILED_PREFIX = "command not found: "
 
 
+def _cli_env():
+    """The child env every openclaw call gets.
+
+    SENPI_LOG_LEVEL=error keeps the senpi plugin's info logs (printed to STDOUT) out of `--json`
+    output. OPENCLAW_NO_RESPAWN=1 keeps the CLI in ONE process: `openclaw` otherwise re-executes
+    itself to add node flags, and on OpenClaw 10.x, when stdio is not a TTY (always the case here),
+    that worker is spawned `detached` into its own process group (`entry.respawn.ts`,
+    `process/respawn-child-runner.ts`). A group kill of our child then misses the worker, and a
+    timed-out START keeps running and can still deliver after this script reported (RT566-08). The
+    flag is honoured by 5.7, 5.12 and 10.10 (`entry.respawn.ts`, `isTruthyEnvValue(env.OPENCLAW_NO_RESPAWN)`)."""
+    return dict(os.environ, SENPI_LOG_LEVEL="error", OPENCLAW_NO_RESPAWN="1")
+
+
+def _kill_tree(p):
+    """Stop a child started with `start_new_session=True` and everything in its process group:
+    SIGTERM first (2 s to exit), then SIGKILL, then reap. Never raises."""
+    for sig, wait in ((signal.SIGTERM, 2), (signal.SIGKILL, 5)):
+        try:
+            os.killpg(p.pid, sig)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+        try:
+            p.wait(timeout=wait)
+            return
+        except subprocess.TimeoutExpired:
+            continue
+
+
+def _spawn(args, timeout):
+    """Run `args` in its own session with stdin closed. Returns
+    `(rc, stdout, stderr, timed_out, spawn_error)`. On timeout the whole process group is killed
+    (`_kill_tree`), so nothing the call started outlives the answer this script gives."""
+    try:
+        p = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, env=_cli_env(),
+                             start_new_session=True)
+    except OSError as e:
+        return -1, "", "", False, e
+    try:
+        out, err = p.communicate(timeout=timeout)
+        return p.returncode, out or "", err or "", False, None
+    except subprocess.TimeoutExpired:
+        _kill_tree(p)
+        try:
+            out, err = p.communicate(timeout=5)
+        except (subprocess.TimeoutExpired, ValueError, OSError):
+            out, err = "", ""
+        return -1, out or "", err or "", True, None
+
+
 def _run_cli(args, timeout=60):
     """Run a CLI command; return (returncode, stdout, stderr). rc=-1 on spawn failure/timeout —
     `SPAWN_FAILED_PREFIX` on stderr distinguishes the never-ran case from the stopped-waiting one.
     NEVER raises for a failure to run: EVERY spawn-side OSError is caught, not just the missing
     binary, because a caller that dies here takes the whole script's output with it.
 
-    Suppresses the senpi plugin's info logs (which it prints to STDOUT and which otherwise corrupt
-    `--json` output) by forcing SENPI_LOG_LEVEL=error in the child env."""
-    env = dict(os.environ, SENPI_LOG_LEVEL="error")
-    try:
-        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
-        return p.returncode, p.stdout, p.stderr
-    except subprocess.TimeoutExpired:
-        return -1, "", f"timed out after {timeout}s: {' '.join(args)}"
-    except OSError as e:
+    The child runs in its own process group with stdin closed, and a timeout kills the whole group
+    (see `_cli_env` for why one process is not enough on 10.x)."""
+    rc, out, err, timed_out, spawn_error = _spawn(args, timeout)
+    if spawn_error is not None:
+        e = spawn_error
         # The command NEVER RAN. FileNotFoundError (no such binary) is the common case; the rest are
-        # fork/exec failures a strained box really does produce — ENOMEM ("Cannot allocate memory"),
-        # EAGAIN (process-table exhaustion), EACCES, ENOEXEC. All of them are the never-ran event, so
-        # all of them carry SPAWN_FAILED_PREFIX: the distinction the money path makes is never-ran vs
-        # stopped-waiting, and only a timeout is the latter. Catching only FileNotFoundError let an
-        # ENOMEM fork failure propagate out of the read and kill the caller mid-run.
+        # fork/exec failures a strained box really does produce (ENOMEM, EAGAIN, EACCES, ENOEXEC).
         return -1, "", f"{SPAWN_FAILED_PREFIX}{args[0]}" + ("" if isinstance(e, FileNotFoundError)
                                                             else f" ({e})")
+    if timed_out:
+        return -1, "", f"timed out after {timeout}s: {' '.join(args)}"
+    return rc, out, err
 
 
 def _extract_json(text):

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Hermetic unit tests for the deploy.py wrapper's drive-the-verb loop.
 
-No openclaw, no MCP, no network — `_cli.run_cli` is stubbed and every input is a plain dict. The
-loop these tests pin is the one that broke in review: the wrapper polls `deploy status` with the
-EXPLICIT deployId, so a controller that answers an id-addressed running job with `interrupted`
+No openclaw, no MCP, no network — `_cli._spawn` (the process spawn under both `run_cli` and
+`gateway_call`) is stubbed, so every gateway answer goes through the REAL classifier, and every input
+is a plain dict. The loop these tests pin is the one that broke in review: the wrapper polls
+`senpi.deploy.status` with the EXPLICIT deployId, so a controller that answers an id-addressed running job with `interrupted`
 would make every wrapper-driven deploy exit within seconds of starting. Run:
 
     python3 senpi-strategy-ops/tests/test_deploy_wrapper.py
@@ -18,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import types
 import unittest
 from pathlib import Path
@@ -120,6 +122,9 @@ def _commander_node_modules():
 class CommanderRejectionShapes(unittest.TestCase):
     """The strings a pre-verb box really prints, and the detector that has to recognise them.
 
+    Since deploy start/status became direct gateway calls, only `update` (`senpi update`, still a
+    CLI verb) runs this detector; a missing gateway method answers `unknown method: …` instead.
+
     The regression: the detector keyed on `unknown command` + the word "deploy", which the fleet
     stopped emitting on 2026-03-27 when `senpi` grew a root `.action()`. Every current box answers
     the deploy-status read with `error: unknown option '--json'` instead — no "deploy" in it at all —
@@ -130,34 +135,6 @@ class CommanderRejectionShapes(unittest.TestCase):
         for argv, text in COMMANDER_REJECTIONS.items():
             self.assertTrue(deploy._cli_rejected_the_command(text), f"{argv}: {text}")
         self.assertTrue(deploy._cli_rejected_the_command(COMMANDER_REJECTION_NO_ROOT_ACTION))
-
-    def test_the_inner_gateway_calls_parse_error_is_not_our_parser_speaking(self):
-        # The verb runs every gateway round-trip as an INNER `openclaw gateway call … --params …`
-        # with stderr INHERITED (runtime `callGatewayJson`: stdio ["inherit","pipe","inherit"]), so
-        # an openclaw that rejects a flag the PLUGIN passes writes the same grammar onto the same
-        # stream — while the verb is present and a job may be funding a wallet. Live configuration:
-        # plugin-newer-than-openclaw (the image pins a prebuilt tree, the runtime self-updates).
-        for text in (INNER_GATEWAY_PARSE_ERROR,
-                     "error: unknown option '--params'",          # the parse error on its own
-                     "error: unknown command 'gateway'"):         # openclaw without the subcommand
-            self.assertFalse(deploy._no_deploy_job_answer(text), text)
-        # …while every token WE sent still reads as ours.
-        self.assertTrue(deploy._no_deploy_job_answer("error: unknown option '--json'"))
-        # The start path asks a different question — "was anything dispatched?" — and the answer is
-        # NO whichever parser raised it, so it stays broad on purpose.
-        self.assertTrue(deploy._cli_rejected_the_command(INNER_GATEWAY_PARSE_ERROR))
-
-    def test_a_gateway_round_trip_in_the_answer_is_transport_never_a_missing_verb(self):
-        # A box with no verb never reaches the gateway, so this text can only come from a verb that
-        # RAN — belt to the token check's braces, and the one that survives the `--json` overlap
-        # (both we and `gateway call` pass that flag).
-        for text in ("senpi deploy status: the `gateway call` subprocess failed, so nothing was read "
-                     "back — exit 1 (transport/internal).",
-                     "senpi deploy status: the gateway answered but its response could not be read — "
-                     "exit 1 (transport/internal).",
-                     "error: unknown option '--json'\nsenpi deploy status: the `gateway call` "
-                     "subprocess failed, so nothing was read back — exit 1 (transport/internal)."):
-            self.assertFalse(deploy._no_deploy_job_answer(text), text)
 
     def test_it_never_swallows_an_answer_that_is_not_a_parser_rejection(self):
         for text in ("[NOT_FOUND] No deploy has been started on this agent.",
@@ -206,7 +183,12 @@ class CommanderRejectionShapes(unittest.TestCase):
 
 
 class FakeCli:
-    """Records every argv and replays queued (rc, stdout, stderr) triples."""
+    """Stubs `_cli._spawn`: records every argv and replays queued answers.
+
+    `_spawn` is the bottom of BOTH `run_cli` (what still runs a CLI verb: `senpi validate`, `senpi
+    update`) and `gateway_call` (deploy start/status, runtime list, health), so a gateway answer here
+    goes through the real `gateway_call` classifier. An answer is `(rc, stdout, stderr)` or the full
+    `(rc, stdout, stderr, timed_out, spawn_error)`; see TIMEOUT and SPAWN_FAILED."""
 
     def __init__(self, responses):
         self.responses = list(responses)
@@ -216,174 +198,280 @@ class FakeCli:
     def __call__(self, args, timeout=60):
         self.calls.append(list(args))
         self.timeouts.append(timeout)
-        return self.responses.pop(0) if self.responses else (0, "", "")
+        r = self.responses.pop(0) if self.responses else (0, "", "")
+        return tuple(r) if len(r) == 5 else (*r, False, None)
 
     def argv_for(self, method):
         return [c for c in self.calls if method in c]
 
+    def gateway(self, method=None):
+        """`(method, params)` for every `openclaw gateway call`, optionally only one method's."""
+        return [(_gw_method(c), _gw_params(c)) for c in self.calls
+                if _gw_method(c) and (method is None or _gw_method(c) == method)]
+
+
+def _gw_method(argv):
+    return argv[3] if list(argv[:3]) == ["openclaw", "gateway", "call"] else None
+
+
+def _gw_params(argv):
+    return json.loads(argv[argv.index("--params") + 1])
+
+
+# Our wall clock fired: `_spawn` killed the process group. The request MAY have been sent.
+TIMEOUT = (-1, "", "", True, None)
+# `openclaw` never ran.
+SPAWN_FAILED = (-1, "", "", False, FileNotFoundError())
+
 
 def _ok(payload):
+    """A gateway (or CLI) answer: rc 0, the handler's raw payload on stdout."""
     return (0, json.dumps(payload), "")
 
 
 def _status(snap):
-    """A `deploy status` response as the verb REALLY answers it: the snapshot on stdout, and the
-    JOB's D-12 code as the process exit code (`process.exitCode = exitCodeForDeploy(snap)`, set
-    before the payload is printed, on the --json path too). `status` is a verdict surface, not a
-    transport one — a stub that answers every status with rc=0 hides the entire refused/failed/
-    pending class from these tests."""
-    return (deploy.exit_code_for(snap), json.dumps(snap), "")
+    """A `senpi.deploy.status` answer as the gateway REALLY gives it: rc 0 and the raw snapshot, on
+    every job outcome. (The old `openclaw senpi deploy status` CLI exited with the JOB's D-12 code;
+    `gateway call` exits 0 for any answered call, so a refused/failed/pending job is still a read.)"""
+    return (0, json.dumps(snap), "")
+
+
+def _refused(message):
+    """A gateway `respond(false, …)` as 5.x `gateway call` prints it: rc 1, the message on stderr."""
+    return (1, "", f"Gateway call failed: GatewayClientRequestError: {message}\n")
+
+
+def _refused_10x(message, code="INVALID_REQUEST"):
+    """The same answer on OpenClaw 10.x: rc 1, a JSON envelope on STDOUT, nothing on stderr."""
+    return (1, json.dumps({"ok": False, "error": {"type": "gateway_request_error", "code": code,
+                                                  "message": message}}), "")
+
+
+def _transport(kind="timeout"):
+    """No answer came back (5.x shape): the request MAY have been sent."""
+    return (1, "", f"Gateway call failed: GatewayTransportError: gateway {kind} after 30000ms\n"
+                   "Gateway target: ws://127.0.0.1:18789\n")
+
+
+NOT_FOUND = "[NOT_FOUND] No deploy has been started on this agent. Start one with `openclaw senpi deploy -p <dir>`."
 
 
 class StartDeploy(unittest.TestCase):
+    """START is one direct `senpi.deploy.start` gateway call (`_cli.gateway_call`), never the
+    `openclaw senpi deploy` CLI verb, whose plugin load costs 30-160 s per call on OpenClaw 10.x."""
+
     def setUp(self):
-        self._real = _cli.run_cli
+        self._real, self._sleep = _cli._spawn, deploy.time.sleep
+        self.slept = []
+        deploy.time.sleep = self.slept.append
 
     def tearDown(self):
-        _cli.run_cli = self._real
+        _cli._spawn, deploy.time.sleep = self._real, self._sleep
 
-    def test_builds_the_verb_argv_with_every_flag(self):
-        fake = FakeCli([_ok({"deployId": "dpl-a1b2c3d4", "phase": "reconcile"})])
-        _cli.run_cli = fake
-        did = deploy.start_deploy(
-            _pkg(), _args(budget=500.0, decision_model="samurai-light", tick_wait=0), lambda m: None)
+    def _start(self, answers, **kw):
+        fake = FakeCli(answers)
+        _cli._spawn = fake
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            try:
+                out = deploy.start_deploy(_pkg(), _args(**kw), lambda m: None)
+            except SystemExit as e:
+                out = ("exit", e.code)
+        return out, fake, err.getvalue()
+
+    def test_deploy_start_goes_through_openclaw_gateway_call_with_typed_params(self):
+        did, fake, _ = self._start([_ok({"deployId": "dpl-a1b2c3d4", "phase": "reconcile"})],
+                                   budget=500.0, decision_model="samurai-light", tick_wait=0)
         self.assertEqual(did, "dpl-a1b2c3d4")
         argv = fake.calls[0]
-        self.assertEqual(argv[:4], ["openclaw", "senpi", "deploy", "-p"])
-        self.assertIn("--json", argv)
-        self.assertIn("--budget", argv)
-        self.assertEqual(argv[argv.index("--budget") + 1], "500")
-        self.assertEqual(argv[argv.index("--decision-model") + 1], "samurai-light")
-        self.assertEqual(argv[argv.index("--tick-wait") + 1], "0")
-        # `--max-wait` is the JOB's wallet-ACTIVE budget as well as this script's poll budget: a
-        # wrapper that only polls longer leaves the caller believing they raised a budget they didn't.
-        self.assertEqual(argv[argv.index("--max-wait") + 1], "60")
+        self.assertEqual(argv[:5], ["openclaw", "gateway", "call", "senpi.deploy.start", "--json"])
+        self.assertEqual(argv[argv.index("--timeout") + 1], "30000")
+        self.assertNotIn("senpi", argv[:2])                  # no `openclaw senpi deploy` CLI verb
+        # JSON numbers, never strings: the handler's `readNumber` drops a string and silently runs
+        # its default budget. `--max-wait` is the JOB's wallet-ACTIVE budget as well as this
+        # script's poll budget, so it is forwarded too.
+        self.assertEqual(fake.gateway("senpi.deploy.start"), [("senpi.deploy.start", {
+            "packageDir": "/pkg/spider", "budget": 500.0, "decisionModel": "samurai-light",
+            "tickWaitSec": 0, "maxWaitSec": 60})])
+        self.assertEqual(fake.timeouts, [40])                # 30 s RPC / 40 s wall
 
-    def test_max_wait_reaches_the_verb_not_just_the_poll_loop(self):
-        fake = FakeCli([_ok({"deployId": "dpl-a1b2c3d4"})])
-        _cli.run_cli = fake
-        deploy.start_deploy(_pkg(), _args(budget=500.0, max_wait=900), lambda m: None)
-        argv = fake.calls[0]
-        self.assertEqual(argv[argv.index("--max-wait") + 1], "900")
+    def test_the_budget_is_rounded_to_cents_and_stays_a_number(self):
+        _, fake, _ = self._start([_ok({"deployId": "dpl-1"})], budget=298.504)
+        self.assertEqual(fake.gateway()[0][1]["budget"], 298.5)
+        self.assertIsInstance(fake.gateway()[0][1]["budget"], float)
 
-    def test_a_refused_start_relays_the_verbs_own_text_and_exits_nonzero(self):
-        _cli.run_cli = FakeCli([(2, "", "[E_FUNDS_BELOW_FLOOR] Requested $500.00 …")])
-        err = io.StringIO()
-        with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(err):
-            deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
-        # The verb's own exit code is relayed as-is; only OUR transport failures become 1.
+    def test_max_wait_reaches_the_job_not_just_the_poll_loop(self):
+        _, fake, _ = self._start([_ok({"deployId": "dpl-a1b2c3d4"})], budget=500.0, max_wait=900)
+        self.assertEqual(fake.gateway()[0][1]["maxWaitSec"], 900)
+
+    def test_a_non_finite_budget_is_refused_locally_and_nothing_is_sent(self):
+        for bad in (float("nan"), float("inf")):
+            out, fake, err = self._start([], budget=bad)
+            self.assertEqual(out, ("exit", 2))
+            self.assertIn("[INVALID_REQUEST] --budget must be a number", err)
+            self.assertEqual(fake.calls, [])
+
+    def test_a_relative_package_dir_is_refused_because_the_gateway_would_resolve_it_elsewhere(self):
+        fake = FakeCli([])
+        _cli._spawn = fake
+        with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(io.StringIO()):
+            deploy.start_deploy(_pkg(dir_="pkg/spider"), _args(budget=500.0), lambda m: None)
         self.assertEqual(ctx.exception.code, 2)
-        self.assertIn("[E_FUNDS_BELOW_FLOOR]", err.getvalue())
+        self.assertEqual(fake.calls, [])
 
-    def test_a_spawn_failure_or_start_timeout_exits_one_not_refused(self):
-        # `run_cli` returns rc=-1 for a spawn failure and for the 180s START_TIMEOUT. Neither is a gate
-        # saying no: mapping them to 2 tells the agent "refused, nothing created" while a dispatched
-        # job may be funding a wallet. Transport breakage is 1, per this wrapper's own contract.
-        for rc, text in ((-1, _cli.SPAWN_FAILED_PREFIX + "openclaw"), (-1, "timed out after 180s: openclaw …")):
-            _cli.run_cli = FakeCli([(rc, "", text)])
-            with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(io.StringIO()):
-                deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
-            self.assertEqual(ctx.exception.code, 1)
+    def test_a_refused_start_relays_the_gateways_own_text_and_exits_two(self):
+        # Both error contracts: 5.x prints the refusal on stderr, 10.x as a JSON envelope on stdout.
+        for answer in (_refused("[E_FUNDS_BELOW_FLOOR] Requested $500.00 …"),
+                       _refused_10x("[E_FUNDS_BELOW_FLOOR] Requested $500.00 …")):
+            out, fake, err = self._start([answer], budget=500.0)
+            self.assertEqual(out, ("exit", 2))
+            self.assertIn("[E_FUNDS_BELOW_FLOOR] Requested $500.00", err)
+            self.assertEqual(len(fake.calls), 1)             # a refusal is final: no status reads
 
-    def test_the_start_call_waits_180s_for_a_slow_cli(self):
-        # A slow CLI or gateway made the START call take over 60 s; at 60 s the wrapper gave up on a
-        # START the gateway then took, and the job funded a wallet after the script had exited 1.
-        fake = FakeCli([_ok({"deployId": "dpl-1"})])
-        _cli.run_cli = fake
-        self.assertEqual(deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None), "dpl-1")
-        self.assertEqual(fake.timeouts, [180])
+    def test_a_warning_code_or_a_non_taxonomy_error_is_never_a_refusal(self):
+        # Only an `[E_…]`-style code that does not start with W_ is a gate saying no. Anything else
+        # may have been raised after the job started, so it goes through lost-reply recovery.
+        for message in ("[W_SOFT_BUDGET] the budget is below the soft tier", "INTERNAL_ERROR: boom"):
+            out, fake, err = self._start([_refused(message)] + [_refused(NOT_FOUND)] * 3, budget=500.0)
+            self.assertEqual(out, ("exit", 1))
+            self.assertIn("MAY BE RUNNING", err)
 
-    def test_a_start_timeout_points_at_deploy_status_because_the_job_may_be_running(self):
-        # The START call timed out AFTER the gateway was reached: same shape as the no-deployId case.
-        # The exit code alone doesn't tell the agent that; the stderr it reads at failure time must.
-        _cli.run_cli = FakeCli([(-1, "", "timed out after 180s: openclaw senpi deploy -p /pkg/spider")])
-        err = io.StringIO()
-        with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(err):
-            deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
-        self.assertEqual(ctx.exception.code, 1)
-        self.assertIn("openclaw senpi deploy status", err.getvalue())
-        self.assertIn("may be running", err.getvalue().lower())
+    def test_a_spawn_failure_dispatched_nothing_and_does_not_claim_a_job_may_be_running(self):
+        out, fake, err = self._start([SPAWN_FAILED], budget=500.0)
+        self.assertEqual(out, ("exit", 1))
+        self.assertIn("NOTHING WAS DISPATCHED", err)
+        self.assertNotIn("may be running", err.lower())
+        self.assertEqual(len(fake.calls), 1)                 # no recovery reads
 
-    def test_a_spawn_failure_does_not_claim_a_job_may_be_running(self):
-        # `openclaw` was never executed, so nothing was dispatched — pointing at `deploy status` here
-        # would be a hedge over a known-false state (and the command it names cannot run either).
-        _cli.run_cli = FakeCli([(-1, "", _cli.SPAWN_FAILED_PREFIX + "openclaw")])
-        err = io.StringIO()
-        with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(err):
-            deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
-        self.assertEqual(ctx.exception.code, 1)
-        self.assertNotIn("may be running", err.getvalue().lower())
+    def test_a_runtime_without_the_deploy_method_teaches_the_plugin_update(self):
+        # `unknown method` means no handler ran: nothing was dispatched. 1, never 2 — no gate said no.
+        for answer in (_refused("unknown method: senpi.deploy.start"),
+                       _refused_10x("unknown method: senpi.deploy.start")):
+            out, fake, err = self._start([answer], budget=500.0)
+            self.assertEqual(out, ("exit", 1))
+            self.assertIn("NOTHING WAS DISPATCHED", err)
+            self.assertIn("openclaw plugins install @senpi-ai/runtime", err)
+            self.assertNotIn("may be running", err.lower())
+            self.assertEqual(len(fake.calls), 1)
+
+    def test_an_openclaw_that_rejects_the_command_line_dispatched_nothing(self):
+        out, fake, err = self._start([(1, "", "error: unknown option '--params'\n")], budget=500.0)
+        self.assertEqual(out, ("exit", 1))
+        self.assertIn("NOTHING WAS DISPATCHED", err)
+        self.assertIn("openclaw --version", err)
+        self.assertNotIn("plugins install", err)
+        self.assertEqual(len(fake.calls), 1)
 
     def test_a_start_with_no_deploy_id_exits_one_and_says_the_job_may_be_running(self):
-        # The verb exited 0 — it accepted the deploy — but no deployId came back, so this wrapper
-        # cannot follow the job. reconcile/create/fund may be in flight RIGHT NOW.
-        _cli.run_cli = FakeCli([(0, "started, watching…", "")])
-        err = io.StringIO()
-        with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(err):
-            deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
-        self.assertEqual(ctx.exception.code, 1)
-        msg = err.getvalue()
-        self.assertIn("openclaw senpi deploy status", msg)
-        self.assertIn("may be running", msg.lower())
-        self.assertIn("unknown", msg.lower())
-        self.assertNotIn("refused", msg.lower())          # never "a gate said no"
-        self.assertNotIn("nothing was created", msg.lower())
+        # The gateway ACCEPTED the start but named no deployId, so this wrapper cannot follow it.
+        out, _fake, err = self._start([_ok({"state": "running"})], budget=500.0)
+        self.assertEqual(out, ("exit", 1))
+        self.assertIn("python3 deploy.py status", err)
+        self.assertIn("may be running", err.lower())
+        self.assertIn("Do not re-run create", err)
+        self.assertIn("unknown", err.lower())
+        self.assertNotIn("refused", err.lower())          # never "a gate said no"
+        self.assertNotIn("nothing was created", err.lower())
 
-    def test_a_runtime_without_the_deploy_verb_teaches_the_plugin_update(self):
-        # A box whose plugin predates `senpi deploy` (a wedged self-update — a real fleet class)
-        # answers the START call with its CLI PARSER's error. Relayed bare, that read as transport
-        # breakage: an unsteered exit 1 whose taught handling is "the job may be running, read deploy
-        # status" — over a box where nothing was dispatched and where that command does not exist
-        # either. Every input here is a string Commander really prints (see COMMANDER_REJECTIONS);
-        # this test used to feed hand-written yargs-shaped guesses no runtime has ever emitted.
-        for text in (*COMMANDER_REJECTIONS.values(), COMMANDER_REJECTION_NO_ROOT_ACTION):
-            _cli.run_cli = FakeCli([(1, "", text)])
-            err = io.StringIO()
-            with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(err):
-                deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
-            msg = err.getvalue()
-            # 1, never the parser's own 2: "the question could not be answered", not "a gate said no".
-            self.assertEqual(ctx.exception.code, 1, text)
-            self.assertIn(text, msg)                            # the CLI's own words, still relayed
-            self.assertIn("openclaw plugins install @senpi-ai/runtime", msg)  # the taught update path
-            self.assertIn("nothing was dispatched", msg.lower())
-            self.assertNotIn("may be running", msg.lower())     # nothing is
-
-    def test_an_openclaw_older_than_the_plugin_is_not_told_to_update_the_plugin(self):
-        # Same exit and the same NOTHING WAS DISPATCHED — but the opposite side is stale. The verb
-        # RAN (only a verb that runs reaches `gateway call`), so "your plugin has no deploy verb,
-        # install the plugin" is false AND counterproductive: the plugin is already the newer side,
-        # and a newer one widens the gap. The discriminator is the one the job read uses.
-        _cli.run_cli = FakeCli([(1, "", INNER_GATEWAY_PARSE_ERROR)])
-        err = io.StringIO()
-        with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(err):
-            deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
-        msg = err.getvalue()
-        self.assertEqual(ctx.exception.code, 1)
-        self.assertIn(INNER_GATEWAY_PARSE_ERROR, msg)           # the CLI's own words, still relayed
-        self.assertIn("nothing was dispatched", msg.lower())    # still true, and still said
-        self.assertIn("verb IS present", msg)
-        self.assertIn("openclaw --version", msg)                # read-only, and a real command
-        # The cure for the OTHER cause is not prescribed here, in either direction.
-        self.assertNotIn("openclaw plugins install", msg)
-        self.assertNotIn("self-update", msg)
-
-    def test_a_verb_refusal_is_never_read_as_a_missing_verb(self):
-        # A message carrying a bracketed [CODE] is the VERB answering, whatever words follow it.
-        _cli.run_cli = FakeCli([(2, "", "[INVALID_REQUEST] unknown argument for deploy: --bogus")])
-        err = io.StringIO()
-        with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(err):
-            deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
-        self.assertEqual(ctx.exception.code, 2)
-        self.assertNotIn("plugins install", err.getvalue())
-
-    def test_dry_run_prints_the_command_and_never_calls_the_cli(self):
+    def test_dry_run_prints_the_gateway_command_and_never_calls_anything(self):
         fake = FakeCli([])
-        _cli.run_cli = fake
-        with self.assertRaises(SystemExit) as ctx:
+        _cli._spawn = fake
+        out = io.StringIO()
+        with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stdout(out):
             deploy.start_deploy(_pkg(), _args(budget=500.0, dry_run=True), lambda m: None)
         self.assertEqual(ctx.exception.code, 0)
         self.assertEqual(fake.calls, [])
+        line = out.getvalue().strip()
+        self.assertTrue(line.startswith("planned: openclaw gateway call senpi.deploy.start --json "
+                                        "--timeout 30000 --params "), line)
+        argv = shlex.split(line[len("planned: "):])
+        self.assertEqual(_gw_params(argv), {"packageDir": "/pkg/spider", "budget": 500.0,
+                                            "maxWaitSec": 60})
+
+
+class LostStartReply(unittest.TestCase):
+    """A START that got no answer (our wall clock, a transport failure, an unreadable or a non-refusal
+    error answer) may still have been taken: killing our client does not take back a request the
+    gateway already read (RT566-08: a timed-out START funded a wallet after the script exited 1). So
+    the script reads `senpi.deploy.status {}` up to 3 times, 3 s apart, and adopts only a job of THIS
+    package started after the call; otherwise it says a job MAY BE RUNNING and never re-sends."""
+
+    def setUp(self):
+        self._real, self._sleep = _cli._spawn, deploy.time.sleep
+        self.slept = []
+        deploy.time.sleep = self.slept.append
+
+    def tearDown(self):
+        _cli._spawn, deploy.time.sleep = self._real, self._sleep
+
+    @staticmethod
+    def _job(package_id="spider", started_offset=1.0, deploy_id="dpl-0000beef"):
+        started = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time() + started_offset))
+        return {"meta": {"deployId": deploy_id, "packageId": package_id, "startedAt": started},
+                "state": {"status": "running", "phase": "reconcile"}}
+
+    def _start(self, answers):
+        fake = FakeCli(answers)
+        _cli._spawn = fake
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            try:
+                out = deploy.start_deploy(_pkg(), _args(budget=500.0), lambda m: None)
+            except SystemExit as e:
+                out = ("exit", e.code)
+        return out, fake, err.getvalue()
+
+    def test_a_start_timeout_finds_the_job_started_after_the_call_and_reports_it(self):
+        out, fake, err = self._start([TIMEOUT, _status(self._job())])
+        self.assertEqual(out, "dpl-0000beef")
+        self.assertIn("the START reply was lost, but the gateway took job dpl-0000beef", err)
+        self.assertEqual([m for m, _ in fake.gateway()], ["senpi.deploy.start", "senpi.deploy.status"])
+        self.assertEqual(fake.gateway("senpi.deploy.status")[0][1], {})   # the agent's last job
+        self.assertEqual(self.slept[0], 2)                   # settle after the kill
+
+    def test_every_no_answer_outcome_goes_through_recovery(self):
+        for first in (TIMEOUT, _transport("timeout"), _transport("closed"),
+                      (1, "", "something nobody has seen before\n"), _refused("INTERNAL_ERROR"),
+                      (0, "not json", "")):
+            out, _fake, _err = self._start([first, _status(self._job())])
+            self.assertEqual(out, "dpl-0000beef", first)
+
+    def test_no_adoption_of_an_older_job_or_another_packages_job(self):
+        for job in (self._job(started_offset=-3600, deploy_id="dpl-old"),
+                    self._job(package_id="polar", deploy_id="dpl-polar")):
+            out, fake, err = self._start([TIMEOUT] + [_status(job)] * 3)
+            self.assertEqual(out, ("exit", 1))
+            self.assertNotIn("following that job", err)
+            self.assertIn("a job MAY BE RUNNING (a wallet may already be funded)", err)
+            # Never a second START: that is the double dispatch this recovery exists to prevent.
+            self.assertEqual([m for m, _ in fake.gateway()],
+                             ["senpi.deploy.start"] + ["senpi.deploy.status"] * 3)
+
+    def test_three_reads_three_seconds_apart_then_may_be_running_never_nothing_started(self):
+        out, fake, err = self._start([TIMEOUT] + [_refused(NOT_FOUND)] * 3)
+        self.assertEqual(out, ("exit", 1))
+        self.assertEqual(len(fake.gateway("senpi.deploy.status")), 3)
+        self.assertEqual(self.slept, [2, 3, 3])
+        self.assertIn("a job MAY BE RUNNING (a wallet may already be funded)", err)
+        self.assertNotIn("nothing was dispatched", err.lower())
+        self.assertNotIn("no job started", err.lower())
+
+    def test_a_gateway_that_stays_unreadable_still_answers_may_be_running(self):
+        out, fake, err = self._start([TIMEOUT, TIMEOUT, _transport(), (0, "", "")])
+        self.assertEqual(out, ("exit", 1))
+        self.assertIn("MAY BE RUNNING", err)
+
+    def test_timeout_text_tells_the_agent_to_poll_status_never_to_re_run_create(self):
+        out, _fake, err = self._start([TIMEOUT] + [_refused(NOT_FOUND)] * 3)
+        self.assertEqual(out, ("exit", 1))
+        self.assertIn("python3 deploy.py status", err)
+        self.assertRegex(err, r"Do not re-run create until `python3 deploy\.py status` shows no job "
+                              r"for spider started after \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
+        self.assertNotIn("openclaw senpi deploy status", err)
+
+    def test_a_job_that_started_within_the_clock_skew_window_is_still_adopted(self):
+        out, _fake, _err = self._start([TIMEOUT, _status(self._job(started_offset=-3))])
+        self.assertEqual(out, "dpl-0000beef")
 
 
 class ForwardedMaxWaitDefault(unittest.TestCase):
@@ -399,7 +487,7 @@ class ForwardedMaxWaitDefault(unittest.TestCase):
     POLL_CEILING = 180
 
     def setUp(self):
-        self._cli_real = _cli.run_cli
+        self._cli_real = _cli._spawn
         self._ensure, self._validate, self._wait = (
             deploy.ensure_pkg, deploy.full_validate, deploy.wait_for_terminal)
         deploy.ensure_pkg = lambda arg, ref, log: _pkg()
@@ -409,25 +497,25 @@ class ForwardedMaxWaitDefault(unittest.TestCase):
             self.waited.append(budget) or {"state": {"status": "done", "overall": "live"}})
 
     def tearDown(self):
-        _cli.run_cli = self._cli_real
+        _cli._spawn = self._cli_real
         (deploy.ensure_pkg, deploy.full_validate,
          deploy.wait_for_terminal) = (self._ensure, self._validate, self._wait)
 
     def _create(self, *extra):
         fake = FakeCli([_ok({"deployId": "dpl-a1b2c3d4"}), (0, "done — live", "")])
-        _cli.run_cli = fake
+        _cli._spawn = fake
         with self.assertRaises(SystemExit) as ctx:
             deploy.main(["deploy.py", "create", "spider", "--budget", "300", *extra])
-        return fake.calls[0], ctx.exception.code
+        return _gw_params(fake.calls[0]), ctx.exception.code
 
     def test_the_forwarded_default_is_the_verbs_own_150(self):
-        argv, code = self._create()
-        self.assertEqual(argv[argv.index("--max-wait") + 1], "150")
+        params, code = self._create()
+        self.assertEqual(params["maxWaitSec"], 150)
         self.assertEqual(code, 0)
 
     def test_an_explicit_value_is_forwarded_verbatim(self):
-        argv, _code = self._create("--max-wait", "900")
-        self.assertEqual(argv[argv.index("--max-wait") + 1], "900")
+        params, _code = self._create("--max-wait", "900")
+        self.assertEqual(params["maxWaitSec"], 900)
 
     def test_the_default_poll_budget_stays_short(self):
         # A job still running at the lapse is the PENDING path — exit 6, snapshot printed, "watch it
@@ -444,8 +532,8 @@ class ForwardedMaxWaitDefault(unittest.TestCase):
     def test_a_shorter_explicit_max_wait_shortens_the_poll_budget_too(self):
         # Explicit wins in BOTH directions: a caller asking for a fast return must get one, not a
         # 600s floor they have no flag to lower.
-        argv, _code = self._create("--max-wait", "30")
-        self.assertEqual(argv[argv.index("--max-wait") + 1], "30")
+        params, _code = self._create("--max-wait", "30")
+        self.assertEqual(params["maxWaitSec"], 30)
         self.assertEqual(self.waited, [30])
 
 
@@ -453,11 +541,11 @@ class WaitForTerminal(unittest.TestCase):
     """The poll loop always passes the explicit deployId — the shape the C1/C2 bug broke."""
 
     def setUp(self):
-        self._real_cli, self._real_sleep = _cli.run_cli, deploy.time.sleep
+        self._real_cli, self._real_sleep = _cli._spawn, deploy.time.sleep
         deploy.time.sleep = lambda _s: None
 
     def tearDown(self):
-        _cli.run_cli, deploy.time.sleep = self._real_cli, self._real_sleep
+        _cli._spawn, deploy.time.sleep = self._real_cli, self._real_sleep
 
     def test_polls_with_the_explicit_id_until_the_job_is_terminal(self):
         fake = FakeCli([
@@ -465,32 +553,32 @@ class WaitForTerminal(unittest.TestCase):
             _status({"state": {"status": "running", "phase": "install"}}),
             _status({"state": {"status": "done", "overall": "live"}}),
         ])
-        _cli.run_cli = fake
+        _cli._spawn = fake
         snap = deploy.wait_for_terminal("dpl-a1b2c3d4", 600, lambda m: None)
 
         self.assertEqual(snap["state"], {"status": "done", "overall": "live"})
-        self.assertEqual(len(fake.calls), 3)
+        # Every poll is an id-addressed `senpi.deploy.status` gateway call, 30 s RPC / 40 s wall.
+        self.assertEqual(fake.gateway(), [("senpi.deploy.status", {"deployId": "dpl-a1b2c3d4"})] * 3)
+        self.assertEqual(fake.timeouts, [40] * 3)
         for argv in fake.calls:
-            self.assertIn("senpi.deploy.status" if "senpi.deploy.status" in argv else "status", argv)
-            self.assertIn("dpl-a1b2c3d4", argv)  # every poll is id-addressed
-            self.assertIn("--json", argv)
+            self.assertEqual(argv[argv.index("--timeout") + 1], "30000")
 
     def test_a_running_job_is_never_treated_as_terminal(self):
         # If the gateway answered an id-addressed running job with `interrupted`, this loop would
         # return on the first poll and the wrapper would report a finished deploy seconds in.
         fake = FakeCli([_status({"state": {"status": "running", "phase": "create"}})] * 40)
-        _cli.run_cli = fake
+        _cli._spawn = fake
         snap = deploy.wait_for_terminal("dpl-a1b2c3d4", 0, lambda m: None)
         self.assertEqual(snap["state"]["status"], "running")
 
     def test_an_interrupted_snapshot_is_terminal(self):
-        _cli.run_cli = FakeCli([_status({"state": {"status": "interrupted"}})])
+        _cli._spawn = FakeCli([_status({"state": {"status": "interrupted"}})])
         snap = deploy.wait_for_terminal("dpl-a1b2c3d4", 600, lambda m: None)
         self.assertEqual(snap["state"], {"status": "interrupted"})
 
     def test_unreadable_status_never_crashes_the_loop(self):
-        _cli.run_cli = FakeCli([(1, "", "gateway down"),
-                                _status({"state": {"status": "done", "overall": "live"}})])
+        _cli._spawn = FakeCli([_transport("closed"), TIMEOUT,
+                               _status({"state": {"status": "done", "overall": "live"}})])
         snap = deploy.wait_for_terminal("dpl-a1b2c3d4", 600, lambda m: None)
         self.assertEqual(snap["state"]["overall"], "live")
 
@@ -502,16 +590,16 @@ class JsonModeStdout(unittest.TestCase):
     watching. Prose belongs on stderr there."""
 
     def setUp(self):
-        self._real_cli, self._real_sleep = _cli.run_cli, deploy.time.sleep
+        self._real_cli, self._real_sleep = _cli._spawn, deploy.time.sleep
         deploy.time.sleep = lambda _s: None
 
     def tearDown(self):
-        _cli.run_cli, deploy.time.sleep = self._real_cli, self._real_sleep
+        _cli._spawn, deploy.time.sleep = self._real_cli, self._real_sleep
 
     def _run_json(self, snap):
         self.addCleanup(setattr, deploy, "POLL_BUDGET", deploy.POLL_BUDGET)
         deploy.POLL_BUDGET = 0          # one poll, then report whatever the job is doing
-        _cli.run_cli = FakeCli([_ok({"deployId": "dpl-a1b2c3d4"}), _status(snap)])
+        _cli._spawn = FakeCli([_ok({"deployId": "dpl-a1b2c3d4"}), _status(snap)])
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = deploy.run_deploy(_pkg(), _args(budget=500.0, max_wait=0, json=True),
@@ -523,7 +611,7 @@ class JsonModeStdout(unittest.TestCase):
         self.assertEqual(code, 6)
         self.assertEqual(json.loads(out)["state"]["status"], "running")   # ONE document, nothing after
         self.assertIn("Still running", err)                                # the steer is still said
-        self.assertIn("openclaw senpi deploy status", err)
+        self.assertIn("python3 deploy.py status", err)
 
     def test_a_terminal_job_leaves_stdout_parseable(self):
         code, out, _err = self._run_json({"state": {"status": "done", "overall": "live"}})
@@ -532,40 +620,40 @@ class JsonModeStdout(unittest.TestCase):
 
 
 class StatusIsAVerdictNotATransport(unittest.TestCase):
-    """`deploy status` exits with the JOB's D-12 code while printing the snapshot. Reading that code
-    as a health signal made `status_snapshot` discard every non-live snapshot: a refused deploy then
+    """A snapshot is the answer whatever the job's outcome. (The old `deploy status` CLI verb exited
+    with the JOB's D-12 code while printing the snapshot; reading that code as a health signal made `status_snapshot` discard every non-live snapshot: a refused deploy then
     polled as unreadable for the whole budget and reported a transport error (exit 1) instead of the
     refusal, and `deploy.py status` after one printed "No deploy job recorded — start one: create
     <id> --budget <usd>", steering at a FUNDED deploy over a job that had just been refused."""
 
     def setUp(self):
-        self._real_cli, self._real_sleep = _cli.run_cli, deploy.time.sleep
+        self._real_cli, self._real_sleep = _cli._spawn, deploy.time.sleep
         deploy.time.sleep = lambda _s: None
 
     def tearDown(self):
-        _cli.run_cli, deploy.time.sleep = self._real_cli, self._real_sleep
+        _cli._spawn, deploy.time.sleep = self._real_cli, self._real_sleep
 
     def test_a_snapshot_is_read_whatever_exit_code_status_carries(self):
         for snap in ({"state": {"status": "done", "overall": "refused"}},
                      {"state": {"status": "done", "overall": "failed"}},
                      {"state": {"status": "interrupted"}},
                      {"state": {"status": "running", "phase": "create"}}):
-            _cli.run_cli = FakeCli([_status(snap)])
+            _cli._spawn = FakeCli([_status(snap)])
             self.assertEqual(deploy.status_snapshot("dpl-a1b2c3d4"), snap)
 
     def test_only_a_call_that_produced_no_snapshot_is_unreadable(self):
-        for response in ((-1, "", _cli.SPAWN_FAILED_PREFIX + "openclaw"),
-                         (-1, "", "timed out after 30s: openclaw senpi deploy status"),
-                         (1, "", "[NOT_FOUND] No deploy has been started on this agent.")):
-            _cli.run_cli = FakeCli([response])
+        for response in (SPAWN_FAILED, TIMEOUT, _transport(), _refused(NOT_FOUND),
+                         _refused("unknown method: senpi.deploy.status")):
+            _cli._spawn = FakeCli([response])
             self.assertIsNone(deploy.status_snapshot(None))
 
     def test_a_refused_job_is_relayed_with_its_own_exit_code_not_polled_to_a_transport_error(self):
-        rendered = ("deploy dpl-a1b2c3d4 — done — refused\n"
-                    "  preflight: [E_FUNDS_BELOW_FLOOR] no budget is valid — nothing was created")
-        refused = {"state": {"status": "done", "overall": "refused"}}
-        fake = FakeCli([_ok({"deployId": "dpl-a1b2c3d4"}), _status(refused), (2, rendered, "")])
-        _cli.run_cli = fake
+        rendered = "[E_FUNDS_BELOW_FLOOR] no budget is valid — nothing was created"
+        refused = {"meta": {"deployId": "dpl-a1b2c3d4", "packageId": "spider"},
+                   "state": {"status": "done", "overall": "refused"},
+                   "report": {"overall": "refused", "steps": [{"step": "preflight", "detail": rendered}]}}
+        fake = FakeCli([_ok({"deployId": "dpl-a1b2c3d4"}), _status(refused)])
+        _cli._spawn = fake
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = deploy.run_deploy(_pkg(), _args(budget=500.0), lambda m: None)
@@ -573,24 +661,23 @@ class StatusIsAVerdictNotATransport(unittest.TestCase):
         self.assertIn(rendered, out.getvalue())
         self.assertNotIn("could not read", (out.getvalue() + err.getvalue()).lower())
         # One poll: the job was terminal on the first read, not re-read for the whole budget.
-        polls = [c for c in fake.calls if "status" in c and "--json" in c]
-        self.assertEqual(len(polls), 1)
+        self.assertEqual(len(fake.gateway("senpi.deploy.status")), 1)
+        self.assertEqual(len(fake.calls), 2)        # the human form is rendered from that read
 
 
 class RunDeployExitCodes(unittest.TestCase):
     def setUp(self):
-        self._real_cli, self._real_sleep = _cli.run_cli, deploy.time.sleep
+        self._real_cli, self._real_sleep = _cli._spawn, deploy.time.sleep
         deploy.time.sleep = lambda _s: None
 
     def tearDown(self):
-        _cli.run_cli, deploy.time.sleep = self._real_cli, self._real_sleep
+        _cli._spawn, deploy.time.sleep = self._real_cli, self._real_sleep
 
     def _run(self, overall):
         snap = {"state": {"status": "done", "overall": overall}}
-        _cli.run_cli = FakeCli([
+        _cli._spawn = FakeCli([
             _ok({"deployId": "dpl-a1b2c3d4", "phase": "reconcile"}),
             _status(snap),
-            (deploy.exit_code_for(snap), f"deploy dpl-a1b2c3d4 — done — {overall}", ""),
         ])
         return deploy.run_deploy(_pkg(), _args(budget=500.0), lambda m: None)
 
@@ -623,10 +710,9 @@ class RunDeployExitCodes(unittest.TestCase):
         self.assertEqual(deploy.exit_code_for(None), 1)
 
     def test_an_interrupted_job_exits_five(self):
-        _cli.run_cli = FakeCli([
+        _cli._spawn = FakeCli([
             _ok({"deployId": "dpl-a1b2c3d4", "phase": "reconcile"}),
             _status({"state": {"status": "interrupted"}}),
-            (5, "deploy dpl-a1b2c3d4 — interrupted by a gateway restart", ""),
         ])
         self.assertEqual(deploy.run_deploy(_pkg(), _args(budget=500.0), lambda m: None), 5)
 
@@ -634,10 +720,9 @@ class RunDeployExitCodes(unittest.TestCase):
         # The job continues in the background — "not finished" is the honest answer, not success.
         self.addCleanup(setattr, deploy, "POLL_BUDGET", deploy.POLL_BUDGET)
         deploy.POLL_BUDGET = 0
-        _cli.run_cli = FakeCli([
+        _cli._spawn = FakeCli([
             _ok({"deployId": "dpl-a1b2c3d4", "phase": "reconcile"}),
             _status({"state": {"status": "running", "phase": "create"}}),
-            (6, "deploy dpl-a1b2c3d4 — running (phase: create)", ""),
         ])
         self.assertEqual(deploy.run_deploy(_pkg(), _args(budget=500.0, max_wait=0), lambda m: None), 6)
 
@@ -650,7 +735,7 @@ class StructuralGateRefusal(unittest.TestCase):
     this set: it deploys nothing, so there is no money for a pre-deploy gate to stand in front of.)"""
 
     def setUp(self):
-        self._cli_real = _cli.run_cli
+        self._cli_real = _cli._spawn
         self._ensure, self._validate = deploy.ensure_pkg, deploy.full_validate
         self._universe = deploy.universe_report        # hermetic: `validate` would hit the network
         deploy.ensure_pkg = lambda arg, ref, log: _pkg()
@@ -658,14 +743,14 @@ class StructuralGateRefusal(unittest.TestCase):
         deploy.universe_report = lambda pkg: ([], None)
 
     def tearDown(self):
-        _cli.run_cli = self._cli_real
+        _cli._spawn = self._cli_real
         deploy.ensure_pkg, deploy.full_validate = self._ensure, self._validate
         deploy.universe_report = self._universe
 
     def test_a_structural_refusal_exits_two_and_starts_nothing(self):
         for cmd in ("create", "runtime"):
             fake = FakeCli([])
-            _cli.run_cli = fake
+            _cli._spawn = fake
             err = io.StringIO()
             with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(err):
                 deploy.main(["deploy.py", cmd, "spider", "--budget", "300"])
@@ -675,7 +760,7 @@ class StructuralGateRefusal(unittest.TestCase):
 
     def test_validate_keeps_the_same_refusal_code(self):
         # One gate, one code: the standalone preflight and the pre-deploy pass are the same check.
-        _cli.run_cli = FakeCli([])
+        _cli._spawn = FakeCli([])
         with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(io.StringIO()):
             deploy.main(["deploy.py", "validate", "spider"])
         self.assertEqual(ctx.exception.code, 2)
@@ -686,10 +771,10 @@ class StatusSubcommand(unittest.TestCase):
     package-addressed. So a named package must be held against the snapshot, never decorated with it."""
 
     def setUp(self):
-        self._real = _cli.run_cli
+        self._real = _cli._spawn
 
     def tearDown(self):
-        _cli.run_cli = self._real
+        _cli._spawn = self._real
 
     @staticmethod
     def _snap(package_id="polar", overall="live"):
@@ -697,7 +782,7 @@ class StatusSubcommand(unittest.TestCase):
                 "state": {"status": "done", "overall": overall}}
 
     def _run(self, argv, responses):
-        _cli.run_cli = FakeCli(responses)
+        _cli._spawn = FakeCli(responses)
         err, out = io.StringIO(), io.StringIO()
         with self.assertRaises(SystemExit) as ctx, \
                 contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
@@ -722,19 +807,19 @@ class StatusSubcommand(unittest.TestCase):
     def test_the_named_package_matching_the_job_reports_the_jobs_code(self):
         code, _out, _err = self._run(
             ["deploy.py", "status", "spider"],
-            [_status(self._snap("spider")), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
+            [_status(self._snap("spider"))])
         self.assertEqual(code, 0)
 
     def test_a_package_dir_path_matches_on_its_basename(self):
         code, _out, _err = self._run(
             ["deploy.py", "status", "/data/workspace/strategies/spider"],
-            [_status(self._snap("spider")), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
+            [_status(self._snap("spider"))])
         self.assertEqual(code, 0)
 
     def test_status_takes_no_package_at_all(self):
         code, _out, _err = self._run(
             ["deploy.py", "status"],
-            [_status(self._snap("polar")), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
+            [_status(self._snap("polar"))])
         self.assertEqual(code, 0)
 
     def test_an_argument_that_names_no_package_id_never_refuses_against_an_empty_name(self):
@@ -743,7 +828,7 @@ class StatusSubcommand(unittest.TestCase):
         for arg in (".", "/", "./"):
             code, _out, err = self._run(
                 ["deploy.py", "status", arg],
-                [_status(self._snap("polar")), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
+                [_status(self._snap("polar"))])
             self.assertEqual(code, 0, f"{arg!r} must not refuse")
             self.assertNotIn("refusing", err.lower())
             self.assertIn("names no package", err.lower())   # said out loud, not silently accepted
@@ -752,7 +837,7 @@ class StatusSubcommand(unittest.TestCase):
         # argparse's own usage error exits 2 — "the deploy was refused" in the taught map. `status`
         # resolves no package, so --ref is meaningless here and must say so at exit 1 instead.
         fake = FakeCli([])
-        _cli.run_cli = fake
+        _cli._spawn = fake
         err = io.StringIO()
         with self.assertRaises(SystemExit) as ctx, contextlib.redirect_stderr(err):
             deploy.main(["deploy.py", "status", "spider", "--ref", "some-branch"])
@@ -763,7 +848,7 @@ class StatusSubcommand(unittest.TestCase):
     def test_a_snapshot_that_names_no_package_is_flagged_never_silently_bound(self):
         snap = {"meta": {"deployId": "dpl-a1b2c3d4"}, "state": {"status": "done", "overall": "live"}}
         code, _out, err = self._run(
-            ["deploy.py", "status", "spider"], [_status(snap), (0, "deploy dpl-a1b2c3d4 — done — live", "")])
+            ["deploy.py", "status", "spider"], [_status(snap)])
         self.assertEqual(code, 0)
         self.assertIn("spider", err)  # says out loud that it could not be confirmed
 
@@ -772,39 +857,48 @@ class StatusSubcommand(unittest.TestCase):
         # recorded on this agent. Start one: create <id> --budget <usd>" — a fabricated absence, and
         # a steer at a FUNDED deploy over a job that had just been refused.
         for overall, want_code in (("refused", 2), ("failed", 3)):
-            rendered = f"deploy dpl-a1b2c3d4 — done — {overall}"
-            code, out, err = self._run(
-                ["deploy.py", "status"],
-                [_status(self._snap("polar", overall)), (want_code, rendered, "")])
+            code, out, err = self._run(["deploy.py", "status"], [_status(self._snap("polar", overall))])
             self.assertEqual(code, want_code)
-            self.assertIn(rendered, out)
+            self.assertIn(f"dpl-a1b2c3d4 — package polar v?: done / {overall}", out)
             self.assertNotIn("no deploy job", err.lower())
 
     def test_a_still_running_job_reports_pending_not_an_absent_job(self):
         snap = {"meta": {"deployId": "dpl-a1b2c3d4", "packageId": "polar"},
                 "state": {"status": "running", "phase": "create"}}
         code, out, err = self._run(
-            ["deploy.py", "status"], [_status(snap), (6, "deploy dpl-a1b2c3d4 — running (phase: create)", "")])
+            ["deploy.py", "status"], [_status(snap)])
         self.assertEqual(code, 6)
         self.assertIn("running", out)
         self.assertNotIn("no deploy job", err.lower())
 
-    def test_a_status_call_that_produced_no_snapshot_relays_the_verbs_own_words(self):
-        # The one real absence: the verb answers `[NOT_FOUND]` (carrying its own start command) and
-        # prints no snapshot. Relay THAT — never a locally-composed absence, and never a `create
-        # <id> --budget <usd>` this wrapper invented on top of it.
-        not_found = "[NOT_FOUND] No deploy has been started on this agent. Start one: senpi deploy -p <dir> --budget <usd>"
-        code, _out, err = self._run(["deploy.py", "status"], [(1, "", not_found)])
-        self.assertEqual(code, 1)
-        self.assertIn("[NOT_FOUND]", err)
-        self.assertIn("openclaw senpi deploy status", err)
+    def test_a_status_call_that_produced_no_snapshot_relays_the_gateways_own_words(self):
+        # The one real absence: the gateway answers `[NOT_FOUND]` (carrying its own start command)
+        # and no snapshot. Relay THAT — never a locally-composed absence, and never a `create
+        # <id> --budget <usd>` this wrapper invented on top of it. Same on both error contracts.
+        for answer in (_refused(NOT_FOUND), _refused_10x(NOT_FOUND, code="NOT_FOUND")):
+            code, _out, err = self._run(["deploy.py", "status"], [answer])
+            self.assertEqual(code, 1)
+            self.assertIn("[NOT_FOUND] No deploy has been started", err)
+            self.assertIn("no deploy job has ever run on this agent", err)
+            self.assertNotIn("--budget", err)
 
     def test_an_unreadable_status_call_never_claims_there_is_no_job(self):
-        code, _out, err = self._run(
-            ["deploy.py", "status"], [(-1, "", _cli.SPAWN_FAILED_PREFIX + "openclaw")])
-        self.assertEqual(code, 1)
-        self.assertIn("command not found", err)
-        self.assertNotIn("no deploy job recorded", err.lower())
+        for answer in (SPAWN_FAILED, TIMEOUT, _transport(),
+                       _refused("unknown method: senpi.deploy.status")):
+            code, _out, err = self._run(["deploy.py", "status"], [answer])
+            self.assertEqual(code, 1)
+            self.assertIn("senpi.deploy.status:", err)          # what the read answered
+            self.assertIn("a job may still be running", err)
+            self.assertNotIn("no deploy job has ever run", err.lower())
+
+    def test_status_is_one_gateway_read_and_no_cli_verb(self):
+        fake = FakeCli([_status(self._snap("polar"))])
+        _cli._spawn = fake
+        with self.assertRaises(SystemExit), contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            deploy.main(["deploy.py", "status", "--json"])
+        self.assertEqual(fake.gateway(), [("senpi.deploy.status", {})])
+        self.assertEqual(len(fake.calls), 1)
 
 
 class UniverseGateOwnership(unittest.TestCase):
@@ -814,25 +908,26 @@ class UniverseGateOwnership(unittest.TestCase):
     two-producer drift the move exists to end."""
 
     def setUp(self):
-        self._real_cli, self._real_sleep = _cli.run_cli, deploy.time.sleep
+        self._real_cli, self._real_sleep = _cli._spawn, deploy.time.sleep
         deploy.time.sleep = lambda _s: None
 
     def tearDown(self):
-        _cli.run_cli, deploy.time.sleep = self._real_cli, self._real_sleep
+        _cli._spawn, deploy.time.sleep = self._real_cli, self._real_sleep
 
     def test_action_subcommands_have_no_local_universe_gate(self):
         self.assertFalse(hasattr(deploy, "universe_preflight"))
 
     def test_universe_refusal_relays_verbatim_with_exit_2(self):
         # The verb's refusal reaches the wrapper through the ordinary status relay: no local
-        # re-derivation, no second wording — the report is printed exactly as the verb rendered it.
-        rendered = ("deploy dpl-a1b2c3d4 — done — refused\n"
-                    "  reconcile: [E_UNIVERSE_NOT_LIVE] 1 hardcoded instrument(s) in this package "
-                    "are not live on Hyperliquid. Nothing was created — \"xyz:NASDAQ\"")
-        _cli.run_cli = FakeCli([
+        # re-derivation, no second wording — the report is printed exactly as the job recorded it.
+        rendered = ("[E_UNIVERSE_NOT_LIVE] 1 hardcoded instrument(s) in this package are not live "
+                    "on Hyperliquid. Nothing was created — xyz:NASDAQ")
+        _cli._spawn = FakeCli([
             _ok({"deployId": "dpl-a1b2c3d4", "phase": "reconcile"}),
-            _status({"state": {"status": "done", "overall": "refused"}}),
-            (2, rendered, ""),
+            _status({"state": {"status": "done", "overall": "refused"},
+                     "report": {"overall": "refused", "instances": [
+                         {"instance": "main", "steps": {"reconcile": {"status": "refused",
+                                                                      "detail": rendered}}}]}}),
         ])
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
@@ -876,11 +971,17 @@ def _proof_refused(reason, instance_dir=None, detail=None, instances=("main",), 
 
 
 def _verbs(fake):
-    """Every call as the verb it ran: `senpi deploy` · `senpi deploy status` · `senpi validate`."""
+    """Every call as what it ran: `senpi deploy` (the `senpi.deploy.start` gateway call) ·
+    `senpi deploy status` (`senpi.deploy.status`) · `senpi validate` (still a CLI verb)."""
     out = []
     for c in fake.calls:
-        if c[:3] == ["openclaw", "senpi", "deploy"]:
-            out.append("senpi deploy status" if "status" in c else "senpi deploy")
+        method = _gw_method(c)
+        if method == "senpi.deploy.start":
+            out.append("senpi deploy")
+        elif method == "senpi.deploy.status":
+            out.append("senpi deploy status")
+        elif method:
+            out.append(method)
         else:
             out.append(" ".join(c[1:3]))
     return out
@@ -896,18 +997,18 @@ class StaleProofRepair(unittest.TestCase):
     something (or never proved it), and that has to reach them."""
 
     def setUp(self):
-        self._real_cli, self._real_sleep = _cli.run_cli, deploy.time.sleep
+        self._real_cli, self._real_sleep = _cli._spawn, deploy.time.sleep
         deploy.time.sleep = lambda _s: None
 
     def tearDown(self):
-        _cli.run_cli, deploy.time.sleep = self._real_cli, self._real_sleep
+        _cli._spawn, deploy.time.sleep = self._real_cli, self._real_sleep
 
     def _run(self, responses, pkg=None, **kw):
         # `poll_budget=0`: every snapshot here is terminal on the first read, so the loop must not
         # spend a real 150s re-reading a fake CLI that has run out of answers.
         kw.setdefault("poll_budget", 0)
         fake = FakeCli(responses)
-        _cli.run_cli = fake
+        _cli._spawn = fake
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = deploy.run_deploy(pkg or _pkg(), _args(budget=100.0, **kw), lambda m: None)
@@ -926,8 +1027,9 @@ class StaleProofRepair(unittest.TestCase):
     def test_a_proof_that_predates_the_runtime_is_re_proven_and_the_deploy_re_run_once(self):
         code, fake, out, _err = self._run(self._repaired())
         self.assertEqual(code, 0)
+        # No trailing status call: the report is rendered from the snapshot the poll already read.
         self.assertEqual(_verbs(fake), ["senpi deploy", "senpi deploy status", "senpi validate",
-                                        "senpi deploy", "senpi deploy status", "senpi deploy status"])
+                                        "senpi deploy", "senpi deploy status"])
         # The re-proof targets the DIRECTORY the gate names — never the manifest instance name.
         self.assertEqual(fake.argv_for("validate")[0],
                          ["openclaw", "senpi", "validate", "/pkg/spider", "--stage", "live"])
@@ -954,8 +1056,7 @@ class StaleProofRepair(unittest.TestCase):
             _ok({"deployId": "dpl-a1b2c3d4"}),
             _status(_proof_refused("content_changed",
                                    detail="[E_VALIDATE_CONTENT_CHANGED] the proof predates the "
-                                          "running runtime")),
-            (2, "deploy dpl-a1b2c3d4 — done — refused", "")])
+                                          "running runtime"))])
         self.assertEqual(code, 2)
         self.assertEqual(fake.argv_for("validate"), [])
 
@@ -985,13 +1086,11 @@ class StaleProofRepair(unittest.TestCase):
         code, fake, out, err = self._run(
             [_ok({"deployId": "dpl-a1b2c3d4"}),
              _status(_proof_refused("runtime_version_changed")),
-             (1, "", findings),
-             (2, "deploy dpl-a1b2c3d4 — done — refused", "")])
+             (1, "", findings)])
         # The deploy's own refusal code, not validate's: the deploy WAS refused, and nothing past
         # that gate ran either time.
         self.assertEqual(code, 2)
-        self.assertEqual(_verbs(fake), ["senpi deploy", "senpi deploy status", "senpi validate",
-                                        "senpi deploy status"])
+        self.assertEqual(_verbs(fake), ["senpi deploy", "senpi deploy status", "senpi validate"])
         self.assertIn("[E_VALIDATE_SCANNER_CRASHED]", err)      # validate's own words, relayed
         self.assertIn("refused", out)                           # …and the deploy's report below it
 
@@ -1003,8 +1102,7 @@ class StaleProofRepair(unittest.TestCase):
             code, fake, _out, _err = self._run(
                 [_ok({"deployId": "dpl-a1b2c3d4"}),
                  _status(_proof_refused("runtime_version_changed")),
-                 (rc, "", "UNPROVEN"),
-                 (2, "deploy dpl-a1b2c3d4 — done — refused", "")])
+                 (rc, "", "UNPROVEN")])
             self.assertEqual(code, 2, rc)
             self.assertEqual(len([c for c in _verbs(fake) if c == "senpi deploy"]), 1, rc)
 
@@ -1014,8 +1112,7 @@ class StaleProofRepair(unittest.TestCase):
         for reason in ("no_proof", "content_changed"):
             code, fake, out, _err = self._run(
                 [_ok({"deployId": "dpl-a1b2c3d4"}),
-                 _status(_proof_refused(reason)),
-                 (2, f"deploy dpl-a1b2c3d4 — done — refused ({reason})", "")])
+                 _status(_proof_refused(reason))])
             self.assertEqual(code, 2, reason)
             self.assertEqual(fake.argv_for("validate"), [], reason)
             self.assertIn(reason, out)
@@ -1032,8 +1129,7 @@ class StaleProofRepair(unittest.TestCase):
                                       "evidence": {"dead": ["xyz:NASDAQ"], "liveCount": 412}},
                         "preflight": {"status": "pending", "detail": "not reached"}}}]}}
         code, fake, _out, _err = self._run(
-            [_ok({"deployId": "dpl-a1b2c3d4"}), _status(snap),
-             (2, "deploy dpl-a1b2c3d4 — done — refused", "")])
+            [_ok({"deployId": "dpl-a1b2c3d4"}), _status(snap)])
         self.assertEqual(code, 2)
         self.assertEqual(fake.argv_for("validate"), [])
 
@@ -1046,8 +1142,7 @@ class StaleProofRepair(unittest.TestCase):
                           "evidence": {"shared_dirs": ["/pkg/spider"]}}}}
         code, fake, _out, _err = self._run(
             [_ok({"deployId": "dpl-a1b2c3d4"}),
-             _status(_proof_refused("runtime_version_changed", other=other)),
-             (2, "deploy dpl-a1b2c3d4 — done — refused", "")])
+             _status(_proof_refused("runtime_version_changed", other=other))])
         self.assertEqual(code, 2)
         self.assertEqual(fake.argv_for("validate"), [])
 
@@ -1060,8 +1155,7 @@ class StaleProofRepair(unittest.TestCase):
                          {"instance": "main",
                           "steps": {"reconcile": {"status": "refused", "detail": "[E_FUNDS] no"}}}]}}):
             code, fake, _out, _err = self._run(
-                [_ok({"deployId": "dpl-a1b2c3d4"}), _status(snap),
-                 (2, "deploy dpl-a1b2c3d4 — done — refused", "")])
+                [_ok({"deployId": "dpl-a1b2c3d4"}), _status(snap)])
             self.assertEqual(code, 2)
             self.assertEqual(fake.argv_for("validate"), [])
 
@@ -1075,8 +1169,7 @@ class StaleProofRepair(unittest.TestCase):
                                                                "evidence": "runtime_version_changed"}}}]}):
             snap = {"state": {"status": "done", "overall": "refused"}, "report": report}
             code, fake, _out, _err = self._run(
-                [_ok({"deployId": "dpl-a1b2c3d4"}), _status(snap),
-                 (2, "deploy dpl-a1b2c3d4 — done — refused", "")])
+                [_ok({"deployId": "dpl-a1b2c3d4"}), _status(snap)])
             self.assertEqual(code, 2, report)
             self.assertEqual(fake.argv_for("validate"), [], report)
 
@@ -1089,8 +1182,7 @@ class StaleProofRepair(unittest.TestCase):
             snap = _proof_refused("runtime_version_changed")
             snap["state"] = state
             code, fake, _out, _err = self._run(
-                [_ok({"deployId": "dpl-a1b2c3d4"}), _status(snap),
-                 (deploy.exit_code_for(snap), "deploy dpl-a1b2c3d4 — reported", "")],
+                [_ok({"deployId": "dpl-a1b2c3d4"}), _status(snap)],
                 max_wait=0)
             self.assertEqual(fake.argv_for("validate"), [], state)
             self.assertEqual(code, deploy.exit_code_for(snap), state)
@@ -1148,8 +1240,7 @@ class StaleProofRepair(unittest.TestCase):
         for escape in ("/etc", "../elsewhere", "swing/../../elsewhere"):
             code, fake, _out, _err = self._run(
                 [_ok({"deployId": "dpl-a1b2c3d4"}),
-                 _status(_proof_refused("runtime_version_changed", instance_dir=escape)),
-                 (2, "deploy dpl-a1b2c3d4 — done — refused", "")])
+                 _status(_proof_refused("runtime_version_changed", instance_dir=escape))])
             self.assertEqual(code, 2, escape)
             self.assertEqual(fake.argv_for("validate"), [], escape)
 
@@ -1161,7 +1252,7 @@ class StaleProofRepair(unittest.TestCase):
         deploy.ensure_pkg = lambda arg, ref, log: _pkg()
         deploy.full_validate = lambda pkg: []
         fake = FakeCli(self._repaired())
-        _cli.run_cli = fake
+        _cli._spawn = fake
         out, err = io.StringIO(), io.StringIO()
         with self.assertRaises(SystemExit) as ctx, \
                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -1178,14 +1269,14 @@ class ValidateUniverseHook(unittest.TestCase):
     instrument list here is a LOUD note, never a silent pass and never a blocked deploy."""
 
     def setUp(self):
-        self._real_cli = _cli.run_cli
+        self._real_cli = _cli._spawn
         self._ensure, self._full_validate = deploy.ensure_pkg, deploy.full_validate
         deploy.ensure_pkg = lambda arg, ref, log: _pkg()
         deploy.full_validate = lambda pkg: []
         self._saved_vu = sys.modules.get("validate_universe")
 
     def tearDown(self):
-        _cli.run_cli = self._real_cli
+        _cli._spawn = self._real_cli
         deploy.ensure_pkg, deploy.full_validate = self._ensure, self._full_validate
         if self._saved_vu is None:
             sys.modules.pop("validate_universe", None)
@@ -1212,7 +1303,7 @@ class ValidateUniverseHook(unittest.TestCase):
         sys.modules["validate_universe"] = module
 
     def _run_validate(self, *extra):
-        _cli.run_cli = FakeCli([])
+        _cli._spawn = FakeCli([])
         out, err = io.StringIO(), io.StringIO()
         with self.assertRaises(SystemExit) as ctx, \
                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -1299,19 +1390,18 @@ def _strategy(name="spider-main", wallet=WALLET, status="ACTIVE", skill="spider"
 
 
 def _runtime_table(*rows):
-    """`runtime list` as the CLI really prints it: header, then id / wallet / source / status."""
-    text = "ID            WALLET                                      SOURCE   STATUS\n"
-    for name, wallet, status in rows:
-        text += f"{name}   {wallet}   package   {status}\n"
-    return text
+    """`senpi.listRuntimes` as the gateway really answers it: `{"runtimes": [{id, wallet, source,
+    status}]}` (full wallet addresses; status strings as the old `runtime list` table printed)."""
+    return json.dumps({"runtimes": [{"id": name, "wallet": wallet, "source": "(inline)", "status": status}
+                                    for name, wallet, status in rows]})
 
 
 class RouterCli:
-    """Routes a stubbed `run_cli` by argv shape rather than a queue: `verify` composes several
+    """Routes a stubbed `_spawn` by gateway method rather than a queue: `verify` composes several
     different read-only surfaces and their ORDER is an implementation detail — what is never an
-    implementation detail is that none of them is `openclaw senpi deploy -p …`."""
+    implementation detail is that none of them is `senpi.deploy.start` (or the old CLI verb)."""
 
-    NO_DEPLOY_JOB = (1, "", "[NOT_FOUND] No deploy has been started on this agent.")
+    NO_DEPLOY_JOB = _refused(NOT_FOUND)
 
     def __init__(self, runtime_list=None, status_json=None, deploy_status=None):
         self.calls = []
@@ -1323,18 +1413,20 @@ class RouterCli:
 
     def __call__(self, args, timeout=60):
         self.calls.append(list(args))
-        if args[:4] == ["openclaw", "senpi", "runtime", "list"]:
-            return self.runtime_list
-        if args[:4] == ["openclaw", "senpi", "deploy", "status"]:
-            return self.deploy_status
-        if args[:3] == ["openclaw", "senpi", "status"]:
-            return self.status_json
-        raise AssertionError(f"verify made an unexpected CLI call: {args}")
+        method = _gw_method(args)
+        answer = {"senpi.listRuntimes": self.runtime_list,
+                  "senpi.deploy.status": self.deploy_status,
+                  "senpi.getHealthStatus": self.status_json}.get(method)
+        if answer is None:
+            raise AssertionError(f"verify made an unexpected call: {args}")
+        return tuple(answer) if len(answer) == 5 else (*answer, False, None)
 
     @property
     def deploy_dispatches(self):
-        """Every call that STARTS the deploy verb (`senpi deploy -p <pkg>`) — must always be empty."""
-        return [c for c in self.calls if c[:3] == ["openclaw", "senpi", "deploy"] and "-p" in c]
+        """Every call that STARTS a deploy (`senpi.deploy.start`, or the old `senpi deploy -p <pkg>`
+        verb) — must always be empty."""
+        return [c for c in self.calls if _gw_method(c) == "senpi.deploy.start"
+                or (c[:3] == ["openclaw", "senpi", "deploy"] and "-p" in c)]
 
 
 _UNSET = object()
@@ -1357,7 +1449,7 @@ class VerifyHarness:
     """Drives `deploy.py verify spider` against stubbed read-only surfaces (mixed into a TestCase)."""
 
     def setUp(self):
-        self._cli_real, self._ensure = _cli.run_cli, deploy.ensure_pkg
+        self._cli_real, self._ensure = _cli._spawn, deploy.ensure_pkg
         self._local = deploy.local_pkg
         self._mcp = getattr(deploy, "MCPClient", None)
         # `verify` resolves LOCALLY (it fetches nothing) — `ensure_pkg` stays stubbed to a raiser so a
@@ -1367,7 +1459,7 @@ class VerifyHarness:
         self.pkg = _pkg(instances=[_inst("main")])
 
     def tearDown(self):
-        _cli.run_cli, deploy.ensure_pkg = self._cli_real, self._ensure
+        _cli._spawn, deploy.ensure_pkg = self._cli_real, self._ensure
         deploy.local_pkg = self._local
         if self._mcp is not None:
             deploy.MCPClient = self._mcp
@@ -1375,7 +1467,7 @@ class VerifyHarness:
     def _verify(self, *extra, strategies=(_strategy(),), mcp_raises=None, mcp_payload=_UNSET,
                 **router_kw):
         router = RouterCli(**router_kw)
-        _cli.run_cli = router
+        _cli._spawn = router
         deploy.MCPClient = lambda *a, **k: FakeMCP(strategies, mcp_raises, mcp_payload)
         out, err = io.StringIO(), io.StringIO()
         with self.assertRaises(SystemExit) as ctx, \
@@ -1462,7 +1554,7 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
         self.assertIn("COULD NOT CHECK", text)
         self.assertNotIn("NOT VERIFIED", text)
         self.assertNotIn("✓", text)
-        self.assertIn("openclaw senpi status", text)        # names the read that failed
+        self.assertIn("senpi.getHealthStatus", text)        # names the read that failed
         self.assertEqual(router.deploy_dispatches, [])
 
     def test_an_unreadable_runtime_list_is_could_not_check(self):
@@ -1522,7 +1614,7 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
         warn = ("[W_BUDGET_PARTIAL_FUND] main (0x1234…5678) funded $60.00 of requested $500.00 (12%)")
         snap = {"meta": {"deployId": "dpl-a1b2c3d4", "packageId": "spider"},
                 "state": {"status": "done", "overall": "live"}, "partialFundNote": warn}
-        code, out, err, _router = self._verify(deploy_status=(0, json.dumps(snap), ""))
+        code, out, err, _router = self._verify(deploy_status=_status(snap))
         self.assertEqual(code, 0)
         self.assertIn(warn, out + err)
 
@@ -1531,7 +1623,7 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
         warn = "[W_BUDGET_BELOW_STRATEGY_MIN] scalp $12.00 (needs $13.50)"
         snap = {"meta": {"packageId": "spider"}, "state": {"status": "done", "overall": "failed"},
                 "minBudgetNote": warn}
-        code, out, err, _router = self._verify(deploy_status=(3, json.dumps(snap), ""))
+        code, out, err, _router = self._verify(deploy_status=_status(snap))
         self.assertEqual(code, 0)          # the JOB's verdict is not this check's verdict
         self.assertIn(warn, out + err)
 
@@ -1546,18 +1638,18 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
         # check emits is conditioned on that bit, so an unreadable read let verify name `runtime
         # spider` — a SECOND deploy — while a job may have been funding the wallet right then.
         code, out, err, router = self._verify(
-            deploy_status=(-1, "", _cli.SPAWN_FAILED_PREFIX + "openclaw"),
+            deploy_status=SPAWN_FAILED,
             runtime_list=(0, _runtime_table(), ""), status_json=_ok({"statuses": []}))
         text = out + err
         self.assertEqual(code, 1)
         self.assertIn("COULD NOT CHECK", text)
         self.assertNotIn("NOT VERIFIED", text)
-        self.assertIn("deploy status", text)                # names the read that failed
+        self.assertIn("senpi.deploy.status", text)          # names the read that failed
         self.assertNotIn("deploy.py runtime spider", text)  # the money steer it used to reach
         self.assertEqual(router.deploy_dispatches, [])
 
     def test_a_status_timeout_on_the_job_read_is_could_not_check_too(self):
-        code, out, err, _router = self._verify(deploy_status=(-1, "", "timed out after 60s: openclaw …"))
+        code, out, err, _router = self._verify(deploy_status=TIMEOUT)
         self.assertEqual(code, 1)
         self.assertIn("COULD NOT CHECK", out + err)
 
@@ -1567,38 +1659,37 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("VERIFIED", out)
 
-    def test_a_runtime_with_no_deploy_verb_is_a_no_job_answer_not_an_unreadable_read(self):
-        # Fleet version skew, not theory: skills update hourly from main, the runtime self-updates
-        # from npm on its own cadence, so a rollout window leaves boxes with new skills and a pre-verb
-        # runtime. Its CLI answers the status read with a PARSER error and no [NOT_FOUND] — read as
-        # unreadable, verify printed COULD NOT CHECK (1) over a live, healthy package on every run,
-        # steering at a re-read that can never succeed there. A CLI that cannot parse the command is
-        # not running a verb job: that is positive no-job evidence.
-        #
-        # The first string is what the CURRENT fleet prints for this exact read (`senpi` has a root
-        # .action() since 2026-03-27, so Commander never says "unknown command"); the second is the
-        # older shape. A detector that only knew the second one was dead code fleet-wide.
-        for text in (COMMANDER_REJECTIONS[("senpi", "deploy", "status", "--json")],
-                     COMMANDER_REJECTION_NO_ROOT_ACTION):
-            code, out, err, router = self._verify(deploy_status=(1, "", text))
-            self.assertEqual(code, 0, text + "\n" + out + err)
-            self.assertIn("VERIFIED", out)
-            self.assertNotIn("COULD NOT CHECK", out + err)
-            self.assertEqual(router.deploy_dispatches, [])
+    def test_a_runtime_without_the_status_method_is_could_not_check_never_no_job(self):
+        # A plugin without `senpi.deploy.status` answers `unknown method`. It cannot prove that no job
+        # is running, so it is a read that did not answer — never the no-job answer that lets a row
+        # name `create`/`runtime`. Only the gateway's own `[NOT_FOUND]` is that. (Through the CLI verb
+        # this was read as no-job; with a direct call there is no CLI parser between us and the
+        # gateway, so a missing verb no longer looks like a parse error.)
+        for answer in (_refused("unknown method: senpi.deploy.status"),
+                       _refused_10x("unknown method: senpi.deploy.status")):
+            for label, kw, steer in (
+                    ("nothing funded", {"strategies": ()}, "deploy.py create spider --budget"),
+                    ("funded, no runtime",
+                     {"runtime_list": (0, _runtime_table(), ""), "status_json": _ok({"statuses": []})},
+                     "deploy.py runtime spider")):
+                code, out, err, router = self._verify(deploy_status=answer, **kw)
+                text = out + err
+                self.assertEqual(code, 1, f"{label}: {text}")
+                self.assertIn("COULD NOT CHECK", text, label)
+                self.assertIn("unknown_method", text, label)      # what the read answered
+                self.assertNotIn(steer, text, label)
+                self.assertEqual(router.deploy_dispatches, [], label)
 
-    def test_the_inner_gateway_calls_rejected_flag_is_could_not_check_not_no_job(self):
-        # plugin-newer-than-openclaw: `senpi deploy status` EXISTS and ran; its inner `gateway call`
-        # was rejected by an older openclaw, onto the inherited stderr, in the parse-error grammar.
-        # Classified as "no deploy job ever ran", verify emits the money steer for whatever the row
-        # is missing — while a job may be funding a wallet this second. Both steers are checked,
-        # because which one appears depends only on what the backend read found.
+    def test_a_command_line_openclaw_rejected_is_could_not_check_not_no_job(self):
+        # `gateway call` rejected by an older openclaw (a flag it does not know): nothing was read,
+        # so whether a job is funding a wallet right now is unknown — never "no job ever ran".
         for label, kw, steer in (
                 ("nothing funded", {"strategies": ()}, "deploy.py create spider --budget"),
                 ("funded, no runtime",
                  {"runtime_list": (0, _runtime_table(), ""), "status_json": _ok({"statuses": []})},
                  "deploy.py runtime spider")):
             code, out, err, router = self._verify(
-                deploy_status=(1, "", INNER_GATEWAY_PARSE_ERROR), **kw)
+                deploy_status=(1, "", "error: unknown option '--params'\n"), **kw)
             text = out + err
             self.assertEqual(code, 1, f"{label}: {text}")
             self.assertIn("COULD NOT CHECK", text, label)
@@ -1611,25 +1702,26 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
         # stderr, and the read then classified as unreadable — permanent could-not-check, the same
         # failure by another door.
         code, out, err, router = self._verify(
-            deploy_status=(1, '{"level":"info","msg":"gateway ready"}',
-                           "[NOT_FOUND] No deploy has been started on this agent."))
+            deploy_status=(1, '{"level":"info","msg":"gateway ready"}', _refused(NOT_FOUND)[2]))
         self.assertEqual(code, 0, out + err)
         self.assertIn("VERIFIED", out)
         self.assertEqual(router.deploy_dispatches, [])
 
     def test_a_quoted_not_found_in_a_failed_read_is_never_read_as_no_job(self):
-        # The no-job answer is the verb's own refusal, which OPENS its line with the code. A failed
-        # read whose text merely CONTAINS `[NOT_FOUND]` — a gateway wrapper, an interleaved log line,
-        # and `error_tail` merges stderr+stdout — said "no job ever ran" while a job could be funding
-        # a wallet, and the row below would then name the money steer.
-        code, out, err, router = self._verify(
-            deploy_status=(1, "", "gateway proxy: upstream answered [NOT_FOUND] for trace 7f3a"),
-            runtime_list=(0, _runtime_table(), ""), status_json=_ok({"statuses": []}))
-        text = out + err
-        self.assertEqual(code, 1)
-        self.assertIn("COULD NOT CHECK", text)
-        self.assertNotIn("deploy.py runtime spider", text)
-        self.assertEqual(router.deploy_dispatches, [])
+        # The no-job answer is the gateway's own refusal, whose message OPENS with the code. A failed
+        # read whose text merely CONTAINS `[NOT_FOUND]` — a gateway wrapper, an interleaved log line —
+        # said "no job ever ran" while a job could be funding a wallet, and the row below would then
+        # name the money steer.
+        for answer in ((1, "", "gateway proxy: upstream answered [NOT_FOUND] for trace 7f3a"),
+                       _refused("upstream answered [NOT_FOUND] for trace 7f3a")):
+            code, out, err, router = self._verify(
+                deploy_status=answer,
+                runtime_list=(0, _runtime_table(), ""), status_json=_ok({"statuses": []}))
+            text = out + err
+            self.assertEqual(code, 1)
+            self.assertIn("COULD NOT CHECK", text)
+            self.assertNotIn("deploy.py runtime spider", text)
+            self.assertEqual(router.deploy_dispatches, [])
 
     def test_a_dict_that_is_not_a_job_snapshot_is_could_not_check(self):
         # `_extract_json` recovers ANY JSON object from stdout, so an error envelope (or one complete
@@ -1637,7 +1729,7 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
         # fail it, and report "no job running" — fail-open on the one bit the money steers hang off.
         envelope = {"ok": False, "error": {"code": "UPSTREAM", "message": "gateway unavailable"}}
         code, out, err, router = self._verify(
-            deploy_status=(1, json.dumps(envelope), ""),
+            deploy_status=_status(envelope),
             runtime_list=(0, _runtime_table(), ""), status_json=_ok({"statuses": []}))
         text = out + err
         self.assertEqual(code, 1)
@@ -1651,7 +1743,7 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
         # is exactly the bit that decides whether this row may name a second dispatch.
         snap = {"state": {"status": "running", "phase": "create"}}
         code, out, err, router = self._verify(
-            deploy_status=(6, json.dumps(snap), ""),
+            deploy_status=_status(snap),
             runtime_list=(0, _runtime_table(), ""), status_json=_ok({"statuses": []}))
         text = out + err
         self.assertEqual(code, 1)
@@ -1664,7 +1756,7 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
         # (they cannot be attributed to this package).
         snap = {"state": {"status": "done", "overall": "live"},
                 "partialFundNote": "[W_BUDGET_PARTIAL_FUND] main (0x…) funded $60.00 of $500.00"}
-        code, out, err, _router = self._verify(deploy_status=(0, json.dumps(snap), ""))
+        code, out, err, _router = self._verify(deploy_status=_status(snap))
         self.assertEqual(code, 0, out + err)
         self.assertIn("VERIFIED", out)
         self.assertNotIn("W_BUDGET_PARTIAL_FUND", out + err)
@@ -1675,7 +1767,7 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
         warn = "[W_BUDGET_PARTIAL_FUND] main (0x…) funded $60.00 of requested $500.00 (12%)"
         snap = {"meta": {"packageId": "polar"}, "state": {"status": "done", "overall": "live"},
                 "partialFundNote": warn}
-        code, out, err, _router = self._verify(deploy_status=(0, json.dumps(snap), ""))
+        code, out, err, _router = self._verify(deploy_status=_status(snap))
         self.assertEqual(code, 0)
         self.assertNotIn("W_BUDGET_PARTIAL_FUND", out + err)
 
@@ -1735,7 +1827,7 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
     @staticmethod
     def _running_job():
         snap = {"meta": {"packageId": "spider"}, "state": {"status": "running", "phase": "fund"}}
-        return (deploy.EXIT_PENDING, json.dumps(snap), "")
+        return _status(snap)
 
     def test_a_running_job_replaces_the_create_steer_with_deploy_status(self):
         code, out, err, router = self._verify(
@@ -1744,7 +1836,9 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
         text = out + err
         self.assertEqual(code, 3)
         self.assertNotIn("deploy.py create spider --budget", text)
-        self.assertIn("openclaw senpi deploy status", text)
+        self.assertIn("python3 deploy.py status", text)
+        self.assertIn("do not re-run create", text)
+        self.assertNotIn("openclaw senpi deploy status", text)
         self.assertIn("RUNNING", text)
         self.assertEqual(router.deploy_dispatches, [])
 
@@ -1755,7 +1849,7 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
         text = out + err
         self.assertEqual(code, 3)
         self.assertNotIn("deploy.py runtime spider", text)
-        self.assertIn("openclaw senpi deploy status", text)
+        self.assertIn("python3 deploy.py status", text)
         self.assertEqual(router.deploy_dispatches, [])
 
     def test_a_running_job_is_reported_in_json_too(self):
@@ -1771,7 +1865,7 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
         code, out, err, _router = self._verify(
             strategies=(), runtime_list=(0, _runtime_table(), ""),
             status_json=_ok({"statuses": []}),
-            deploy_status=(deploy.EXIT_PENDING, json.dumps(snap), ""))
+            deploy_status=_status(snap))
         self.assertEqual(code, 3)
         self.assertIn("deploy.py create spider --budget", out + err)
 
@@ -1913,7 +2007,7 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
     def test_a_could_not_check_after_the_job_read_reports_what_it_read(self):
         snap = {"meta": {"packageId": "spider"}, "state": {"status": "running"}}
         code, out, _err, _router = self._verify(
-            "--json", deploy_status=(6, json.dumps(snap), ""),
+            "--json", deploy_status=_status(snap),
             status_json=_ok({"statuses": [{"name": "spider-main"}]}))
         payload = json.loads(out)
         self.assertEqual(code, 1)
@@ -2249,18 +2343,18 @@ class VerifyResolvesTheLocalPackageOnly(unittest.TestCase):
 
     def setUp(self):
         self._resolve, self._fetch = deploy._pkg.resolve_pkg_dir, deploy._fetch.fetch_package
-        self._cli_real = _cli.run_cli
+        self._cli_real = _cli._spawn
 
     def tearDown(self):
         deploy._pkg.resolve_pkg_dir, deploy._fetch.fetch_package = self._resolve, self._fetch
-        _cli.run_cli = self._cli_real
+        _cli._spawn = self._cli_real
 
     def test_a_missing_local_package_fetches_nothing_and_renders_no_verdict(self):
         fetched = []
         deploy._pkg.resolve_pkg_dir = lambda arg: Path("/nonexistent-root") / str(arg)
         deploy._fetch.fetch_package = lambda *a, **k: fetched.append(a)
         fake = FakeCli([])
-        _cli.run_cli = fake
+        _cli._spawn = fake
         out, err = io.StringIO(), io.StringIO()
         with self.assertRaises(SystemExit) as ctx, \
                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -2293,7 +2387,7 @@ class VerifyResolvesTheLocalPackageOnly(unittest.TestCase):
         # `main`, so `verify <dir>` on a broken strategy.yaml exited 1 with a raw traceback and an
         # EMPTY stdout — no verdict, no teaching, and nothing a caller could parse.
         pkg_dir = self._malformed_pkg()
-        _cli.run_cli = FakeCli([])
+        _cli._spawn = FakeCli([])
         code, out, err = self._run_verify()
         text = out + err
         self.assertEqual(code, 1)
@@ -2304,7 +2398,7 @@ class VerifyResolvesTheLocalPackageOnly(unittest.TestCase):
 
     def test_a_malformed_package_still_emits_the_json_document(self):
         self._malformed_pkg()
-        _cli.run_cli = FakeCli([])
+        _cli._spawn = FakeCli([])
         code, out, _err = self._run_verify("--json")
         payload = json.loads(out)                            # stdout used to be empty
         self.assertEqual(code, 1)
@@ -2319,7 +2413,7 @@ class VerifyResolvesTheLocalPackageOnly(unittest.TestCase):
         # the human path, so a --json caller looped re-running verify against a file that will never
         # parse. stdout still carries exactly one document: the steer rides IN it.
         self._malformed_pkg()
-        _cli.run_cli = FakeCli([])
+        _cli._spawn = FakeCli([])
         code, out, _err = self._run_verify("--json")
         payload = json.loads(out)
         self.assertEqual(code, 1)
@@ -2329,7 +2423,7 @@ class VerifyResolvesTheLocalPackageOnly(unittest.TestCase):
     def test_the_missing_package_json_document_says_retrying_answers_nothing_too(self):
         deploy._pkg.resolve_pkg_dir = lambda arg: Path("/nonexistent-root") / str(arg)
         deploy._fetch.fetch_package = lambda *a, **k: self.fail("a read-only check fetched a package")
-        _cli.run_cli = FakeCli([])
+        _cli._spawn = FakeCli([])
         code, out, _err = self._run_verify("--json")
         payload = json.loads(out)
         self.assertEqual(code, 1)
@@ -2337,7 +2431,7 @@ class VerifyResolvesTheLocalPackageOnly(unittest.TestCase):
 
     def test_the_package_dir_argument_form_shares_the_same_handling(self):
         pkg_dir = self._malformed_pkg()
-        _cli.run_cli = FakeCli([])
+        _cli._spawn = FakeCli([])
         out, err = io.StringIO(), io.StringIO()
         with self.assertRaises(SystemExit) as ctx, \
                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -2353,16 +2447,16 @@ class DryRunHasNoJsonRendering(unittest.TestCase):
     nothing. Refuse the combination instead of emitting a document that isn't the plan."""
 
     def setUp(self):
-        self._cli_real, self._ensure = _cli.run_cli, deploy.ensure_pkg
+        self._cli_real, self._ensure = _cli._spawn, deploy.ensure_pkg
         deploy.ensure_pkg = lambda arg, ref, log: self.fail("the package was resolved (or FETCHED)")
 
     def tearDown(self):
-        _cli.run_cli, deploy.ensure_pkg = self._cli_real, self._ensure
+        _cli._spawn, deploy.ensure_pkg = self._cli_real, self._ensure
 
     def test_the_combination_is_refused_before_anything_is_resolved(self):
         for cmd in ("create", "runtime"):
             fake = FakeCli([])
-            _cli.run_cli = fake
+            _cli._spawn = fake
             out, err = io.StringIO(), io.StringIO()
             with self.assertRaises(SystemExit) as ctx, \
                     contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -2393,20 +2487,6 @@ class WalletNameMatchesTheVerbsSanitizer(unittest.TestCase):
 
     def test_the_cap_is_forty_chars_applied_last(self):
         self.assertEqual(deploy._sanitize_strategy_name("a" * 50), "a" * 40)
-
-
-class BudgetArg(unittest.TestCase):
-    def test_renders_a_bare_parseable_number(self):
-        self.assertEqual(deploy.budget_arg(500.0), "500")
-        self.assertEqual(deploy.budget_arg(298.5), "298.50")
-        self.assertEqual(deploy.budget_arg(1_000_000.0), "1000000")
-        for value in (500.0, 298.5, 1_000_000.0, 166.67):
-            self.assertAlmostEqual(float(deploy.budget_arg(value)), value, places=2)
-
-    def test_never_uses_grouping_or_a_currency_symbol(self):
-        rendered = deploy.budget_arg(1234567.5)
-        self.assertNotIn(",", rendered)
-        self.assertNotIn("$", rendered)
 
 
 # ---------- `validate`'s proof-state report (real files, real subprocess) ----------

@@ -32,7 +32,7 @@ Two more facts ride every deep row, because health alone misleads on both:
 and separately flags orphan runtimes (a runtime with no open strategy). A strategy off the runtime is NOT
 broken — it's just not autonomous; status.py says how it's managed. Scanner health is fail-closed: an
 external scanner never proven by a tick reads `unknown`, not `healthy` — prove it on a READ-ONLY surface
-(`openclaw senpi scanner -r <rt>`, `openclaw senpi status|state -r <rt>`, `openclaw senpi deploy status`
+(`openclaw senpi scanner -r <rt>`, `openclaw senpi status|state -r <rt>`, `python3 deploy.py status`
 for the last deploy's verdict, `deploy.py verify <id>` for the per-instance verdict over the same
 surfaces). Everything this script prints is read-only. The RESUME — `deploy.py runtime <id>` — is the
 one money path near this surface: it runs the deploy verb and can install, start trading, and fund a
@@ -320,7 +320,7 @@ def main(argv):
             print(f"  - {_pkg_label(r)} {r['runtime'] or ''} → "
                   f"`openclaw senpi scanner -r {r['runtime']}` / "
                   f"`openclaw senpi status -r {r['runtime']} --json` to check (read-only); "
-                  f"`openclaw senpi deploy status` for the last deploy's verdict")
+                  f"`python3 deploy.py status` for the last deploy's verdict")
     if idle:
         print("\n⚠ Autonomous strategy with NO runtime (funded but not running — likely an interrupted deploy):")
         for r in idle:

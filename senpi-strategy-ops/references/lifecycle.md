@@ -19,7 +19,25 @@ nothing else to keep alive.
 Deploy is **one verb running as a detached job**, not a blocking call and not a chain of scripted steps:
 wallet funding (CREATE → FUND → ACTIVE, incl. bridging) and the first scan tick (up to an instance's
 `interval_seconds`) are each multi-minute waits that should not hold one foreground call. The verb
-returns in ~1s with a `deployId`; the agent polls `openclaw senpi deploy status` until the job is terminal.
+returns in ~1s with a `deployId`; the agent reads `deploy.py status` until the job is terminal.
+
+**`deploy.py` and `close.py` call the gateway directly**: `openclaw gateway call senpi.deploy.start`,
+`senpi.deploy.status`, `senpi.listRuntimes`, `senpi.getHealthStatus` and `senpi.deleteRuntime`, with
+`--json --timeout <ms> --params <json>`. These are the methods the `openclaw senpi …` verbs wrap, sent
+with the same credentials, but a gateway call loads no plugins: about 1 s, where each verb costs
+30-160 s on OpenClaw 10.x. Budgets (gateway RPC / wall): START 30 s / 40 s, job status 30 s / 40 s,
+runtime list and health 15 s / 25 s, delete 90 s / 100 s. On a wall timeout the call's whole process
+group is killed (`OPENCLAW_NO_RESPAWN=1`, own session, SIGTERM then SIGKILL), so nothing it started keeps
+running after the script answers. There is no fallback to the CLI verb. `openclaw senpi validate`,
+`openclaw --version` and `deploy.py update` still use the CLI.
+
+**A START whose reply is lost** (timeout, dropped connection, unreadable answer) may still have been
+taken by the gateway. `deploy.py` waits 2 s, then reads `senpi.deploy.status` up to 3 times, 3 s apart,
+and follows a job only if it is for this package and started no earlier than 5 s before the call. If
+no such job turns up it exits `1`: a job MAY BE RUNNING and a wallet may already be funded; do not re-run
+`create` until `deploy.py status` shows no job for the package started after the time it names. A START
+the gateway never received (`unknown method`, a command line openclaw rejected, no `openclaw` on the
+host) exits `1` with NOTHING WAS DISPATCHED.
 
 **Before any of this, the package must have been proven runnable** — `openclaw senpi validate
 <recipe-dir>` returning `PASS`. That answers a different question ("does the scanner actually run
@@ -273,14 +291,14 @@ same way, so it moves no money and installs nothing but does write a fetched pac
 structural
 preflight (`validate` also makes one read-only `market_list_instruments` call to report the universe,
 so it needs `SENPI_AUTH_TOKEN` and can take a few seconds — up to ~25s on a slow or token-less host,
-which ends in the loud note, never in a failed validate) — then starts the verb, polls `deploy
-status`, and relays the report **verbatim**.
+which ends in the loud note, never in a failed validate) — then starts the job, polls
+`senpi.deploy.status`, and relays the report **verbatim**.
 It polls for **~150s** by default and then returns. OpenClaw's exec tool has no ~180s cap: it yields
 after 10s with "Command still running", the agent reads the result with `process poll` (≤30s per
 poll), and the hard kill is 1800s. A short poll keeps that loop short; a killed or abandoned call
 loses the report and the exit code while the job runs on. A job still running at the lapse is
 reported as **pending
-(exit 6)** with the snapshot and the `openclaw senpi deploy status` command to watch it — the honest
+(exit 6)** with the snapshot and the `deploy.py status` command to watch it — the honest
 outcome, not a failure. An explicit `--max-wait` replaces that budget in either direction. Its two
 money-moving subcommands (`create` / `runtime`) drive the same idempotent verb — one path under two
 names, either of which resumes and adopts what exists. **`--dry-run` and `--json` are mutually
@@ -434,21 +452,20 @@ check `validate` runs, deterministic, so a bare retry refuses identically. `1` i
 for a status the wrapper does not recognise, so a new
 status can never read as success, and for the wrapper's own "could not answer" cases: a start it could
 not follow, and a `status` it could not answer as asked — an id that does not match the recorded job,
-a `--ref` it has no use for, or a read that produced no snapshot at all (the verb's `[NOT_FOUND]`,
-relayed verbatim; no deploy state is reported in any of them, and a re-run refuses identically).
-`deploy status` sets the JOB's code before printing its snapshot, so the wrapper reads the snapshot
-whatever code rides beside it — a refused or still-running job is relayed with `2`/`6`, never
-discarded as an unreadable status. Branch on the code; use `--json` for anything richer.
+a `--ref` it has no use for, or a read that produced no snapshot at all (the gateway's `[NOT_FOUND]`,
+relayed verbatim, means no deploy has ever run here; any other failed read says a job may still be
+running). A snapshot is the answer whatever the job's outcome: a refused or still-running job is
+relayed with `2`/`6`, never discarded as an unreadable status. Branch on the code; use `--json` for
+anything richer.
 
 **Plugin skew, in both directions, lands on exit `1` with nothing dispatched.** The host needs
 `openclaw` + the `@senpi-ai/runtime` plugin running, and a plugin **new enough to carry the `senpi
 deploy` verb**. On a box whose plugin predates it (a wedged self-update) the start fails at exit `1`
-saying so: no job, no wallet, no funds, and `deploy status` has nothing to report there. Update it
-(`openclaw plugins install @senpi-ai/runtime`, or wait for the box's own self-update) and re-run the
-same command. The **opposite** skew lands on the same exit `1` and the same "nothing was dispatched",
-and the message says which side is behind: a plugin NEWER than the box's openclaw runs the verb, has
-its inner `gateway call` rejected, and is **not** fixed by installing the plugin — that one is
-reported, not retried.
+saying so (the gateway answers `unknown method: senpi.deploy.start`): NOTHING WAS DISPATCHED, so no
+job, no wallet, no funds. Update it (`openclaw plugins install @senpi-ai/runtime`, or wait for the
+box's own self-update) and re-run the same command. An `openclaw` too old for `gateway call --params`
+rejects the command line itself: the same exit `1` and the same "nothing was dispatched", and it is
+**not** fixed by installing the plugin — that one is reported, not retried.
 
 **Package fetch.** Any subcommand **except `verify`** (read-only: it resolves on disk or reports
 could-not-check) and `status` (which resolves no package at all) fetches `strategies/<id>/` from the remote if it isn't on disk
@@ -485,7 +502,7 @@ user: "deploy spider with $300"
 3. preflight→ python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py validate spider   → structurally deploy-ready, both proven
 4. start    → python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py create spider --budget 300
               (starts the job, which refuses pre-money on a dead universe: dpl-a1b2c3d4 — phase: reconcile)
-5. watch    → it polls for you; or openclaw senpi deploy status  (repeat until it is terminal)
+5. watch    → it polls for you; or python3 …/deploy.py status  (repeat until it is terminal)
               running (phase: create) → running (phase: install) → done — live
               (if it ends `installed-unobserved`, say the tick was not observed yet and check
                `openclaw senpi scanner -r spider-swing` in a few minutes — do NOT call it live)
@@ -542,7 +559,7 @@ own verdict + active-position count. Classes:
 - **healthy / degraded / unhealthy / unknown** — ACTIVE strategy + live runtime, per the runtime's `status`
   health, which is fail-closed: `unknown` = scanner not yet proven by a tick (check, don't assume);
   the deploy report's `overall: live` is the deploy-time liveness gate — re-read it read-only with
-  `openclaw senpi deploy status` (or `deploy.py verify <id>`, also read-only, for the per-instance
+  `deploy.py status` (or `deploy.py verify <id>`, also read-only, for the per-instance
   verdict). The money path near this surface is the RESUME, `deploy.py runtime <id>` — that one starts
   the deploy verb and can fund/install; degraded/unknown print a read-only triage hint.
 - **runtime-stopped** — ACTIVE + runtime exists but not running.
@@ -579,9 +596,10 @@ not by hand-composing `strategy_list`.
 
 | Command | Used for |
 |---|---|
-| `openclaw senpi deploy -p <dir> …` / `deploy status [--json]` | the deploy verb + its read-only report — started via `deploy.py` (the funded path) |
-| `openclaw senpi runtime list` — text output only, it takes no `--json` | reverse lookup, close discovery, `status.py` fleet view |
-| `openclaw senpi runtime delete --id <id> --address <wallet>` | close step 1, orphan-runtime cleanup |
+| `openclaw gateway call senpi.deploy.start` / `senpi.deploy.status` | the deploy job + its read-only report — what `openclaw senpi deploy` / `deploy status` wrap; `deploy.py` calls them directly (the funded path) |
+| `openclaw gateway call senpi.listRuntimes` | reverse lookup, close discovery (`deploy.py`, `close.py`) |
+| `openclaw senpi runtime list` — text output only, it takes no `--json` | `status.py` fleet view |
+| `openclaw gateway call senpi.deleteRuntime --params '{"id": "<id>"}'` | close step 1 (`close.py`); by hand: `openclaw senpi runtime delete --id <id> --address <wallet>` |
 | `openclaw senpi status -r <id> [--json]` / `state -r <id> [--json]` | Monitor (scanner ticked) |
 | `openclaw senpi dsl positions\|inspect\|closes` · `action list\|history\|decisions` | troubleshooting |
 
