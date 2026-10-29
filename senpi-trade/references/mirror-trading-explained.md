@@ -29,8 +29,8 @@ Your position ≈ **(your budget ÷ the trader's account value) × their positio
 - The **`mirrorMultiplier` is the size knob** (any value **greater than 0** — `strategy_create` sets no upper
   bound; raise it to clear the $10 floor), **locked after creation** — set it deliberately.
 - **If the user wants "most of my capital in a few concentrated positions" *regardless* of how the trader
-  sizes**, that isn't what a proportional mirror does (it tracks *their* proportions). The
-  **budget-relative templates (Shadow, Remora)** do exactly that — size to *the user's* capital and open a
+  sizes**, that isn't what a proportional mirror does (it tracks *their* proportions). A
+  **budget-relative managed mirror** (built with `senpi-strategy-author`) does exactly that — size to *the user's* capital and open a
   handful of full-size positions. Steer there for "use most of my funds / 1–3 big orders".
 - **Always confirm with the sim** (`execution_estimate_position_opening`) before funding — it shows
   exactly what clears the floor and what gets skipped, so you never guess at utilization.
@@ -66,30 +66,19 @@ Two valid philosophies — surface both, recommend the default:
   tier triggers. For a downside cap, add a **static stop** (`edit_position`) — fixed, doesn't ratchet.
   This matters most **when the trader runs without stops** (many do). For a **real two-phase ratcheting
   DSL** (downside floor → breakeven → profit locks, coordinated), you need a **runtime** — a managed
-  mirror template has it built in.
+  mirror has it built in.
 
 **Don't** tell a user a mirror "can't be protected" — it can (profit-lock + a static SL). **But don't call
-that DSL:** the integrated two-phase DSL is runtime-only. For real two-sided protection → a managed template.
+that DSL:** the integrated two-phase DSL is runtime-only. For real two-sided protection → a managed mirror.
 
 ## The three ways to deploy a copy
 | Way | What it is | Best when |
 |---|---|---|
 | **Raw hands-on mirror** | You pick one trader; Senpi runs it; the user drives size / slippage / protection | Copy one specific trader and stay in control |
-| **Managed mirror template** (Shadow · Jackal · Remora · Oxpecker · Raptor · Cuckoo) | Set-and-forget: **budget-relative sizing** + **auto-DSL on every fill**. **Shadow / Jackal** additionally enter **fresh-only** (open on the trader's *next* move); the rest mirror the cohort's *current* book | Hands-off, sized to *your* capital, protected automatically — **most users** |
-| **Custom runtime** | A bespoke copy strategy authored to the user's thesis | Rules the templates don't cover |
+| **Managed mirror** | The user's own runtime, built with `senpi-strategy-author`: **budget-relative sizing** + **auto-DSL on every fill**; it can enter **fresh-only** (the trader's *next* open), copy the *current* book, or follow the whole proven cohort by signal (many traders at once, not 1:1) | Hands-off, sized to *your* capital, protected automatically, with rules of their own |
+| **Pre-built template** | A ready-made managed mirror (`senpi-strategy-discover`), forked under the user's name | Only when they ask for something pre-built |
 
-Direct-mirror templates (copy specific traders): **Shadow** (2–3 named traders, **fresh-entry only**) ·
-**Jackal** (a top-pool trader's brand-new position, <10 min old — **fresh-entry**) · **Remora** (whale
-cohort) · **Oxpecker** (one elite trader's single biggest conviction bet) · **Raptor** (traders hot right
-now) · **Cuckoo** (consensus of the top copy strategies). Only **Shadow / Jackal** enter fresh-only; the
-rest open the cohort's *current* positions, so they don't cure an already-run book.
-
-Smart-money-by-signal templates position by where the **whole cohort** leans — many proven traders at
-once, not a 1:1 copy of anyone's book: **Stingray** (rotates long/short by net smart-money conviction
-across the board) · **Starling** (buys on a flock of top wallets piling into one name) · **Whalehunter**
-(with the smart cohort, against the crowd) · **Signals Hunter** (scores whale opens and adds, funding
-dislocation and OI surges across the whole book hourly, taking what clears the score floor). Use these for
-*"follow the smart money"* rather than one trader.
+A mirror of the *current* book doesn't cure an already-run book; only a fresh-entry mirror does.
 
 ## Economics — answer "how much do I need" honestly
 - **$10 minimum notional per position** (auto-bumped to ~$12). A mirror needs enough budget that

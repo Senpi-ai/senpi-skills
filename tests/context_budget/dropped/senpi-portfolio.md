@@ -314,3 +314,57 @@ defers to the engine's `note` and never says "protected", as `dsl.md` already do
 on purpose; the old wording is quoted here.
 
 - SKILL.md: - **Named-string preset** (some strategies ship `dsl_preset: conviction`): `profile.dsl` is `{preset_name, note}` — say "DSL preset: `conviction` (ladder managed by the runtime, not inlined)." Still protected — never call a named preset "no DSL."
+
+# senpi-portfolio 1.37.0 — build-first routing: dropped and reworded sentences
+
+Strategy conversations now default to building the user's own strategy (`senpi-strategy-author`).
+A template is opt-in: offered only when the user asks for something pre-built, wants to browse, or
+names one, and never named unprompted. Each quote below is base text that left SKILL.md, with why.
+
+> | a yes to CTA 1 / CTA 2, or a digit (after the CTAs: that CTA; after the idle menu: that option), or a question about a menu option or its numbers | the levers / the ready options | `references/output-contract.md` (the menu) |
+
+Why: Reworded in place for build-first routing; the new wording is in SKILL.md.
+
+>   (The menu and its numbers: `references/output-contract.md`.)
+
+Why: Reworded in place for build-first routing; the new wording is in SKILL.md.
+
+>   deploy), name the ready options rather than opening a blank picker. One per line, so it
+>   can be answered with a digit:
+
+Why: Reworded in place for build-first routing; the new wording is in SKILL.md.
+
+>   > **What should the idle go into?**
+
+Why: Reworded in place for build-first routing; the new wording is in SKILL.md.
+
+>   > 1. **Penguin** — the Hyperfeed striker, crypto only: one position at up to 10x, 90% margin, on the
+>   >    strongest live rotation, with a DSL floor that ratchets up to lock gains. High risk, high reward,
+
+Why: A template pitched by name, unprompted. No skill names a template the user did not ask about; the build route (`senpi-strategy-author`) replaces it.
+
+>   > 2. **Pelican** — the same striker across all assets: crypto plus stocks, commodities, indices
+
+Why: A template pitched by name, unprompted. No skill names a template the user did not ask about; the build route (`senpi-strategy-author`) replaces it.
+
+>   > 3. **Puffin** — the smart-money signal feed, concentrated into one position at a time at high
+
+Why: A template pitched by name, unprompted. No skill names a template the user did not ask about; the build route (`senpi-strategy-author`) replaces it.
+
+>   > 4. **Signals Hunter** — that same feed traded on a clock, spread across several slots.
+>   > 5. **Athena** — a smart-money hedge fund, forked under your name.
+>   > 6. Or **something else** — tell me how you want to trade and we'll find or build it.
+
+Why: A template pitched by name, unprompted. No skill names a template the user did not ask about; the build route (`senpi-strategy-author`) replaces it.
+
+>   Penguin and Pelican are the two most people start with, because a live rotation shows up fast and
+>   they are built to be forked and modified. Be able to unpack the numbers: **-15% SL is 15% ROE, not a
+>   15% price move** — at 10x that is a **1.5%** move, so answer in price when asked. On 90% margin it is
+>   **~13.5% of that wallet per stop-out**, and say **per stop-out** — their risk guard rails are off, so
+>   stops compound. **Up to 10x**, never a flat 10x: the per-name venue cap clamps many instruments, which
+>   moves the price behind every number, not the wallet cost. Say **rotations**, never "pumps".
+>   Routes 1-5 hand to **senpi-strategy-ops**;
+>   route 6 to **senpi-strategy-discover** (find one) or **senpi-strategy-author** (build one). Topping up
+
+Why: A template pitched by name, unprompted. No skill names a template the user did not ask about; the build route (`senpi-strategy-author`) replaces it.
+

@@ -47,7 +47,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.49.1"
+  version: "1.50.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -428,33 +428,30 @@ to restate numbers differently). `--fresh` ignores the 10-minute cache. `--days 
 2. **Fix the biggest leak** — the top leak's title and its counterfactual $; the one-line fix.
 3. **Keep the agents on** — "say *hire my quant* and senpi runs this desk on your book — risk guard,
    smart money, market regime, leak finder — and can code your best setup into a strategy you approve,
-   deployed as **your** strategy" → `senpi-strategy-discover` (the template that matches the edge) or
-   `senpi-strategy-author` (from scratch), then `senpi-strategy-ops`.
+   deployed as **your** strategy" → `senpi-strategy-author`, then `senpi-strategy-ops`; a template only if
+   they ask (`senpi-strategy-discover`).
 
 ### Handing off on *hire my quant*
 
-The reader has just been shown their edge AND their leaks. Open on both, and put the two routes up
-front so a template never reads as the only option:
+The reader has just been shown their edge AND their leaks. Open on both:
 
 > Good — let's code a strategy that maps to your trading style, while improving some of your leaks.
-> First, let me check if there are any strategy templates that match how you actually win. We can
-> fork a template to build quickly, or code something from scratch.
->
-> Your edge is <the edge, in the desk's own words, with the numbers>. Let me see what fits.
+> Your edge is <the edge, in the desk's own words, with the numbers>. Let's code your best setup into
+> your strategy.
 
-Then hand to `senpi-strategy-discover` with the edge as `--theme`. Two things carry across and are
-the reason this handoff is worth more than opening discover cold: **the edge** (what to search for)
-and **the leaks** (what the strategy has to fix — the exits, the sizing rule, the maker-first entry).
-Name the leak the template closes; a reader who was just told they hold losers 29.7x longer than
-winners should hear which candidate takes that decision away from them.
+Then hand to `senpi-strategy-author` with the edge as the thesis. Two things carry across: **the edge**
+(what to build) and **the leaks** (what the strategy has to fix — the exits, the sizing rule, the
+maker-first entry). Name the leak each rule closes; a reader who was just told they hold losers 29.7x
+longer than winners should hear which rule takes that decision away from them. No template names; a
+template only if they ask.
 
 ## Resilience
 
 The engine fails open: every optional layer (rank, cohort, candles, Senpi) degrades to a line under
 `Notes:`; the trade-level analysis needs only the public fills. An address with no perp activity in the
 window and no open positions returns an error document — say "nothing to read here yet" and offer the
-new-trader path in plain words ("I can help you find a strategy that fits how you want to trade"),
-routing to senpi-strategy-discover yourself; never name the skill to the reader. A malformed address
+new-trader path in plain words ("I can help you build a strategy around how you want to trade"),
+routing to senpi-strategy-author yourself; never name the skill to the reader. A malformed address
 returns exit 2 with the reason.
 Public-API rate limits (HTTP 429) are retried with backoff; a second run inside 10 minutes is served from
 the cache (`--fresh` to refetch).

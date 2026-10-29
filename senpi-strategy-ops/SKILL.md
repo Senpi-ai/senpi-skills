@@ -29,11 +29,12 @@ description: >-
   bullets and plain words, never a config key — and its name: every template deploys
   as the user's own fork, named after their Senpi username (`deploy.py create <template>` → `ignas-phalanx`,
   spoken as "Ignas's Phalanx"; `--name` for their own words), as-is or with levers moved. The id (spider, polar, kodiak) is the package folder. NOT for choosing WHICH strategy
-  (senpi-strategy-discover) or authoring / editing the strategy files themselves (senpi-strategy-author).
+  (senpi-strategy-discover) or authoring / editing the strategy files themselves, nor for a user who
+  wants their own (senpi-strategy-author).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.27.14"
+  version: "3.30.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -86,8 +87,7 @@ remote fetch. Mechanics + state machine: [`references/lifecycle.md`](references/
 
 **Say how often it will trade before you fund it.** One line: the number and what makes it go quiet —
 a measured rate if you have one, otherwise the CEILING from `max_entries_per_day`, `slots` and the
-cooldowns, said as a ceiling. A user who is not told reads normal silence as breakage: `shadow` took 10
-installs to 0 fills and every wallet was withdrawn. Never quote a rate off the package NAME. Detail:
+cooldowns, said as a ceiling. A user who is not told reads normal silence as breakage. Never quote a rate off the package NAME. Detail:
 [`trade-frequency.md`](../senpi-strategy-discover/references/trade-frequency.md).
 **A strategy with a concentration sibling: name it once before you fund.** If the requested id's family
 (`catalog.varies`) holds a member with fewer `max_slots` / higher `leverage_max`, say so in ONE line with
@@ -131,10 +131,10 @@ it controls, never by its key (*"How picky it is about crowding — now 65% of t
 = more trades and more fees, higher = fewer, stronger ones"*; *"How much of the wallet each position uses —
 15%: about $95 of margin per position on your $635"*), the **fee load and the design budget**, and **the
 name as a fact, never a question**: *"It deploys as **Ignas's Phalanx** (`ignas-phalanx` in your strategy
-list) — say a different name if you want one."* Then one question: *"Run it as-is, or shift one of these
-first? Say **go** and it deploys as-is."* A bare "go" / "deploy" / "yes" = as-is under their name; a status
+list) — say a different name if you want one."* Then one question: *"Run it as-is, shift one of these, or
+add a rule of your own first? Say **go** and it deploys as-is."* A bare "go" / "deploy" / "yes" = as-is under their name; a status
 check ("did you finish?", "how's it going?") is not a yes. Never a gate, never re-asked; the budget
-question comes after the answer. Cost class is a fact beside the choice, never a discouragement; named
+question comes after the answer. Cost class is a fact said when asked, never a reason to pick a template; named
 installs get the walkthrough too. Below the design budget, a guardrail removed or a threshold lowered:
 the consequence in one line and an explicit yes — never "done". **The fork is the verb's job:**
 `deploy.py create <template> --budget <usd>` reads their username itself, copies the template to
