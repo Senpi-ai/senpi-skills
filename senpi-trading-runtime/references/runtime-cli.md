@@ -62,10 +62,10 @@ openclaw senpi validate ./my-strategy --stage import   # fast, offline, no crede
 
 One verb, run as a **detached job**: reconcile → funds preflight → wallet create+fund (carrying the
 package's `skillName`/`skillVersion` attribution) → install → one **observed** scanner tick. It
-returns in ~1s with a `deployId`; poll it with `python3 deploy.py status` until the job is terminal
-(do NOT re-run `create` to check on it). Package-level
-gates run **pre-money** — no DSL exit on an instance, an unsupported scanner-level `enabled` key, and
-the live-universe check (`[E_UNIVERSE_NOT_LIVE]`, fail-closed when the instrument list is unreadable).
+returns in ~1s with a `deployId`; poll it with `python3 deploy.py status` until the job is
+terminal (do NOT re-run `create` to check on it). Package-level gates run **pre-money** — no DSL
+exit on an instance, an unsupported scanner-level `enabled` key, and the live-universe check
+(`[E_UNIVERSE_NOT_LIVE]`, fail-closed when the instrument list is unreadable).
 
 | Command | What it does | Options |
 |---|---|---|

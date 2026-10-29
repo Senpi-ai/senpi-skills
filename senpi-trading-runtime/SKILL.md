@@ -149,19 +149,20 @@ never proven by a tick reads `unknown`, not `healthy`; non-healthy scanners get 
 restart count and cause), and `senpi guide …` (in-shell reference). Full surface with every option →
 `references/runtime-cli.md`.
 
-**Trade approvals (OpenClaw 10.x).** `status` can begin with one box-level line, `WARNING trade
+**Trade approvals (OpenClaw 10.x).** `status` can also begin with one box-level line, `WARNING trade
 approvals: this box cannot tell chat turns from scheduled runs, so every run is asked, scheduled ones
-included. Reason: <reason>.` It appears whatever the runtimes say, only on a 10.x box whose config
-needs a fix (the reason names the setting). It is about the box, not a runtime: it does not mean a
-runtime is unhealthy. Relay it to the user as a box setup problem for Senpi support; nothing on the
-strategy side changes it. On 5.x there is no such line (every run is asked there by design). `--json`
-carries it as `approvals.turnClassification` (`available` / `unavailable`, with `reason`, and
-`hostLimit: true` on 5.x). When the box can classify runs, a trade tool that needs approval asks the
-user only from a direct chat turn; from a cron, heartbeat or other background run the call is refused
-before it runs: `The trade was not executed: <tool> needs the user's approval, and this scheduled run
-(cron) has no way to ask for it. …`. Nothing was executed. Do what the refusal says: tell the user what
-you were about to do and that they can ask for it in chat, and do not retry it from that run through
-another tool or script. A trade the user set to "Always allow" runs in any run kind.
+included. Reason: <reason>.` It appears whatever the runtimes say, and only on an OpenClaw 10.x box
+whose config needs a fix (the reason names the setting). Relay it to the user as a box setup problem
+for Senpi support; nothing on the strategy side changes it. On OpenClaw 5.x there is no such line:
+every run is asked there by design. `--json` carries the same fact as `approvals.turnClassification`
+(`available` / `unavailable`, with `reason`, and `hostLimit: true` on 5.x). The `WARNING trade
+approvals` line is about the box, not a runtime: it does not mean a runtime is unhealthy, and its
+absence on 5.x is normal. When the box can classify runs, a trade tool that needs approval asks the
+user only from a direct chat turn. From a cron or heartbeat run, or another background run, the call
+is refused before it runs: `The trade was not executed: <tool> needs the user's approval, and this
+scheduled run (cron) has no way to ask for it. …`. Nothing was executed. Do what the refusal says:
+tell the user what you were about to do and that they can ask for it in chat, and do not retry it from
+that run through another tool or script. A trade the user set to "Always allow" runs in any run kind.
 
 **To confirm open positions are actually stop-loss protected** (a position with no DSL shows up as an
 *absence* in `dsl positions`, so it's easy to miss) → the verdict procedure in
