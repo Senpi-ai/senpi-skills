@@ -60,18 +60,18 @@
     "data": {
       "enforced": true,
       "source": "plan",
-      "plan": "Starter",
+      "plan": "Example",
       "running": 2,
-      "maxRunning": 3,
-      "runningLeft": 1,
-      "starts": 5,
-      "maxStarts": 8,
-      "startsLeft": 3,
+      "maxRunning": 5,
+      "runningLeft": 3,
+      "starts": 4,
+      "maxStarts": 11,
+      "startsLeft": 7,
       "window": "CYCLE",
       "windowStart": "2026-10-19T00:00:00.000Z",
       "startsResetAt": "2026-11-19T00:00:00.000Z",
       "canStartNow": true,
-      "summary": "Your Starter plan allows 3 running strategies (2 running, 1 left) and 8 new strategies per billing cycle (5 used, 3 left), resetting 2026-11-19 00:00 UTC."
+      "summary": "Your Example plan allows 5 running strategies (2 running, 3 left) and 11 new strategies per billing cycle (4 used, 7 left), resetting 2026-11-19 00:00 UTC."
     },
     "meta": {"tool": "strategy_get_limits", "action_type": "read", "timestamp": "2026-10-29T16:00:00.000Z", "request_id": "00000000-0000-0000-0000-000000000000"}
   }
