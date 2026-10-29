@@ -227,25 +227,25 @@ class FreeCreditMilestonesHaveEnded(unittest.TestCase):
 
 
 class TheFeeFollowsThePlan(unittest.TestCase):
-    """From 2026-10-26 a paid plan pays no Senpi trading fee and everyone else pays one flat rate.
-    An agent that quotes anything else, or says every plan pays 0.03%, quotes a fee nobody is
-    charged."""
+    """From 2026-10-26 a paid plan pays no Senpi trading fee. The skill states no nonzero Senpi fee
+    anywhere: for any other account the agent quotes the fee the engine returns, never a rate from
+    memory."""
 
-    def test_the_catalog_states_both_fees(self):
+    def test_the_catalog_states_the_paid_plan_fee(self):
         section = _flat(_section(_split(SKILL)[1], PLANS))
         for needle in (
             "No Senpi trading fee on any paid plan",
             "only Hyperliquid's own exchange fees",
-            "free trials included, Senpi charges a flat 0.03%",
-            "points do not change it",
+            "quote its own `fee.pct` from the engine",
         ):
             self.assertIn(needle, section, needle)
         self.assertNotIn("start at 0.05% on every plan", section)
 
-    def test_the_flat_fee_is_three_bps_and_the_old_five_is_gone(self):
-        self.assertIn("so 30 = 0.03%", _flat(_split(SKILL)[1]))
+    def test_no_nonzero_senpi_fee_is_quoted(self):
         for path in (SKILL, NOTES):
-            self.assertNotIn("0.05%", path.read_text(encoding="utf-8"), path.name)
+            text = path.read_text(encoding="utf-8")
+            for rate in ("0.025%", "0.03%", "0.05%"):
+                self.assertNotIn(rate, text, f"{path.name} quotes {rate}")
 
     def test_the_standing_answer_quotes_the_fee_the_data_returns(self):
         body = _flat(_split(SKILL)[1])
@@ -255,6 +255,33 @@ class TheFeeFollowsThePlan(unittest.TestCase):
     def test_the_presentation_notes_quote_the_same_field(self):
         notes = _flat(NOTES.read_text(encoding="utf-8"))
         self.assertIn("Quote `fee.pct` as returned", notes)
+
+
+class ReferralsPayAShareOfSpend(unittest.TestCase):
+    """Referrals pay 15% of a referred friend's monthly Senpi spend for their first 12 months (the
+    senpi.ai/referrals program), not a share of the builder fee, and they do earn: the interim
+    "referrals earn nothing new" line is gone."""
+
+    def test_the_catalog_states_the_referral_share(self):
+        section = _flat(_section(_split(SKILL)[1], PLANS))
+        for needle in (
+            "Referrals pay 15% of a referred friend's monthly Senpi spend, for their first 12 months",
+            "not from their trading",
+            "$15 a month × 12 months = $180",
+            # Payout is TBD: without this the agent falls back on the old daily-USDC payout.
+            "How and when the share is paid out is not announced yet: if asked, say so, and never "
+            "describe a payout schedule, token or threshold for it.",
+        ):
+            self.assertIn(needle, section, needle)
+
+    def test_no_file_says_referrals_earn_nothing(self):
+        for path in (SKILL, NOTES):
+            text = _flat(path.read_text(encoding="utf-8"))
+            self.assertNotIn("earn nothing", text, path.name)
+            self.assertNotIn("builder fee on referred", text, path.name)
+
+    def test_the_router_finds_the_referral_question(self):
+        self.assertIn("how do referrals work?", _flat(_split(SKILL)[0]))
 
 
 class TiersCarryNoBenefit(unittest.TestCase):

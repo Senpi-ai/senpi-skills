@@ -111,8 +111,8 @@ def fetch_points(client, meta, wallet, user_id):
         "rank_change": _f(p, "rankChange", "rank_change"),
         "found": _field(p, "found", default=True),
     }
-    # The fee this user pays, as the backend reports it: 0 on a paid plan, the flat free rate
-    # otherwise. The payload field is still named loyaltyTierFee, but the tier no longer sets it.
+    # The fee this user pays, as the backend reports it (0 on a paid plan). The payload field is
+    # still named loyaltyTierFee, but the tier no longer sets it.
     fee = {
         "bps": _f(p, "loyaltyTierFee", "feeBps", "builderFeeBps"),
         "pct": _field(p, "builderFeePercent"),
