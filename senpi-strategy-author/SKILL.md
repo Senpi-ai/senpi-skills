@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.14.14"
+  version: "3.15.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -346,12 +346,12 @@ or shut down anything the user is already running. So:
 
 - **Default to running it alongside.** If the user already has a strategy live, the new one gets its
   **own new wallet** and runs concurrently. **Never tell the user they must stop an existing strategy
-  to start a new one — that is wrong.** "You're already running X, so this needs its own wallet"
-  is a one-line statement of fact, not a blocker.
-- **Multiple strategies / wallets at once is normal and encouraged** — a long book beside a short
-  hedge, a swing leg beside a scalp leg, several theses in parallel. Each is fully isolated (its own
-  wallet, slots, risk gates); they don't share margin or interfere. A "fund" that is one long
-  strategy + one short hedge is just **two instances / two wallets**, deployed and running together.
+  to start a new one** — wallets never block each other; only the strategy limits can (running and new
+  per cycle). Closing one frees only a running slot, and is the user's choice. "You're already running X, so this needs its own wallet" is a fact.
+- **Multiple strategies / wallets at once is normal — within the user's strategy limits.** Each is fully
+  isolated (own wallet, slots, risk gates), but every wallet is one strategy against the plan's limits:
+  before proposing more than one, call `strategy_get_limits`; when `enforced` is true, size the proposal
+  to `runningLeft` and `startsLeft` (a `null` left is no limit). A long book + short hedge "fund" is **two instances / two wallets**, two slots.
 - **Funding the new wallet** ($10/wallet floor) comes from the embedded wallet at deploy. If the
   embedded wallet is short on USDC because funds are in other strategies, **offer options** — deposit
   more, or `strategy_withdraw_funds` from an existing strategy (it keeps running) and fund the new

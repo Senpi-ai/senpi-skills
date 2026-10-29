@@ -489,18 +489,6 @@ def test_moved_examples_live_in_their_reference():
     assert "a wallet with no package stamp is its own row" in o
 
 
-def test_the_fee_evidence_in_guardrails_says_the_fee_follows_the_plan():
-    """From 2026-10-26 Senpi charges no builder fee on a paid plan; an older fill's builder leg is only
-    how that fill reads. No nonzero Senpi rate is quoted."""
-    with open(os.path.join(SKILL_DIR, "references", "guardrails.md"), encoding="utf-8") as f:
-        g = " ".join(f.read().split())
-    assert ("Senpi charges no builder fee on a paid plan, and the fee is not a constant: read it from the "
-            "fills.") in g
-    assert "per tier" not in g
-    for rate in ("0.03%", "0.05%", "5.00 bps"):
-        assert rate not in g, rate
-
-
 # senpi-portfolio/tests/test_your_wallets_wording.py, SECTION_BANNED + its "own book" ban, read whole here.
 OWNERSHIP_BANNED = (r"(?i)\bverified\b|\bproo?f\b|\bprov(e|ed|en)\b|\bsignature\b|\b(you|they) own\b"
                     r"|\bowned by\b|\bowning\b|\b(your|their) own (saved )?wallets?\b|\b(your|their) own book\b")

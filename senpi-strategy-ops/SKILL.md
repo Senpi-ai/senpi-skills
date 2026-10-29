@@ -33,7 +33,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.27.14"
+  version: "3.28.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -122,6 +122,9 @@ fresh `openclaw senpi validate` before the next `create`. **`UNPROVEN` (exit 2) 
 `deploy.py validate <id>` answers the other question, **is the package well formed**. Do not deploy a
 package that has not returned `PASS`. The proof: [`references/lifecycle.md`](references/lifecycle.md).
 
+**Step 0.6 — strategy limits.** Call MCP `strategy_get_limits`; N = one wallet per `strategy.yaml` instance (a resume counts only the instances with no wallet yet).
+When `enforced` is true and N is above `runningLeft` or `startsLeft` (a `null` left is no limit), the package does not fit: tell the user before creating anything and **do not run `create`**. Quote `summary`, say the package needs N, give the ways forward of [`[STRATEGY_LIMIT_PREFLIGHT]`](references/refusal-playbook.md) — the verb's own exit-2 refusal of it. Never fewer instances to fit; never limit numbers from memory. If the read fails for any reason (`SERR185`, a timeout, `NOT_FOUND`), retry it once at most (never after `NOT_FOUND`), then carry on silently: never block the deploy on it, and mention it only if the user asked about their limits. The runtime and strategy-manager still enforce them.
+
 **Step 0.75 — the walkthrough (REQUIRED before the budget question).** The package is on disk (Step 0.5).
 Read their username first (`user_get_me` → `userName`; none → ask what to call it). Before you ask for a dollar, read `strategy.yaml` (`catalog:`)
 and each instance's `runtime.yaml` and say it **all in bullets — plain words, no YAML, no config keys**:
@@ -195,7 +198,7 @@ the scanner row's `lastRunStatus`/`runCount`).
 | `0` | `live` | every instance installed **and** a scanner tick observed | report live + the **How it runs** block. A `warn:` line (`[W_BUDGET_*]`) may ride a `live` report — relay it; it did **not** stop the deploy (see the relay contract below) |
 | `4` | `installed-unobserved` | installed, no tick seen inside `--tick-wait` (or `--tick-wait 0` skipped the check) | say exactly that; check `openclaw senpi scanner -r <runtimeId>` in a few minutes. External scanners legitimately tick on long intervals. **`--tick-wait 0` can never report `live`** — nothing was verified |
 | `6` | `pending` | a wallet still funding, or the job still running when the poll budget ran out | re-run the same deploy command — it resumes and adopts the wallet |
-| `2` | `refused` | a gate said no (`[E_FUNDS_*]`, `[E_VALIDATE_*]`, `[E_UNIVERSE_NOT_LIVE]`, `[E_STATE_AMBIGUOUS_WALLETS]`, `[E_INSTANCE_BINDING_UNKNOWN]`, `[E_WALLET_OWNED_BY_OTHER_PACKAGE]`, `[INVALID_REQUEST]`) | **do what the refusal's code says** — per-code depth in [`references/refusal-playbook.md`](references/refusal-playbook.md); nothing was created past it |
+| `2` | `refused` | a gate said no (`[E_FUNDS_*]`, `[E_VALIDATE_*]`, `[E_UNIVERSE_NOT_LIVE]`, `[E_STATE_AMBIGUOUS_WALLETS]`, `[E_INSTANCE_BINDING_UNKNOWN]`, `[E_WALLET_OWNED_BY_OTHER_PACKAGE]`, `[INVALID_REQUEST]`, `[STRATEGY_LIMIT_PREFLIGHT]`) | **do what the refusal's code says** — per-code depth in [`references/refusal-playbook.md`](references/refusal-playbook.md); nothing was created past it |
 | `3` | `failed` | a step genuinely failed (backend rejection, install error, scanner erroring) | read the quoted cause, fix it, re-run — **except `[E_INSTALL_INDETERMINATE]`** (an install whose outcome is UNKNOWN — nothing to fix, and the money may still be out: do its read first) **and `[E_WALLET_INSTALL_IN_FLIGHT]`** (a race, not a defect — "fix it" is not "clear the stuck install"; **never** `runtime delete` here) **and a backend `SERR124`** (this account's pool of strategy wallets is empty — a per-account condition, nothing was created or debited: tell the user, route it to Senpi support, one later attempt after they confirm, never a retry loop) **and a backend `SERR183` / `SERR184`** (the user's plan limit on running strategies / new strategies per billing cycle (the last 30 days without a plan); nothing was created: quote the limit, offer closing one themselves (`SERR183` only), waiting until the stated time (`SERR184` only: when the count resets or the next start frees up) or an upgrade; never retry, never close a strategy for them, never split the deploy into smaller creates). All of these: per [`references/refusal-playbook.md`](references/refusal-playbook.md) |
 | `5` | `interrupted` | a gateway restart killed the job mid-run | **nothing resumes on its own** — re-run the deploy; it reconciles |
 

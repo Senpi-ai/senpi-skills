@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.24.0"
+  version: "1.24.2"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -142,9 +142,9 @@ imply Senpi checked who controls them. The engine adds every one to the review s
    `closedPnl` — **GROSS**. Quote `pnl_summary.realized_net` for the closed book and show the fee line; when
    `fees` is `null` say *"gross — fees not netted"*. `fee` already INCLUDES
    `builderFee` — never add them.
-   **The fee rate is NOT a constant — never quote one from memory.** Read the user's own rate with
-   **`user_get_senpi_points`** (`builderFeePercent`). Quote the *measured* fee from the trade whenever you
-   can; when you must state a rate, state theirs.
+   **The fee rate is NOT a constant — never quote one from memory.** Read the user's own rate with **`user_get_senpi_points`**
+   (their tier + fee), or the whole table with **`get_loyalty_tiers`**. Quote the *measured* fee from the
+   trade whenever you can; when you must state a rate, state theirs.
 0b. **Never take leverage from the config — read what the position ACTUALLY opened at.** The venue caps
    leverage per asset and **clips silently**: `default_leverage` is a request, not what opened.
    **ROE = price move % x ACTUAL leverage** — read it from `DslState.leverage` (`senpi dsl inspect <asset>
@@ -500,7 +500,7 @@ otherwise it's just an asset the strategy was never designed to trade.
 - **Judge each strategy against its OWN mandate** (`strategies[].mandate`, from the deployed `runtime.yaml`),
   not a generic momentum benchmark. Realized PnL is *evidence for the mandate verdict*, not the headline.
 - **A strategy is ALL its wallets.** A multi-wallet strategy (long+short, core+ballast, multi-sleeve) is ONE
-  strategy — **never** recommend closing / repurposing a single sleeve ("close the duplicate wallet"). One
+  strategy (each wallet still takes its own strategy-limit slot) — **never** recommend closing / repurposing a single sleeve ("close the duplicate wallet"). One
   sleeve of a long/short book is a **naked directional position**, the opposite of the design.
 - **NEVER recommend merging or closing one of two ACTIVE wallets that share `group` or `skill_name`.**
   They are the **`long` + `short` sleeves** (or `core` + `ballast`) of ONE multi-wallet strategy; merging
