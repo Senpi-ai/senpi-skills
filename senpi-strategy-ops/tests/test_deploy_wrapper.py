@@ -721,7 +721,7 @@ class RequestIdRetry(_JournalDir, unittest.TestCase):
 
     def test_an_open_id_is_never_reused_with_other_parameters(self):
         rid = "dpl-req-20261028T000000Z-deadbeef"
-        self._seed_journal(rid, params={"packageDir": str(self.pkg.dir), "budget": 50.0})
+        self._seed_journal(rid, params={"packageDir": str(self.pkg.dir), "budget": 50.0}, verb="runtime")
         fake = FakeCli([])
         out, err = self._start(fake)                          # this run asks for budget 30
         self.assertEqual(out, ("exit", 2))
@@ -732,11 +732,53 @@ class RequestIdRetry(_JournalDir, unittest.TestCase):
         self.assertIn("python3 deploy.py status", err)
         self.assertIn("Nothing was started", err)
         self.assertIsNone(self._journal()["resolved"])        # still open
+        # The way out is CONDITIONAL on what status shows, and names the verb that sent the request.
+        self.assertIn("An earlier `runtime` START for spider", err)
+        self.assertIn(f"It shows a job with request id {rid}: that START is accounted for", err)
+        self.assertIn(f"It shows no job with request id {rid}: do not re-run anything", err)
+        self.assertIn("A re-run of the earlier `runtime` would start a NEW deploy at $50.00", err)
+        self.assertIn("ask what they want", err)
+        self.assertNotIn("funds nothing twice", err)
+        self.assertNotIn(".deploy-requests", err)              # never teach deleting the journal
         # The same parameters reuse it.
         self._seed_journal(rid, params={"packageDir": str(self.pkg.dir), "budget": 30.0})
         fake = FakeCli([_ok({"deployId": "dpl-old", "state": "running", "requestId": rid,
                              "repeated": True})])
         self.assertEqual(self._start(fake)[0], "dpl-old")
+
+    def _status_cmd(self, snap):
+        _cli._spawn = FakeCli([_status(snap)])
+        with self.assertRaises(SystemExit), contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            deploy.main(["deploy.py", "status"])
+
+    def test_status_closes_an_open_entry_whose_request_id_it_sees(self):
+        rid = "dpl-req-20261028T000000Z-deadbeef"
+        self._seed_journal(rid)
+        self._status_cmd({"meta": {"deployId": "dpl-first", "packageId": "spider", "requestId": rid},
+                          "state": {"status": "done", "overall": "live"}})
+        self.assertEqual(self._journal()["resolved"], "dpl-first")
+        # …so a deliberate redeploy with other parameters is no longer blocked.
+        fake = FakeCli([_ok({"deployId": "dpl-new"})])
+        _cli._spawn = fake
+        with contextlib.redirect_stderr(io.StringIO()):
+            did = deploy.start_deploy(self.pkg, _args(budget=99.0, request_ids=True), lambda m: None)
+        self.assertEqual(did, "dpl-new")
+        self.assertNotEqual(_gw_params(fake.argv_for("senpi.deploy.start")[0])["requestId"], rid)
+
+    def test_status_leaves_the_entry_open_when_it_sees_another_id_or_none(self):
+        rid = "dpl-req-20261028T000000Z-deadbeef"
+        for meta in ({"deployId": "dpl-x", "packageId": "spider",
+                      "requestId": "dpl-req-20261028T000001Z-0badf00d"},
+                     {"deployId": "dpl-y", "packageId": "spider"},
+                     {"deployId": "dpl-z", "packageId": "polar", "requestId": rid}):
+            self._seed_journal(rid)
+            self._status_cmd({"meta": meta, "state": {"status": "done", "overall": "live"}})
+            self.assertIsNone(self._journal()["resolved"], meta)
+
+    def test_a_minted_entry_records_its_verb(self):
+        self._start(FakeCli([TIMEOUT] + [_refused(NOT_FOUND)] * 3), cmd="runtime")
+        self.assertEqual(self._journal()["verb"], "runtime")
 
     def test_the_status_summary_line_names_the_request_id(self):
         out = io.StringIO()
@@ -760,20 +802,22 @@ class RequestIdRetry(_JournalDir, unittest.TestCase):
     def _journal(self):
         return json.loads((self.root / ".deploy-requests" / "spider.json").read_text())
 
-    def _seed_journal(self, rid, age_s=60, params=None):
+    def _seed_journal(self, rid, age_s=60, params=None, verb=None):
         d = self.root / ".deploy-requests"
         d.mkdir(parents=True, exist_ok=True)
         sent = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - age_s))
         (d / "spider.json").write_text(json.dumps({
             "packageId": "spider", "requestId": rid, "sentAt": sent, "resolved": None,
+            **({"verb": verb} if verb else {}),
             "paramsKey": params or {"packageDir": str(self.pkg.dir), "budget": 30.0}}))
 
-    def _start(self, fake):
+    def _start(self, fake, **kw):
         _cli._spawn = fake
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
             try:
-                out = deploy.start_deploy(self.pkg, _args(budget=30.0, request_ids=True), lambda m: None)
+                out = deploy.start_deploy(self.pkg, _args(budget=30.0, request_ids=True, **kw),
+                                          lambda m: None)
             except SystemExit as e:
                 out = ("exit", e.code)
         return out, err.getvalue()

@@ -44,8 +44,10 @@ on `senpi.deploy.start`, written first to `<strategies root>/.deploy-requests/<i
 dir and budget. The runtime answers a repeated id with the job it already started (`repeated: true`) and
 funds nothing, so a retry after a lost reply funds once. An entry whose START never got an answer stays
 open with no age limit and is reused by the next `create`/`runtime` of that package; a call with a
-different budget or package dir is refused `[E_OPEN_DEPLOY_REQUEST]` (it names the open id; read
-`deploy.py status`). Only a reply naming a job closes an entry the run did not mint. If the capability
+different budget or package dir is refused `[E_OPEN_DEPLOY_REQUEST]`: read `deploy.py status`. If it
+shows a job with the open id, status closes the request (report that job; the new command is then a NEW
+deploy, run only on the user's ask); if not, re-run nothing and ask the user. Only a reply naming a job,
+or `deploy.py status` showing that job, closes an entry the run did not mint. If the capability
 read fails, an open id is still sent (an older runtime ignores it) and `repeated: true` is still trusted,
 but nothing is matched by id. Lost-reply recovery matches `meta.requestId` exactly when advertised;
 otherwise it is this package plus a start no earlier than 5 s before the call. A definite reply without

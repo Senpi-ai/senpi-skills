@@ -612,26 +612,50 @@ def _open_entry(pkg):
 
 def _refuse_changed_params(pkg, entry, params):
     """An open id is never reused with other parameters, and never replaced by a new one: the first
-    START may have started (and funded) a job with ITS parameters."""
+    START may have started (and funded) a job with ITS parameters. The way out depends on what
+    `deploy.py status` shows, so the text gives both branches and nothing else."""
     old = entry.get("paramsKey") or {}
     new = _params_key(params)
     me = Path(__file__).name
-    budget = old.get("budget")
-    print(f"[E_OPEN_DEPLOY_REQUEST] An earlier START for {pkg.id} (request id {entry['requestId']}, "
-          f"sent at {entry.get('sentAt', '?')}, budget "
-          f"{'$%.2f' % budget if isinstance(budget, (int, float)) else 'unset'}, package dir "
-          f"{old.get('packageDir', '?')}) never got an answer, so a deploy with THOSE parameters may "
-          f"already be running and a wallet may already be funded. This command asks for "
-          f"{'budget $%.2f' % new['budget'] if isinstance(new.get('budget'), (int, float)) else 'no budget'}"
-          f" from {new.get('packageDir')}. Nothing was started.\n"
-          f"  Next: python3 {me} status   — read what that earlier START did, and report it.\n"
-          f"  Do not deploy {pkg.id} with other parameters while that request is open: re-running "
-          f"the earlier command with its own parameters is the only call that reuses request id "
-          f"{entry['requestId']}, and it funds nothing twice.", file=sys.stderr)
+    rid = entry["requestId"]
+    verb = entry.get("verb") if entry.get("verb") in ("create", "runtime") else "create"
+
+    def usd(v):
+        return f"${v:.2f}" if isinstance(v, (int, float)) else "no budget"
+
+    old_budget, old_dir = usd(old.get("budget")), old.get("packageDir", "?")
+    print(f"[E_OPEN_DEPLOY_REQUEST] An earlier `{verb}` START for {pkg.id} (request id {rid}, sent at "
+          f"{entry.get('sentAt', '?')}, budget {old_budget}, package {old_dir}) never got an answer, "
+          f"so a deploy with THOSE parameters may already be running and a wallet may already be "
+          f"funded. This command asks for budget {usd(new.get('budget'))} from "
+          f"{new.get('packageDir')}. Nothing was started.\n"
+          f"  Next: python3 {me} status   — then, by what it shows:\n"
+          f"  - It shows a job with request id {rid}: that START is accounted for (status closes the "
+          f"request). Report that job. Running this command after that starts a NEW deploy with the "
+          f"new parameters on top of that job: run it only if the user asks for that.\n"
+          f"  - It shows no job with request id {rid}: do not re-run anything. A re-run of the earlier "
+          f"`{verb}` would start a NEW deploy at {old_budget}. Tell the user that request {rid} "
+          f"({old_budget}, sent {entry.get('sentAt', '?')}) is open with no job seen, and ask what "
+          f"they want.", file=sys.stderr)
     raise SystemExit(EXIT_CODES["refused"])
 
 
-def _request_id_for(pkg, params, log, mint=True):
+def resolve_seen_request(snap):
+    """`deploy.py status` closes an open journal entry when the job it read carries that entry's
+    request id: the START is then accounted for. A different id, or none, leaves the entry open."""
+    meta = (snap or {}).get("meta") or {}
+    rid, pkg_id = meta.get("requestId"), meta.get("packageId")
+    # The package id names a file under the journal dir: never follow one that is not a plain name.
+    if not rid or not isinstance(pkg_id, str) or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9._-]*", pkg_id):
+        return
+    entry = _journal_read(pkg_id)
+    if entry and entry.get("requestId") == rid and entry.get("resolved") is None:
+        entry.update(resolved=meta.get("deployId") or "seen-by-status",
+                     resolvedAt=_utc_stamp(time.time()))
+        _journal_write(pkg_id, entry)
+
+
+def _request_id_for(pkg, params, log, mint=True, verb="create"):
     """`(request id, reused)` for this START, or `(None, False)`.
 
     An open entry (its START never got an answer) is reused, however old, when its parameters match,
@@ -649,7 +673,7 @@ def _request_id_for(pkg, params, log, mint=True):
     now = time.time()
     rid = f"dpl-req-{datetime.fromtimestamp(now, timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{os.urandom(4).hex()}"
     _journal_write(pkg.id, {"packageId": str(pkg.id), "requestId": rid, "sentAt": _utc_stamp(now),
-                            "paramsKey": _params_key(params), "resolved": None})
+                            "verb": verb, "paramsKey": _params_key(params), "resolved": None})
     return rid, False
 
 
@@ -735,7 +759,8 @@ def start_deploy(pkg, a, log):
         print("planned: " + shlex.join(_cli.gateway_argv("senpi.deploy.start", params, START_RPC_MS)))
         raise SystemExit(0)
     caps = getattr(a, "request_ids", False)
-    rid, reused = (_request_id_for(pkg, params, log, mint=caps is True) if caps in (True, None)
+    verb = getattr(a, "cmd", None) if getattr(a, "cmd", None) in ("create", "runtime") else "create"
+    rid, reused = (_request_id_for(pkg, params, log, mint=caps is True, verb=verb) if caps in (True, None)
                    else (None, False))
     if rid:
         params["requestId"] = rid
@@ -2097,6 +2122,7 @@ def _main(argv):
                       "gateway is not answering.", file=sys.stderr)
             sys.exit(EXIT_INTERNAL)
         check_status_package(a.package, snap)
+        resolve_seen_request(snap)
         print_status(None, a.json, snap)
         sys.exit(exit_code_for(snap))
 
