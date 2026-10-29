@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.36.0"
+  version: "1.36.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -227,7 +227,8 @@ on SEPARATE wallets** — **ox** = `core`+`ballast` (risk-parity), **cougar** = 
 (market-neutral), **cub** = `long`+`short`+`preipo` (multi-sleeve dispersion). `strategy_list` returns
 **each instance/wallet as its own row**, so the raw list looks like several separate strategies. **It is
 not.** A multi-wallet strategy (long+short, core+ballast, multi-sleeve) is **ONE strategy across N
-wallets/instances** — the wallets are the *legs of one design*, not independent bets.
+wallets/instances** — the wallets are the *legs of one design*, not independent bets (but
+against the plan's strategy limits each wallet still takes its own slot).
 
 **Lead and reason at the `strategy_groups[]` level, not `strategies[]`.** The engine re-unites the
 per-wallet rows into **`strategy_groups[]`** — one entry per real strategy, with `is_multi_wallet`,

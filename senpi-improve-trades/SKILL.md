@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.24.0"
+  version: "1.24.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -500,7 +500,7 @@ otherwise it's just an asset the strategy was never designed to trade.
 - **Judge each strategy against its OWN mandate** (`strategies[].mandate`, from the deployed `runtime.yaml`),
   not a generic momentum benchmark. Realized PnL is *evidence for the mandate verdict*, not the headline.
 - **A strategy is ALL its wallets.** A multi-wallet strategy (long+short, core+ballast, multi-sleeve) is ONE
-  strategy — **never** recommend closing / repurposing a single sleeve ("close the duplicate wallet"). One
+  strategy (each wallet still takes its own strategy-limit slot) — **never** recommend closing / repurposing a single sleeve ("close the duplicate wallet"). One
   sleeve of a long/short book is a **naked directional position**, the opposite of the design.
 - **NEVER recommend merging or closing one of two ACTIVE wallets that share `group` or `skill_name`.**
   They are the **`long` + `short` sleeves** (or `core` + `ballast`) of ONE multi-wallet strategy; merging
