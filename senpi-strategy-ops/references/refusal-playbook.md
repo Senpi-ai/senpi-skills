@@ -260,8 +260,9 @@ debited**; the budget never left the funding wallet. No retry refills the pool: 
 code never does. A warn rides `failed` and `pending` reports too, so `overall` — not the presence of
 a `W_` — is what says whether the deploy went through. The four budget codes below are the `W_` ones. They ride a
 `live` report as `minBudget` / `minWalletCount` / `belowMin` / `minBudgetNote` / `minBudgetUnresolved`
-/ `partialFundNote` (printed as `calculated minimum:` and `warn:` lines by `deploy status`), and they
-persist on the snapshot — a later `deploy status` re-renders the same warn. The first two judge the
+/ `partialFundNote` — fields of the job snapshot that `deploy.py status` / `create` print as-is (the
+`[W_…]` code opens the note's text) — and they persist on the snapshot: every later `deploy.py status`
+shows the same warn. The first two judge the
 funding **plan**; the last two judge what the backend actually **landed** (`[W_BUDGET_PARTIAL_FUND]`
 when the figure read short, `[W_BUDGET_FUNDED_UNREADABLE]` when no figure could be read at all — the
 whole point of the second is that it is never conflated with the first). A report can carry both
@@ -305,7 +306,7 @@ kinds.
   the requested one**; saying "$500 deployed" over a $60 book is the failure this code exists to stop.
   **Do not close the strategy over the shortfall** (that is a rule about this code; it never overrides
   a close another line on the report instructs — see `[E_ROLLBACK_INCOMPLETE]`). Those figures
-  are **as at deploy time** and the note re-renders on every later `deploy status`, so **re-read the
+  are **as at deploy time** and the note stays on the snapshot every later `deploy.py status` prints, so **re-read the
   current funding first**: `status.py <id>`, then add whatever difference it still shows via the
   `senpi-deposit-withdraw-transfer` skill (deploy never adds funds to an existing wallet, so
   re-running at the same `--budget` only adopts it). Acting on the stale figure tops up twice.

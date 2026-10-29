@@ -1805,6 +1805,20 @@ def main(argv):
             if no_job:
                 print("  The gateway answered that no deploy job has ever run on this agent, so there "
                       "is no job to report.", file=sys.stderr)
+            elif tail.startswith("senpi.deploy.status: unknown_method:"):
+                # The gateway DID answer: this box's plugin has no such method. Re-running cannot
+                # change that; the cure is the plugin update, as on START.
+                print("  The gateway answered, but this box's runtime plugin has no "
+                      "`senpi.deploy.status` method: it predates the deploy verb, usually a wedged "
+                      "self-update. Whether a deploy job is running is NOT known from here.\n"
+                      "  Update the runtime plugin, then re-run this command:\n"
+                      "    openclaw plugins install @senpi-ai/runtime\n"
+                      "  Agent boxes also self-update on their own schedule, so retrying in a few "
+                      "minutes is the other way out. Do not run create meanwhile: a job may be "
+                      "running.", file=sys.stderr)
+            elif tail.startswith("senpi.deploy.status: spawn_failed:"):
+                print("  openclaw could not be started on this host, so nothing was read. Run this "
+                      "command on the agent's own box, where the runtime runs.", file=sys.stderr)
             else:
                 print("  No deploy state was read here, so nothing about any deploy is reported — a "
                       "job may still be running. Re-run this command; if it keeps failing, the "

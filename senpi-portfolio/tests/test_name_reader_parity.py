@@ -86,6 +86,16 @@ def test_vendored_cli_helpers_match_their_origin():
         )
 
 
+REVIEW = os.path.join(HERE, "..", "..", "senpi-improve-trades", "scripts", "review.py")
+
+
+def test_review_group_kill_matches_its_origin():
+    """review.py's event read kills its process group with the same `_kill_tree` as `_cli.py`; a copy
+    that drifts (e.g. skipping the group SIGKILL once the leader exits) leaves a child running."""
+    assert _fn_source(OPS_CLI, "_kill_tree") == _fn_source(REVIEW, "_kill_tree"), (
+        "_kill_tree in review.py has drifted from _kill_tree in _cli.py")
+
+
 def test_first_written_vendor_parity():
     assert all(os.path.exists(p) for p in COPIES), "a vendor home is missing"
     blocks = [_vendored_block(p) for p in COPIES]

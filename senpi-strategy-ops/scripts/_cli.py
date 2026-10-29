@@ -39,17 +39,27 @@ def _cli_env():
 
 def _kill_tree(p):
     """Stop a child started with `start_new_session=True` and everything in its process group:
-    SIGTERM first (2 s to exit), then SIGKILL, then reap. Never raises."""
-    for sig, wait in ((signal.SIGTERM, 2), (signal.SIGKILL, 5)):
-        try:
-            os.killpg(p.pid, sig)
-        except (ProcessLookupError, PermissionError, OSError):
-            pass
-        try:
-            p.wait(timeout=wait)
-            return
-        except subprocess.TimeoutExpired:
-            continue
+    SIGTERM to the group, 2 s grace, then SIGKILL to the group ALWAYS, then reap. Never raises.
+
+    The SIGKILL is unconditional: the leader exiting on SIGTERM says nothing about the rest of its
+    group, and a member that ignores SIGTERM would otherwise outlive the call and hold the output
+    pipes open (so the caller's read blocks on it)."""
+    try:
+        os.killpg(p.pid, signal.SIGTERM)
+    except OSError:
+        pass
+    try:
+        p.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    try:
+        p.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def _spawn(args, timeout):
@@ -186,9 +196,12 @@ def gateway_call(method, params=None, rpc_timeout_ms=READ_RPC_MS, timeout_s=READ
             r["kind"] = _classify_gateway_message(method, msg)
         elif etype == "gateway_transport_error":
             r.update(kind="transport", transport=e.get("kind"))
-        elif etype == "cli_error":
+        elif etype == "cli_error" and _GW_CLI_PARSE.search(msg if msg.startswith("error:") else f"error: {msg}"):
+            # 10.x reports a command-line rejection as `cli_error` — nothing was sent.
             r["kind"] = "cli_parse"
         else:
+            # `gateway_credentials_required`, and `cli_error` as the catch-all for ANY unclassified
+            # failure during the call (OpenClaw `formatCliJsonFailure`): it may have been sent.
             r["kind"] = "error"
         return r
     m = _GW_REQUEST_ERROR_5X.search(err or "")
@@ -679,14 +692,14 @@ def describe_pause(pause):
 
 # ---- the running recipe vs the package on disk ----
 
-def runtime_descriptors():
+def runtime_descriptors(rows=None):
     """`senpi.listRuntimes` → {runtime name: descriptor} for every runtime that carries one. The
     engine renders the descriptor from the recipe it is actually RUNNING (senpi-trading-runtime
     `describeRuntimeEntry`), so it is the one read that can say whether an edit on disk ever reached
     the runtime. Fail-open `{}`: older builds carry no descriptor, and a status surface must not
-    crash on that."""
+    crash on that. `rows`: a `list_runtimes()` answer already read, so a caller does not list twice."""
     out = {}
-    for e in (list_runtimes_or_none() or []):
+    for e in (rows if rows is not None else (list_runtimes_or_none() or [])):
         if isinstance(e, dict) and isinstance(e.get("descriptor"), dict):
             name = e["descriptor"].get("name") or e.get("id") or e.get("name")
             if name:

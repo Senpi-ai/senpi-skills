@@ -122,9 +122,19 @@ class Classification(unittest.TestCase):
         self.assertEqual(self.call((1, J1010_CREDENTIALS, "", False, None))["kind"], "error")
 
     def test_openclaw_rejecting_the_command_line_sent_nothing(self):
-        self.assertEqual(self.call((1, J1010_CLI_ERROR, "", False, None))["kind"], "cli_parse")
         self.assertEqual(self.call((1, "", "error: unknown option '--params'\n", False, None))["kind"],
                          "cli_parse")
+        rejected = _pretty({"ok": False, "error": {"type": "cli_error",
+                                                   "message": "error: unknown option '--params'"}})
+        self.assertEqual(self.call((1, rejected, "", False, None))["kind"], "cli_parse")
+
+    def test_a_10x_cli_error_is_an_error_unless_it_is_a_command_line_rejection(self):
+        # `cli_error` is OpenClaw's catch-all for any unclassified failure during the call
+        # (`formatCliJsonFailure`), so the request may have been sent: `error`, which a START recovers.
+        # The recorded `--params must be valid JSON.` is one too; this script never sends invalid JSON.
+        self.assertEqual(self.call((1, J1010_CLI_ERROR, "", False, None))["kind"], "error")
+        other = _pretty({"ok": False, "error": {"type": "cli_error", "message": "socket hang up"}})
+        self.assertEqual(self.call((1, other, "", False, None))["kind"], "error")
 
     def test_timeout_spawn_failure_and_garbage(self):
         self.assertEqual(self.call((-1, "", "", True, None))["kind"], "timeout")
@@ -205,6 +215,32 @@ def _gone(pid):
     return st == "" or st.startswith("Z")
 
 
+_LEADER_EXITS_ON_TERM = (
+    "import subprocess,sys,time\n"
+    "m=subprocess.Popen([sys.executable,'-c',"
+    "'import signal,time;signal.signal(signal.SIGTERM,signal.SIG_IGN);time.sleep(60)'])\n"
+    "open(sys.argv[1],'w').write(str(m.pid))\n"
+    "time.sleep(60)\n")
+
+
+def member_tree_is_gone_after_spawn(test, spawn):
+    """Run a leader (default SIGTERM: exits) whose child ignores SIGTERM, time it out, and assert the
+    child is gone — a check on the process, not on elapsed time."""
+    with tempfile.TemporaryDirectory() as d:
+        pidf = os.path.join(d, "member.pid")
+        t0 = time.time()
+        spawn([sys.executable, "-c", _LEADER_EXITS_ON_TERM, pidf], 1.5)
+        test.assertLess(time.time() - t0, 6)                # no 5 s block on a pipe the member held
+        mpid = int(open(pidf).read())
+        deadline = time.time() + 3
+        while not _gone(mpid) and time.time() < deadline:
+            time.sleep(0.1)
+        alive = not _gone(mpid)
+        if alive:
+            os.kill(mpid, 9)
+        test.assertFalse(alive, "a SIGTERM-ignoring group member outlived the timeout")
+
+
 class ProcessGroupKill(unittest.TestCase):
     """On our timeout the call's whole process group is killed: SIGTERM, 2 s, SIGKILL, reap. On
     OpenClaw 10.x a non-TTY `openclaw` respawns its worker detached into its own session, so a kill
@@ -234,6 +270,11 @@ class ProcessGroupKill(unittest.TestCase):
         _rc, _o, _e, timed, _x = _cli._spawn([sys.executable, "-c", script], 1.0)
         self.assertTrue(timed)
         self.assertLess(time.time() - t0, 10)               # 1 s budget + 2 s SIGTERM grace + reap
+
+    def test_a_group_member_that_ignores_sigterm_dies_even_when_the_leader_exits_on_it(self):
+        # The leader exits on SIGTERM at once; its child ignores SIGTERM and holds the pipes. The
+        # group SIGKILL must still be sent, or the member outlives the call (and the read blocks on it).
+        member_tree_is_gone_after_spawn(self, lambda argv, t: _cli._spawn(argv, t))
 
     def test_the_child_gets_no_respawn_one_log_level_and_a_closed_stdin(self):
         _rc, out, _e, _t, _x = _cli._spawn([sys.executable, "-c",

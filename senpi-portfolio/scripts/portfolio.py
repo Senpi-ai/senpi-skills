@@ -100,17 +100,27 @@ def _cli_env():
 
 def _kill_tree(p):
     """Stop a child started with `start_new_session=True` and everything in its process group:
-    SIGTERM first (2 s to exit), then SIGKILL, then reap. Never raises."""
-    for sig, wait in ((signal.SIGTERM, 2), (signal.SIGKILL, 5)):
-        try:
-            os.killpg(p.pid, sig)
-        except (ProcessLookupError, PermissionError, OSError):
-            pass
-        try:
-            p.wait(timeout=wait)
-            return
-        except subprocess.TimeoutExpired:
-            continue
+    SIGTERM to the group, 2 s grace, then SIGKILL to the group ALWAYS, then reap. Never raises.
+
+    The SIGKILL is unconditional: the leader exiting on SIGTERM says nothing about the rest of its
+    group, and a member that ignores SIGTERM would otherwise outlive the call and hold the output
+    pipes open (so the caller's read blocks on it)."""
+    try:
+        os.killpg(p.pid, signal.SIGTERM)
+    except OSError:
+        pass
+    try:
+        p.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    try:
+        p.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def _spawn(args, timeout):

@@ -192,7 +192,7 @@ the scanner row's `lastRunStatus`/`runCount`).
 
 | exit | `overall` | Meaning | What to do |
 |---|---|---|---|
-| `0` | `live` | every instance installed **and** a scanner tick observed | report live + the **How it runs** block. A `warn:` line (`[W_BUDGET_*]`) may ride a `live` report — relay it; it did **not** stop the deploy (see the relay contract below) |
+| `0` | `live` | every instance installed **and** a scanner tick observed | report live + the **How it runs** block. A `[W_BUDGET_*]` warn may ride a `live` report — relay it; it did **not** stop the deploy (see the relay contract below) |
 | `4` | `installed-unobserved` | installed, no tick seen inside `--tick-wait` (or `--tick-wait 0` skipped the check) | say exactly that; check `openclaw senpi scanner -r <runtimeId>` in a few minutes. External scanners legitimately tick on long intervals. **`--tick-wait 0` can never report `live`** — nothing was verified |
 | `6` | `pending` | a wallet still funding, or the job still running when the poll budget ran out | re-run the same deploy command — it resumes and adopts the wallet |
 | `2` | `refused` | a gate said no (`[E_FUNDS_*]`, `[E_VALIDATE_*]`, `[E_UNIVERSE_NOT_LIVE]`, `[E_STATE_AMBIGUOUS_WALLETS]`, `[E_INSTANCE_BINDING_UNKNOWN]`, `[E_WALLET_OWNED_BY_OTHER_PACKAGE]`, `[INVALID_REQUEST]`) | **do what the refusal's code says** — per-code depth in [`references/refusal-playbook.md`](references/refusal-playbook.md); nothing was created past it |

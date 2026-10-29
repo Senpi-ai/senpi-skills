@@ -429,6 +429,29 @@ class LostStartReply(unittest.TestCase):
         self.assertEqual(fake.gateway("senpi.deploy.status")[0][1], {})   # the agent's last job
         self.assertEqual(self.slept[0], 2)                   # settle after the kill
 
+    def test_an_unclassified_10x_cli_error_goes_through_recovery_not_nothing_dispatched(self):
+        # 10.x `cli_error` is the catch-all for ANY unclassified failure during the call (OpenClaw
+        # `formatCliJsonFailure`), not only a rejected command line, so the START may have been sent.
+        envelope = json.dumps({"ok": False, "error": {"type": "cli_error",
+                                                      "message": "socket hang up while awaiting reply"}})
+        out, fake, err = self._start([(1, envelope, "", False, None), _status(self._job())])
+        self.assertEqual(out, "dpl-0000beef")
+        self.assertNotIn("NOTHING WAS DISPATCHED", err)
+        self.assertEqual(len(fake.gateway("senpi.deploy.status")), 1)
+        # …and when recovery finds nothing, the answer is MAY BE RUNNING, never nothing-dispatched.
+        out, fake, err = self._start([(1, envelope, "", False, None)] + [_refused(NOT_FOUND)] * 3)
+        self.assertEqual(out, ("exit", 1))
+        self.assertIn("a job MAY BE RUNNING", err)
+        self.assertNotIn("NOTHING WAS DISPATCHED", err)
+
+    def test_a_10x_cli_error_that_is_a_command_line_rejection_dispatched_nothing(self):
+        envelope = json.dumps({"ok": False, "error": {"type": "cli_error",
+                                                      "message": "error: unknown option '--params'"}})
+        out, fake, err = self._start([(1, envelope, "", False, None)])
+        self.assertEqual(out, ("exit", 1))
+        self.assertIn("NOTHING WAS DISPATCHED", err)
+        self.assertEqual(fake.gateway("senpi.deploy.status"), [])
+
     def test_every_no_answer_outcome_goes_through_recovery(self):
         for first in (TIMEOUT, _transport("timeout"), _transport("closed"),
                       (1, "", "something nobody has seen before\n"), _refused("INTERNAL_ERROR"),
@@ -888,8 +911,27 @@ class StatusSubcommand(unittest.TestCase):
             code, _out, err = self._run(["deploy.py", "status"], [answer])
             self.assertEqual(code, 1)
             self.assertIn("senpi.deploy.status:", err)          # what the read answered
-            self.assertIn("a job may still be running", err)
             self.assertNotIn("no deploy job has ever run", err.lower())
+        for answer in (TIMEOUT, _transport()):
+            _code, _out, err = self._run(["deploy.py", "status"], [answer])
+            self.assertIn("a job may still be running", err)
+
+    def test_a_plugin_without_the_status_method_is_steered_to_the_plugin_update(self):
+        # The gateway answered `unknown method`: re-running cannot change that, so the steer is the
+        # plugin update, never "the gateway is not answering".
+        for answer in (_refused("unknown method: senpi.deploy.status"),
+                       _refused_10x("unknown method: senpi.deploy.status")):
+            code, _out, err = self._run(["deploy.py", "status"], [answer])
+            self.assertEqual(code, 1)
+            self.assertIn("openclaw plugins install @senpi-ai/runtime", err)
+            self.assertIn("NOT known", err)
+            self.assertNotIn("gateway is not answering", err)
+            self.assertNotIn("no deploy job has ever run", err)
+
+    def test_no_openclaw_on_this_host_names_the_agent_box(self):
+        code, _out, err = self._run(["deploy.py", "status"], [SPAWN_FAILED])
+        self.assertEqual(code, 1)
+        self.assertIn("agent's own box", err)
 
     def test_status_is_one_gateway_read_and_no_cli_verb(self):
         fake = FakeCli([_status(self._snap("polar"))])

@@ -146,10 +146,10 @@ def build(mcp, only_pkg=None, deep=True):
     # into false 'interrupted deploy' alarms). Degrade to runtime-unknown instead.
     cli_ok = _openclaw_available()
     runtimes = _cli.list_runtimes() if cli_ok else []
-    # ONE status --json for the whole fleet — only when runtimes actually exist (skip the flaky call otherwise)
+    # ONE `senpi.getHealthStatus` for the whole fleet — only when runtimes actually exist
     health_by_name = _cli.runtime_health_map() if (deep and runtimes) else {}
-    # ONE `runtime list --json` for the rendered descriptors — what each runtime is actually running.
-    descriptors = _cli.runtime_descriptors() if (deep and runtimes) else {}
+    # The rendered descriptors (what each runtime is actually running) ride the same listRuntimes rows.
+    descriptors = _cli.runtime_descriptors(runtimes) if (deep and runtimes) else {}
     matched_rt = set()  # runtime names already matched to a strategy
     rows = []
     for s in opens:

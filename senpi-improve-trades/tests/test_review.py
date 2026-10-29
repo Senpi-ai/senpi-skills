@@ -990,6 +990,38 @@ def test_an_event_read_timeout_kills_the_calls_whole_process_group(tmp_path):
     assert gone(), "the event call's own child outlived the timeout"
 
 
+def test_an_event_read_timeout_kills_a_sigterm_ignoring_member_when_the_leader_exits(tmp_path):
+    """The leader exits on SIGTERM; its child ignores SIGTERM. The group SIGKILL must still follow."""
+    import os as _os
+    import subprocess as _sp
+    import sys as _sys
+    import time as _time
+    pidf = tmp_path / "member.pid"
+    leader = ("import subprocess,sys,time\n"
+              "m=subprocess.Popen([sys.executable,'-c',"
+              "'import signal,time;signal.signal(signal.SIGTERM,signal.SIG_IGN);time.sleep(60)'])\n"
+              "open(sys.argv[1],'w').write(str(m.pid))\n"
+              "time.sleep(60)\n")
+    t0 = _time.time()
+    try:
+        review._run_grouped([_sys.executable, "-c", leader, str(pidf)], 1.5)
+        raise AssertionError("expected TimeoutExpired")
+    except _sp.TimeoutExpired:
+        pass
+    assert _time.time() - t0 < 6
+    mpid = int(pidf.read_text())
+    def gone():
+        st = _sp.run(["ps", "-o", "stat=", "-p", str(mpid)], capture_output=True, text=True).stdout.strip()
+        return st == "" or st.startswith("Z")
+    deadline = _time.time() + 3
+    while not gone() and _time.time() < deadline:
+        _time.sleep(0.1)
+    alive = not gone()
+    if alive:
+        _os.kill(mpid, 9)
+    assert not alive, "a SIGTERM-ignoring group member outlived the event-read timeout"
+
+
 def test_the_event_read_runs_one_process_with_stdin_closed():
     import sys as _sys
     p = review._run_grouped([_sys.executable, "-c",

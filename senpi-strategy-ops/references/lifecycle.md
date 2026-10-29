@@ -206,7 +206,7 @@ Per instance the job runs five steps, each recorded with its own outcome:
    verify gate's deleted `_budget_verdict` — but a `W_`, not its not-live verdict: the wallet is funded and the runtime
    ticks, so `overall` and the exit code do not move, and closing a live strategy over a shortfall a
    top-up fixes is the teardown this repo keeps having to prevent. The figures are **as at deploy
-   time** and the note re-renders on every later `deploy status`, so the route is: re-read the current
+   time** and the note stays on the snapshot every later `deploy.py status` prints, so the route is: re-read the current
    funding (`status.py <id>`) FIRST, then add the remaining difference through the
    `senpi-deposit-withdraw-transfer` skill. Close-and-redeploy is named as the alternative with no
    command attached, because `[E_ROLLBACK_INCOMPLETE]` and the below-min escape are the report's only
@@ -597,8 +597,7 @@ not by hand-composing `strategy_list`.
 | Command | Used for |
 |---|---|
 | `openclaw gateway call senpi.deploy.start` / `senpi.deploy.status` | the deploy job + its read-only report — what `openclaw senpi deploy` / `deploy status` wrap; `deploy.py` calls them directly (the funded path) |
-| `openclaw gateway call senpi.listRuntimes` | reverse lookup, close discovery (`deploy.py`, `close.py`) |
-| `openclaw senpi runtime list` — text output only, it takes no `--json` | `status.py` fleet view |
+| `openclaw gateway call senpi.listRuntimes` / `senpi.getHealthStatus` | reverse lookup, close discovery, `status.py` fleet view, `verify` (`deploy.py`, `close.py`, `status.py`); by hand: `openclaw senpi runtime list` (text only) / `openclaw senpi status --json` |
 | `openclaw gateway call senpi.deleteRuntime --params '{"id": "<id>"}'` | close step 1 (`close.py`); by hand: `openclaw senpi runtime delete --id <id> --address <wallet>` |
 | `openclaw senpi status -r <id> [--json]` / `state -r <id> [--json]` | Monitor (scanner ticked) |
 | `openclaw senpi dsl positions\|inspect\|closes` · `action list\|history\|decisions` | troubleshooting |
