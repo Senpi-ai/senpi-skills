@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.35.4"
+  version: "1.36.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -453,9 +453,9 @@ directly.)
   command that failed — quote it rather than inventing a cause. State a `true` posture as ("deployed with
   a DSL exit"), then give the **ladder** (`profile.dsl`: hard stop + arm-at + tiers) and each **open
   position's live tier** (`positions[].dsl`). This config-level field is NOT the per-position tier — see
-  "DSL — how it works per strategy, and which position is in which tier" below. **Never call a live
-  position "unprotected" just because it has no ratchet record — sub-Tier-1 positions have none by
-  design.** For a raw position with no runtime, `false` means **no ratchet** — see the HARD rule below.
+  "DSL — how it works per strategy" below. **Never call a live position "unprotected" for lacking an
+  armed ratchet tier.** For a raw position with no runtime, `false` means **no ratchet** —
+  see the HARD rule below.
 - **Don't infer "wiped out" from a low balance.** Check `total_funded` / `total_withdrawn` — a
   strategy can show a small balance because profits were withdrawn (`netFunded` can be negative). That
   is not a loss.
@@ -489,7 +489,7 @@ directly.)
   strategy — it already has one. To *verify* protection, read `profile.dsl` (the ladder) + each
   `positions[].dsl` (the live tier) — see "DSL — how it works per strategy, and which position is in
   which tier"; never infer "no stop" from the absence of a resting stop order (DSL exits are
-  runtime-managed, not resting orders) or from a missing ratchet record (sub-Tier-1 positions have none).
+  runtime-managed, not resting orders) or from a missing or tier -1 ratchet record.
 - **Always end with the closing** (below), verbatim — the deep-dive question when offered, then the two
   CTAs.
 
@@ -504,17 +504,17 @@ hold always:
 
 - `has_phase2` — `false`/empty `tiers` ⟹ **phase1-only** (a hard stop, no profit ratchet). Say
   "hard-stop protected, no profit-lock ratchet," not "unprotected."
-- **Named-string preset** (some strategies ship `dsl_preset: conviction`): `profile.dsl` is
-  `{preset_name, note}` — say "DSL preset: `conviction` (ladder managed by the runtime, not inlined)."
-  Still protected — never call a named preset "no DSL."
+- **Named-string preset** (`dsl_preset: conviction`): `profile.dsl` is `{preset_name, note}`. The
+  runtime cannot install a string preset, so `positions[].dsl` has `downside_stop: false`: quote its
+  `note` (`references/dsl.md`), never "protected."
 
 ### HARD rule — NEVER say a live position has "no active DSL / no monitoring"
 
-An **empty ratchet record on a sub-Tier-1 position is NOT "unprotected"** (why: `references/dsl.md`).
-**Never read "no
-ratchet record" as "no DSL."** Say **"protected; profit-ratchet arms at Tier 1 (+X%)"** — never
-"unprotected / unmonitored / no stop." (The engine already frames every `armed: false` position this way
-in `dsl.note`; do not override it with an "unprotected" reading.)
+**No ratchet record, or a tier -1 one, is sub-Tier-1, NOT "unprotected"**: a runtime strategy's
+max-loss stop is on from entry (`references/dsl.md`). **Never read "no ratchet record" as "no
+DSL."** Say **"protected; profit-ratchet arms at Tier 1 (+X%)"** — never "unprotected / unmonitored /
+no stop." (The engine frames every `armed: false` position in `dsl.note`; never override it with an
+"unprotected" reading.)
 
 - **An ERRORED or empty DSL query is "unknown," never "unprotected."** That
   is a **data gap**, not evidence of missing protection — treat it exactly like `dsl:null`. Never turn a failed read into
@@ -526,9 +526,10 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
 - **Only `name_source: "strategyName"` means `name` is really its name.** (The other values:
   `references/output-fields.md`.) When `name_source != "strategyName"`, call it by `strategy_id` + wallet and say which package it came from —
   never "the cub strategy", and never tell one sleeve from another by that string.
-- **A raw position (no runtime, `protected: false`) is "no ratchet," not "no stop."** A one-off
-  position the user placed by hand carries its protection as resting orders, which this engine does not
-  read. Before saying it has no stop, read them — `strategy_get_open_orders` on that wallet; a
+- **A raw position (no runtime, `protected: false`) is "no ratchet," not "no stop."** A tier -1
+  record (`downside_stop: false`): no downside stop until Tier 1. A one-off position the user placed
+  by hand carries its protection as resting orders, which this engine does not read. Before saying it
+  has no stop, read them — `strategy_get_open_orders` on that wallet; a
   reduce-only trigger order (`isTrigger`, `triggerPx`) whose `orderType` is a Stop (`Stop Market` /
   `Stop Limit`) is its stop, a Take Profit order is not — and say what you found: "no ratchet;
   a static stop rests at $X" or "no ratchet and no stop order." The direct question ("do I have a

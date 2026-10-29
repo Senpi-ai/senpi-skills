@@ -90,14 +90,21 @@ Returns `{book, totals, embedded_wallet, external_wallets, strategies, strategy_
     `meta.warnings` entry is added — treat as "unavailable," never as zero.
   - `positions[]` (asset, dex, direction, leverage, notional, margin, `upnl`, `return_on_equity_pct`,
     `liq_px`, `market_24h_pct`, `vs_market`, and **`dsl`** — the live per-position ratchet tier).
-    - **`dsl`** — this position's live DSL/ratchet state. **`armed: true`** → `tier_index`,
-      `high_water_roe`, `status`, `locked` (= `lock_hw_pct` at the active tier). **`armed: false`** (no
-      ratchet record — the position is sub-Tier-1) → `hard_stop_roe_pct`, `arm_at_roe_pct`, `roe`, and a
-      `note` that reads "protected from entry by the phase1 hard stop; profit-ratchet arms at Tier 1
-      (+X%) — currently +Y%." **`armed: false` means the profit-ratchet hasn't ARMED yet, NOT that the
-      position is unprotected** — the phase1 hard stop protects it from entry. Never present it as "no
-      DSL." If the ratchet read failed entirely, every position still gets this config-based `armed:
-      false` object (+ a `meta.warnings` note).
+    - **`dsl`** — this position's live DSL/ratchet state. **`armed: true`** (a ratchet record at an
+      engaged tier, `currentTierIndex` ≥ 0) → `tier` (1-based "Tier N"), `tier_index` (0-based),
+      `high_water_roe`, `status`, `locked` (% of peak; record first). **`armed: false`**
+      (the position is sub-Tier-1: no ratchet record, or a record at tier -1 / null / missing with a null
+      floor — then `ratchet_record: true`, `tier_index`, `status`) → `hard_stop_roe_pct`,
+      `arm_at_roe_pct` (record first), `roe`,
+      and a `note` that reads "protected from entry by the phase1 hard stop; profit-ratchet arms at Tier
+      1 (+X%) — currently +Y%." **`armed: false` means the profit-ratchet hasn't ARMED yet, NOT that the
+      position is unprotected** — for a runtime strategy the max-loss (phase1) stop protects it from
+      entry. Never present it as "no DSL." **No runtime ladder** (`profile.dsl: null`): `note` never says
+      "protected" off the ratchet — a raw position's tier -1 record gives `downside_stop: false` (no
+      downside stop until Tier 1: `ratchet_stop_add` persists no max-loss floor); no record gives `null`
+      ("no ratchet"; resting orders are not read here). Unenforced DSL exits, unrendered runtimes, mirror and
+      failed reads: `dsl.md`. If the ratchet read failed or its shape is unknown, every position still
+      gets an `armed: false` object (+ a `meta.warnings` note).
 - `exposure` — `net_notional_usd` + `net_bias`, gross long/short, `by_asset_net_usd`,
   `largest_position`.
 - `signals` — `idle_drag_pct` (how much capital isn't working), `deployed_pct`,
