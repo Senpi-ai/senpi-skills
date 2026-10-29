@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.10.0"
+  version: "1.10.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -34,7 +34,8 @@ cleanly**: points and rank, the Senpi fee, referral earnings, and strategy limit
 - **Real-time, not from memory.** Points/rank move — never quote a figure from earlier in the
   conversation; re-run.
 - **The fee comes from the data, never from memory.** Quote `fee.pct` as returned: `0%` on a paid
-  plan (Starter, Pro, Advanced, Quant), the flat free rate without one, free trials included.
+  plan (Pro, Advanced, Quant, and Starter for people already on it), the flat free rate without one,
+  free trials included.
 - **Tiers carry no benefit right now: no fee change, nothing unlocked. Do not bring tiers up.** Never
   suggest reaching, keeping or regaining a tier, and never close with a next-tier offer. If the user
   asks about their tier or where it went, say tiers carry no benefit right now. Points still accrue
@@ -155,10 +156,12 @@ never a calendar month.
 
 | Plan | Price | Credits | Points per $1 volume |
 |---|---|---|---|
-| Starter | $25 | $25 | 1 |
 | Pro (default) | $50 | $55 (+10%) | 1.5 |
 | Advanced | $100 | $115 (+15%) | 2 |
 | Quant | $200 | $240 (+20%) | 3 |
+
+Starter ($25 a month, $25 credits, 1 point per $1 volume) is closed to new subscribers; people
+already on it keep it and can upgrade, but cannot return to it after leaving.
 
 - **Every plan includes every model.** Plans differ on credits and points rate only — never on model
   access, so a cheaper plan never locks anyone out of the better model.
