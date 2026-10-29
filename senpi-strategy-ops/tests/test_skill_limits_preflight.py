@@ -76,6 +76,10 @@ class LimitsAreReadBeforeTheDeploy(unittest.TestCase):
 
 
 class TheRuntimeRefusalIsAnExit2Refusal(unittest.TestCase):
+    def test_the_refused_row_lists_the_code(self):
+        row = next(l for l in SKILL.read_text().splitlines() if l.startswith("| `2` | `refused` |"))
+        self.assertIn("`[STRATEGY_LIMIT_PREFLIGHT]`", row)
+
     def test_the_playbook_section(self):
         text = PLAYBOOK.read_text()
         start = text.find("### `[STRATEGY_LIMIT_PREFLIGHT]`")
