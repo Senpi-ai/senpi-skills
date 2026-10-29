@@ -257,9 +257,10 @@ debited**; the budget never left the funding wallet. No retry refills the pool: 
 ### `SERR183` — the plan's limit on running strategies
 
 Reaches you as a **`failed` report (exit 3)** on `create` with the backend's text quoted
-(`SERR183: Your Pro plan allows 3 running strategies and you have 3. Close one or upgrade your plan
+(`SERR183: Your Example plan allows 4 running strategies and you have 4. Close one or upgrade your plan
 to start another.`), or as the raw MCP error if a create was called directly. This is the user's plan,
-not a defect: the limit counts every strategy that is not closed, closing or failed, paused ones included.
+not a defect: the limit counts every strategy except CLOSED, FAILED, CLOSING_POSITIONS and MANUAL_REVIEW
+ones, so a PAUSED one counts.
 **Nothing was created** by the refused create and nothing was debited for it. The check is per wallet,
 so on a multi-instance package the sleeves created before it may be live: read `status.py <id>` and
 say which ones are.
@@ -307,6 +308,24 @@ package the sleeves created before it may be live: read `status.py <id>` and say
   smaller creates (deploy fewer sleeves, or call `strategy_create` / `strategy_create_custom_strategy`
   directly; every create is counted, and a raw create is not a runtime strategy); or tell the user
   Senpi is down.
+
+### `[STRATEGY_LIMIT_PREFLIGHT]` — the whole package needs more strategy slots than are left
+
+Reaches you as a **`refused` report (exit 2)** on `create`. The deploy read `strategy_get_limits`
+before the first create and found that the wallets it would create (every wallet is one strategy; a
+resume counts only the ones still missing) exceed `runningLeft` or `startsLeft`. **Nothing was created**
+and no money moved, on any sleeve. It is the same limit as `SERR183` / `SERR184`, caught for the whole
+package instead of halfway through it. Step 0.6 of the skill catches it earlier, before the walkthrough.
+
+- **Tell the user in one or two sentences.** Quote its lines: how many the package needs, what is left of
+  each short limit, and the `summary` sentence. Then the ways forward: for the running limit, close a
+  running strategy themselves (the user picks which one, `close.py <id>`); for the starts limit, wait
+  until the reset time it names, or upgrade — closing never gives a start back.
+- **Try again only after the user has done one and asks**: then re-run the same `deploy.py create`
+  command once.
+- **Never**: re-run on a timer or in a loop; close a strategy on the user's behalf; deploy fewer
+  instances or call `strategy_create` / `strategy_create_custom_strategy` directly to squeeze under the
+  limit; or tell the user Senpi is down.
 
 ## Budget warnings (`W_`)
 

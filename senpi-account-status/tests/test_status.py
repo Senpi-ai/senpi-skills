@@ -38,6 +38,37 @@ class _Recording:
         return self._inner.mcp_call(tool, timeout=timeout, **kw)
 
 
+LIMITS = {
+    "enforced": True, "source": "plan", "plan": "Example",
+    "running": 2, "maxRunning": 5, "runningLeft": 3,
+    "starts": 4, "maxStarts": 11, "startsLeft": 7,
+    "window": "CYCLE", "windowStart": "2026-10-19T00:00:00.000Z",
+    "startsResetAt": "2026-11-19T00:00:00.000Z", "canStartNow": True,
+    "summary": "Your Example plan allows 5 running strategies (2 running, 3 left) and 11 new strategies per "
+               "billing cycle (4 used, 7 left), resetting 2026-11-19 00:00 UTC.",
+}
+
+
+class _Failing(_Recording):
+    """The fixture user, with one tool raising the way mcp_client does on a failed call."""
+
+    def __init__(self, recorded, tool, message):
+        super().__init__(recorded)
+        self._tool, self._message = tool, message
+
+    def mcp_call(self, tool, timeout=12, **kw):
+        if tool == self._tool:
+            raise mcp_client.MCPError(self._message)
+        return super().mcp_call(tool, timeout=timeout, **kw)
+
+
+def _with_limits(**data):
+    """The fixture user with strategy_get_limits answering `data`."""
+    recorded = _recorded()
+    recorded["strategy_get_limits"]["data"] = data
+    return status.run(status._FixtureClient(recorded))
+
+
 def _with_fee_fields(**fields):
     """The fixture user with its points payload's fee fields replaced by `fields`."""
     recorded = _recorded()
@@ -56,7 +87,7 @@ def test_identity_and_points():
     assert r["points"]["base"] == 2000 and r["points"]["perp"] == 13000
 
 
-def test_the_output_is_points_fee_and_referral_and_nothing_about_tiers():
+def test_the_output_is_points_fee_referral_and_limits_and_nothing_about_tiers():
     # the recorded points payload still carries loyaltyTier, isDemoted, nextTier and the rest;
     # none of it may reach the agent
     assert _result() == {
@@ -66,6 +97,7 @@ def test_the_output_is_points_fee_and_referral_and_nothing_about_tiers():
                    "rank": 42.0, "rank_change": 3.0, "found": True},
         "fee": {"bps": 30.0, "pct": "0.03%"},
         "referral": {"balance_usdc": 12.5, "wallet": "0xme"},
+        "limits": LIMITS,
         "meta": {"warnings": []},
     }
 
@@ -89,7 +121,80 @@ def test_the_engine_never_asks_for_the_tier_table():
     status.run(client)
     status._dry(client)
     assert sorted(set(client.tools)) == [
-        "user_get_me", "user_get_referral_rewards", "user_get_senpi_points"]
+        "strategy_get_limits", "user_get_me", "user_get_referral_rewards", "user_get_senpi_points"]
+
+
+def test_limits_are_the_tools_fields_as_returned():
+    assert _result()["limits"] == LIMITS
+
+
+def test_a_grandfathered_account_reports_null_limits_not_zero():
+    r = _with_limits(enforced=True, source="grandfathered", plan=None, running=4, maxRunning=None,
+                     runningLeft=None, starts=9, maxStarts=None, startsLeft=None, window="CYCLE",
+                     windowStart="2026-10-19T00:00:00.000Z", startsResetAt="2026-11-19T00:00:00.000Z",
+                     canStartNow=True, summary="Your account predates strategy limits, so none apply.")
+    assert r["limits"]["source"] == "grandfathered"
+    assert r["limits"]["maxRunning"] is None and r["limits"]["startsLeft"] is None
+    assert r["limits"]["summary"] == "Your account predates strategy limits, so none apply."
+
+
+def test_fields_the_tool_does_not_document_are_dropped():
+    r = _with_limits(**LIMITS, internalNote="x")
+    assert r["limits"] == LIMITS
+
+
+SERR185_MESSAGE = ("SERR185: Strategy limits couldn't be read right now. This is not a create failure: creates do "
+                   "not depend on this read. Retry strategy_get_limits once at most; if it fails again, tell the "
+                   "user their limits couldn't be read and continue without them. Never block or refuse a create "
+                   "because of this.")
+
+
+def _limits_reply(reply):
+    """The fixture user with strategy_get_limits answering `reply` as the whole tool result."""
+    recorded = _recorded()
+    recorded["strategy_get_limits"] = reply
+    return status.run(status._FixtureClient(recorded))
+
+
+def test_a_serr185_reply_is_a_warning_not_a_failure():
+    # senpi-hyperliquid-mcp createErrorResponse: a normal result, not a raised error
+    r = _limits_reply({
+        "success": False,
+        "error": {"code": "SERR185", "message": SERR185_MESSAGE, "retryable": True, "category": "UNAVAILABLE",
+                  "details": {"service": "senpi", "operation": "StrategyLimitsUsage"}},
+        "meta": {"tool": "strategy_get_limits", "action_type": "read", "timestamp": "2026-10-29T16:00:00.000Z",
+                 "request_id": "00000000-0000-0000-0000-000000000000"},
+    })
+    assert r["limits"] == {}
+    assert r["meta"]["warnings"] == [f"strategy_get_limits failed: SERR185: {SERR185_MESSAGE}"]
+    assert r["points"]["total"] == 15000 and "degraded" not in r["meta"]
+
+
+def test_an_mcp_without_the_tool_is_a_warning_not_a_failure():
+    # senpi-hyperliquid-mcp server.ts answers an unknown tool name this way
+    r = _limits_reply({"success": False, "error": {
+        "code": "NOT_FOUND", "retryable": False,
+        "message": "Unknown tool: strategy_get_limits. This error is deterministic. Do not retry with the same "
+                   "tool name."}})
+    assert r["limits"] == {}
+    assert r["meta"]["warnings"] == [
+        "strategy_get_limits failed: NOT_FOUND: Unknown tool: strategy_get_limits. This error is deterministic. "
+        "Do not retry with the same tool name."]
+
+
+def test_a_reply_that_is_not_an_object_is_a_warning():
+    r = _limits_reply("upstream timeout")
+    assert r["limits"] == {}
+    assert r["meta"]["warnings"] == ["strategy_get_limits failed: unexpected reply upstream timeout"]
+
+
+def test_a_raised_call_is_a_warning_not_a_failure():
+    # mcp_client raises on a transport failure, and on a success:false document it unwraps itself
+    client = _Failing(_recorded(), "strategy_get_limits", f"tool failed: SERR185: {SERR185_MESSAGE}")
+    r = status.run(client)
+    assert r["limits"] == {}
+    assert r["meta"]["warnings"] == [f"strategy_get_limits failed: tool failed: SERR185: {SERR185_MESSAGE}"]
+    assert r["points"]["total"] == 15000 and "degraded" not in r["meta"]
 
 
 def test_arena_retired():
