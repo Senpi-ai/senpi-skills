@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Shared helpers for the lifecycle scripts: openclaw CLI runner + tolerant JSON digging +
-runtime/strategy lookups. Used by deploy.py and close.py.
+"""Shared helpers for the lifecycle scripts: openclaw CLI runner, direct gateway calls
+(`gateway_call`), tolerant JSON digging and runtime/strategy lookups. Used by deploy.py, close.py
+and status.py.
 
 The openclaw/MCP JSON shapes are not strictly pinned, so every extractor tries a few key
 spellings and degrades gracefully (returns None / []) rather than throwing on a missing field.
@@ -10,7 +11,9 @@ import hashlib
 import json
 import os
 import re
+import signal
 import subprocess
+import time
 
 
 # ---- openclaw CLI ----
@@ -21,29 +24,203 @@ import subprocess
 SPAWN_FAILED_PREFIX = "command not found: "
 
 
+def _cli_env():
+    """The child env every openclaw call gets.
+
+    SENPI_LOG_LEVEL=error keeps the senpi plugin's info logs (printed to STDOUT) out of `--json`
+    output. OPENCLAW_NO_RESPAWN=1 keeps the CLI in ONE process: `openclaw` otherwise re-executes
+    itself to add node flags, and on OpenClaw 10.x, when stdio is not a TTY (always the case here),
+    that worker is spawned `detached` into its own process group (`entry.respawn.ts`,
+    `process/respawn-child-runner.ts`). A group kill of our child then misses the worker, and a
+    timed-out START keeps running and can still deliver after this script reported (RT566-08). The
+    flag is honoured by 5.7, 5.12 and 10.10 (`entry.respawn.ts`, `isTruthyEnvValue(env.OPENCLAW_NO_RESPAWN)`)."""
+    return dict(os.environ, SENPI_LOG_LEVEL="error", OPENCLAW_NO_RESPAWN="1")
+
+
+def _kill_tree(p):
+    """Stop a child started with `start_new_session=True` and everything in its process group:
+    SIGTERM to the group, 2 s grace, then SIGKILL to the group ALWAYS, then reap. Never raises.
+
+    The SIGKILL is unconditional: the leader exiting on SIGTERM says nothing about the rest of its
+    group, and a member that ignores SIGTERM would otherwise outlive the call and hold the output
+    pipes open (so the caller's read blocks on it)."""
+    try:
+        os.killpg(p.pid, signal.SIGTERM)
+    except OSError:
+        pass
+    try:
+        p.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    try:
+        p.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def _spawn(args, timeout):
+    """Run `args` in its own session with stdin closed. Returns
+    `(rc, stdout, stderr, timed_out, spawn_error)`. On timeout the whole process group is killed
+    (`_kill_tree`), so nothing the call started outlives the answer this script gives."""
+    try:
+        p = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, env=_cli_env(),
+                             start_new_session=True)
+    except OSError as e:
+        return -1, "", "", False, e
+    try:
+        out, err = p.communicate(timeout=timeout)
+        return p.returncode, out or "", err or "", False, None
+    except subprocess.TimeoutExpired:
+        _kill_tree(p)
+        try:
+            out, err = p.communicate(timeout=5)
+        except (subprocess.TimeoutExpired, ValueError, OSError):
+            out, err = "", ""
+        return -1, out or "", err or "", True, None
+
+
 def run_cli(args, timeout=60):
     """Run a CLI command; return (returncode, stdout, stderr). rc=-1 on spawn failure/timeout —
     `SPAWN_FAILED_PREFIX` on stderr distinguishes the never-ran case from the stopped-waiting one.
     NEVER raises for a failure to run: EVERY spawn-side OSError is caught, not just the missing
     binary, because a caller that dies here takes the whole script's output with it.
 
-    Suppresses the senpi plugin's info logs (which it prints to STDOUT and which otherwise corrupt
-    `--json` output) by forcing SENPI_LOG_LEVEL=error in the child env."""
-    env = dict(os.environ, SENPI_LOG_LEVEL="error")
-    try:
-        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
-        return p.returncode, p.stdout, p.stderr
-    except subprocess.TimeoutExpired:
-        return -1, "", f"timed out after {timeout}s: {' '.join(args)}"
-    except OSError as e:
+    The child runs in its own process group with stdin closed, and a timeout kills the whole group
+    (see `_cli_env` for why one process is not enough on 10.x)."""
+    rc, out, err, timed_out, spawn_error = _spawn(args, timeout)
+    if spawn_error is not None:
+        e = spawn_error
         # The command NEVER RAN. FileNotFoundError (no such binary) is the common case; the rest are
-        # fork/exec failures a strained box really does produce — ENOMEM ("Cannot allocate memory"),
-        # EAGAIN (process-table exhaustion), EACCES, ENOEXEC. All of them are the never-ran event, so
-        # all of them carry SPAWN_FAILED_PREFIX: the distinction the money path makes is never-ran vs
-        # stopped-waiting, and only a timeout is the latter. Catching only FileNotFoundError let an
-        # ENOMEM fork failure propagate out of the read and kill the caller mid-run.
+        # fork/exec failures a strained box really does produce (ENOMEM, EAGAIN, EACCES, ENOEXEC).
         return -1, "", f"{SPAWN_FAILED_PREFIX}{args[0]}" + ("" if isinstance(e, FileNotFoundError)
                                                             else f" ({e})")
+    if timed_out:
+        return -1, "", f"timed out after {timeout}s: {' '.join(args)}"
+    return rc, out, err
+
+
+# ---- direct gateway calls (`openclaw gateway call <method> --json`) ----
+#
+# The `openclaw senpi …` verbs are thin wrappers over one gateway method each, but on OpenClaw 10.x
+# every verb first copies and hashes the runtime's whole dependency tree (a "plugin generation
+# capture", 30-160 s), and its refusal text is lost (RT566-17). `gateway call` loads no plugins
+# (`loadPlugins: "never"`), takes about 1 s, and sends the same request with the same credentials.
+
+# A gateway refusal is a message that OPENS with a bracketed taxonomy code; `W_` codes are warnings.
+# Mirrors the runtime's `isRefusalMessage` (`src/deploy/taxonomy.ts`).
+_REFUSAL_MESSAGE = re.compile(r"^\s*\[([A-Z][A-Z0-9_]*)\]")
+# 5.x writes a gateway's error answer to stderr behind this prefix; the message is the rest.
+_GW_REQUEST_ERROR_5X = re.compile(r"^Gateway call failed: GatewayClientRequestError: ", re.M)
+_GW_TRANSPORT_5X = re.compile(r"GatewayTransportError: ?([^\n]*)")
+_GW_CLI_PARSE = re.compile(r"^\s*error: (?:unknown command|unknown option|too many arguments|"
+                           r"required option|option '[^']*' argument missing)", re.M)
+
+
+def is_refusal_message(message):
+    m = _REFUSAL_MESSAGE.match(str(message or ""))
+    return bool(m) and not m.group(1).startswith("W_")
+
+
+def _classify_gateway_message(method, message):
+    # The FIRST line only: on 5.x the message is the rest of stderr, and warning lines can follow it.
+    first = (str(message or "").strip().splitlines() or [""])[0].strip()
+    if first == f"unknown method: {method}":
+        return "unknown_method"
+    return "refused" if is_refusal_message(message) else "error"
+
+
+# Default budget (RPC ms / our wall clock s), used by the `senpi.listRuntimes` and
+# `senpi.getHealthStatus` reads. They answer from the gateway's memory and registry: about 1 s on 10.10.
+READ_RPC_MS, READ_WALL_S = 15000, 25
+
+
+def gateway_argv(method, params=None, rpc_timeout_ms=READ_RPC_MS):
+    """The exact `openclaw gateway call` argv for one method (also what `--dry-run` prints). Every
+    call passes its own `--timeout`: the CLI default is 10 s on 5.7, 5.12 and 10.x. Params are JSON
+    with `allow_nan=False`, so a non-finite number raises ValueError here, before anything runs."""
+    return ["openclaw", "gateway", "call", method, "--json", "--timeout", str(int(rpc_timeout_ms)),
+            "--params", json.dumps(params or {}, allow_nan=False)]
+
+
+def gateway_call(method, params=None, rpc_timeout_ms=READ_RPC_MS, timeout_s=READ_WALL_S):
+    """Call one gateway method directly. Returns a dict, never raises:
+
+      {"kind", "payload", "code", "message", "rc", "stderr", "argv", "elapsed", "transport"}
+
+    `kind` is one of:
+      ok              rc 0 and stdout parsed: `payload` is the handler's raw answer
+      refused         the gateway answered no, with a taxonomy message (`[E_…]`, `[NOT_FOUND]` …)
+      unknown_method  the gateway has no such method (a runtime without it)
+      error           the gateway answered no, without a taxonomy code
+      transport       no answer came back (closed, gateway timeout); the request MAY have been sent
+      timeout         this script's wall clock fired; the request MAY have been sent
+      cli_parse       openclaw rejected the command line: nothing was sent
+      spawn_failed    openclaw never ran: nothing was sent
+      unreadable      anything else
+
+    Handles both error contracts: 5.x writes the error to stderr as text; 10.x writes a JSON envelope
+    `{"ok": false, "error": {"type", "code", "message", …}}` to stdout."""
+    r = {"kind": None, "payload": None, "code": None, "message": None, "rc": None, "stderr": "",
+         "argv": None, "elapsed": None, "transport": None}
+    try:
+        argv = gateway_argv(method, params, rpc_timeout_ms)
+    except (TypeError, ValueError) as e:
+        r.update(kind="cli_parse", message=f"params are not valid JSON: {e}")
+        return r
+    r["argv"] = argv
+    t0 = time.time()
+    rc, out, err, timed_out, spawn_error = _spawn(argv, timeout_s)
+    r["elapsed"] = round(time.time() - t0, 3)
+    r["rc"], r["stderr"] = rc, (err or "")[-4000:]
+    if spawn_error is not None:
+        r.update(kind="spawn_failed", message=f"{SPAWN_FAILED_PREFIX}openclaw ({spawn_error})")
+        return r
+    if timed_out:
+        r.update(kind="timeout", message=f"no answer within {timeout_s}s; the process group was killed")
+        return r
+    obj = _extract_json(out)
+    if rc == 0:
+        if obj is None:
+            r.update(kind="unreadable", message="rc 0 but stdout carried no JSON")
+        else:
+            r.update(kind="ok", payload=obj)
+        return r
+    if isinstance(obj, dict) and obj.get("ok") is False and isinstance(obj.get("error"), dict):
+        e = obj["error"]
+        etype, msg = e.get("type"), str(e.get("message") or "")
+        r.update(code=e.get("code"), message=msg)
+        if etype == "gateway_request_error":
+            r["kind"] = _classify_gateway_message(method, msg)
+        elif etype == "gateway_transport_error":
+            r.update(kind="transport", transport=e.get("kind"))
+        elif etype == "cli_error" and _GW_CLI_PARSE.search(msg if msg.startswith("error:") else f"error: {msg}"):
+            # 10.x reports a command-line rejection as `cli_error` — nothing was sent.
+            r["kind"] = "cli_parse"
+        else:
+            # `gateway_credentials_required`, and `cli_error` as the catch-all for ANY unclassified
+            # failure during the call (OpenClaw `formatCliJsonFailure`): it may have been sent.
+            r["kind"] = "error"
+        return r
+    m = _GW_REQUEST_ERROR_5X.search(err or "")
+    if m:
+        msg = (err or "")[m.end():].strip()
+        r.update(kind=_classify_gateway_message(method, msg), message=msg)
+        return r
+    t = _GW_TRANSPORT_5X.search(err or "")
+    if t:
+        kind = "timeout" if "timeout" in t.group(1).lower() else "closed"
+        r.update(kind="transport", transport=kind, message=t.group(1).strip())
+        return r
+    if _GW_CLI_PARSE.search(err or ""):
+        r.update(kind="cli_parse", message=error_tail(err))
+        return r
+    r.update(kind="unreadable", message=error_tail(err, out))
+    return r
 
 
 def _extract_json(text):
@@ -172,7 +349,7 @@ def find_list(obj, *wrapper_keys):
     return [] if found is None else found
 
 
-# ---- runtime lookups (openclaw senpi runtime ...) ----
+# ---- runtime lookups (senpi.listRuntimes / senpi.getHealthStatus) ----
 
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
@@ -198,70 +375,52 @@ def wallet_match(a, b):
     return False
 
 
-def _parse_runtime_list(out):
-    """Parse `runtime list` text → (rows, valid). `valid` is True only when the output actually looked
-    like the runtime-list table (header row seen, or an explicit 'no runtimes' line) — so a garbled /
-    banner-only stdout that yields zero rows is reported as NOT valid rather than as an empty inventory."""
-    rows, seen_header, empty_marker = [], False, False
-    for line in out.splitlines():
-        line = _strip_ansi(line).strip()
-        if not line:
+def _runtime_rows(payload):
+    """`senpi.listRuntimes` payload → rows, or None when it carries no runtimes list (an empty list is
+    an answer: no runtimes). Each row is the gateway's own (`id`, full `wallet`, `source`, `status`,
+    lifecycle, `descriptor`) plus `name` = `id`, the key every reader here matches on. `status` holds
+    the same strings the old `runtime list` table printed (`running`, `running — NO ENTRY SCANNERS`,
+    `stopped`, boot-skip labels)."""
+    rts = payload.get("runtimes") if isinstance(payload, dict) else None
+    if not isinstance(rts, list):
+        return None
+    rows = []
+    for r in rts:
+        if not isinstance(r, dict):
             continue
-        low = line.lower()
-        # The empty-inventory line is tested BEFORE the header gate. A box with no runtimes prints
-        # "No runtimes installed." and NO header row, so looking for it only after a header is seen
-        # means it is never seen at all: the `continue` below skips it. The (rows=[], valid=False)
-        # that falls out is read as "inventory unreadable" by `list_runtimes_or_none`, inverting the
-        # very contract this parser exists to hold — and it does so precisely on the boxes whose
-        # honest answer is "nothing is running", which is the broken-deploy case `verify` is for.
-        #
-        # ANCHORED, because this now runs before the header gate and so sees every stdout line: an
-        # unanchored substring would let any future line merely CONTAINING the phrase short-circuit
-        # to a confident "empty", which is the fail-OPEN direction this parser exists to prevent.
-        # The only stdout emission today is `console.log("No runtimes installed.")`
-        # (senpi-trading-runtime `src/cli/senpi-commands.ts`); the near-miss
-        # "…No runtimes were read." is an UNREADABLE state, but it goes to stderr with rc!=0, which
-        # `list_runtimes_or_none` rejects before parsing. Anchoring keeps it excluded a third time,
-        # and errs toward None (fail-closed) if the wording ever drifts.
-        if low.startswith("no runtimes"):
-            empty_marker = True
-            break
-        if not seen_header:
-            if low.startswith("id") and "status" in low and "wallet" in low:
-                seen_header = True
-            continue
-        parts = [p for p in re.split(r"\s{2,}|\t+", line) if p]
-        if len(parts) >= 2:
-            rows.append({"name": parts[0], "wallet": parts[1],
-                         "source": parts[2] if len(parts) > 2 else None, "status": parts[-1]})
-    return rows, (seen_header or empty_marker)
-
-
-def list_runtimes():
-    """All runtimes (running AND stopped) by parsing `runtime list` text. NOTE on runtime v3: `runtime
-    list --json` exists only on newer builds (see `senpi-trading-runtime/references/runtime-cli.md`) and
-    this reader must keep working on the older ones, and `status --json` is *flaky* — it transiently
-    returns an empty `statuses[]` even while runtimes are running — so it is NOT a reliable inventory.
-    The text table (id / wallet / source / status) is what every build prints and stays authoritative
-    here; use `status -r <id>` only for health.
-    Returns [] on a failed/garbled read; a caller that must NOT conflate 'none' with 'unreadable'
-    (teardown's money path) uses `list_runtimes_or_none` instead."""
-    rc, out, _err = run_cli(["openclaw", "senpi", "runtime", "list"])
-    if rc != 0:
-        return []
-    rows, _valid = _parse_runtime_list(out)
+        row = dict(r)
+        row["name"] = r.get("id")
+        rows.append(row)
     return rows
 
 
-def list_runtimes_or_none():
-    """Like `list_runtimes()` but returns None when the `runtime list` read FAILED (rc != 0) or produced
-    unparseable output — so callers can tell 'no runtimes' (→ []) from 'couldn't read the inventory'
-    (→ None). The teardown money path must never mistake an unreadable inventory for 'the runtime is gone'."""
-    rc, out, _err = run_cli(["openclaw", "senpi", "runtime", "list"])
-    if rc != 0:
-        return None
-    rows, valid = _parse_runtime_list(out)
-    return rows if valid else None
+def list_runtimes_or_none(why=None):
+    """The runtime inventory (running AND stopped), straight from `senpi.listRuntimes`, or None when
+    the read produced no answer — so callers can tell 'no runtimes' (→ []) from 'couldn't read the
+    inventory' (→ None). The teardown money path must never mistake an unreadable inventory for 'the
+    runtime is gone'. `why`, a list, receives the cause."""
+    r = gateway_call("senpi.listRuntimes", {}, rpc_timeout_ms=READ_RPC_MS, timeout_s=READ_WALL_S)
+    rows = _runtime_rows(r["payload"]) if r["kind"] == "ok" else None
+    if rows is None and why is not None:
+        why.append(f"senpi.listRuntimes: {r['kind']}: {r['message'] or 'no runtimes list in the answer'}")
+    return rows
+
+
+def list_runtimes():
+    """Like `list_runtimes_or_none` but [] on a failed read. Only for reads that ADD information;
+    a money path uses `list_runtimes_or_none`."""
+    return list_runtimes_or_none() or []
+
+
+def health_or_none(runtime_id=None, why=None):
+    """`senpi.getHealthStatus` payload (`{statuses, updater, approvals?}`), or None when unreadable."""
+    r = gateway_call("senpi.getHealthStatus", {"runtimeId": runtime_id} if runtime_id else {},
+                     rpc_timeout_ms=READ_RPC_MS, timeout_s=READ_WALL_S)
+    if r["kind"] == "ok" and isinstance(r["payload"], dict):
+        return r["payload"]
+    if why is not None:
+        why.append(f"senpi.getHealthStatus: {r['kind']}: {r['message'] or 'no payload'}")
+    return None
 
 
 def runtime_name(rt):
@@ -396,12 +555,11 @@ def scanner_reasons(status_entry):
             for r in scanner_rows(status_entry) if isinstance(r, dict) and r.get("degradedReason")]
 
 
-def runtime_health_map(timeout=15):
-    """Health for ALL running runtimes in ONE `status --json` call, keyed by runtime name. One CLI
-    invocation regardless of fleet size (each openclaw call pays ~2-3s plugin-load startup, so per-runtime
-    calls are the slow path). The gateway is flaky-empty, so retry the single call twice."""
+def runtime_health_map():
+    """Health for ALL running runtimes in ONE `senpi.getHealthStatus` call, keyed by runtime name.
+    One call regardless of fleet size. The gateway is flaky-empty, so try the single call twice."""
     for _ in range(2):
-        obj = cli_json(["openclaw", "senpi", "status", "--json"], timeout)
+        obj = health_or_none()
         sts = find_list(obj, "statuses") if obj else []
         if sts:
             return {runtime_name(e): e for e in sts}
@@ -536,15 +694,14 @@ def describe_pause(pause):
 
 # ---- the running recipe vs the package on disk ----
 
-def runtime_descriptors(timeout=15):
-    """`runtime list --json` → {runtime name: descriptor} for every runtime that carries one. The
+def runtime_descriptors(rows=None):
+    """`senpi.listRuntimes` → {runtime name: descriptor} for every runtime that carries one. The
     engine renders the descriptor from the recipe it is actually RUNNING (senpi-trading-runtime
     `describeRuntimeEntry`), so it is the one read that can say whether an edit on disk ever reached
-    the runtime. Fail-open `{}`: older builds print no JSON here, and a status surface must not
-    crash on that."""
-    obj = cli_json(["openclaw", "senpi", "runtime", "list", "--json"], timeout)
+    the runtime. Fail-open `{}`: older builds carry no descriptor, and a status surface must not
+    crash on that. `rows`: a `list_runtimes()` answer already read, so a caller does not list twice."""
     out = {}
-    for e in (find_list(obj, "runtimes") if obj else []):
+    for e in (rows if rows is not None else (list_runtimes_or_none() or [])):
         if isinstance(e, dict) and isinstance(e.get("descriptor"), dict):
             name = e["descriptor"].get("name") or e.get("id") or e.get("name")
             if name:

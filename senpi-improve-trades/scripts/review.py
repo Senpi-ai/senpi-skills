@@ -36,6 +36,7 @@ import datetime
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -60,12 +61,26 @@ REGISTRY_FILENAME = "installed_runtimes.json"
 # events → telemetry (the per-strategy on-disk event ring, read via `openclaw senpi events`). Telemetry
 # fills each discovery trade's EXIT REASON and, as a standalone stream, the blocked/rejected signal cohort
 # ("what did I miss"). It NEVER reconstructs a trade or re-derives a price/PnL — discovery OWNS those.
+# The `openclaw senpi …` verbs wrap one gateway method each, but on OpenClaw 10.x every verb first
+# copies and hashes the runtime's dependency tree (30-160 s). `gateway call` loads no plugins and takes
+# about 1 s. Vendored from senpi-strategy-ops/scripts/_cli.py (test_name_reader_parity.py pins the copy).
+READ_RPC_MS = 15000
+
+
+def gateway_argv(method, params=None, rpc_timeout_ms=READ_RPC_MS):
+    """The exact `openclaw gateway call` argv for one method (also what `--dry-run` prints). Every
+    call passes its own `--timeout`: the CLI default is 10 s on 5.7, 5.12 and 10.x. Params are JSON
+    with `allow_nan=False`, so a non-finite number raises ValueError here, before anything runs."""
+    return ["openclaw", "gateway", "call", method, "--json", "--timeout", str(int(rpc_timeout_ms)),
+            "--params", json.dumps(params or {}, allow_nan=False)]
+
+
 EVENTS_FIXTURE_ENV = "SENPI_EVENTS_FIXTURE"   # offline test hook: JSON {"<runtime_id>": [entries…]}
 EVENTS_PULL = 500                             # events to pull per runtime before matching (recent ring)
-# `openclaw senpi events` spawnSyncs a SECOND `openclaw gateway call` process, so this timer wraps two CLI
-# boots + the read — a HEALTHY fetch on a loaded host can take several seconds (it exceeded 8s during the
-# incident). Keep it generous; the current-book-only guard already bounds worst-case wall to ~ceil(N/8)×this.
-EVENTS_CALL_TIMEOUT_S = 8                      # per-runtime event shell-out timeout (wraps double CLI boot + read)
+# The `senpi.getEvents` gateway call is one CLI boot + the read. The current-book-only guard bounds
+# worst-case wall to ~ceil(N/8)×this.
+EVENTS_CALL_TIMEOUT_S = 8                      # per-runtime event call timeout, wall clock
+EVENTS_RPC_MS = 6000                           # inside the wall clock, so the gateway's answer wins the race
 EXIT_MATCH_WINDOW_MS = 120000.0               # ±2 min asset+time fallback when there's no order_id
 _EXIT_EVENT_NAMES = ("dsl.closed", "position.closed")
 _MISSED_RESULTS = ("rejected", "blocked")     # signal.outcome results that never became a trade
@@ -715,6 +730,54 @@ def _iso8601(ms):
         return None
 
 
+# Vendored from senpi-strategy-ops/scripts/_cli.py; held identical by
+# senpi-portfolio/tests/test_name_reader_parity.py. Edit both or neither.
+def _kill_tree(p):
+    """Stop a child started with `start_new_session=True` and everything in its process group:
+    SIGTERM to the group, 2 s grace, then SIGKILL to the group ALWAYS, then reap. Never raises.
+
+    The SIGKILL is unconditional: the leader exiting on SIGTERM says nothing about the rest of its
+    group, and a member that ignores SIGTERM would otherwise outlive the call and hold the output
+    pipes open (so the caller's read blocks on it)."""
+    try:
+        os.killpg(p.pid, signal.SIGTERM)
+    except OSError:
+        pass
+    try:
+        p.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    try:
+        p.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def _run_grouped(cmd, timeout):
+    """`subprocess.run` for an `openclaw` call, with what a timeout needs on OpenClaw 10.x: the child
+    runs in its own session with stdin closed and `OPENCLAW_NO_RESPAWN=1` (so `openclaw` stays one
+    process instead of re-executing a detached worker), and on timeout its whole process group is
+    killed (`_kill_tree`: SIGTERM, 2 s, SIGKILL always, reap) before `TimeoutExpired` is raised. Same spawn as
+    senpi-strategy-ops `_cli._spawn`. Raises what `subprocess.run` raises (OSError, TimeoutExpired)."""
+    env = dict(os.environ, SENPI_LOG_LEVEL="error", OPENCLAW_NO_RESPAWN="1")
+    p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         text=True, env=env, start_new_session=True)
+    try:
+        out, err = p.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_tree(p)
+        try:
+            p.communicate(timeout=5)
+        except (subprocess.TimeoutExpired, ValueError, OSError):
+            pass
+        raise subprocess.TimeoutExpired(cmd, timeout)
+    return subprocess.CompletedProcess(cmd, p.returncode, out or "", err or "")
+
+
 def _fetch_events(runtime_id, since_ms, meta):
     """Read a runtime's on-disk event ring → a list of event dicts ({name, ts, attrs, …}). FAIL-OPEN:
     missing `openclaw` / non-zero exit / `unknown method: senpi.getEvents` (older build that lacks the RPC)
@@ -738,12 +801,13 @@ def _fetch_events(runtime_id, since_ms, meta):
         except Exception as e:  # noqa — a bad fixture is fail-open too
             _note_telemetry_unavailable(meta, f"events fixture unreadable ({e})")
             return []
-    cmd = ["openclaw", "senpi", "events", "--runtime", str(runtime_id), "--json", "-l", str(EVENTS_PULL)]
+    params = {"runtimeId": str(runtime_id), "limit": EVENTS_PULL}
     since_iso = _iso8601(since_ms)
     if since_iso:
-        cmd += ["--since", since_iso]
+        params["since"] = since_iso
+    cmd = gateway_argv("senpi.getEvents", params, rpc_timeout_ms=EVENTS_RPC_MS)
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=EVENTS_CALL_TIMEOUT_S)
+        proc = _run_grouped(cmd, EVENTS_CALL_TIMEOUT_S)
     except FileNotFoundError:                # no `openclaw` on PATH (not a runtime host)
         meta["_telemetry_dead"] = True       # no CLI at all → every runtime fails; stop shelling out
         _note_telemetry_unavailable(meta, "openclaw CLI not found; exit reasons from ratchet fallback only")
@@ -758,7 +822,7 @@ def _fetch_events(runtime_id, since_ms, meta):
         _note_telemetry_unavailable(meta, f"event-log read failed ({e})")
         return []
     if proc.returncode != 0:
-        err = (proc.stderr or "")[:200]
+        err = (proc.stderr or proc.stdout or "")[:200]   # 10.x writes a gateway error to stdout, 5.x to stderr
         # older runtime build without the RPC → the CLI reports `unknown method: senpi.getEvents`
         if "unknown method" in err.lower() or "getevents" in err.lower():
             meta["_telemetry_dead"] = True    # build lacks the event RPC → every runtime fails; stop
@@ -1081,16 +1145,13 @@ def _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap):
                 "open_time": open_time,
                 "close_time": t,
                 "closed_order_id": f.get("oid"),
-                # `fee` ALREADY INCLUDES `builderFee` — do not add them. Shown across two wallets on
-                # DIFFERENT loyalty tiers: one at builder 5.00 bps had fee 9.32 taker / 6.44 maker,
-                # one at builder 4.00 bps had 8.32 / 5.44. Subtract the builder leg and both give the
-                # same exchange rate (4.32 / 1.44), and `fee` differs by exactly the builder delta.
-                # `builderFee` is a breakdown line, not a second charge. Summing them overstated one
-                # AVAX round trip $99.92 -> $153.53.
-                # NOTE the builder rate is NOT a constant — from 2026-10-26 it is 0 on a paid plan and
-                # a flat 0.03% without one, and a fill keeps the rate it was signed with, so older
-                # fills carry the old tier rate (0.05% Bronze down to 0.025% Legend). Never hardcode
-                # it; `user_get_senpi_points` returns the user's current rate.
+                # `fee` ALREADY INCLUDES `builderFee` — do not add them. `builderFee` is a breakdown
+                # line, not a second charge: subtract it and two wallets on different builder legs
+                # show the same exchange rate (4.32 / 1.44 bps). Summing them overstated one AVAX
+                # round trip $99.92 -> $153.53.
+                # NOTE Senpi charges no builder fee on a paid plan, but a fill keeps the fee it was
+                # signed with, so an older fill can still carry a builder leg. Never hardcode a rate:
+                # read the fill's own `builderFee` (`user_get_senpi_points` returns the user's rate).
                 "fee": round(_close_fee + _open_fee_consumed, 4),
                 "source": "onchain_fills",
             })

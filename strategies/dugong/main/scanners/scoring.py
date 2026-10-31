@@ -25,9 +25,9 @@ def roundtrip_fee_pct(inputs, maker_entry=True):
     """Fees as a PERCENT of notional for one round trip (entry + exit).
 
     A CEILING, not a quote. The venue's BASE rates: the account's HL volume tier only lowers them.
-    Senpi's builder fee depends on the account, so no rate is assumed for it — a wallet that wants
-    it counted sets builderFeeBps to its own rate, charged on BOTH legs. It exists for one job —
-    refusing a harvest target too small to clear a round trip. In dugong both sides of the gate are
+    Senpi adds no fee on a paid plan, so none is assumed — `builderFeeBps` counts another fee on
+    BOTH legs if an account sets it. It exists for one job — refusing a harvest target too small to
+    clear a round trip. In dugong both sides of the gate are
     in PRICE percent: the 1.4% harvest against a 0.18% hurdle (a 0.06% venue round trip, x3). It is
     inert at the shipped harvest and only bites if someone tunes the harvest down.
     """

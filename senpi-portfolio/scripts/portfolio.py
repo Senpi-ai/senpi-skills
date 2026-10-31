@@ -31,6 +31,7 @@ import calendar
 import json
 import math
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -51,9 +52,23 @@ QUIET_AFTER_HOURS = 48      # a strategy whose newest CLOSE is older than this i
 #   catalog  (templates only, our packages)                      →  extra facets when present
 # Neither is agent memory; the runtime outranks the catalog.
 
+# The `openclaw senpi …` verbs wrap one gateway method each, but on OpenClaw 10.x every verb first
+# copies and hashes the runtime's dependency tree (30-160 s). `gateway call` loads no plugins and takes
+# about 1 s. Vendored from senpi-strategy-ops/scripts/_cli.py (test_name_reader_parity.py pins the copy).
+READ_RPC_MS = 15000
+
+
+def gateway_argv(method, params=None, rpc_timeout_ms=READ_RPC_MS):
+    """The exact `openclaw gateway call` argv for one method (also what `--dry-run` prints). Every
+    call passes its own `--timeout`: the CLI default is 10 s on 5.7, 5.12 and 10.x. Params are JSON
+    with `allow_nan=False`, so a non-finite number raises ValueError here, before anything runs."""
+    return ["openclaw", "gateway", "call", method, "--json", "--timeout", str(int(rpc_timeout_ms)),
+            "--params", json.dumps(params or {}, allow_nan=False)]
+
+
 # ASK THE RUNTIME, don't guess at its files. Every registry-derived field on this surface comes from
-# this ONE command — the process that owns the registry, answering through its own CLI.
-RUNTIME_LIST_CMD = ["openclaw", "senpi", "runtime", "list", "--json"]
+# this ONE call — the process that owns the registry, answering through the gateway.
+RUNTIME_LIST_CMD = gateway_argv("senpi.listRuntimes")
 RUNTIMES_FIXTURE_ENV = "SENPI_RUNTIMES_FIXTURE"     # offline test hook (see load_runtime_registry)
 # The producer's exact blind-runtime status is `running — NO ENTRY SCANNERS` (em dash, U+2014). Matched
 # on the phrase, not the whole string, so a dash/spacing drift cannot silently repaint blind as healthy.
@@ -68,7 +83,7 @@ STATUS_FIXTURE_ENV = "SENPI_STATUS_FIXTURE"
 # ONE call for every runtime's health — the document `senpi-strategy-ops/scripts/_cli.py`'s
 # `runtime_health_map` reads. A per-runtime `status -r <id>` costs a plugin start each (~2-3 s) and
 # ran sequentially, so the `strategies` step grew with the runtime count and blew the exec window.
-FLEET_STATUS_CMD = ["openclaw", "senpi", "status", "--json"]
+FLEET_STATUS_CMD = gateway_argv("senpi.getHealthStatus")
 
 CATALOG_REF = os.environ.get("SENPI_SKILLS_REF", "main")
 CATALOG_URL = f"https://raw.githubusercontent.com/Senpi-ai/senpi-skills/{CATALOG_REF}/strategies/catalog.json"
@@ -84,29 +99,84 @@ CATALOG_KEYS = ("belief_plain", "thesis", "archetype", "archetype_label", "sub_s
 SPAWN_FAILED_PREFIX = "command not found: "
 
 
+def _cli_env():
+    """The child env every openclaw call gets.
+
+    SENPI_LOG_LEVEL=error keeps the senpi plugin's info logs (printed to STDOUT) out of `--json`
+    output. OPENCLAW_NO_RESPAWN=1 keeps the CLI in ONE process: `openclaw` otherwise re-executes
+    itself to add node flags, and on OpenClaw 10.x, when stdio is not a TTY (always the case here),
+    that worker is spawned `detached` into its own process group (`entry.respawn.ts`,
+    `process/respawn-child-runner.ts`). A group kill of our child then misses the worker, and a
+    timed-out START keeps running and can still deliver after this script reported (RT566-08). The
+    flag is honoured by 5.7, 5.12 and 10.10 (`entry.respawn.ts`, `isTruthyEnvValue(env.OPENCLAW_NO_RESPAWN)`)."""
+    return dict(os.environ, SENPI_LOG_LEVEL="error", OPENCLAW_NO_RESPAWN="1")
+
+
+def _kill_tree(p):
+    """Stop a child started with `start_new_session=True` and everything in its process group:
+    SIGTERM to the group, 2 s grace, then SIGKILL to the group ALWAYS, then reap. Never raises.
+
+    The SIGKILL is unconditional: the leader exiting on SIGTERM says nothing about the rest of its
+    group, and a member that ignores SIGTERM would otherwise outlive the call and hold the output
+    pipes open (so the caller's read blocks on it)."""
+    try:
+        os.killpg(p.pid, signal.SIGTERM)
+    except OSError:
+        pass
+    try:
+        p.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    try:
+        p.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def _spawn(args, timeout):
+    """Run `args` in its own session with stdin closed. Returns
+    `(rc, stdout, stderr, timed_out, spawn_error)`. On timeout the whole process group is killed
+    (`_kill_tree`), so nothing the call started outlives the answer this script gives."""
+    try:
+        p = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, env=_cli_env(),
+                             start_new_session=True)
+    except OSError as e:
+        return -1, "", "", False, e
+    try:
+        out, err = p.communicate(timeout=timeout)
+        return p.returncode, out or "", err or "", False, None
+    except subprocess.TimeoutExpired:
+        _kill_tree(p)
+        try:
+            out, err = p.communicate(timeout=5)
+        except (subprocess.TimeoutExpired, ValueError, OSError):
+            out, err = "", ""
+        return -1, out or "", err or "", True, None
+
+
 def _run_cli(args, timeout=60):
     """Run a CLI command; return (returncode, stdout, stderr). rc=-1 on spawn failure/timeout —
     `SPAWN_FAILED_PREFIX` on stderr distinguishes the never-ran case from the stopped-waiting one.
     NEVER raises for a failure to run: EVERY spawn-side OSError is caught, not just the missing
     binary, because a caller that dies here takes the whole script's output with it.
 
-    Suppresses the senpi plugin's info logs (which it prints to STDOUT and which otherwise corrupt
-    `--json` output) by forcing SENPI_LOG_LEVEL=error in the child env."""
-    env = dict(os.environ, SENPI_LOG_LEVEL="error")
-    try:
-        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
-        return p.returncode, p.stdout, p.stderr
-    except subprocess.TimeoutExpired:
-        return -1, "", f"timed out after {timeout}s: {' '.join(args)}"
-    except OSError as e:
+    The child runs in its own process group with stdin closed, and a timeout kills the whole group
+    (see `_cli_env` for why one process is not enough on 10.x)."""
+    rc, out, err, timed_out, spawn_error = _spawn(args, timeout)
+    if spawn_error is not None:
+        e = spawn_error
         # The command NEVER RAN. FileNotFoundError (no such binary) is the common case; the rest are
-        # fork/exec failures a strained box really does produce — ENOMEM ("Cannot allocate memory"),
-        # EAGAIN (process-table exhaustion), EACCES, ENOEXEC. All of them are the never-ran event, so
-        # all of them carry SPAWN_FAILED_PREFIX: the distinction the money path makes is never-ran vs
-        # stopped-waiting, and only a timeout is the latter. Catching only FileNotFoundError let an
-        # ENOMEM fork failure propagate out of the read and kill the caller mid-run.
+        # fork/exec failures a strained box really does produce (ENOMEM, EAGAIN, EACCES, ENOEXEC).
         return -1, "", f"{SPAWN_FAILED_PREFIX}{args[0]}" + ("" if isinstance(e, FileNotFoundError)
                                                             else f" ({e})")
+    if timed_out:
+        return -1, "", f"timed out after {timeout}s: {' '.join(args)}"
+    return rc, out, err
 
 
 def _extract_json(text):
@@ -292,8 +362,8 @@ def _runtime_read_failed(meta, cause):
 def load_runtime_registry(meta):
     """wallet_lower → the engine's rendered descriptor, for every runtime the RUNTIME says it has.
 
-    SOURCE: `openclaw senpi runtime list --json` — the process that owns the registry, asked through
-    its own CLI. This used to resolve `~/.openclaw/senpi-state` by hand, which is `/root/…` on a box
+    SOURCE: the `senpi.listRuntimes` gateway method — the process that owns the registry, asked
+    directly. This used to resolve `~/.openclaw/senpi-state` by hand, which is `/root/…` on a box
     where OpenClaw lives under `/data/…`: the read failed on every real host and said nothing.
     FAIL-LOUD: a failed read returns (None, None, None) — three Nones, NOT empty maps — so callers
     render "could not verify" rather than a reassuring false. Offline test hook:
@@ -394,7 +464,7 @@ def _fleet_statuses(meta):
     for _ in range(2):
         rc, out, err = _run_cli(FLEET_STATUS_CMD, timeout=30)
         if rc != 0:
-            head = (err or "")[:200]
+            head = (err or out or "")[:200]       # 10.x writes a gateway error to stdout, 5.x to stderr
             if head.startswith(SPAWN_FAILED_PREFIX) or "unknown method" in head.lower():
                 return None                        # a dead host; the per-id path says so once and stops
             continue
@@ -443,9 +513,9 @@ def _fetch_runtime_status(runtime_id, meta):
         # fleet document does not list gets an EMPTY `statuses` — the same answer the per-id call
         # gives for a runtime that is registered but not running — which maps to 'unknown'.
         return {"ok": True, "statuses": [r for r in fleet if _record_is(r, runtime_id)]}
-    rc, out, err = _run_cli(["openclaw", "senpi", "status", "-r", str(runtime_id), "--json"], timeout=20)
+    rc, out, err = _run_cli(gateway_argv("senpi.getHealthStatus", {"runtimeId": str(runtime_id)}), timeout=20)
     if rc != 0:
-        err = (err or "")[:200]
+        err = (err or out or "")[:200]            # 10.x writes a gateway error to stdout, 5.x to stderr
         if err.startswith(SPAWN_FAILED_PREFIX):   # not a runtime host → every call fails; stop shelling out
             meta["_telemetry_dead"] = True
             _note_telemetry_unavailable(meta, "openclaw CLI not found — runtime liveness unverified")

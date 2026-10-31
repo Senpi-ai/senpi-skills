@@ -97,7 +97,7 @@ instance — which is also how each instance gets its own proof.
 
 ### `[E_DEPLOY_IN_PROGRESS]`
 
-Another deploy is running. Watch it (`deploy status`). There is nothing
+Another deploy is running. Watch it (`python3 deploy.py status`) and do not re-run `create`. There is nothing
 to cancel; a wedged job times out and frees the slot on its own.
 
 ### `[E_ROLLBACK_INCOMPLETE]`
@@ -166,7 +166,7 @@ to take yourself.
 
 **Delete nothing.** `openclaw senpi runtime delete` removes the row the in-flight install is about to
 bind, and `close.py` would tear down a wallet that is seconds from being watched. Read instead —
-`openclaw senpi deploy status`, then `openclaw senpi runtime list` — and once a row names the wallet,
+`python3 deploy.py status`, then `openclaw senpi runtime list` — and once a row names the wallet,
 re-run the same deploy command. A re-run adopts the wallet; it does not fund a second one.
 
 ### A live `<id>` strategy that is PAUSED (or mid-teardown)
@@ -224,7 +224,7 @@ and does this for this reason only. If that re-validation does not PASS it print
 findings and does **not** re-run the deploy — fix those, then re-run.
 That repair is the one **automatic** path that can run past the ~150s poll (re-validate + a
 second poll); an explicit `--max-wait` above 150 is the other, and you asked for that one.
-**If the call is killed mid-repair, nothing was created** — read `openclaw senpi deploy status`
+**If the call is killed mid-repair, nothing was created** — read `python3 deploy.py status`
 and do NOT re-run `create`; the repair note is printed to stderr before validation starts, so a
 killed call still says what it was doing. Deploy needs **every**
 instance proven and stops at the first that is not, so on a multi-instance package expect to be
@@ -254,14 +254,69 @@ debited**; the budget never left the funding wallet. No retry refills the pool: 
   (that is a live strategy with the user's money in it, and it does nothing for the pool); or tell the
   user Senpi is down (it is not — other accounts are deploying).
 
+### `SERR183` — the plan's limit on running strategies
+
+Reaches you as a **`failed` report (exit 3)** on `create` with the backend's text quoted
+(`SERR183: Your Pro plan allows 3 running strategies and you have 3. Close one or upgrade your plan
+to start another.`), or as the raw MCP error if a create was called directly. This is the user's plan,
+not a defect: the limit counts every strategy that is not closed, closing or failed, paused ones included.
+**Nothing was created** by the refused create and nothing was debited for it. The check is per wallet,
+so on a multi-instance package the sleeves created before it may be live: read `status.py <id>` and
+say which ones are.
+
+- **Tell the user in one or two sentences.** Quote the backend's sentence (it names the plan, the
+  limit and the count), then the two ways forward: close one of their running strategies, or upgrade
+  their plan. When the count is above the limit (the plan's limit was lowered, e.g. "allows 2 … and you
+  have 4"), closing one is not enough: they need to close enough to get under it (here, 3). When the
+  limit is 0, upgrading is the only way forward: the sentence still says "Close one", but there is
+  nothing to close.
+- **Closing is the user's call**: the user picks which one. When they name it, that is an ordinary
+  teardown they asked for (`close.py <id>`, or `--instance` for one sleeve). Do not suggest which one.
+- **Try again only after the user has closed one or upgraded** and asks: then re-run the same
+  `deploy.py create` command once. It adopts any sleeve that already exists.
+- **Never**: re-run on a timer or in a loop (the count does not change on its own); close a strategy on
+  the user's behalf, or pick one for them, to make room; split the request into smaller creates (deploy
+  fewer sleeves, or call `strategy_create` / `strategy_create_custom_strategy` directly; every create
+  is counted, and a raw create is not a runtime strategy); or tell the user Senpi is down.
+
+### `SERR184` — the plan's limit on new strategies per billing cycle
+
+Reaches you as a **`failed` report (exit 3)** on `create` with the backend's text quoted, or as the
+raw MCP error if a create was called directly. The text takes one of two forms:
+
+- for a user on a plan or trial, per billing cycle: `SERR184: Your Pro plan allows 5 new strategies
+  per billing cycle. Your count resets at 2026-11-14 00:00 UTC, or upgrade your plan.`
+- for a user without one, the last 30 days: `SERR184: Your free account allows 1 new strategies
+  per 30 days. Your next one frees up at 2026-11-02 14:00 UTC, or upgrade your plan.`
+
+This is the user's plan, not a defect: every strategy started in the current billing cycle (the last
+30 days without a plan) counts, except ones that failed while being set up. **Nothing was created** by
+the refused create and nothing was debited for it. The check is per wallet, so on a multi-instance
+package the sleeves created before it may be live: read `status.py <id>` and say which ones are.
+
+- **Tell the user in one or two sentences.** Quote the backend's sentence (it names the plan, the
+  limit and the time the backend names, in UTC: when the count resets or the next start frees up),
+  then the two ways forward: wait until that time, or upgrade their plan. When the sentence names no
+  time (a limit of 0), upgrading is the only way forward; never estimate a time.
+- **Closing a strategy does not free a start**: a closed strategy still counts until the count resets
+  or its 30 days pass. Do not offer closing as a way forward.
+- **Try again only after that time has passed or the user has upgraded** and asks: then re-run the
+  same `deploy.py create` command once. It adopts any sleeve that already exists.
+- **Never**: re-run on a timer or in a loop (and never set a timer to retry at the stated time; the
+  user decides); close a strategy on the user's behalf (it frees nothing); split the request into
+  smaller creates (deploy fewer sleeves, or call `strategy_create` / `strategy_create_custom_strategy`
+  directly; every create is counted, and a raw create is not a runtime strategy); or tell the user
+  Senpi is down.
+
 ## Budget warnings (`W_`)
 
 **The `W_` prefix means WARNING — it blocked nothing.** Every `E_` code stops something; a `W_`
 code never does. A warn rides `failed` and `pending` reports too, so `overall` — not the presence of
 a `W_` — is what says whether the deploy went through. The four budget codes below are the `W_` ones. They ride a
 `live` report as `minBudget` / `minWalletCount` / `belowMin` / `minBudgetNote` / `minBudgetUnresolved`
-/ `partialFundNote` (printed as `calculated minimum:` and `warn:` lines by `deploy status`), and they
-persist on the snapshot — a later `deploy status` re-renders the same warn. The first two judge the
+/ `partialFundNote` — fields of the job snapshot that `deploy.py status` / `create` print as-is (the
+`[W_…]` code opens the note's text) — and they persist on the snapshot: every later `deploy.py status`
+shows the same warn. The first two judge the
 funding **plan**; the last two judge what the backend actually **landed** (`[W_BUDGET_PARTIAL_FUND]`
 when the figure read short, `[W_BUDGET_FUNDED_UNREADABLE]` when no figure could be read at all — the
 whole point of the second is that it is never conflated with the first). A report can carry both
@@ -305,7 +360,7 @@ kinds.
   the requested one**; saying "$500 deployed" over a $60 book is the failure this code exists to stop.
   **Do not close the strategy over the shortfall** (that is a rule about this code; it never overrides
   a close another line on the report instructs — see `[E_ROLLBACK_INCOMPLETE]`). Those figures
-  are **as at deploy time** and the note re-renders on every later `deploy status`, so **re-read the
+  are **as at deploy time** and the note stays on the snapshot every later `deploy.py status` prints, so **re-read the
   current funding first**: `status.py <id>`, then add whatever difference it still shows via the
   `senpi-deposit-withdraw-transfer` skill (deploy never adds funds to an existing wallet, so
   re-running at the same `--budget` only adopts it). Acting on the stale figure tops up twice.

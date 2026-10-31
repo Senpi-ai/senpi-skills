@@ -22,7 +22,7 @@ description: >-
   is applied here (update --apply), never parked "for the next position". A strategy is a PACKAGE (strategy.yaml + one runtime.yaml per instance +
   scanners/) the runtime supervises in-process — no scanner daemon. `deploy.py
   create <id> --budget <usd>` takes a package live end to end (it gates the package,
-  then runs the runtime's detached deploy job; watch with `senpi deploy status`);
+  then runs the runtime's detached deploy job; watch with `deploy.py status`);
   close.py tears down (stop runtime + strategy_close → flattens positions,
   returns funds). Before the budget question ops runs THE WALKTHROUGH (Step 0.75):
   what the template does, how it is set, the two levers worth shifting — all in
@@ -33,7 +33,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.27.15"
+  version: "3.29.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -55,15 +55,15 @@ openclaw senpi validate <recipe-dir>                                    # 0a. do
 python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py validate <id>              # 0b. preflight — structurally deploy-ready? (no money, nothing installed; a bare id is fetched to disk)
 python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py fork <id>                  # 0c. their copy on disk — only when levers move before funding
 python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py create <id> --budget <usd> # 1. THE FUNDED PATH: forks it under their username, proves it, starts the deploy
-openclaw senpi deploy status                                            # 2. poll until terminal; read the verified report
+python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py status                    # 2. read the job until terminal; the verified report (read-only)
 python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/status.py                            # what am I running? (+ health)
 python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/close.py <id> | --all                # teardown one strategy | EVERY open strategy
 ```
 **"Install"/"reinstall <name>" = `deploy.py create <id>`** — a strategy is a package, not an openclaw/clawhub skill; not on disk just means fetch it by id. **Fund through `deploy.py create|runtime <id>`, not through the bare verb.** Both resolve the package,
 run the structural preflight, then start the runtime's `senpi deploy` job, poll it, and relay its
 report **verbatim**. The wrapper's value is resolution, that structural pass and the verbatim relay —
-**not** a gate the verb lacks: the live-universe gate is the verb's own and it fires **pre-money**. Use
-the bare verb for the read-only `openclaw senpi deploy status`, and whenever resolution is not needed.
+**not** a gate the verb lacks: the live-universe gate is the verb's own and it fires **pre-money**.
+Both call `openclaw gateway call senpi.*` (~1 s; the verbs take 30-160 s on 10.x): read the job with **`deploy.py status`**.
 **Always tear down through `close.py`** (one `<id>` or `--all`) — it deletes the runtime *and* closes
 the strategy. A raw `strategy_close` MCP call closes the strategy but **leaves the runtime
 registered**, which collides on the next deploy.
@@ -153,7 +153,7 @@ own** sizing needs still **deploys**, with a `[W_BUDGET_BELOW_STRATEGY_MIN]` war
 python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py create spider --budget 300   # username PurpleFrog → purplefrog-spider, "PurpleFrog's Spider"
 ```
 It validates locally, starts the job — which itself refuses pre-money on a dead universe — then polls
-`deploy status` and prints the verb's report verbatim. Flags: `--decision-model <model>` (only for a
+the job's record (`senpi.deploy.status`, the same read `deploy.py status` does) and prints its report verbatim. Flags: `--decision-model <model>` (only for a
 `decision_mode: llm` action), `--tick-wait <s>` (tick-observation window, default 120; **`0` skips it
 and can then never report `live`**), `--max-wait <s>` (ACTIVE-wallet wait, default 150 — an explicit
 value also becomes `deploy.py`'s own poll budget), `--json` (clean stdout, notes on stderr).
@@ -170,12 +170,12 @@ and **confirm the split before funding**.
 poll` it until it exits) — with one bounded exception, the stale-proof repair
 ([`references/refusal-playbook.md`](references/refusal-playbook.md)), whose note reaches stderr
 *before* validation starts, so **a call killed mid-repair still says nothing was created**: read
-`openclaw senpi deploy status`, and do NOT re-run `create`. A job still running at the lapse is **exit
+`deploy.py status`, and do NOT re-run `create`. A job still running at the lapse is **exit
 `6` / pending** with the snapshot and the command to watch it — normal on a slow funding leg or a long
-scanner interval, **not** a failure and not a reason to re-run `create`.
+scanner interval, **not** a failure and not a reason to re-run `create`. Nor is exit `1` with **a job MAY BE RUNNING** (a lost START reply): run `deploy.py status` until it shows the job (by its request id, or the start time named) with an outcome, and never re-run `create`.
 
 Inside the job, per instance: **reconcile → preflight → create → install → observe** — the phase names
-`deploy status` prints while it runs; an existing live wallet is adopted at reconcile, never
+`deploy.py status` prints while it runs; an existing live wallet is adopted at reconcile, never
 duplicated, and only a **fresh** tick counts at observe. Per-step mechanics:
 [`references/lifecycle.md`](references/lifecycle.md).
 
@@ -183,20 +183,20 @@ duplicated, and only a **fresh** tick counts at observe. Per-step mechanics:
 **There is no `cancel` verb:** undeploying is closing the strategy (`close.py <id>`), not stopping the
 job; a wedged deploy abandons itself at a step boundary and frees the slot on its own.
 
-**Step 2 — poll `openclaw senpi deploy status` until it is terminal.** While running it prints the phase
+**Step 2 — read `deploy.py status` until it is terminal.** While running it prints the phase
 as an in-progress fact; once terminal, the per-instance report with its evidence quoted (`totalFunded`,
 the scanner row's `lastRunStatus`/`runCount`).
 
 **Terminal outcomes** — the exit code and the report's `overall` are one branch table (for both
-`openclaw senpi deploy status` and `deploy.py`):
+`deploy.py status` and `deploy.py create`):
 
 | exit | `overall` | Meaning | What to do |
 |---|---|---|---|
-| `0` | `live` | every instance installed **and** a scanner tick observed | report live + the **How it runs** block. A `warn:` line (`[W_BUDGET_*]`) may ride a `live` report — relay it; it did **not** stop the deploy (see the relay contract below) |
+| `0` | `live` | every instance installed **and** a scanner tick observed | report live + the **How it runs** block. A `[W_BUDGET_*]` warn may ride a `live` report — relay it; it did **not** stop the deploy (see the relay contract below) |
 | `4` | `installed-unobserved` | installed, no tick seen inside `--tick-wait` (or `--tick-wait 0` skipped the check) | say exactly that; check `openclaw senpi scanner -r <runtimeId>` in a few minutes. External scanners legitimately tick on long intervals. **`--tick-wait 0` can never report `live`** — nothing was verified |
-| `6` | `pending` | a wallet still funding, or the job still running when the poll budget ran out | re-run the same deploy command — it resumes and adopts the wallet |
+| `6` | `pending` | the job still running when the poll budget ran out, **or** the job ended with a wallet still funding | still running: read `python3 deploy.py status` until it shows the outcome, and do not re-run `create`. Ended `pending` (status shows it done): re-run the same deploy command — it resumes and adopts the wallet |
 | `2` | `refused` | a gate said no (`[E_FUNDS_*]`, `[E_VALIDATE_*]`, `[E_UNIVERSE_NOT_LIVE]`, `[E_STATE_AMBIGUOUS_WALLETS]`, `[E_INSTANCE_BINDING_UNKNOWN]`, `[E_WALLET_OWNED_BY_OTHER_PACKAGE]`, `[INVALID_REQUEST]`) | **do what the refusal's code says** — per-code depth in [`references/refusal-playbook.md`](references/refusal-playbook.md); nothing was created past it |
-| `3` | `failed` | a step genuinely failed (backend rejection, install error, scanner erroring) | read the quoted cause, fix it, re-run — **except `[E_INSTALL_INDETERMINATE]`** (an install whose outcome is UNKNOWN — nothing to fix, and the money may still be out: do its read first) **and `[E_WALLET_INSTALL_IN_FLIGHT]`** (a race, not a defect — "fix it" is not "clear the stuck install"; **never** `runtime delete` here) **and a backend `SERR124`** (this account's pool of strategy wallets is empty — a per-account condition, nothing was created or debited: tell the user, route it to Senpi support, one later attempt after they confirm, never a retry loop). All three: per [`references/refusal-playbook.md`](references/refusal-playbook.md) |
+| `3` | `failed` | a step genuinely failed (backend rejection, install error, scanner erroring) | read the quoted cause, fix it, re-run — **except `[E_INSTALL_INDETERMINATE]`** (an install whose outcome is UNKNOWN — nothing to fix, and the money may still be out: do its read first) **and `[E_WALLET_INSTALL_IN_FLIGHT]`** (a race, not a defect — "fix it" is not "clear the stuck install"; **never** `runtime delete` here) **and a backend `SERR124`** (this account's pool of strategy wallets is empty — a per-account condition, nothing was created or debited: tell the user, route it to Senpi support, one later attempt after they confirm, never a retry loop) **and a backend `SERR183` / `SERR184`** (the user's plan limit on running strategies / new strategies per billing cycle (the last 30 days without a plan); nothing was created: quote the limit, offer closing one themselves (`SERR183` only), waiting until the stated time (`SERR184` only: when the count resets or the next start frees up) or an upgrade; never retry, never close a strategy for them, never split the deploy into smaller creates). All of these: per [`references/refusal-playbook.md`](references/refusal-playbook.md) |
 | `5` | `interrupted` | a gateway restart killed the job mid-run | **nothing resumes on its own** — re-run the deploy; it reconciles |
 
 **`2` is any gate saying no with nothing created past it** — the verb's refusals, and `deploy.py`'s own
@@ -342,7 +342,7 @@ each instance's `external_scanner` has a recent successful tick. Confirm it on a
 above) and nothing here is it:
 - `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py verify <id>` — the per-instance verdict over the surfaces below
 - `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/status.py <id>` — the fleet view + each runtime's own health verdict
-- `openclaw senpi deploy status` / `deploy.py status [<id>]` — the agent's ONE last-deploy-job record
+- `deploy.py status [<id>]` — the agent's ONE last-deploy-job record
 - `openclaw senpi scanner -r <runtime_id>` — the scanner rows. External: live when `alive` is recent; `health` second — `degraded`/`unhealthy` + `last=error` + fresh `alive` = a past delivery error (read `reason`); `unhealthy` + `inFlight=true`, or a crash-loop reason = real fault; `unknown` + `alive=—` = not heard from yet
 - `openclaw senpi status -r <runtime_id> --json` / `state -r <runtime_id> --json`; liveness decision
   tree → [`references/liveness-verification.md`](references/liveness-verification.md); DSL / action /

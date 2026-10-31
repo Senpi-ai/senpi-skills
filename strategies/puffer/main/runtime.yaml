@@ -4,19 +4,15 @@
 # the coil, and trades the release — never the coil itself, which is how a strategy
 # dies by a thousand small cuts. NEVER closes — DSL owns every exit.
 #
+# 1.2.0 (2026-10-27): the fee gate prices a round trip at the venue's base rates — 4.5 bps taker,
+#   1.5 bps maker per side, 0.06% maker-in/taker-out; Senpi adds no fee on a paid plan. The cover
+#   multiple (2.5x) is unchanged, so the capture the tape must offer is 0.15% of price.
 # 1.1.0 (2026-10-12), from the template audit's 208-day replay on four majors, as 1.0 was written:
 #   - it traded about seven times per coin per month with 28% winners, and 88% of its live
 #     closes were the exchange stop. The 8% ROE stop sat 1.6% of price away at 5x — inside the
 #     release candle's own range — so a break was stopped on noise before the expansion could
 #     pay. The stop is now 12% ROE = 3.0% of price at 4x. How often the wider stop trips has
 #     not been measured; the card makes no frequency promise for it.
-#   - the fee gate priced a round trip at 0.06% (4.5 bps taker + 1.5 bps maker: HL's base
-#     fee alone, without the Senpi builder fee every wallet also pays). The defaults are now
-#     8 bps taker / 6 bps maker per side, HL + builder fee as measured on live fills: 0.14%
-#     maker-in/taker-out, 0.16% taker/taker. The builder fee follows the plan (none on a paid
-#     plan, a flat 0.03% without one; `user_get_senpi_points` `builderFeePercent`), so a wallet's
-#     own rate differs. The cover multiple (2.5x) is unchanged, so the capture the tape must
-#     offer moves from 0.15% to 0.35% of price.
 #   - sizing: four slots at 20% margin and 4x everywhere (was five slots at 10-12% and 4-5x by
 #     conviction band). The bands still rank candidates; they no longer change the size.
 #   - the first ratchet rung locks 40% of high-water (was 25%); the three clock cuts are
@@ -32,8 +28,8 @@ description: >
   (3.0% of price at 4x) plus a gains-only profit ratchet that locks 40% of high-water from
   +20% ROE and runs to +100% (no trailing stop, no breakeven exits, no time cuts: an
   expansion is exactly the move you must not cut short). The fee gate defaults to
-  8 bps taker / 6 bps maker per side (HL + Senpi builder fee, measured on live fills);
-  the builder fee is per user and volume-tiered, so set them to the wallet's own rate.
+  the venue's base rates, 4.5 bps taker / 1.5 bps maker per side (Senpi adds no fee on a
+  paid plan); your HL volume tier only lowers them.
 
 strategy:
   wallet: "${PUFFER_WALLET}"
@@ -62,15 +58,13 @@ scanners:
       maxUniverse: 30
       maxSlots: 4                     # = strategy.slots
       recentSignalTtlSeconds: 21600   # 6h per-name debounce
-      # ── fee gate — per side, HL fee + the Senpi builder fee as measured on live fills (1.1.0;
-      # 1.0 shipped HL's base 4.5/1.5 bps alone, 0.06% a round trip). The builder fee follows the
-      # plan (none on a paid plan, a flat 0.03% without one; `user_get_senpi_points`
-      # `builderFeePercent`): set these to the wallet's own rate. A round trip is
-      # the entry plus a taker exit (the DSL closes): 0.14% maker-in, 0.16% taker-in;
-      # x feeCoverMultiple is the capture the tape must offer before a release is tradeable. ──
-      takerFeeBps: 8
-      makerFeeBps: 6
-      feeCoverMultiple: 2.5           # required capture = 0.35% of price (was 0.15% at the base-schedule fees)
+      # ── fee gate — per side, the venue's BASE rates (your HL volume tier only lowers them;
+      # Senpi adds no fee on a paid plan). A round trip is the entry plus a taker exit (the DSL
+      # closes): 0.06% maker-in, 0.09% taker-in; x feeCoverMultiple is the capture the tape must
+      # offer before a release is tradeable. ──
+      takerFeeBps: 4.5
+      makerFeeBps: 1.5
+      feeCoverMultiple: 2.5           # required capture = 0.15% of price (maker-in)
       atrPeriod: 14
       atrCaptureFraction: 0.6         # an expansion gives back more of ATR than a scalp
       # ── the squeeze ──

@@ -949,8 +949,8 @@ def test_event_timeout_fails_open_without_a_breaker():
     old_ev = os.environ.pop("SENPI_EVENTS_FIXTURE", None)   # force the subprocess path, not the fixture
     def _raise_timeout(*a, **k):
         raise _sp.TimeoutExpired(cmd="openclaw", timeout=review.EVENTS_CALL_TIMEOUT_S)
-    real_run = review.subprocess.run
-    review.subprocess.run = _raise_timeout
+    real_run = review._run_grouped
+    review._run_grouped = _raise_timeout
     try:
         meta = {}
         assert review._fetch_events("rt-1", NOW_MS, meta) == []            # fail-open for this strategy
@@ -958,9 +958,110 @@ def test_event_timeout_fails_open_without_a_breaker():
         assert "_telemetry_dead" not in meta                               # ONE timeout is not terminal
         assert not hasattr(review, "EVENTS_TIMEOUT_BUDGET")                # the dead breaker constant is gone
     finally:
-        review.subprocess.run = real_run
+        review._run_grouped = real_run
         if old_ev is not None:
             os.environ["SENPI_EVENTS_FIXTURE"] = old_ev
+
+
+def test_events_are_a_direct_gateway_call_reading_the_raw_answer():
+    """`senpi.getEvents` with the numeric limit (10.x drops a string one) and the raw `{entries}` answer."""
+    import subprocess as _sp
+    seen = {}
+
+    def _answer(cmd, timeout):
+        seen.update(cmd=cmd, timeout=timeout)
+        return _sp.CompletedProcess(cmd, 0, json.dumps({"entries": [{"name": "dsl.closed"}, "junk"], "address": "0x1"}), "")
+    real_run = review._run_grouped
+    review._run_grouped = _answer
+    try:
+        entries = review._fetch_events("rt-1", NOW_MS, {})
+    finally:
+        review._run_grouped = real_run
+    assert entries == [{"name": "dsl.closed"}]
+    assert seen["cmd"][:4] == ["openclaw", "gateway", "call", "senpi.getEvents"]
+    assert seen["cmd"][seen["cmd"].index("--timeout") + 1] == str(review.EVENTS_RPC_MS)
+    params = json.loads(seen["cmd"][-1])
+    assert params["runtimeId"] == "rt-1" and params["limit"] == review.EVENTS_PULL and "since" in params
+
+
+def test_a_10x_unknown_method_on_stdout_stops_further_event_calls():
+    import subprocess as _sp
+    env = json.dumps({"ok": False, "error": {"type": "gateway_request_error", "message": "unknown method: senpi.getEvents"}})
+    real_run = review._run_grouped
+    review._run_grouped = lambda cmd, timeout: _sp.CompletedProcess(cmd, 1, env, "")
+    meta = {}
+    try:
+        assert review._fetch_events("rt-1", NOW_MS, meta) == []
+    finally:
+        review._run_grouped = real_run
+    assert meta.get("_telemetry_dead") is True
+
+
+def test_an_event_read_timeout_kills_the_calls_whole_process_group(tmp_path):
+    """On OpenClaw 10.x a timed-out `openclaw` left its worker running (it respawns detached). The
+    event read runs the call in its own session and kills the whole group on timeout, so a child the
+    call started does not outlive the read. Real processes: a sleeper that starts its own sleeper."""
+    import subprocess as _sp
+    import sys as _sys
+    import time as _time
+    pidf = tmp_path / "grandchild.pid"
+    script = (f"import subprocess,time;p=subprocess.Popen(['sleep','60']);"
+              f"open({str(pidf)!r},'w').write(str(p.pid));time.sleep(60)")
+    t0 = _time.time()
+    try:
+        review._run_grouped([_sys.executable, "-c", script], 1.5)
+        raise AssertionError("expected TimeoutExpired")
+    except _sp.TimeoutExpired:
+        pass
+    assert _time.time() - t0 < 10
+    gpid = int(pidf.read_text())
+    deadline = _time.time() + 5
+    def gone():
+        st = _sp.run(["ps", "-o", "stat=", "-p", str(gpid)], capture_output=True, text=True).stdout.strip()
+        return st == "" or st.startswith("Z")
+    while not gone() and _time.time() < deadline:
+        _time.sleep(0.1)
+    assert gone(), "the event call's own child outlived the timeout"
+
+
+def test_an_event_read_timeout_kills_a_sigterm_ignoring_member_when_the_leader_exits(tmp_path):
+    """The leader exits on SIGTERM; its child ignores SIGTERM. The group SIGKILL must still follow."""
+    import os as _os
+    import subprocess as _sp
+    import sys as _sys
+    import time as _time
+    pidf = tmp_path / "member.pid"
+    leader = ("import subprocess,sys,time\n"
+              "m=subprocess.Popen([sys.executable,'-c',"
+              "'import signal,time;signal.signal(signal.SIGTERM,signal.SIG_IGN);time.sleep(60)'])\n"
+              "open(sys.argv[1],'w').write(str(m.pid))\n"
+              "time.sleep(60)\n")
+    t0 = _time.time()
+    try:
+        review._run_grouped([_sys.executable, "-c", leader, str(pidf)], 1.5)
+        raise AssertionError("expected TimeoutExpired")
+    except _sp.TimeoutExpired:
+        pass
+    assert _time.time() - t0 < 6
+    mpid = int(pidf.read_text())
+    def gone():
+        st = _sp.run(["ps", "-o", "stat=", "-p", str(mpid)], capture_output=True, text=True).stdout.strip()
+        return st == "" or st.startswith("Z")
+    deadline = _time.time() + 3
+    while not gone() and _time.time() < deadline:
+        _time.sleep(0.1)
+    alive = not gone()
+    if alive:
+        _os.kill(mpid, 9)
+    assert not alive, "a SIGTERM-ignoring group member outlived the event-read timeout"
+
+
+def test_the_event_read_runs_one_process_with_stdin_closed():
+    import sys as _sys
+    p = review._run_grouped([_sys.executable, "-c",
+                             "import os,sys;print(os.environ.get('OPENCLAW_NO_RESPAWN'),"
+                             "os.getsid(0)==os.getpid(),sys.stdin.read()=='')"], 10)
+    assert p.stdout.strip() == "1 True True"
 
 
 # ─────────────────────── stdout context-cost slimming (the samurai-pro timeout fix) ───────────────
@@ -1175,9 +1276,9 @@ if __name__ == "__main__":
 #   3. the PRIMARY (discovery) path carried no fee field whatsoever — and that is the path a
 #      CURRENT strategy runs on, so the headline stayed gross no matter what else was fixed.
 # NOT a defect: `fee` vs `builderFee`. HL's `fee` already INCLUDES the builder leg. Shown across two
-# wallets on different loyalty tiers — builder 5.00 bps (fee 9.32/6.44) and builder 4.00 bps (fee
-# 8.32/5.44) — where subtracting the builder leg leaves the same exchange rate (4.32/1.44) both times.
-# Summing them overstates by the builder leg. The builder rate is tier-dependent, never a constant.
+# wallets on different builder legs, where subtracting the builder leg leaves the same exchange rate
+# (4.32/1.44 bps) both times. Summing them overstates by the builder leg. Never a constant: read it
+# from the fill.
 
 def test_fee_is_inclusive_of_builder_and_counts_BOTH_legs():
     """`builderFee` is a breakdown of `fee`, never an addition — and a round trip pays on both legs."""
@@ -1288,18 +1389,18 @@ def test_skill_forbids_taking_leverage_from_the_config():
         "the rule must explain that the venue clips without erroring"
 
 
-def test_skill_treats_the_builder_fee_as_plan_dependent():
-    """From 2026-10-26 Senpi's builder fee follows the plan — none on a paid plan, a flat 0.03% without
-    one — and tiers no longer change it. A fill keeps the fee it was signed with, so a review still
-    meets older fills at a tier rate. The skill must name where to read the user's own."""
+def test_skill_states_no_builder_fee_on_a_paid_plan_and_no_nonzero_rate():
+    """From 2026-10-26 Senpi charges no builder fee on a paid plan, and the skill quotes no nonzero
+    Senpi rate anywhere. A fill keeps the fee it was signed with, so a review still meets older fills
+    with a builder leg — read from the fill, never from memory. The skill must name where to read the
+    user's own rate."""
     skill = " ".join(open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read().split())
     assert "user_get_senpi_points" in skill, "the skill must name where to read the user's own fee"
     assert "not a constant" in skill.lower(), "the skill must say the rate is not a constant"
-    assert "**none on a paid plan**" in skill and "**a flat 0.03% without one**" in skill, \
-        "the plan rule is not stated"
-    assert "flat 0.05%" not in skill, "the old flat rate is still quoted"
-    assert "A fill keeps the fee it was signed with" in skill, "older fills at a tier rate go unexplained"
-    assert "0.047% Silver" not in skill, "the tier ladder is stated as the current schedule"
+    assert "**no builder fee on a paid plan**" in skill, "the plan rule is not stated"
+    for rate in ("0.025%", "0.03%", "0.05%", "0.047% Silver"):
+        assert rate not in skill, f"a nonzero Senpi rate is quoted: {rate}"
+    assert "A fill keeps the fee it was signed with" in skill, "older fills with a builder leg go unexplained"
 
 
 def test_the_raw_mcp_rule_does_not_contradict_the_6b_reads():

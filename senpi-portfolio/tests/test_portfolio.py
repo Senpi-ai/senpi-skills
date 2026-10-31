@@ -384,7 +384,7 @@ def test_unreadable_cli_degrades_to_null_and_warns_loudly():
         assert s["protected"] is None
         assert s["runtime_health"] == "unverified"
     assert out["meta"]["warnings"], "a silent sourcing failure is the defect"
-    assert any("runtime list" in w for w in out["meta"]["warnings"])
+    assert any("senpi.listRuntimes" in w for w in out["meta"]["warnings"])
     # and the group roll-up may not launder those nulls into a verdict either
     for g in out["strategy_groups"]:
         assert g["protected"] is None and g["not_running"] is None
@@ -392,7 +392,7 @@ def test_unreadable_cli_degrades_to_null_and_warns_loudly():
 
 
 def _raise_oserror(*_a, **_kw):
-    """What `subprocess.run` really does on a memory-constrained box: the FORK fails, so the child
+    """What `subprocess.Popen` really does on a memory-constrained box: the FORK fails, so the child
     never runs. Not a FileNotFoundError — an ENOMEM OSError, which used to propagate."""
     raise OSError(12, "Cannot allocate memory")
 
@@ -402,8 +402,8 @@ def test_a_fork_failure_is_a_failed_read_not_a_dead_engine():
     failed read. It used to propagate out of the registry read, through fetch_strategies, out of
     run() — taking the money map, the positions and the whole JSON answer with it, on the exact
     kind of strained box where a user most wants to know where their money is."""
-    real = portfolio.subprocess.run
-    portfolio.subprocess.run = _raise_oserror
+    real = portfolio.subprocess.Popen
+    portfolio.subprocess.Popen = _raise_oserror
     try:
         rc, out, err = portfolio._run_cli(["openclaw", "senpi", "runtime", "list", "--json"])
         assert (rc, out) == (-1, "")
@@ -413,13 +413,13 @@ def test_a_fork_failure_is_a_failed_read_not_a_dead_engine():
         assert "Cannot allocate memory" in err
         res = run_engine(cli_missing=True)
     finally:
-        portfolio.subprocess.run = real
+        portfolio.subprocess.Popen = real
     assert len(res["strategies"]) == 2, "the whole read died with the spawn"
     assert res["totals"]["grand_total_usd"] > 0
     for s in res["strategies"]:
         assert s["runtime_health"] == "unverified"
         assert s["protected"] is None
-    assert any("runtime list" in w for w in res["meta"]["warnings"])
+    assert any("senpi.listRuntimes" in w for w in res["meta"]["warnings"])
 
 
 def test_a_payload_that_is_not_ok_is_a_failed_read_not_an_empty_fleet():
@@ -429,7 +429,7 @@ def test_a_payload_that_is_not_ok_is_a_failed_read_not_an_empty_fleet():
     kodiak = by_wallet(out, KODIAK_WALLET)
     assert kodiak["runtime_registered"] is None
     assert kodiak["runtime_health"] == "unverified"
-    assert any("runtime list" in w for w in out["meta"]["warnings"])
+    assert any("senpi.listRuntimes" in w for w in out["meta"]["warnings"])
 
 
 def test_an_empty_runtimes_list_is_a_successful_read_of_zero_runtimes():
@@ -1508,20 +1508,46 @@ def test_runtime_health_is_one_fleet_status_call_not_one_per_runtime():
     start each — the step's cost grew with the runtime count until it blew the exec window. One
     `status --json` now serves every runtime; the per-id form is never called when it answers."""
     fleet = json.dumps(status_doc({"runtimeName": "kodiak-main", "health": "healthy", "activePositions": 0}))
-    res, calls = _run_with_cli(lambda a: (0, fleet, "") if a[:4] == ["openclaw", "senpi", "status", "--json"]
+    res, calls = _run_with_cli(lambda a: (0, fleet, "") if a == portfolio.FLEET_STATUS_CMD
                                else (1, "", "unexpected call"))
     assert by_wallet(res, KODIAK_WALLET)["runtime_health"] == "live"
-    assert [c for c in calls if "-r" in c] == [], calls           # never the per-runtime form
-    assert sum(1 for c in calls if c[:4] == ["openclaw", "senpi", "status", "--json"]) == 1
+    assert [c for c in calls if "runtimeId" in c[-1]] == [], calls   # never the per-runtime form
+    assert sum(1 for c in calls if c == portfolio.FLEET_STATUS_CMD) == 1
+
+
+def test_health_reads_are_direct_gateway_calls_with_the_raw_answer_shapes():
+    """`gateway call` prints the handler's answer: no `ok`, and `-r` folded into `status`, not
+    `statuses`. Both must read as the CLI's document did; a null `status` is 'unknown', never live."""
+    assert portfolio.FLEET_STATUS_CMD[:4] == ["openclaw", "gateway", "call", "senpi.getHealthStatus"]
+    assert portfolio.RUNTIME_LIST_CMD[:4] == ["openclaw", "gateway", "call", "senpi.listRuntimes"]
+    extras = {"updater": {"state": "idle"}, "approvals": {}, "deploy": {"capabilities": []}}
+    fleet = json.dumps({"statuses": [{"runtimeName": "kodiak-main", "health": "healthy"}], **extras})
+    res, _ = _run_with_cli(lambda a: (0, fleet, "") if a == portfolio.FLEET_STATUS_CMD else (1, "", "unexpected"))
+    assert by_wallet(res, KODIAK_WALLET)["runtime_health"] == "live"
+    one = json.dumps({"status": {"runtimeId": "kodiak-main", "health": "healthy"}, **extras})
+    res, _ = _run_with_cli(lambda a: (0, one, "") if "runtimeId" in a[-1] else (1, "", "no fleet form"))
+    assert by_wallet(res, KODIAK_WALLET)["runtime_health"] == "live"
+    empty = json.dumps({"status": None, **extras})
+    res, _ = _run_with_cli(lambda a: (0, empty, "") if "runtimeId" in a[-1] else (1, "", "no fleet form"))
+    assert by_wallet(res, KODIAK_WALLET)["runtime_health"] == "unknown"
+
+
+def test_a_10x_gateway_error_on_stdout_reads_as_a_dead_status_rpc():
+    """10.x writes a gateway error as a JSON envelope on stdout with empty stderr."""
+    env = json.dumps({"ok": False, "error": {"type": "gateway_request_error",
+                                             "message": "unknown method: senpi.getHealthStatus"}})
+    res, calls = _run_with_cli(lambda a: (1, env, ""))
+    assert by_wallet(res, KODIAK_WALLET)["runtime_health"] == "unknown"
+    assert sum(1 for c in calls if c == portfolio.FLEET_STATUS_CMD) == 1, calls
 
 
 def test_a_failed_fleet_read_falls_back_to_the_per_id_read():
     """The gateway is flaky-empty and older builds may not answer the fleet form at all; a box that
     cannot answer it loses nothing it had — the per-id read still runs for that runtime."""
     per_id = json.dumps(status_doc({"runtimeName": "kodiak-main", "health": "healthy"}))
-    res, calls = _run_with_cli(lambda a: (0, per_id, "") if "-r" in a else (1, "", "no fleet form here"))
+    res, calls = _run_with_cli(lambda a: (0, per_id, "") if "runtimeId" in a[-1] else (1, "", "no fleet form here"))
     assert by_wallet(res, KODIAK_WALLET)["runtime_health"] == "live"
-    assert any("-r" in c and "kodiak-main" in c for c in calls)
+    assert any("runtimeId" in c[-1] and "kodiak-main" in c[-1] for c in calls)
 
 
 def test_a_runtime_the_fleet_document_does_not_list_is_unknown_never_live():

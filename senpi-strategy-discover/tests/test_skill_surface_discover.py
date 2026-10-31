@@ -70,13 +70,15 @@ def test_copy_trading_is_not_sold_as_the_one_thing_with_a_track_record():
 def test_skill_says_the_fee_math_on_micro_specs_and_links_the_public_source():
     text = open(SKILL, encoding="utf-8").read()
     for needle in ("do the fee math out loud",
-                   "`user_get_senpi_points` `builderFeePercent`: 0 on a paid plan, a flat 0.03% without one",
+                   "Senpi adds no fee on a paid plan",
+                   "`user_get_senpi_points` `builderFeePercent`",
                    "Never save an impossible spec",
                    "https://github.com/Senpi-ai/senpi-skills/tree/main/strategies/",
                    "Never hand-roll a tarball"):
         assert needle in text, needle
     assert "get_loyalty_tiers" not in text
-    assert "flat 0.05%" not in text
+    for rate in ("0.03%", "0.05%"):
+        assert f"flat {rate}" not in text and f"{rate} without" not in text, rate
 
 
 def test_skill_forbids_recommending_from_the_unthemed_neutral_order_shortlist():
