@@ -39,7 +39,7 @@ OPS_CLI = os.path.join(HERE, "..", "..", "senpi-strategy-ops", "scripts", "_cli.
 PORTFOLIO = os.path.join(HERE, "..", "scripts", "portfolio.py")
 
 SHARED_HELPERS = {"run_cli": "_run_cli", "_extract_json": "_extract_json", "_cli_env": "_cli_env",
-                  "_kill_tree": "_kill_tree", "_spawn": "_spawn"}
+                  "_kill_tree": "_kill_tree", "_spawn": "_spawn", "gateway_argv": "gateway_argv"}
 
 for _d in (os.path.join(HERE, "..", "scripts"),
            os.path.join(HERE, "..", "..", "senpi-improve-trades", "scripts"),
@@ -94,6 +94,11 @@ def test_review_group_kill_matches_its_origin():
     that drifts (e.g. skipping the group SIGKILL once the leader exits) leaves a child running."""
     assert _fn_source(OPS_CLI, "_kill_tree") == _fn_source(REVIEW, "_kill_tree"), (
         "_kill_tree in review.py has drifted from _kill_tree in _cli.py")
+
+
+def test_review_gateway_argv_matches_its_origin():
+    assert _fn_source(OPS_CLI, "gateway_argv") == _fn_source(REVIEW, "gateway_argv"), (
+        "gateway_argv in review.py has drifted from gateway_argv in _cli.py")
 
 
 def test_first_written_vendor_parity():

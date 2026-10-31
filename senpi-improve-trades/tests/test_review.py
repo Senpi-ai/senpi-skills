@@ -963,6 +963,40 @@ def test_event_timeout_fails_open_without_a_breaker():
             os.environ["SENPI_EVENTS_FIXTURE"] = old_ev
 
 
+def test_events_are_a_direct_gateway_call_reading_the_raw_answer():
+    """`senpi.getEvents` with the numeric limit (10.x drops a string one) and the raw `{entries}` answer."""
+    import subprocess as _sp
+    seen = {}
+
+    def _answer(cmd, timeout):
+        seen.update(cmd=cmd, timeout=timeout)
+        return _sp.CompletedProcess(cmd, 0, json.dumps({"entries": [{"name": "dsl.closed"}, "junk"], "address": "0x1"}), "")
+    real_run = review._run_grouped
+    review._run_grouped = _answer
+    try:
+        entries = review._fetch_events("rt-1", NOW_MS, {})
+    finally:
+        review._run_grouped = real_run
+    assert entries == [{"name": "dsl.closed"}]
+    assert seen["cmd"][:4] == ["openclaw", "gateway", "call", "senpi.getEvents"]
+    assert seen["cmd"][seen["cmd"].index("--timeout") + 1] == str(review.EVENTS_RPC_MS)
+    params = json.loads(seen["cmd"][-1])
+    assert params["runtimeId"] == "rt-1" and params["limit"] == review.EVENTS_PULL and "since" in params
+
+
+def test_a_10x_unknown_method_on_stdout_stops_further_event_calls():
+    import subprocess as _sp
+    env = json.dumps({"ok": False, "error": {"type": "gateway_request_error", "message": "unknown method: senpi.getEvents"}})
+    real_run = review._run_grouped
+    review._run_grouped = lambda cmd, timeout: _sp.CompletedProcess(cmd, 1, env, "")
+    meta = {}
+    try:
+        assert review._fetch_events("rt-1", NOW_MS, meta) == []
+    finally:
+        review._run_grouped = real_run
+    assert meta.get("_telemetry_dead") is True
+
+
 def test_an_event_read_timeout_kills_the_calls_whole_process_group(tmp_path):
     """On OpenClaw 10.x a timed-out `openclaw` left its worker running (it respawns detached). The
     event read runs the call in its own session and kills the whole group on timeout, so a child the
