@@ -793,6 +793,7 @@ def start_deploy(pkg, a, log):
         rid, reused, entry, changed = _request_id_for(pkg, params, log, caps, verb)
     try:
         a.repeated_terminal = None
+        a.repeated_changed = None
     except AttributeError:
         pass
     if rid:
@@ -823,6 +824,12 @@ def start_deploy(pkg, a, log):
                           f"{_usd(old.get('budget'))}, package {old.get('packageDir', '?')}). This "
                           f"command's parameters (budget {_usd(params.get('budget'))}, package "
                           f"{params.get('packageDir')}) were NOT applied.", file=sys.stderr)
+                    try:
+                        a.repeated_changed = {"deployId": deploy_id, "sentAt": sent,
+                                              "oldBudget": old.get("budget"),
+                                              "newBudget": params.get("budget")}
+                    except AttributeError:
+                        pass
                 if state in ("done", "interrupted"):
                     print(f"  Job {deploy_id} had already ended ({state}) before this command ran: "
                           f"what follows is the outcome of the earlier START sent at {sent}, not a "
@@ -1210,6 +1217,15 @@ def run_deploy(pkg, a, log):
               f"continues in the background.\n" + _poll_steer(pkg.id, rid, deploy_id),
               file=sys.stderr if a.json else sys.stdout)
     code = exit_code_for(snap)
+    changed = getattr(a, "repeated_changed", None)
+    if changed and code == 0:
+        # Live, but at the EARLIER START's parameters. 0 would let the caller report the new budget.
+        print(f"\nExit 1: this command's parameters were NOT applied (budget "
+              f"{_usd(changed['newBudget'])}). Job {changed['deployId']} is the earlier START sent at "
+              f"{changed['sentAt']}, budget {_usd(changed['oldBudget'])}, and that is what deployed.\n"
+              f"  Next: python3 {Path(__file__).with_name('status.py').name} {pkg.id}   — read what "
+              f"is live now, and report that.", file=sys.stderr)
+        return EXIT_INTERNAL
     earlier = getattr(a, "repeated_terminal", None)
     if earlier and code == 0:
         # The job is the EARLIER START's, and it had ended before this command ran. 0 would read as

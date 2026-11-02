@@ -868,6 +868,46 @@ class RequestIdRetry(_JournalDir, unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(self._journal()["resolved"], "no-running-job")
 
+    def test_a_repeated_job_with_other_parameters_never_exits_zero(self):
+        rid = "dpl-req-20261028T000000Z-deadbeef"
+        ends = {"live": 1, "failed": 3, "refused": 2}
+        for overall, want in ends.items():
+            self._old_budget_entry(rid)
+            fake = FakeCli([HEALTH_ADVERTISED,
+                            _ok({"deployId": "dpl-old", "state": "running", "requestId": rid,
+                                 "repeated": True}),
+                            _status({"meta": {"deployId": "dpl-old", "packageId": "spider", "requestId": rid},
+                                     "state": {"status": "done", "overall": overall}})])
+            code, out, err = self._main_create(fake, "--json")        # asks for budget 30, job is 50
+            self.assertEqual(code, want, overall)
+            json.loads(out)                                           # stdout stays the snapshot
+            if overall == "live":
+                self.assertIn("Exit 1", err)
+                self.assertIn("parameters were NOT applied", err)
+                self.assertIn("$50.00", err)
+                self.assertIn("python3 status.py spider", err)
+
+    def test_a_repeated_job_with_other_parameters_that_had_ended_live_says_so_once(self):
+        rid = "dpl-req-20261028T000000Z-deadbeef"
+        self._old_budget_entry(rid)
+        fake = FakeCli([HEALTH_ADVERTISED,
+                        _ok({"deployId": "dpl-old", "state": "done", "requestId": rid, "repeated": True}),
+                        _status({"meta": {"deployId": "dpl-old", "packageId": "spider", "requestId": rid},
+                                 "state": {"status": "done", "overall": "live"}})])
+        code, _out, err = self._main_create(fake)
+        self.assertEqual(code, 1)
+        self.assertEqual(err.count("\nExit 1:"), 1)
+        self.assertIn("parameters were NOT applied", err)
+
+    def test_a_repeated_job_with_the_same_parameters_still_exits_by_its_outcome(self):
+        rid = "dpl-req-20261028T000000Z-deadbeef"
+        self._seed_journal(rid)
+        fake = FakeCli([HEALTH_ADVERTISED,
+                        _ok({"deployId": "dpl-old", "state": "running", "requestId": rid, "repeated": True}),
+                        _status({"meta": {"deployId": "dpl-old", "packageId": "spider", "requestId": rid},
+                                 "state": {"status": "done", "overall": "live"}})])
+        self.assertEqual(self._main_create(fake)[0], 0)
+
     def test_a_repeated_job_that_had_already_ended_live_never_exits_zero(self):
         rid = "dpl-req-20261028T000000Z-deadbeef"
         self._seed_journal(rid)

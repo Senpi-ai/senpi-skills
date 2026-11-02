@@ -48,7 +48,8 @@ package. It closes when a reply names a job, when `deploy.py status` shows the j
 when `close.py <id>` (whole package, not `--instance`) ends with nothing of the package live: a close it
 triggered, or every strategy already closed.
 - **Other parameters.** Advertised: the open id is sent with the new parameters; a `repeated` reply
-  returns the earlier job, says the new parameters were NOT applied, and nothing new starts. Capability
+  returns the earlier job, says the new parameters were NOT applied, nothing new starts, and it never
+  exits `0`, even when that job goes live. Capability
   read failed: refused `[E_OPEN_DEPLOY_REQUEST]` (read `deploy.py status`; if it shows the job, report it;
   if not, re-run nothing and ask the user). Runtime without ids: the command reads the job record itself.
   No job running and the START over 40 s old closes the entry and the new parameters go out; otherwise
