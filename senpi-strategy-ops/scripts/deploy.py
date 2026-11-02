@@ -601,10 +601,12 @@ def _usd(v):
     return f"${v:.2f}" if isinstance(v, (int, float)) else "no budget"
 
 
-def _refuse_changed_params(pkg, entry, params):
+def _refuse_changed_params(pkg, entry, params, why_open=None):
     """An open id is never reused with other parameters, and never replaced by a new one: the first
     START may have started (and funded) a job with ITS parameters. The way out depends on what
-    `deploy.py status` shows, so the text gives both branches and nothing else."""
+    `deploy.py status` shows, so the text gives both branches and nothing else. `why_open` is set on a
+    runtime without request ids, where no job can ever carry the id: the way out is then no job
+    running."""
     old = entry.get("paramsKey") or {}
     new = _params_key(params)
     me = Path(__file__).name
@@ -617,8 +619,14 @@ def _refuse_changed_params(pkg, entry, params):
           f"{entry.get('sentAt', '?')}, budget {old_budget}, package {old_dir}) never got an answer, "
           f"so a deploy with THOSE parameters may already be running and a wallet may already be "
           f"funded. This command asks for budget {usd(new.get('budget'))} from "
-          f"{new.get('packageDir')}. Nothing was started.\n"
-          f"  Next: python3 {me} status   — then, by what it shows:\n"
+          f"{new.get('packageDir')}. Nothing was started.", file=sys.stderr)
+    if why_open:
+        print(f"  This request closes when no job is running, and that is not confirmed: {why_open}.\n"
+              f"  Next: python3 {me} status   — once it shows no job running, re-run this command. "
+              f"That sends the new parameters; whatever the earlier job left in place stays, so "
+              f"report it too. While a job runs, report that job and start nothing.", file=sys.stderr)
+        raise SystemExit(EXIT_CODES["refused"])
+    print(f"  Next: python3 {me} status   — then, by what it shows:\n"
           f"  - It shows a job with request id {rid}: that START is accounted for (status closes the "
           f"request). Report that job. Running this command after that starts a NEW deploy with the "
           f"new parameters on top of that job: run it only if the user asks for that.\n"
@@ -638,19 +646,50 @@ def resolve_seen_request(snap):
                          meta.get("deployId") or "seen-by-status")
 
 
+def _why_a_job_may_be_running(entry):
+    """Why an open entry cannot be closed yet on a runtime without request ids, or None when the job
+    record says no job is running. Fail-closed: only a readable record (a finished job, or the
+    gateway's own "no deploy ever") clears it, and only once the START's wall clock has passed, since
+    a job from a START still in flight would not show yet."""
+    sent = _iso_ts(entry.get("sentAt"))
+    if sent is None or time.time() - sent < START_WALL_S:
+        return f"that START was sent under {START_WALL_S}s ago, so its job may not show yet"
+    payload, _message, no_job = read_status(None)
+    if no_job:
+        return None
+    snap = _job_snapshot(payload)
+    status = (snap or {}).get("state", {}).get("status")
+    if status in ("done", "interrupted"):
+        return None
+    if status == "running":
+        meta = snap.get("meta") or {}
+        return f"job {meta.get('deployId', '?')} for {meta.get('packageId', '?')} is running"
+    return "the job record could not be read"
+
+
 def _request_id_for(pkg, params, log, caps, verb="create"):
     """`(request id | None, reused, the open entry | None, params changed)` for this START.
 
     An open entry (its START never got an answer) is reused, however old. With other parameters it is
     still SENT when the runtime advertised ids (`caps is True`): the runtime answers with the earlier
     job (`repeated`, the new parameters not applied, nothing funded) or starts fresh. Without the
-    advertisement other parameters are refused (`[E_OPEN_DEPLOY_REQUEST]`). `caps is False` (a runtime
-    that does not honour ids) sends no id. With no open entry a new id is minted under True and None
-    (an older runtime ignores it; matching on it stays gated on True) and journaled, unresolved,
-    before this returns."""
+    advertisement other parameters are refused (`[E_OPEN_DEPLOY_REQUEST]`), except under `caps is
+    False` (a runtime that does not honour ids, and sends no id) when the job record shows no job
+    running: that closes the entry and this START goes out. With no open entry a new id is minted
+    under True and None (an older runtime ignores it; matching on it stays gated on True) and
+    journaled, unresolved, before this returns."""
     entry = _open_entry(pkg)
     if entry:
         changed = entry.get("paramsKey") is not None and entry["paramsKey"] != _params_key(params)
+        if changed and caps is False:
+            why_open = _why_a_job_may_be_running(entry)
+            if why_open:
+                _refuse_changed_params(pkg, entry, params, why_open)
+            _journal.resolve(pkg.id, entry["requestId"], "no-running-job")
+            print(f"note: no job is running, so the unanswered START {entry['requestId']} (sent at "
+                  f"{entry.get('sentAt', '?')}, budget {_usd((entry.get('paramsKey') or {}).get('budget'))}) "
+                  f"is closed and this command's parameters go out.", file=sys.stderr)
+            return None, False, None, False
         if changed and caps is not True:
             _refuse_changed_params(pkg, entry, params)
         if caps is False:
@@ -759,6 +798,7 @@ def start_deploy(pkg, a, log):
     if rid:
         params["requestId"] = rid
     rid_by = rid if caps is True else None     # the id a job can be matched on
+    open_rid = rid or (entry or {}).get("requestId")   # closes on a reply naming a job, id sent or not
     try:
         a.request_id = rid_by
     except AttributeError:
@@ -793,7 +833,7 @@ def start_deploy(pkg, a, log):
                         pass
                 if payload.get("next"):
                     print(f"  {payload['next']}", file=sys.stderr)
-            _journal_resolve(pkg, rid, deploy_id)
+            _journal_resolve(pkg, open_rid, deploy_id)
             return deploy_id
         print("senpi.deploy.start answered but named no deployId, so this script cannot follow the "
               "job.\n"
@@ -848,7 +888,7 @@ def start_deploy(pkg, a, log):
         how = (f"the job record shows request id {rid_by} on job {adopted}" if rid_by else
                f"the gateway took job {adopted} for {pkg.id} after this command sent it")
         print(f"note: the START reply was lost, but {how}; following that job.", file=sys.stderr)
-        _journal_resolve(pkg, rid, adopted)
+        _journal_resolve(pkg, open_rid, adopted)
         return adopted
     print(f"  No answer came back for the START call{_rid_tag(rid)}, and the reads of the job record "
           f"found no job for {pkg.id} started by it. That is not a verdict: the gateway may have "
