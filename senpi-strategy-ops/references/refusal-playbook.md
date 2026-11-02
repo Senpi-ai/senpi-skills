@@ -122,7 +122,7 @@ else** — they are not interchangeable, and one of them permits no action at al
 - **The install is STILL RUNNING** (the report says so in those words, and that the wallet is fenced
   until it settles). **Change nothing and close nothing.** The install can still write its registry
   row and start a runtime seconds from now; a close here lands on a strategy the install is binding
-  and leaves a live runtime trading a closed strategy. Re-read shortly — `openclaw senpi deploy
+  and leaves a live runtime trading a closed strategy. Re-read shortly — `python3 deploy.py
   status`, then `openclaw senpi runtime list` — and act on the settled state. A re-run that reaches
   this wallet is refused (`[E_WALLET_INSTALL_IN_FLIGHT]`) rather than installing over it, so it
   cannot settle this for you. **No close appears in this arm of the report, and there is none to

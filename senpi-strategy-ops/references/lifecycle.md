@@ -384,7 +384,7 @@ Four rules keep `verify` from steering at a state it did not read:
   `CLOSING_POSITIONS`, only `CLOSING_DONE` is dead) or a deploy still mid-flight
   (`CREATE_WALLET`/`FUND_WALLET`/`INITIALIZE_POSITIONS`) gets `status.py <id>` triage, never the resume
   verb — and is never verified, even with a healthy runtime still registered against it.
-- **A deploy job RUNNING for this package replaces every money steer** with `openclaw senpi deploy
+- **A deploy job RUNNING for this package replaces every money steer** with `python3 deploy.py
   status`, and the report says the picture is mid-flight. The resume already is that job; re-checking
   during your own `create` must not dispatch a second one. That bit is read fail-closed, and the read
   lands in exactly one of three classes. A **job snapshot** (the shape the verb emits — a

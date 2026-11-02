@@ -196,7 +196,7 @@ unreadable scanner list as no tick and records `unobserved` → `overall: instal
 with no health entry as COULD NOT CHECK. Only a runtime **missing/stopped** in `runtime list`, one
 showing **`running — NO ENTRY SCANNERS`** there (entry scanners never wired — check `senpi events`), or a
 scanner the reads *positively* report unhealthy/erroring, is a real failure. Still: **never report a
-strategy as live until a deploy report says `overall: live`** — read it with `openclaw senpi deploy
+strategy as live until a deploy report says `overall: live`** — read it with `python3 deploy.py
 status`, which starts nothing.
 
 Anything less: surface the specific failing field and the remediation, not a generic "looks fine." For
