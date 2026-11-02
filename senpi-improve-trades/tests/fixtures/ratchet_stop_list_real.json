@@ -1,0 +1,1466 @@
+{
+ "_note": "ratchet_stop_list(status: ALL) responses from a real dev account (2026-10-23), redacted: strategy ids, wallets and row ids are synthetic; every other field is as the MCP returned it, rows newest first (created_at DESC).",
+ "terrapin-u2": {
+  "success": true,
+  "data": {
+   "positions": [
+    {
+     "id": "dsl-terrapin-00",
+     "strategyId": "strat-terrapin",
+     "asset": "BTC",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000002",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 83854,
+     "size": 0.00027,
+     "leverage": 3,
+     "status": "SL_TRIGGERED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 83854,
+     "highWaterPrice": 87419.5,
+     "highWaterRoe": 12.7561,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "552189286958",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 12,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 22,
+         "lockRoe": 28
+        },
+        {
+         "triggerRoe": 38,
+         "lockRoe": 48
+        },
+        {
+         "triggerRoe": 60,
+         "lockRoe": 65
+        },
+        {
+         "triggerRoe": 88,
+         "lockRoe": 78
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-09-23T16:01:33.994647Z",
+     "lastPrice": 83666.5,
+     "lastPriceSource": "reconcile:self-heal",
+     "createdAt": "2026-09-21T20:27:24.937975Z",
+     "updatedAt": "2026-09-23T16:01:33.999161Z"
+    },
+    {
+     "id": "dsl-terrapin-01",
+     "strategyId": "strat-terrapin",
+     "asset": "BTC",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000002",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 66712,
+     "size": 0.00028,
+     "leverage": 3,
+     "status": "SL_TRIGGERED",
+     "currentTierIndex": 3,
+     "tierFloorPrice": 76690.475,
+     "highWaterPrice": 82063.5,
+     "highWaterRoe": 69.034806,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "536426410914",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 12,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 22,
+         "lockRoe": 28
+        },
+        {
+         "triggerRoe": 38,
+         "lockRoe": 48
+        },
+        {
+         "triggerRoe": 60,
+         "lockRoe": 65
+        },
+        {
+         "triggerRoe": 88,
+         "lockRoe": 78
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-09-10T12:56:33.567785Z",
+     "lastPrice": 76710.5,
+     "lastPriceSource": "reconcile:self-heal",
+     "createdAt": "2026-08-19T21:07:02.629811Z",
+     "updatedAt": "2026-09-10T12:56:33.583619Z"
+    }
+   ],
+   "count": 2,
+   "query": {
+    "filter": {
+     "strategyId": "strat-terrapin",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000002"
+    },
+    "status": "ALL",
+    "limit": 500
+   }
+  },
+  "meta": {
+   "tool": "ratchet_stop_list",
+   "action_type": "read"
+  }
+ },
+ "hype-momentum": {
+  "success": true,
+  "data": {
+   "positions": [
+    {
+     "id": "dsl-hype-00",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 88.53,
+     "size": 0.6,
+     "leverage": 5,
+     "status": "SL_TRIGGERED",
+     "currentTierIndex": 2,
+     "tierFloorPrice": 91.2328,
+     "highWaterPrice": 95.287,
+     "highWaterRoe": 38.162205,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "566217646262",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-10-07T01:51:22.079158Z",
+     "lastPrice": 91.1965,
+     "lastPriceSource": "reconcile:self-heal",
+     "createdAt": "2026-10-04T08:07:31.226751Z",
+     "updatedAt": "2026-10-07T01:51:22.08427Z"
+    },
+    {
+     "id": "dsl-hype-01",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 88.809,
+     "size": 0.6,
+     "leverage": 5,
+     "status": "SL_TRIGGERED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 88.809,
+     "highWaterPrice": 91.4045,
+     "highWaterRoe": 14.612821,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "563154461574",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-10-02T17:15:56.302737Z",
+     "lastPrice": 88.7955,
+     "lastPriceSource": "reconcile:self-heal",
+     "createdAt": "2026-10-02T06:11:24.366667Z",
+     "updatedAt": "2026-10-02T17:15:56.308403Z"
+    },
+    {
+     "id": "dsl-hype-02",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 89.561,
+     "size": 0.6,
+     "leverage": 5,
+     "status": "SL_TRIGGERED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 89.561,
+     "highWaterPrice": 91.898,
+     "highWaterRoe": 13.046974,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "561700735822",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-10-01T01:47:31.693628Z",
+     "lastPrice": 89.5375,
+     "lastPriceSource": "reconcile:self-heal",
+     "createdAt": "2026-09-30T21:39:14.745619Z",
+     "updatedAt": "2026-10-01T01:47:31.699012Z"
+    },
+    {
+     "id": "dsl-hype-03",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 88.914,
+     "size": 0.6,
+     "leverage": 5,
+     "status": "SL_TRIGGERED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 88.914,
+     "highWaterPrice": 91.3565,
+     "highWaterRoe": 13.735182,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "561491582469",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-09-30T17:45:15.769683Z",
+     "lastPrice": 88.8405,
+     "lastPriceSource": "reconcile:self-heal",
+     "createdAt": "2026-09-30T17:03:00.527888Z",
+     "updatedAt": "2026-09-30T17:45:15.774164Z"
+    },
+    {
+     "id": "dsl-hype-04",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 92.41,
+     "size": 0.6,
+     "leverage": 5,
+     "status": "SL_TRIGGERED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 92.41,
+     "highWaterPrice": 94.7105,
+     "highWaterRoe": 12.447246,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "555644734303",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-09-24T21:58:56.273387Z",
+     "lastPrice": 92.3385,
+     "lastPriceSource": "reconcile:self-heal",
+     "createdAt": "2026-09-24T18:58:16.105235Z",
+     "updatedAt": "2026-09-24T21:58:56.280343Z"
+    },
+    {
+     "id": "dsl-hype-05",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 82.5,
+     "size": 0.63,
+     "leverage": 5,
+     "status": "SL_TRIGGERED",
+     "currentTierIndex": 4,
+     "tierFloorPrice": 92.6336,
+     "highWaterPrice": 96.0115,
+     "highWaterRoe": 81.887879,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "551669815251",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-09-21T16:26:34.701791Z",
+     "lastPrice": 92.6045,
+     "lastPriceSource": "reconcile:self-heal",
+     "createdAt": "2026-09-17T23:01:17.771731Z",
+     "updatedAt": "2026-09-21T16:26:34.706796Z"
+    },
+    {
+     "id": "dsl-hype-06",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 79.2933,
+     "size": 2.85,
+     "leverage": 5,
+     "status": "DELETED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 79.2933,
+     "highWaterPrice": 80.895,
+     "highWaterRoe": 10.099845,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "547682954161",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-09-17T09:27:41.654117Z",
+     "lastPrice": 80.8925,
+     "lastPriceSource": "reconcile:self-heal",
+     "createdAt": "2026-09-17T09:21:45.76859Z",
+     "updatedAt": "2026-09-17T09:27:56.632331Z"
+    },
+    {
+     "id": "dsl-hype-07",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 81.8774,
+     "size": 5.83,
+     "leverage": 5,
+     "status": "SL_TRIGGERED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 81.8774,
+     "highWaterPrice": 83.5965,
+     "highWaterRoe": 10.498013,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "542440141709",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-09-11T15:57:50.087734Z",
+     "lastPrice": 82.2115,
+     "lastPriceSource": "reconcile:self-heal",
+     "createdAt": "2026-09-11T15:34:39.876078Z",
+     "updatedAt": "2026-09-11T15:57:50.235395Z"
+    },
+    {
+     "id": "dsl-hype-08",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 81.804,
+     "size": 5.51,
+     "leverage": 5,
+     "status": "DELETED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 81.804,
+     "highWaterPrice": 83.5105,
+     "highWaterRoe": 10.430419,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "542330882570",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-09-11T15:22:10.59569Z",
+     "lastPrice": 83.1265,
+     "lastPriceSource": "hyperliquid",
+     "createdAt": "2026-09-11T14:02:40.234204Z",
+     "updatedAt": "2026-09-11T15:23:01.98781Z"
+    },
+    {
+     "id": "dsl-hype-09",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 84.6361,
+     "size": 6.22,
+     "leverage": 5,
+     "status": "SL_TRIGGERED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 84.6361,
+     "highWaterPrice": 86.9815,
+     "highWaterRoe": 13.85579,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "540006372432",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-09-09T15:22:24.696954Z",
+     "lastPrice": 84.52,
+     "lastPriceSource": "reconcile:self-heal",
+     "createdAt": "2026-09-09T06:19:38.618667Z",
+     "updatedAt": "2026-09-09T15:22:24.706849Z"
+    },
+    {
+     "id": "dsl-hype-10",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 87.8028,
+     "size": 5.38,
+     "leverage": 5,
+     "status": "DELETED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 87.8028,
+     "highWaterPrice": 89.565,
+     "highWaterRoe": 10.034987,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "537571934544",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-09-06T12:29:07.618846Z",
+     "lastPrice": 89.565,
+     "lastPriceSource": "hyperliquid_api",
+     "createdAt": "2026-09-06T12:28:45.128922Z",
+     "updatedAt": "2026-09-06T12:30:04.314808Z"
+    },
+    {
+     "id": "dsl-hype-11",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 79.6875,
+     "size": 7.34,
+     "leverage": 5,
+     "status": "SL_TRIGGERED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 79.6875,
+     "highWaterPrice": 81.9765,
+     "highWaterRoe": 14.362353,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "525994674085",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-08-25T11:55:43.322779Z",
+     "lastPrice": 79.6435,
+     "lastPriceSource": "reconcile:self-heal",
+     "createdAt": "2026-08-25T07:25:28.274472Z",
+     "updatedAt": "2026-08-25T11:55:43.338414Z"
+    },
+    {
+     "id": "dsl-hype-12",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 79.6458,
+     "size": 7.18,
+     "leverage": 5,
+     "status": "DELETED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 79.6458,
+     "highWaterPrice": 81.8345,
+     "highWaterRoe": 13.74021,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "525908304615",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-08-25T07:21:06.027231Z",
+     "lastPrice": 81.8345,
+     "lastPriceSource": "reconcile:self-heal",
+     "createdAt": "2026-08-25T05:09:27.931535Z",
+     "updatedAt": "2026-08-25T07:25:00.252346Z"
+    },
+    {
+     "id": "dsl-hype-13",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 79.618,
+     "size": 7.04,
+     "leverage": 5,
+     "status": "DELETED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 79.618,
+     "highWaterPrice": 81.2615,
+     "highWaterRoe": 10.321159,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "525837250365",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-08-25T04:24:04.944493Z",
+     "lastPrice": 81.1735,
+     "lastPriceSource": "reconcile:self-heal",
+     "createdAt": "2026-08-25T03:28:32.258304Z",
+     "updatedAt": "2026-08-25T04:29:59.883582Z"
+    },
+    {
+     "id": "dsl-hype-14",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 79.1592,
+     "size": 7.81,
+     "leverage": 5,
+     "status": "SL_TRIGGERED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 79.1592,
+     "highWaterPrice": 81.465,
+     "highWaterRoe": 14.564321,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "524051186012",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-08-23T14:43:02.129805Z",
+     "lastPrice": 78.5135,
+     "lastPriceSource": "reconcile:self-heal",
+     "createdAt": "2026-08-23T12:44:27.6624Z",
+     "updatedAt": "2026-08-23T14:43:02.143638Z"
+    },
+    {
+     "id": "dsl-hype-15",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 79.1379,
+     "size": 7.59,
+     "leverage": 5,
+     "status": "DELETED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 79.1379,
+     "highWaterPrice": 80.8715,
+     "highWaterRoe": 10.953033,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "524010659631",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-08-23T12:19:04.354093Z",
+     "lastPrice": 80.0945,
+     "lastPriceSource": "reconcile:self-heal",
+     "createdAt": "2026-08-23T11:37:28.204076Z",
+     "updatedAt": "2026-08-23T12:20:09.35979Z"
+    },
+    {
+     "id": "dsl-hype-16",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 79.1376,
+     "size": 10.86,
+     "leverage": 5,
+     "status": "SL_TRIGGERED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 79.1376,
+     "highWaterPrice": 81.9745,
+     "highWaterRoe": 17.923844,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "522717196608",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-08-22T05:09:58.612785Z",
+     "lastPrice": 78.5205,
+     "lastPriceSource": "reconcile:self-heal",
+     "createdAt": "2026-08-22T04:05:27.627403Z",
+     "updatedAt": "2026-08-22T05:09:58.631229Z"
+    },
+    {
+     "id": "dsl-hype-17",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 78.9447,
+     "size": 10.06,
+     "leverage": 5,
+     "status": "DELETED",
+     "currentTierIndex": 1,
+     "tierFloorPrice": 79.7984,
+     "highWaterPrice": 82.3595,
+     "highWaterRoe": 21.627798,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "522709290812",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-08-22T04:02:06.383743Z",
+     "lastPrice": 82.1835,
+     "lastPriceSource": "reconcile:self-heal",
+     "createdAt": "2026-08-22T03:16:27.766844Z",
+     "updatedAt": "2026-08-22T04:05:06.688686Z"
+    },
+    {
+     "id": "dsl-hype-18",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 78.7187,
+     "size": 8.65,
+     "leverage": 5,
+     "status": "DELETED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 78.7187,
+     "highWaterPrice": 80.9995,
+     "highWaterRoe": 14.487028,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "522650977224",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-08-22T03:12:30.329243Z",
+     "lastPrice": 80.949,
+     "lastPriceSource": "hyperliquid",
+     "createdAt": "2026-08-22T02:39:27.698679Z",
+     "updatedAt": "2026-08-22T03:15:06.659788Z"
+    },
+    {
+     "id": "dsl-hype-19",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 77.7186,
+     "size": 2.92,
+     "leverage": 5,
+     "status": "DELETED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 77.7186,
+     "highWaterPrice": 79.4255,
+     "highWaterRoe": 10.981284,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "522634140659",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-08-22T02:18:29.18526Z",
+     "lastPrice": 79.4255,
+     "lastPriceSource": "api:addDslPosition",
+     "createdAt": "2026-08-22T02:18:28.602096Z",
+     "updatedAt": "2026-08-22T02:20:06.774295Z"
+    },
+    {
+     "id": "dsl-hype-20",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 76.574,
+     "size": 1.48,
+     "leverage": 5,
+     "status": "DELETED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 76.574,
+     "highWaterPrice": 78.6675,
+     "highWaterRoe": 13.669783,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "522629355667",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-08-22T02:13:27.273394Z",
+     "lastPrice": 78.6675,
+     "lastPriceSource": "hyperliquid",
+     "createdAt": "2026-08-22T02:11:27.653897Z",
+     "updatedAt": "2026-08-22T02:15:07.126208Z"
+    },
+    {
+     "id": "dsl-hype-21",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 60.0431,
+     "size": 11.48,
+     "leverage": 5,
+     "status": "SL_TRIGGERED",
+     "currentTierIndex": 5,
+     "tierFloorPrice": 70.4326,
+     "highWaterPrice": 72.266,
+     "highWaterRoe": 101.784385,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "520093683557",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-08-19T19:22:28.759326Z",
+     "lastPrice": 70.0775,
+     "lastPriceSource": "hyperliquid",
+     "createdAt": "2026-08-19T16:01:48.514477Z",
+     "updatedAt": "2026-08-19T19:22:28.774411Z"
+    },
+    {
+     "id": "dsl-hype-22",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 59.9912,
+     "size": 11.16,
+     "leverage": 5,
+     "status": "DELETED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 59.9912,
+     "highWaterPrice": 61.8115,
+     "highWaterRoe": 15.171392,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "519938873203",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-08-19T15:58:31.228344Z",
+     "lastPrice": 61.8115,
+     "lastPriceSource": "hyperliquid",
+     "createdAt": "2026-08-19T15:51:48.782604Z",
+     "updatedAt": "2026-08-19T16:01:18.185182Z"
+    },
+    {
+     "id": "dsl-hype-23",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 59.8486,
+     "size": 10.12,
+     "leverage": 5,
+     "status": "DELETED",
+     "currentTierIndex": 0,
+     "tierFloorPrice": 59.8486,
+     "highWaterPrice": 61.6305,
+     "highWaterRoe": 14.886731,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "519932671711",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-08-19T15:48:11.691886Z",
+     "lastPrice": 61.6305,
+     "lastPriceSource": "hyperliquid",
+     "createdAt": "2026-08-19T15:45:50.228925Z",
+     "updatedAt": "2026-08-19T15:51:28.060016Z"
+    },
+    {
+     "id": "dsl-hype-24",
+     "strategyId": "strat-hype",
+     "asset": "HYPE",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001",
+     "dex": "",
+     "direction": "LONG",
+     "entryPrice": 53.474,
+     "size": 3.96,
+     "leverage": 5,
+     "status": "SL_TRIGGERED",
+     "currentTierIndex": 2,
+     "tierFloorPrice": 55.2434,
+     "highWaterPrice": 57.8975,
+     "highWaterRoe": 41.361222,
+     "currentBreachCount": 0,
+     "activeSLOrderId": "510859925446",
+     "dslConfig": {
+      "tiered": {
+       "tiers": [
+        {
+         "triggerRoe": 10,
+         "lockRoe": 0
+        },
+        {
+         "triggerRoe": 20,
+         "lockRoe": 25
+        },
+        {
+         "triggerRoe": 30,
+         "lockRoe": 40
+        },
+        {
+         "triggerRoe": 50,
+         "lockRoe": 60
+        },
+        {
+         "triggerRoe": 75,
+         "lockRoe": 75
+        },
+        {
+         "triggerRoe": 100,
+         "lockRoe": 85
+        }
+       ]
+      }
+     },
+     "lastEvaluatedAt": "2026-08-06T12:03:03.021179Z",
+     "lastPrice": 55.2425,
+     "lastPriceSource": "reconcile:self-heal",
+     "createdAt": "2026-08-03T16:16:34.722811Z",
+     "updatedAt": "2026-08-06T12:03:03.040961Z"
+    }
+   ],
+   "count": 25,
+   "query": {
+    "filter": {
+     "strategyId": "strat-hype",
+     "strategyWalletAddress": "0x4ee7000000000000000000000000000000000001"
+    },
+    "status": "ALL",
+    "limit": 500
+   }
+  },
+  "meta": {
+   "tool": "ratchet_stop_list",
+   "action_type": "read"
+  }
+ }
+}

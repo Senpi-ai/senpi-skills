@@ -78,7 +78,7 @@ trades[]      per CLOSED trade (from strategies of ALL statuses — a churned bo
   price_now, price_since_exit_pct,        # subsequent action (current price only, v1)
   if_held_delta_usd,                      # counterfactual — CONTEXT, not verdict (short-sign adjusted)
   exit_vs_hold: exit_ahead | held_higher | flat | unknown,   # NEUTRAL context (exit_ahead=got out ahead), NOT a grade
-  exit_reason: { terminal, tier_index/tier_reached, high_water_roe, source },   # which DSL lever fired
+  exit_reason: { terminal, tier_index/tier_reached, tier_number, high_water_roe, source },   # which DSL lever fired
   source: "telemetry" | "reconstructed" | "external_wallet"   # telemetry = exit_reason from the event log; else discovery+ratchet
   wallet_kind: "external"                # only on a saved wallet's row (absent on Senpi strategy rows)
 
@@ -168,5 +168,8 @@ the agent calling `close_position`, and the user closing on the venue are indist
 Say "not closed by its stop"; never attribute it to the trader. A saved wallet's trade is always `MANUAL_TRADE`
 (`source: "external_wallet"`) — the user's own exit, never a DSL tier and never the same thing as a Senpi
 strategy's `manual` or `CLOSED_OFF_LADDER` exit. Neither available → `UNKNOWN` (`source: "unknown"`) — say
-"exit mechanism not recorded on this build," never guess. `tier_index`/`tier_reached` = the tier that locked; `high_water_roe`
-= the peak ROE — together they tell you *which lever* to tune.
+"exit mechanism not recorded on this build," never guess. `tier_number` = the tier that locked, 1-based: say "Tier
+{tier_number}"; null on a stop exit = it never armed (the hard stop fired). `tier_index`/`tier_reached` are the
+raw 0-based index (-1 before Tier 1): never print them as the tier. `high_water_roe` = the peak ROE — with the
+tier, *which lever* to tune. A ratchet-sourced exit is the trade's own record (the stop order that filled, else
+the row alive during the trade); no such row → `UNKNOWN`, never a neighbouring trade's record.

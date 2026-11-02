@@ -69,10 +69,10 @@ python3 scripts/portfolio.py all          # one-shot fallback: the full composed
    5. **DSL protection — ladder + live tiers.** State the group's `protected` posture (⟹ **all**
       instances ship a DSL exit), then **how its DSL works** from `group.dsl` / `profile.dsl` (hard stop
       at `hard_stop_roe_pct`, ratchet arms at `arm_at_roe_pct`, the tier ladder), then **each open
-      position's live tier** from `positions[].dsl` — "armed at Tier N, locked L% of peak" or, for a
+      position's live tier** from `positions[].dsl` — "armed at Tier N (`tier`), locked L% of peak" or, for a
       sub-Tier-1 position, "protected from entry, ratchet arms at +X% — currently +Y%." **Never say a
-      live position has "no DSL" because it lacks a ratchet record** (sub-Tier-1 positions have none by
-      design). See "DSL — how it works per strategy, and which position is in which tier." (SKILL.md)
+      live position has "no DSL" because it lacks an armed ratchet tier** (no record, or one at tier -1
+      with a null floor, is sub-Tier-1). See "DSL — how it works per strategy, and which position is in which tier." (SKILL.md)
    6. **Any lever is WHOLE-STRATEGY.** If you suggest close / pause / adjust-config / top-up, it applies
       to the **entire strategy (all its wallets)** — never one sleeve. And the lever is the STRATEGY,
       not a hand-picked position the scanner will just re-open. See the HARD rule (SKILL.md, "The job, and the

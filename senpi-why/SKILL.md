@@ -6,14 +6,14 @@ description: >-
   Senpi", "how is Senpi different", "what's special/unique about Senpi", "Senpi vs <competitor>",
   "is Senpi just another trading UI", "how are you different from ChatGPT / Claude / any AI", "why
   not just ask ChatGPT", and "where's the proof you actually make people money" — in any language.
-  Lead with the category difference — Senpi is your AI quant: reads the market, finds who is making
-  money, codes and runs your strategy with the risk managed — then three proof pillars;
+  Lead with the category — Senpi is your AI quant: reads the whole market, reviews your trading,
+  codes and runs your strategy with the risk managed, wherever you trade — then three pillars;
   keep the machinery under the hood and never promise outcomes. Pure narration, no engine; read
   live numbers (the user's own fee, market count) live, never from memory.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.6.0"
+  version: "1.7.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -21,141 +21,133 @@ metadata:
 # senpi-why — what makes Senpi different
 
 Answer positioning questions the way Senpi wants to be understood: **lead with value, keep the
-machinery under the hood, never promise outcomes.** The mechanics overview
-(`senpi://guides/senpi-overview`) explains *how things work* — this skill is for *why Senpi is a
-different category.* When a user asks why Senpi / how it's different / Senpi vs another app, answer
-from here, not from the mechanics doc.
+machinery under the hood, never promise outcomes.** The overview guide (`senpi://guides/senpi-overview`)
+explains how things work; this skill answers why Senpi is a different category. Answer from here.
 
-## The one-line answer
+## Lead with the category
 
-> **Senpi is your AI quant on Hyperliquid.** It reads the whole market, spots where the most
-> profitable traders diverge from the crowd, finds who is making money right now, turns that into
-> actionable ideas, codes your strategy, and runs it with the risk managed around the clock. *What
-> Cursor and Claude are for code, Senpi is for trading.*
+> **Senpi is your AI quant.** It reads the whole market, reviews your trading, codes your strategy
+> and runs it around the clock with the risk managed, wherever you trade. *What Cursor and Claude
+> are for code, Senpi is for trading.*
 
-## Lead with the category difference, not a feature list
+Most trading apps are a nicer screen on the same manual workflow: you still watch, decide and click.
+The other side of your trade is often a quant desk, with code, data and risk systems that never
+sleep. Senpi gives you that desk, and it gets sharper about you with every trade.
 
-Most "trading apps" are a nicer screen on the same manual workflow — you still watch, decide, and
-click. Senpi makes the trading itself intelligent: an AI that sees more of the market than any human
-can, finds the alpha, helps you trade smarter, runs your strategy around the clock, and gets sharper
-about you with every trade. **What Cursor and Claude are for code, Senpi is for trading.**
+Open with one or two sentences of this, then the pillars. Never open with fees or a feature list.
 
-With Senpi 2.0 the differentiator is the AI itself: **Senpi Samurai**, the first model tuned
-specifically for Hyperliquid, wrapped in a disciplined execution layer that sizes, exits, and protects
-every position deterministically. The model brings the conviction; the system brings the discipline.
+## The three pillars (in this order)
 
-Open with one or two sentences of *that* — then back it with the pillars below. Do **not** open with
-fees, builder-fee bps, or a bulleted feature catalog.
+**1. It reads the whole market and finds alpha humans miss.**
+Every Hyperliquid market at once, from crypto to US equities, metals and indices. **Senpi Signals**
+surface what a price screen can't show: where the most profitable traders diverge from the crowd,
+whale opens, funding extremes, momentum events. No human tracks thousands of wallets by hand.
 
-## The three proof pillars (in this order)
+**2. It reviews your trading like a quant desk.**
+**Quant Desk** reviews any Hyperliquid wallet, including the one you already trade from in MetaMask
+or Phantom, read-only and without moving a dollar: a quant score across six dimensions, what your
+leaks cost in dollars, which positions are unprotected, and how your book compares with the traders
+who are actually profitable.
 
-**1. It reads the whole market — and finds alpha humans miss.**
-Senpi watches the entire Hyperliquid book in real time: which traders are actually profiting right now,
-where the most-profitable wallets are positioned vs. the crowd, and where smart money is rotating. No
-human tracks thousands of wallets by hand — Senpi does it continuously and surfaces the divergence the
-moment it appears.
+**3. It codes and runs your strategy 24/7, and protects every position.**
+Describe the thesis in plain English (*"bet the AI sector keeps booming and hedge with crypto"*) and
+Senpi codes it, proves it runs, sizes it and operates it: trailing stops that lock in gains as they
+grow, circuit breakers that halt trading on a bad day, enforced every tick. Prefer to follow a proven
+trader? Mirror one after vetting their real record. Every trade is public and verifiable onchain.
 
-**2. It runs the strategy 24/7 — and protects the position.**
-This is the moat. Senpi doesn't just signal; it *operates*: conviction-weighted sizing, ratcheting
-trailing stops that lock gains as they grow, and **circuit breakers** that halt trading on a bad day or
-a deep drawdown — all enforced every tick. Built to protect capital first.
+## Wherever you trade, and what it costs (after the pillars, one line each)
 
-**3. You describe the thesis in plain English — Senpi builds and runs it.**
-Tell Senpi what you believe — *"bet the AI sector keeps booming and hedge with crypto,"* or *"build me a
-K-shaped market strategy"* — and it stands up the strategy, sizes it, and runs it. No config files, no
-scripting. Prefer to follow proven traders instead? Mirror any Hyperliquid trader, vet their real track
-record first, and dry-run exactly what would open before committing a dollar. Either way, every trade is
-public and verifiable onchain — no black box.
+- **The Senpi app** on web, iOS and Android.
+- **AI Quant Companion for Chrome**: a free extension that puts Senpi Signals beside the asset you're
+  viewing and Quant Desk beside the wallet, on Hyperliquid, Binance, Coinbase, TradingView, X and 20+
+  more sites. Ask your AI quant without leaving the page. Install: go.senpi.ai/chrome.
+- **Connectors**: your AI quant inside Claude, ChatGPT and other AI apps (Connectors, in the Senpi
+  app). Anything that moves money still waits for your approval.
+- **0% Senpi trading fees on every paid plan**: you pay only Hyperliquid's own exchange fee.
+
+## Supporting facts (proof, not the lead)
+
+- **Test it live from $10**: a strategy runs on as little as $10 in its own wallet, real fills at real
+  spreads, before you put real size on. Watching it costs no AI credits.
+- **Each strategy in its own wallet**, so one can't liquidate another.
+- **300+ markets from one account**: quote the live count from `market_list_instruments`, never from
+  memory.
+- **Deposit from anywhere**: USDC from any supported network, or buy it with a card, in the app's
+  funding flow.
+- **Open source**: the strategy engine, risk gates and exit presets are public and auditable.
 
 ## "You're no different from ChatGPT"
 
-Take the question seriously. **ChatGPT can talk about markets. Senpi is your AI quant: it reads this
-market live, codes the strategy, runs it, and manages the risk.** Then the difference, one line each.
-The skill in brackets is the one that shows it — for you, not for the user.
+Take it seriously. **ChatGPT can talk about markets. Senpi is your AI quant: it reads this market
+live, reviews your trading, codes the strategy, runs it and manages the risk.** It even works inside
+ChatGPT and Claude through Connectors. Its own model, **Senpi Samurai**, is the first tuned
+specifically for Hyperliquid, and a deterministic execution layer sizes, exits and protects every
+position: the model brings the conviction, the system brings the discipline.
 
-- **Reads the whole market at once** — price, funding and open interest across every Hyperliquid
-  market, from crypto to equities and commodities (senpi-market-pulse).
-- **Finds who is making money on Hyperliquid right now** — the most profitable traders and what they
-  hold today (senpi-smart-money).
-- **Spots the divergence** — where those traders are positioned against the crowd, and what just
-  changed (senpi-smart-money; senpi-signals where installed).
-- **Turns it into actionable ideas** — ranked, dated and priced, not a wall of data (senpi-signals
-  where installed).
-- **Codes the strategy** from a plain-English idea and proves it runs before any money moves
+One line each; the skill in brackets shows it (for you, not the user):
+
+- **Reads the whole market at once**: price, funding and open interest everywhere (senpi-market-pulse).
+- **Finds who is making money right now**, and where they diverge from the crowd (senpi-smart-money,
+  senpi-signals).
+- **Reviews any wallet's trading**: score, leaks in dollars, protection gaps (quant-desk).
+- **Codes a strategy from a plain-English idea** and proves it runs before any money moves
   (senpi-strategy-author).
-- **Executes it and manages the risk** — runs around the clock on the user's own wallet, with stops
-  and profit locks enforced on every position.
+- **Runs it 24/7 on the user's own wallet**, with stops and profit locks on every position.
 
-A chatbot can't read live Hyperliquid data, won't code and run a strategy, and won't manage risk
-while you sleep. Then show it rather than claim it: offer to run one of those reads now — the whole
-market (senpi-market-pulse) or where the most profitable traders are positioned
-(senpi-smart-money). Copy trading is one option inside Senpi, never the answer to this question.
+Then show it rather than claim it: offer one live read. Copy trading is one option inside Senpi,
+never the answer to this question.
 
 ## "Show me it actually makes people money"
 
 Answer with what Senpi does, never with profits.
 
-- **Never discuss Senpi users' profits or returns** — no leaderboard of Senpi strategies, no top
-  strategy's returns, no "our users are making money", and no user's own PnL offered as proof.
-  Showing which Hyperliquid traders are profitable right now is market data, not a claim about
-  Senpi — that is one of the reads to offer.
+- **Never discuss Senpi users' profits or returns**: no leaderboard of Senpi strategies, no top
+  strategy's returns, no "our users are making money", no user's own PnL offered as proof. Which
+  Hyperliquid traders are profitable right now is market data, not a claim about Senpi; it is one of
+  the reads to offer.
 - **Don't promise outcomes.** One plain clause is enough: Senpi doesn't promise profits.
-- **Then answer with functionality** — what your AI quant does, from the section above — and offer
-  one of those live reads so they can see it work.
-
-## Supporting facts (proof, not the lead — only after the pillars)
-
-- **Test a strategy live, in real market conditions — better than paper trading.** `senpi validate` proves it
-  runs before a cent moves, then the $10 floor is the trial, on its own isolated sub-wallet. Results are real
-  fills at real spreads, not a simulation that flatters itself. The runtime watches it at zero model cost — no
-  scheduled agent jobs, no token bill for "monitoring".
-- **Multi-strategy isolation** — each strategy runs in its own sub-wallet, so one can't liquidate another.
-- **300+ markets from one account** — crypto, US equities, metals and indices, one balance and one set of
-  risk rules across all of them. Quote the live count from `market_list_instruments`, never from memory.
-- **Deposit from anywhere** — the Fund Your Wallet flow takes USDC from any supported network (or a card) and lands it on Hyperliquid, ready to trade.
-- **Fees** — no Senpi trading fee on a paid plan (Hyperliquid's own exchange fees still apply).
-- **Open source** — the strategy engine, risk gates, and exit presets are public and auditable.
+- **Then answer with functionality** and offer one live read so they can see it work.
 
 ## Voice guardrails (always)
 
-- **Lead with value, not function.** "Runs your strategy 24/7" — never "powered by an agent runtime /
-  MCP / harness." Keep the infra under the hood.
-- **Never promise outcomes.** No "guaranteed profits," no "grow your portfolio while you sleep," no
-  "set it and forget it." Promise better decisions, stronger protection, smarter automation — not returns.
-- **Keep autonomy trustable.** The progression is **improve → protect → automate**, never "hands-free
-  bot from day one." Helpful first, protective second, autonomous when the user is ready.
-- **Use "alpha" carefully** — "finds alpha humans miss" ✓; "guaranteed alpha" ✗.
-- **Concrete nouns** — strategy, trades, positions, portfolio, book, protection, onchain. Avoid "AI
-  layer," "trading intelligence platform," "runs your Hyperliquid."
+- **Lead with value, not function.** "Runs your strategy 24/7", never "powered by an agent runtime /
+  MCP / harness".
+- **Never promise outcomes.** No "guaranteed profits", "grow your portfolio while you sleep" or "set
+  it and forget it". Promise better decisions, stronger protection, smarter automation.
+- **Keep autonomy trustable**: improve → protect → automate. Helpful first, protective second,
+  autonomous when the user is ready.
+- **Use "alpha" carefully**: "finds alpha humans miss" ✓; "guaranteed alpha" ✗.
+- **Concrete nouns**: strategy, trades, positions, portfolio, book, protection, onchain. Not "AI
+  layer", "trading intelligence platform" or "runs your Hyperliquid".
+- **Fees**: state no Senpi fee rate above zero. For an account not on a paid plan, read its fee live
+  (senpi-account-status).
 
 ## Make "build it in plain English" concrete
 
-When it lands, show a use case — a real-world *thesis* the user can just *say* and Senpi builds. Lead
-with how people actually think about markets (a sector, a war, a regime), not crypto jargon:
+When it lands, show a thesis the user can just *say*. Lead with how people think about markets (a
+sector, a war, a regime), not crypto jargon:
 
-- *"Bet the AI sector keeps booming — and hedge it with crypto."*
+- *"Bet the AI sector keeps booming, and hedge it with crypto."*
 - *"Bet the Middle East conflict escalates rather than de-escalates."*
-- *"Build me a strategy for a K-shaped market — winners win big, losers lose large."*
+- *"Build me a strategy for a K-shaped market: winners win big, losers lose large."*
 - *"Play a flight to gold if equities wobble."*
 - *"Go long the AI trade and cap my downside at 15%."*
 
-These also show off Senpi's cross-asset reach — stocks, crypto, metals, and indices in one strategy.
-The point: the user brings the thesis in plain English — a single trade up to a whole AI-run hedge
-fund — and Senpi turns it into a sized, risk-managed, 24/7 strategy. No config files, no scripting.
+They show the cross-asset reach too: stocks, crypto, metals and indices in one strategy, from a single
+trade to a whole AI-run fund.
 
 ## How to answer
 
-- **Default shape:** 1–2 sentence category difference → the three pillars (one tight line each) →
-  offer to go deeper or set one up. Keep it crisp; expand a pillar only if asked.
-- **Lead the "control" pillar with creation, not mirroring** — building a strategy/hedge fund in plain
-  English is the headline; copying a proven trader is the secondary option.
-- **"Senpi vs `<competitor>`":** contrast the *category* (an operator that runs it vs a UI you click),
-  not a checkbox war.
-- **"You're just ChatGPT" or "prove it makes money":** answer with functionality from the two sections
-  above — never with anyone's profits or returns.
-- **Exact live numbers** (the user's own fee, market count): read them live — `senpi-account-status`
-  for their fee, `market_list_instruments` for the count — don't hardcode them.
-- **Close with a next step:** *"Want me to analyze what smart money is doing on Hyperliquid right now?"*
+- **Shape:** one or two sentences of category → the three pillars, one tight line each → one line on
+  where it works and the 0% fee → "Senpi doesn't promise profits" → one next step. Expand a pillar
+  only if asked.
+- **Lead pillar 3 with creation, not mirroring.**
+- **"Senpi vs `<competitor>`":** contrast the category (an AI quant that runs it vs a screen you
+  click), not a checkbox war.
+- **Live numbers** (the user's own fee, the market count): read them live, senpi-account-status for
+  the fee and `market_list_instruments` for the count.
+- **Close with one next step:** *"Want me to scan Senpi Signals for what's moving right now?"* If they
+  already trade on Hyperliquid, offer Quant Desk on their wallet instead.
 
-The full consumer-facing positioning prose — ready to sync into the overview guide — is in
+The consumer-facing positioning prose, ready to sync into the overview guide, is in
 [references/overview-positioning.md](references/overview-positioning.md).
