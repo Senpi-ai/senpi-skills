@@ -33,8 +33,15 @@ def _cli_env():
     that worker is spawned `detached` into its own process group (`entry.respawn.ts`,
     `process/respawn-child-runner.ts`). A group kill of our child then misses the worker, and a
     timed-out START keeps running and can still deliver after this script reported (RT566-08). The
-    flag is honoured by 5.7, 5.12 and 10.10 (`entry.respawn.ts`, `isTruthyEnvValue(env.OPENCLAW_NO_RESPAWN)`)."""
-    return dict(os.environ, SENPI_LOG_LEVEL="error", OPENCLAW_NO_RESPAWN="1")
+    flag is honoured by 5.7, 5.12 and 10.10 (`entry.respawn.ts`, `isTruthyEnvValue(env.OPENCLAW_NO_RESPAWN)`).
+
+    SENPI_OPENCLAW_CLI_SKIP_PLUGIN_CAPTURE=1 lets an `openclaw senpi …` call skip the 10.x plugin
+    generation capture (two copies + hashes of the runtime's whole install tree, ~18 s of a 25 s
+    `senpi validate`). Only an agent image carrying the senpi-agent #102 dist patch reads it, and only
+    for the `runtime` plugin; 5.x and unpatched 10.x read nothing by this name, so it is inert there.
+    Built-in calls (`gateway call`, `--version`) load no plugins, so it is a no-op on them too."""
+    return dict(os.environ, SENPI_LOG_LEVEL="error", OPENCLAW_NO_RESPAWN="1",
+                SENPI_OPENCLAW_CLI_SKIP_PLUGIN_CAPTURE="1")
 
 
 def _kill_tree(p):
