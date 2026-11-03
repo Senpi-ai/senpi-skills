@@ -74,6 +74,9 @@ class LimitsAreReadBeforeTheDeploy(unittest.TestCase):
 
     def test_numbers_come_from_the_tool_never_from_memory(self):
         self.assertIn("never limit numbers from memory", self.step)
+        self.assertIn(
+            "their own come from this read; another plan's from the `senpi-account-status` plan table",
+            self.step)
         # Plan limits change; no plan's figure may sit in the step.
         self.assertIsNone(re.search(r"\b\d+ (running|new) strateg", self.step))
 

@@ -258,7 +258,8 @@ otherwise put it in `--theme` and rank on `archetype_label`/`belief_plain`/`thes
      multi-instance card needs one per instance). Before proposing more than one to deploy, call
      `strategy_get_limits`; when `enforced` is true and the picks need more wallets than `runningLeft` or
      `startsLeft` (a `null` left is no limit), say so (quote `summary`) and size the set to fit, never
-     limit numbers from memory.
+     limit numbers from memory (their own come from this read; another plan's from the
+     `senpi-account-status` plan table).
    - If funds are unavailable (`user_context` missing/errored), ask for the budget rather than assuming.
    - **"Can I try it first / paper trade it?"** — there is no paper-trading mode. The trial IS a live run at
      the floor, after `senpi validate` proves it runs — and the floor is the card's `min_budget`, which is

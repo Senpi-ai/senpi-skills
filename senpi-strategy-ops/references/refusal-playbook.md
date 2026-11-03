@@ -285,8 +285,11 @@ say which ones are.
 Reaches you as a **`failed` report (exit 3)** on `create` with the backend's text quoted, or as the
 raw MCP error if a create was called directly. The text takes one of two forms:
 
-- for a user on a plan or trial, per billing cycle: `SERR184: Your Pro plan allows 5 new strategies
+- for a user on a plan, per billing cycle: `SERR184: Your Pro plan allows 5 new strategies
   per billing cycle. Your count resets at 2026-11-14 00:00 UTC, or upgrade your plan.`
+- for a user on the free trial: the same sentence, but the allowance covers the 14-day trial and the
+  time it names is when the trial ends, not a reset. Say "free trial", never "Pro trial", "per billing
+  cycle" or 30 days.
 - for a user without one, the last 30 days: `SERR184: Your free account allows 1 new strategies
   per 30 days. Your next one frees up at 2026-11-02 14:00 UTC, or upgrade your plan.`
 
@@ -298,7 +301,8 @@ package the sleeves created before it may be live: read `status.py <id>` and say
 - **Tell the user in one or two sentences.** Quote the backend's sentence (it names the plan, the
   limit and the time the backend names, in UTC: when the count resets or the next start frees up),
   then the two ways forward: wait until that time, or upgrade their plan. When the sentence names no
-  time (a limit of 0), upgrading is the only way forward; never estimate a time.
+  time (a limit of 0), upgrading is the only way forward; never estimate a time. On a free trial,
+  upgrading is the only way forward: waiting until the stated time means the trial ends.
 - **Closing a strategy does not free a start**: a closed strategy still counts until the count resets
   or its 30 days pass. Do not offer closing as a way forward.
 - **Try again only after that time has passed or the user has upgraded** and asks: then re-run the
@@ -320,7 +324,8 @@ package instead of halfway through it. Step 0.6 of the skill catches it earlier,
 - **Tell the user in one or two sentences.** Quote its lines: how many the package needs, what is left of
   each short limit, and the `summary` sentence. Then the ways forward: for the running limit, close a
   running strategy themselves (the user picks which one, `close.py <id>`); for the starts limit, wait
-  until the reset time it names, or upgrade — closing never gives a start back.
+  until the reset time it names, or upgrade — closing never gives a start back. On a free trial that
+  time is when the trial ends, so upgrading is the only way forward.
 - **Try again only after the user has done one and asks**: then re-run the same `deploy.py create`
   command once.
 - **Never**: re-run on a timer or in a loop; close a strategy on the user's behalf; deploy fewer
