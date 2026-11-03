@@ -65,8 +65,8 @@ report **verbatim**. The wrapper's value is resolution, that structural pass and
 **not** a gate the verb lacks: the live-universe gate is the verb's own and it fires **pre-money**. Use
 the bare verb for the read-only `openclaw senpi deploy status`, and whenever resolution is not needed.
 **Always tear down through `close.py`** (one `<id>` or `--all`) — it deletes the runtime *and* closes
-the strategy. A raw `strategy_close` MCP call closes the strategy but **leaves the runtime
-registered**, which collides on the next deploy.
+the strategy. A raw `strategy_close` MCP call or a close in the app closes the strategy but **leaves the runtime
+registered** (it collides on the next deploy); `close.py <id>`/`--all` deletes it and reports `closed`.
 **`close.py` is never a repair.** It market-exits every position and returns the funds; a deploy after it is a
 NEW wallet whose scanner state starts empty — needed only when `update` refuses `E_UPDATE_WALLET_CHANGED` (below).
 "Relaunch", "restart", "redeploy", "fix it" → the read-only `deploy.py verify` on the id they run (`status.py`

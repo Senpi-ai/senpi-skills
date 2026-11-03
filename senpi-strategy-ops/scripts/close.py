@@ -16,6 +16,8 @@ close too):
   → reports `closing`. strategy_close is async, so POLL by re-running `close.py <id>`: it's idempotent
     (runtime already gone → skip; status already closing/closed → skip re-submit) and reports `closed`
     once the strategy leaves the active set.
+A strategy already CLOSED elsewhere (the app, a raw strategy_close) whose runtime is still live gets
+step 1 only: the runtime is deleted and it reports `closed` (<id>, --all, --strategy-id/--address).
 
 --instance scopes which instance(s) to close; --dry-run prints the plan with no side effects.
 --strategy-id/--address are mutually exclusive with <id>/--all/--instance/--ref and with each other.
@@ -91,6 +93,12 @@ def _runtime_gone(name):
     return not any(_cli.runtime_name(r) == name for r in rts)
 
 
+def _label(pkg, i, s):
+    if pkg:
+        return f"{pkg.id}[{i + 1}]"
+    return f"{_cli.strategy_skill(s) or 'strategy'}:{str(_cli.strategy_id_of(s))[:8]}"
+
+
 def close_one(label, strat, runtimes, dry_run, log):
     """Stop the runtime (FIRE — no confirm-wait) + TRIGGER strategy_close, then return immediately. The
     agent polls by re-running close.py (idempotent: runtime already gone → skip; status closing/closed →
@@ -115,12 +123,10 @@ def close_one(label, strat, runtimes, dry_run, log):
         rec["status"] = "failed"
         rec["error"] = "no strategyId on strategy record"
         return rec
-    if status0 in _CLOSED:
-        rec["status"] = "closed"
-        return rec
 
-    # 1. stop the runtime if one is live. Trust `runtime list` (the authoritative inventory), NOT the
-    #    delete's exit code: `runtime delete` rides the flaky gateway (its OTel/HyperDX banner leaks into
+    # 1. stop the runtime if one is live — for a TERMINAL strategy too: one closed outside close.py (the
+    #    app, a raw strategy_close) leaves its runtime ticking against the emptied wallet.
+    #    Trust `runtime list` (the authoritative inventory), NOT the delete's exit code: `runtime delete` rides the flaky gateway (its OTel/HyperDX banner leaks into
     #    our captured output) AND returns NOT_FOUND / non-zero when the runtime is ALREADY gone — so a
     #    non-zero is NOT proof of failure. Trusting it both broke idempotent re-runs (a poll re-run hit
     #    NOT_FOUND → false 'failed') and false-aborted the money-critical strategy_close below, stranding
@@ -142,6 +148,9 @@ def close_one(label, strat, runtimes, dry_run, log):
         rec["runtime"] = "stopped"
     else:
         rec["runtime"] = "not_found"
+    if status0 in _CLOSED:
+        rec["status"] = "closed"
+        return rec
 
     # 2. TRIGGER close (no wait). Only submit while still ACTIVE — once triggered it leaves ACTIVE, so a
     #    re-run won't re-submit. Own MCP client → safe to run instances concurrently.
@@ -196,8 +205,7 @@ def main(argv):
         rows = _read_or_refuse(_cli.list_strategies_or_none(mcp, statuses=LIVE_STATUSES, why=why),
                                why, "every open strategy")
         opens = [s for s in rows if _cli.strategy_open(s)]
-        targets = [((_cli.strategy_skill(s) or "strategy") + ":" + str(_cli.strategy_id_of(s))[:8], s)
-                   for s in opens]
+        targets = [(_label(None, i, s), s) for i, s in enumerate(opens)]
         hdr = "all open strategies"
         strategy_label = "ALL"
     elif direct:
@@ -243,9 +251,24 @@ def main(argv):
                 raise SystemExit(f"error: can't map instance {a.instance!r} to a strategy without its live "
                                  f"runtime ({pkg.id}-{a.instance}). Omit --instance to close all of {pkg.id}.")
         else:
-            targets = [(f"{pkg.id}[{i + 1}]", s) for i, s in enumerate(opens)]
+            targets = [(_label(pkg, i, s), s) for i, s in enumerate(opens)]
         hdr = f"{pkg.id} v{pkg.version}"
         strategy_label = pkg.id
+
+    runtimes = ever = None
+    if not targets and (pkg is not None or a.all):
+        # A terminal strategy drops out of the LIVE read, but one closed OUTSIDE close.py (the app, a raw
+        # strategy_close) leaves its runtime ticking against the emptied wallet. Target those so
+        # close_one deletes the runtime; terminal rows only, so strategy_close is never re-submitted.
+        runtimes = _cli.list_runtimes()
+        if pkg is not None or runtimes:
+            ever = _read_or_refuse(
+                _cli.strategies_for_or_none(mcp, skill_name=pkg.id if pkg else None, why=why),
+                why, pkg.id if pkg else "every strategy")
+        stranded = [s for s in ever or [] if not _cli.strategy_open(s)
+                    and any(_cli.wallet_match(_cli.runtime_wallet(r), _cli.strategy_wallet(s))
+                            for r in runtimes)]
+        targets = [(_label(pkg, i, s), s) for i, s in enumerate(stranded)]
 
     if not targets and not a.dry_run:
         # A LIVE-filtered read that came back empty has TWO causes and they are not the same answer:
@@ -262,8 +285,6 @@ def main(argv):
         # polls right here.
         # `--strategy-id`/`--address` already re-reads UNFILTERED for this reason; so does this now.
         if pkg is not None:
-            ever = _read_or_refuse(
-                _cli.strategies_for_or_none(mcp, skill_name=pkg.id, why=why), why, pkg.id)
             if ever:
                 # Rows exist but none is LIVE, so every one is terminal. Name the statuses rather
                 # than printing a bare `closed.`: this branch also fires for a package whose only
@@ -284,7 +305,8 @@ def main(argv):
         log("⚠ openclaw is not available on this host — runtimes (if any, on the runtime host) will "
             "NOT be stopped by this run and would be left orphaned. Run close.py on the runtime host "
             "too, or `openclaw senpi runtime delete <id>` there.")
-    runtimes = _cli.list_runtimes()
+    if runtimes is None:
+        runtimes = _cli.list_runtimes()
     if a.dry_run or len(targets) == 1:
         results = [close_one(label, strat, runtimes, a.dry_run, log) for label, strat in targets]
     else:

@@ -521,6 +521,11 @@ reachable case). Get the id/address from `status.py`.
 Per strategy:
 
 1. **Stop the runtime if one is live** — by wallet, `runtime delete`, confirm gone. Orphans skip to 2.
+   A strategy that is **already terminal** stops here: it was closed outside `close.py` (in the app, or by a
+   raw `strategy_close`), which leaves its runtime ticking against the emptied wallet. Its runtime is
+   deleted, it reports `closed`, and `strategy_close` is never re-submitted. `<id>` and `--all` find these
+   only when nothing is LIVE: they re-read every status and target the terminal rows whose wallet still
+   has a runtime. `--strategy-id`/`--address` read every status already.
 2. **Trigger `strategy_close(strategyId)`** — flattens **all** positions + closes the strategy (funds
    returned). Submit **only**, no wait. Only submitted while status is `ACTIVE`, so a re-run won't
    re-submit.
