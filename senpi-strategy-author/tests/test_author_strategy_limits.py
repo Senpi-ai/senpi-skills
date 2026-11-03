@@ -32,6 +32,7 @@ class ManyAtOnceOnlyWithinTheLimits(unittest.TestCase):
             "every wallet is one strategy against the plan's limits",
             "before proposing more than one, call `strategy_get_limits`",
             "when `enforced` is true, size the proposal to `runningLeft` and `startsLeft`",
+            "another plan's limits come from the `senpi-account-status` plan table, never memory",
             "a `null` left is no limit",
             "**two instances / two wallets**, two slots",
         ):

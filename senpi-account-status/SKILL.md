@@ -10,14 +10,14 @@ description: >-
   does Senpi cost?", "what do I get on Pro/Quant?", "how do I get free credits?", "where are my
   milestone credits?", "do I need a subscription to keep my strategy running?", "what happens when my
   trial ends?", and for strategy limits: "what are my strategy limits?", "when can I start a new
-  strategy?". Use this instead of calling user_get_senpi_points by hand. A hidden engine
+  strategy?", "what are the strategy limits on the paid plans?". Use this instead of calling user_get_senpi_points by hand. A hidden engine
   (scripts/status.py) pulls points, the fee, referral and strategy limits in one call; the credit
   BALANCE is explained, never read — no tool returns it — while the plan catalog and the end of the
   free-credit milestones are published here and may be quoted. Requires a USER-scoped Senpi token.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.10.1"
+  version: "1.11.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -31,8 +31,7 @@ cleanly**: points and rank, the Senpi fee, referral earnings, and strategy limit
 
 - **Run the engine; never hand-pull.** `python3 scripts/status.py` gathers points, the fee,
   referral and strategy limits together. Read its JSON.
-- **Real-time, not from memory.** Points/rank move — never quote a figure from earlier in the
-  conversation; re-run.
+- **Real-time.** Points/rank move — never quote an earlier figure; re-run.
 - **The fee comes from the data, never from memory.** Quote `fee.pct` as returned: `0%` on a paid
   plan (Pro, Advanced, Quant, and Starter for people already on it), the flat free rate without one,
   free trials included.
@@ -40,8 +39,7 @@ cleanly**: points and rank, the Senpi fee, referral earnings, and strategy limit
   suggest reaching, keeping or regaining a tier, and never close with a next-tier offer. If the user
   asks about their tier or where it went, say tiers carry no benefit right now. Points still accrue
   at the plan multiplier and still set leaderboard rank.
-- **Lead with what they asked.** If they asked about points, lead with points + rank. Don't dump
-  every section if they asked one question — but the engine returns all of it so you can.
+- **Lead with what they asked.** Points question: lead with points + rank. Don't dump every section.
 - **Credits are explained, never read.** No tool returns the AI-credit balance; the meter in the app
   header is the balance. Rules in "AI credits — the usage meter" below.
 - **Plans and free credits are published; the balance is not.** Quote the catalog and the end of the
@@ -71,11 +69,42 @@ Lead with the section they asked about; otherwise a tight standing card:
 1. **Points & rank** — total, base/perp split, multiplier, rank (+ change).
 2. **Fee** — `fee.pct` (`0%` = a paid plan, no Senpi fee).
 3. **Referral** — pending `balance_usdc` (and that it's claimable if > 0).
-4. **Strategy limits** — only when a limit is enforced: `limits.summary`, usage and the reset time. No
+4. **Strategy limits** — only when a limit is enforced: `limits.summary`, usage and the reset time (on a free trial, when it ends). No
    limits apply (grandfathered, or both limits `null`): one line at most, "no strategy limits apply".
    `enforced: false` or `limits: {}`: leave it off. Full detail only when asked (see below).
 
-Formatting: clean, scannable, numbers from the data; emoji sparingly.
+Formatting: scannable, numbers from the data.
+
+## Strategy limits
+
+`limits` is MCP `strategy_get_limits`: the user's own plan, usage and reset time. When a limit is
+enforced, lead with `limits.summary`, the sentence to quote. Then: `running` of `maxRunning` running,
+`starts` of `maxStarts` new this cycle (the last 30 days when `window` is not `CYCLE`), and
+`startsResetAt` in UTC (when the count resets in a cycle; otherwise when the next start frees up).
+Their own usage and limits come from this live read, never from memory. Another plan's limits are a
+catalog question: quote the "Plans & free credits" table as written, never a number of your own.
+
+- **"What are the limits on Pro / the paid plans?"** is a catalog question: answer from that table, no
+  engine run. Their own limits or usage ("what are my limits", "how many have I used") come from `limits`.
+- **A free trial** is a `source: "trial"` read. Call it the **free trial**, never "Pro trial" or
+  "<plan> trial", even though `limits.plan` names a plan; when quoting `summary`, say "free trial".
+  Its new-strategy allowance covers the 14-day trial, never a "per billing cycle" or 30-day count, and
+  `startsResetAt` is when the trial ends, not a reset.
+
+- **A `null` limit is no limit, never 0.** `source: "grandfathered"`: their account predates strategy
+  limits, so none apply. Both limits `null` (some `source: "override"` accounts): no limits apply to
+  their account. Either way the card says "no strategy limits apply" at most.
+- **`enforced: false`**: limits are not enforced right now, whatever the numbers say. Leave limits off
+  the card and do not raise them; when asked, say limits are not enforced right now.
+- **How it counts**: every wallet is one strategy (a 3-wallet strategy uses 3); a PAUSED strategy counts
+  as running; closing frees a running slot, never a start;
+  only a strategy that ends FAILED uses no start (one stuck in MANUAL_REVIEW still uses it);
+  the browser extension's own wallet never counts.
+- **Unread**: `limits: {}` with a `strategy_get_limits failed` warning. Leave limits off the card and
+  say nothing about it unless the user asked about their limits. If they did, run the engine once more at most
+  (not when the warning says `NOT_FOUND`) and, if it still fails, say their limits couldn't be read
+  right now. Never guess, and never say they have none. Deploys never wait on this read: the runtime
+  and strategy-manager still enforce the limits.
 
 ## Strategy limits
 
@@ -109,23 +138,20 @@ includes is published in "Plans & free credits" below and may be quoted; how muc
 on your plan and your usage, and only the user's own page shows that.
 
 - **What spends them.** Every message the user sends and every tool turn the agent runs. Long threads
-  cost more because the whole conversation is re-sent each turn — a fresh thread is cheaper than a
-  long one. Scheduled monitoring (a cron that re-reads a strategy) is the classic silent drain;
-  `senpi-strategy-author/references/shadow-testing.md` has the cheap alternatives.
-- **A running strategy is not what spends them.** Its runtime ticks without a model call, so running
-  it does not move the meter; a `decision_mode: llm` action in its `runtime.yaml` is the exception,
-  since that calls a model when it fires. A cron the agent set up to check on a strategy does move it
-  (each firing is a full model call), so name any the agent runs for this user. Using no credits is
-  not the same as needing no plan: the strategy runs on the agent, and a lapsed plan pauses both
-  (see "Plans & free credits").
+  cost more because the whole conversation is re-sent each turn — a fresh thread is cheaper. A cron that
+  re-reads a strategy is the classic silent drain; `senpi-strategy-author/references/shadow-testing.md`
+  has the cheap alternatives.
+- **A running strategy is not what spends them.** Its runtime ticks without a model call; a
+  `decision_mode: llm` action in its `runtime.yaml` is the exception (it calls a model when it fires).
+  A cron the agent set up to check on a strategy does move the meter (each firing is a full model
+  call), so name any the agent runs for this user. Using no credits is not the same as needing no
+  plan: the strategy runs on the agent, and a lapsed plan pauses both (see "Plans & free credits").
 - **Not trading money.** Credits cannot be traded, withdrawn, deposited into a strategy, or moved
   anywhere — they are separate from the funding wallet and from every strategy budget. A shrinking
   meter is usage, never a trading loss; a losing trade never touches the meter.
-- **You cannot read the balance.** No Senpi tool returns it (`user_get_me` → id / wallets / createdAt
-  / referralCode; `user_get_senpi_points` → points / fees) and the engine has no `credits`
+- **You cannot read the balance.** No Senpi tool returns it and the engine has no `credits`
   section. Point at the meter in the app header, or at their subscription page for the exact figure —
-  the in-app indicator surfaces only when credits run low, so a missing indicator is expected, not a
-  lost balance. Never invent a number, a percentage or a "roughly", and never guess what the meter
+  the in-app indicator surfaces only when credits run low, so a missing one is not a lost balance. Never invent a number, a percentage or a "roughly", and never guess what the meter
   shows.
 - **Chat is not free of credits.** Every turn spends them — including the turn that asks what a turn
   cost. Say so plainly; never "nothing".
@@ -146,7 +172,7 @@ unless the user says leverage, a loan or funding; when it is unclear, ask which 
 credits question is answered from this section alone — no engine run, no number — and closes by
 pointing at the meter. "What plans are there / how much
 does it cost / what do I get on Pro / how do I get free credits / where are my milestone credits /
-do I need a subscription / what happens when my trial ends" are **catalog** questions: answer them from "Plans & free credits" below, still without a figure
+do I need a subscription / what happens when my trial ends / what are the strategy limits on the paid plans" are **catalog** questions: answer them from "Plans & free credits" below, still without a figure
 about this user.
 
 ## Plans & free credits
@@ -154,16 +180,19 @@ about this user.
 Published facts — quote them. Billed per **30-day cycle, rolling from the user's own start date**,
 never a calendar month.
 
-| Plan | Price | Credits | Points per $1 volume |
-|---|---|---|---|
-| Pro (default) | $50 | $55 (+10%) | 1.5 |
-| Advanced | $100 | $115 (+15%) | 2 |
-| Quant | $200 | $240 (+20%) | 3 |
+| Plan | Price | Credits | Points per $1 volume | Running at once | New strategies per cycle |
+|---|---|---|---|---|---|
+| Pro (default) | $50 | $55 (+10%) | 1.5 | 10 | 40 |
+| Advanced | $100 | $115 (+15%) | 2 | 25 | 100 |
+| Quant | $200 | $240 (+20%) | 3 | no limit | no limit |
 
-Starter ($25 a month, $25 credits, 1 point per $1 volume) is closed to new subscribers; people
-already on it keep it and can upgrade, but cannot return to it after leaving.
+Free trial: 1 running at once, 3 new strategies during the 14-day trial. Starter ($25 a month, $25
+credits, 1 point per $1 volume, 3 running at once, 8 new per cycle) is closed to new subscribers; people
+already on it keep it and can upgrade, but cannot return to it after leaving. Accounts that predate
+strategy limits (`source: "grandfathered"`) have none on any plan, and the user's own `limits` read
+always wins for them.
 
-- **Every plan includes every model.** Plans differ on credits and points rate only — never on model
+- **Every plan includes every model.** Plans differ on credits, points rate and strategy limits — never on model
   access, so a cheaper plan never locks anyone out of the better model.
 - **No Senpi trading fee on any paid plan** — only Hyperliquid's own exchange fees. For any other
   account, quote its own `fee.pct` from the engine; never state a rate from memory.
@@ -177,11 +206,10 @@ already on it keep it and can upgrade, but cannot return to it after leaving.
   restarts, and unused credits are credited against the price, so they pay the difference.
   **Downgrading or cancelling takes effect at the next renewal**, never mid-cycle; benefits are kept
   until then and there are no mid-cycle refunds.
-- **Payment is web only** (Stripe, senpi.ai/settings/subscription). The app shows plan, credits and
-  renewal date but links out to the web page to change anything.
+- **Payment is web only** (Stripe, senpi.ai/settings/subscription); the app links out to change anything.
 - **Free trial:** activates when the user **deploys their agent**, is one-time, and expires **14 days
-  after activation**. **Never quote a trial figure** — the starting amount has changed more than once;
-  their subscription page is the only source of truth. On expiry or exhaustion the agent stops until
+  after activation**. Always "free trial", never "Pro trial". **Never quote a trial credit figure** — the starting
+  amount has changed more than once; their subscription page is the only source of truth. On expiry or exhaustion the agent stops until
   they subscribe: active strategies pause, **open positions are NOT auto-closed**, funds untouched.
 - **A lapsed plan pauses everything, not just chat.** Strategies run on the agent. When a trial or
   plan expires, a renewal payment fails, or the cycle's credits run out, Senpi pauses the agent and
@@ -199,7 +227,7 @@ them pays any more, and the "Unlock Free AI Credits" card shows nothing. Its "De
 went with it: the app built that row from the trial credit, and it was never a milestone.
 
 - **Milestone credit already earned stays until the next renewal** — a different clock from the
-  14-day trial expiry, so credit that vanished at a renewal boundary is working as designed.
+  14-day trial expiry; credit that vanished at a renewal boundary is working as designed.
 - **The trial credit still activates when the user deploys their agent** (see Free trial above).
 - Never offer a bonus for a strategy, a deposit, volume or subscribing. If the user's own page or
   card disagrees with this text, their page is right — never argue a user out of what is on their
@@ -212,12 +240,10 @@ App-scoped → no user resolves and `meta.degraded`; say so rather than reportin
 
 ## Skill Attribution
 
-Guide/analysis skill — it *reads* the user's standing; it does not mutate anything (claiming referral
-rewards is a separate explicit action via `user_claim_referral_rewards`, which this skill never calls).
-
+Read-only: it never mutates (claiming referral rewards is `user_claim_referral_rewards`, which this skill never calls).
 
 ## Install — both scripts are required
 
-The engine is **two files** in `scripts/`: `status.py` (the engine) and `mcp_client.py` (its vendored
-MCP helper, imported at runtime). **Install the whole `scripts/` directory** — copying `status.py`
-alone fails with `No module named 'mcp_client'`. Stdlib only, no other runtime dependencies.
+The engine is **two files** in `scripts/`: `status.py` and its vendored helper `mcp_client.py`.
+**Install the whole `scripts/` directory** — `status.py` alone fails with `No module named 'mcp_client'`.
+Stdlib only.
