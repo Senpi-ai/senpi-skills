@@ -13,7 +13,7 @@
 schema_version: 1
 
 id: squid
-version: "1.0.0"
+version: "1.0.1"
 
 catalog:
   name: "Squid — Live-Book Multi-Trader Fresh-Entry Mirror"
