@@ -8,8 +8,8 @@ Two contracts live here, both of them about not answering a question the surface
     fail-closed pair (`find_list_or_none` / `list_strategies_or_none`) keeps the two apart.
   * **a requested amount is never a funded one.** `strategy_funded` reports the backend's own
     figure or nothing at all.
-  * **…and empty != unreadable, the same contract inverted.** `_parse_runtime_list` must call a box
-    with no runtimes EMPTY, not unreadable — otherwise `verify` cannot answer on exactly the boxes
+  * **…and empty != unreadable, the same contract inverted.** `list_runtimes_or_none` must call a box
+    with no runtimes EMPTY (`senpi.listRuntimes` answered `{"runtimes": []}`), not unreadable — otherwise `verify` cannot answer on exactly the boxes
     where the answer is "nothing is running".
 
 Run:  python3 senpi-strategy-ops/tests/test_cli_reads.py
@@ -17,6 +17,7 @@ Run:  python3 senpi-strategy-ops/tests/test_cli_reads.py
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import json
 import sys
+import time
 import unittest
 from unittest import mock
 from pathlib import Path
@@ -340,89 +341,127 @@ class RunCliSpawnFailures(unittest.TestCase):
     propagating."""
 
     def setUp(self):
-        self._real = _cli.subprocess.run
+        self._real = _cli.subprocess.Popen
 
     def tearDown(self):
-        _cli.subprocess.run = self._real
+        _cli.subprocess.Popen = self._real
 
     def _raise(self, exc):
         def boom(*_a, **_kw):
             raise exc
-        _cli.subprocess.run = boom
+        _cli.subprocess.Popen = boom
 
     def test_a_fork_failure_is_the_never_ran_verdict_not_an_exception(self):
         self._raise(OSError(12, "Cannot allocate memory"))
-        rc, out, err = _cli.run_cli(["openclaw", "senpi", "runtime", "list"])
+        rc, out, err = _cli.run_cli(["openclaw", "senpi", "validate", "/pkg"])
         self.assertEqual((rc, out), (-1, ""))
         self.assertTrue(err.startswith(_cli.SPAWN_FAILED_PREFIX))   # never ran — the money-path branch
         self.assertIn("Cannot allocate memory", err)                # …and the cause survives to the log
 
     def test_a_missing_binary_still_reads_exactly_as_before(self):
         self._raise(FileNotFoundError())
-        self.assertEqual(_cli.run_cli(["openclaw", "senpi", "runtime", "list"]),
+        self.assertEqual(_cli.run_cli(["openclaw", "senpi", "validate", "/pkg"]),
                          (-1, "", f"{_cli.SPAWN_FAILED_PREFIX}openclaw"))
 
     def test_a_timeout_is_still_the_stopped_waiting_verdict(self):
         # The distinction the prefix exists for: a timeout RAN, so whatever it dispatched may still be
         # in flight. It must not pick up the never-ran prefix now that the OSError arm is broader.
-        self._raise(_cli.subprocess.TimeoutExpired(cmd="openclaw", timeout=60))
-        rc, out, err = _cli.run_cli(["openclaw", "senpi", "runtime", "list"])
+        # A real child that outlives the budget: the timeout path kills its group and reaps it.
+        t0 = time.time()
+        rc, out, err = _cli.run_cli([sys.executable, "-c", "import time; time.sleep(30)"], timeout=0.5)
+        self.assertLess(time.time() - t0, 10)
         self.assertEqual((rc, out), (-1, ""))
         self.assertFalse(err.startswith(_cli.SPAWN_FAILED_PREFIX))
-        self.assertIn("timed out", err)
+        self.assertIn("timed out after 0.5s", err)
 
 
-class ParseRuntimeListEmptyVsUnreadable(unittest.TestCase):
-    """`_parse_runtime_list` -> (rows, valid). `valid` is what `list_runtimes_or_none` turns into the
-    []-vs-None distinction, so it decides whether a caller is told "no runtimes" or "I could not read
-    the inventory". A box with NO runtimes prints "No runtimes installed." and no header row, and that
-    has to come back valid: `deploy.py verify` raises ReadFailed ("COULD NOT CHECK") on None, which
-    made it structurally unable to answer for a strategy whose runtime was never installed."""
+def _gw(kind, payload=None, message=None):
+    return {"kind": kind, "payload": payload, "message": message, "code": None, "rc": 0, "stderr": "",
+            "argv": [], "elapsed": 0.1, "transport": None}
 
-    EMPTY = ("[senpi-core][redact-pii] [info] PII redaction ready\n"
-             "No runtimes installed.\n")
 
-    POPULATED = ("[senpi-core][redact-pii] [info] PII redaction ready\n"
-                 "id\t\twallet\t\tsource\t\tstatus\n"
-                 "badger-main\t\t0x74b4...5a41\t\t(inline)\t\trunning\n"
-                 "otter-main\t\t0x56fc...0ea2\t\t(inline)\t\trunning\n")
+class RuntimeInventoryEmptyVsUnreadable(unittest.TestCase):
+    """`list_runtimes_or_none` -> rows | None, straight from `senpi.listRuntimes`. None is "I could not
+    read the inventory", [] is "no runtimes". A box with NO runtimes answers `{"runtimes": []}`, and
+    that has to come back as [] : `deploy.py verify` raises ReadFailed ("COULD NOT CHECK") on None,
+    which made it structurally unable to answer for a strategy whose runtime was never installed."""
+
+    def _with(self, answer):
+        return mock.patch.object(_cli, "gateway_call", lambda *a, **k: answer)
 
     def test_an_empty_inventory_is_readable_and_empty(self):
-        rows, valid = _cli._parse_runtime_list(self.EMPTY)
-        self.assertEqual(rows, [])
-        self.assertTrue(valid, "a box with no runtimes is an ANSWER, not a failed read")
-
-    def test_an_empty_inventory_reaches_the_or_none_caller_as_a_list(self):
-        # The regression that mattered: None here is "unreadable", and `verify` refuses to answer.
-        with mock.patch.object(_cli, "run_cli", return_value=(0, self.EMPTY, "")):
+        with self._with(_gw("ok", {"runtimes": []})):
             self.assertEqual(_cli.list_runtimes_or_none(), [])
 
-    def test_a_populated_inventory_still_parses_every_row(self):
-        rows, valid = _cli._parse_runtime_list(self.POPULATED)
-        self.assertTrue(valid)
+    def test_a_populated_inventory_keeps_every_row_and_names_it_by_id(self):
+        payload = {"runtimes": [
+            {"id": "badger-main", "wallet": "0x74b4000000000000000000000000000000005a41",
+             "source": "(inline)", "status": "running"},
+            {"id": "otter-main", "wallet": "0x56fc000000000000000000000000000000000ea2",
+             "source": "(inline)", "status": "running — NO ENTRY SCANNERS"}]}
+        with self._with(_gw("ok", payload)):
+            rows = _cli.list_runtimes_or_none()
         self.assertEqual([r["name"] for r in rows], ["badger-main", "otter-main"])
-        self.assertEqual(rows[0]["status"], "running")
+        self.assertEqual(rows[0]["wallet"], "0x74b4000000000000000000000000000000005a41")   # full address
+        self.assertEqual(rows[1]["status"], "running — NO ENTRY SCANNERS")
+        self.assertTrue(_cli.runtime_no_entry_scanners(rows[1]))
 
-    def test_a_banner_only_read_is_still_unreadable(self):
-        # The guard the parser was built for must survive: no header, no rows, no empty-marker line
-        # is a garbled read, and it must stay None rather than becoming a confident "no runtimes".
-        rows, valid = _cli._parse_runtime_list("some unrelated banner\nand another line\n")
-        self.assertEqual(rows, [])
-        self.assertFalse(valid)
-        with mock.patch.object(_cli, "run_cli", return_value=(0, "garbled\n", "")):
-            self.assertIsNone(_cli.list_runtimes_or_none())
+    def test_an_answer_without_a_runtimes_list_is_unreadable(self):
+        # A payload this reader cannot navigate must stay None, never a confident "no runtimes".
+        for payload in ({}, {"runtimes": None}, {"runtimes": "none"}, ["badger-main"]):
+            with self._with(_gw("ok", payload)):
+                self.assertIsNone(_cli.list_runtimes_or_none(), payload)
 
-    def test_the_marker_is_anchored_not_a_loose_substring(self):
-        # The marker test runs before the header gate, so it sees every line. A line that merely
-        # MENTIONS the phrase must not be promoted to a confident empty inventory — that is the
-        # fail-open direction. No header, no rows, no anchored marker => unreadable.
-        rows, valid = _cli._parse_runtime_list("warning: there are no runtimes to report here\n")
-        self.assertEqual(rows, [])
-        self.assertFalse(valid)
+    def test_a_failed_read_is_unreadable_and_says_why(self):
+        for kind in ("timeout", "transport", "unknown_method", "error", "spawn_failed", "unreadable"):
+            why = []
+            with self._with(_gw(kind, message="boom")):
+                self.assertIsNone(_cli.list_runtimes_or_none(why=why), kind)
+            self.assertIn(f"senpi.listRuntimes: {kind}", why[0])
 
-    def test_a_failed_read_is_still_unreadable(self):
-        with mock.patch.object(_cli, "run_cli", return_value=(1, self.EMPTY, "boom")):
-            self.assertIsNone(_cli.list_runtimes_or_none())
+    def test_the_plain_list_reader_degrades_to_empty(self):
+        # `list_runtimes` is for reads that only ADD information; the money path uses `_or_none`.
+        with self._with(_gw("timeout")):
+            self.assertEqual(_cli.list_runtimes(), [])
+
+    def test_the_inventory_is_one_list_runtimes_call_with_its_own_budget(self):
+        calls = []
+
+        def fake(method, params=None, **k):
+            calls.append((method, params, k))
+            return _gw("ok", {"runtimes": []})
+        with mock.patch.object(_cli, "gateway_call", fake):
+            _cli.list_runtimes_or_none()
+        self.assertEqual(calls, [("senpi.listRuntimes", {}, {"rpc_timeout_ms": 15000, "timeout_s": 25})])
+
+
+class HealthAndDescriptorsReadTheGateway(unittest.TestCase):
+    """status.py's batched reads: one `senpi.getHealthStatus` for every runtime's health, and the
+    descriptors from the `senpi.listRuntimes` rows. No `openclaw senpi` CLI verb on either."""
+
+    def test_health_map_keys_by_runtime_name_and_retries_an_empty_answer_once(self):
+        answers = [_gw("ok", {"statuses": []}),
+                   _gw("ok", {"statuses": [{"runtimeId": "spider-main", "health": "healthy"}]})]
+        calls = []
+
+        def fake(method, params=None, **k):
+            calls.append((method, params))
+            return answers.pop(0)
+        with mock.patch.object(_cli, "gateway_call", fake):
+            hmap = _cli.runtime_health_map()
+        self.assertEqual(list(hmap), ["spider-main"])
+        self.assertEqual(calls, [("senpi.getHealthStatus", {})] * 2)
+
+    def test_health_map_is_empty_when_unreadable(self):
+        with mock.patch.object(_cli, "gateway_call", lambda *a, **k: _gw("timeout")):
+            self.assertEqual(_cli.runtime_health_map(), {})
+
+    def test_descriptors_come_from_the_list_runtimes_rows(self):
+        desc = {"name": "spider-main", "recipeHash": "abc"}
+        answer = _gw("ok", {"runtimes": [{"id": "spider-main", "status": "running", "descriptor": desc},
+                                         {"id": "bare-main", "status": "stopped"}]})
+        with mock.patch.object(_cli, "gateway_call", lambda *a, **k: answer):
+            self.assertEqual(_cli.runtime_descriptors(), {"spider-main": desc})
 
 
 if __name__ == "__main__":

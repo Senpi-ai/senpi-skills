@@ -38,7 +38,8 @@ COPIES = (os.path.join(HERE, "..", "scripts", "portfolio.py"),
 OPS_CLI = os.path.join(HERE, "..", "..", "senpi-strategy-ops", "scripts", "_cli.py")
 PORTFOLIO = os.path.join(HERE, "..", "scripts", "portfolio.py")
 
-SHARED_HELPERS = {"run_cli": "_run_cli", "_extract_json": "_extract_json"}
+SHARED_HELPERS = {"run_cli": "_run_cli", "_extract_json": "_extract_json", "_cli_env": "_cli_env",
+                  "_kill_tree": "_kill_tree", "_spawn": "_spawn"}
 
 for _d in (os.path.join(HERE, "..", "scripts"),
            os.path.join(HERE, "..", "..", "senpi-improve-trades", "scripts"),
@@ -83,6 +84,16 @@ def test_vendored_cli_helpers_match_their_origin():
         assert _fn_source(OPS_CLI, origin) == _fn_source(PORTFOLIO, vendored), (
             f"{vendored} in portfolio.py has drifted from {origin} in _cli.py"
         )
+
+
+REVIEW = os.path.join(HERE, "..", "..", "senpi-improve-trades", "scripts", "review.py")
+
+
+def test_review_group_kill_matches_its_origin():
+    """review.py's event read kills its process group with the same `_kill_tree` as `_cli.py`; a copy
+    that drifts (e.g. skipping the group SIGKILL once the leader exits) leaves a child running."""
+    assert _fn_source(OPS_CLI, "_kill_tree") == _fn_source(REVIEW, "_kill_tree"), (
+        "_kill_tree in review.py has drifted from _kill_tree in _cli.py")
 
 
 def test_first_written_vendor_parity():

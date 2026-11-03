@@ -20,14 +20,13 @@ The nine guardrails are non-negotiable. Each fixes a real failure from live agen
 return un-attributed dumps that invite exactly the failure modes below (skipping the current-price
 comparison, guessing the exit mechanism).
 
-## Hard rule 0 — fees: the failure and the fee evidence
+## Hard rule 0 — fees: the failure and the tier evidence
 
 A live review headlined **+$410.14** on a trade whose
 net was **+$310.23** ($99.92 of fees), and it never mentioned fees at all.
 
-Senpi charges no builder fee on a paid plan, and the fee is not a constant: read it from the fills. A
-fill keeps the fee it was signed with, so an older fill can carry a builder leg on top of an identical
-exchange leg.
+The builder fee is per tier, not a constant. Two wallets on different tiers show it plainly — builder 5.00 bps vs
+4.00 bps, identical exchange legs underneath.
 
 ## Hard rule 0b — leverage: the PONS failure
 

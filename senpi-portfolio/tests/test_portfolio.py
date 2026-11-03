@@ -392,7 +392,7 @@ def test_unreadable_cli_degrades_to_null_and_warns_loudly():
 
 
 def _raise_oserror(*_a, **_kw):
-    """What `subprocess.run` really does on a memory-constrained box: the FORK fails, so the child
+    """What `subprocess.Popen` really does on a memory-constrained box: the FORK fails, so the child
     never runs. Not a FileNotFoundError — an ENOMEM OSError, which used to propagate."""
     raise OSError(12, "Cannot allocate memory")
 
@@ -402,8 +402,8 @@ def test_a_fork_failure_is_a_failed_read_not_a_dead_engine():
     failed read. It used to propagate out of the registry read, through fetch_strategies, out of
     run() — taking the money map, the positions and the whole JSON answer with it, on the exact
     kind of strained box where a user most wants to know where their money is."""
-    real = portfolio.subprocess.run
-    portfolio.subprocess.run = _raise_oserror
+    real = portfolio.subprocess.Popen
+    portfolio.subprocess.Popen = _raise_oserror
     try:
         rc, out, err = portfolio._run_cli(["openclaw", "senpi", "runtime", "list", "--json"])
         assert (rc, out) == (-1, "")
@@ -413,7 +413,7 @@ def test_a_fork_failure_is_a_failed_read_not_a_dead_engine():
         assert "Cannot allocate memory" in err
         res = run_engine(cli_missing=True)
     finally:
-        portfolio.subprocess.run = real
+        portfolio.subprocess.Popen = real
     assert len(res["strategies"]) == 2, "the whole read died with the spawn"
     assert res["totals"]["grand_total_usd"] > 0
     for s in res["strategies"]:

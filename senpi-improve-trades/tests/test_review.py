@@ -949,8 +949,8 @@ def test_event_timeout_fails_open_without_a_breaker():
     old_ev = os.environ.pop("SENPI_EVENTS_FIXTURE", None)   # force the subprocess path, not the fixture
     def _raise_timeout(*a, **k):
         raise _sp.TimeoutExpired(cmd="openclaw", timeout=review.EVENTS_CALL_TIMEOUT_S)
-    real_run = review.subprocess.run
-    review.subprocess.run = _raise_timeout
+    real_run = review._run_grouped
+    review._run_grouped = _raise_timeout
     try:
         meta = {}
         assert review._fetch_events("rt-1", NOW_MS, meta) == []            # fail-open for this strategy
@@ -958,9 +958,76 @@ def test_event_timeout_fails_open_without_a_breaker():
         assert "_telemetry_dead" not in meta                               # ONE timeout is not terminal
         assert not hasattr(review, "EVENTS_TIMEOUT_BUDGET")                # the dead breaker constant is gone
     finally:
-        review.subprocess.run = real_run
+        review._run_grouped = real_run
         if old_ev is not None:
             os.environ["SENPI_EVENTS_FIXTURE"] = old_ev
+
+
+def test_an_event_read_timeout_kills_the_calls_whole_process_group(tmp_path):
+    """On OpenClaw 10.x a timed-out `openclaw` left its worker running (it respawns detached). The
+    event read runs the call in its own session and kills the whole group on timeout, so a child the
+    call started does not outlive the read. Real processes: a sleeper that starts its own sleeper."""
+    import subprocess as _sp
+    import sys as _sys
+    import time as _time
+    pidf = tmp_path / "grandchild.pid"
+    script = (f"import subprocess,time;p=subprocess.Popen(['sleep','60']);"
+              f"open({str(pidf)!r},'w').write(str(p.pid));time.sleep(60)")
+    t0 = _time.time()
+    try:
+        review._run_grouped([_sys.executable, "-c", script], 1.5)
+        raise AssertionError("expected TimeoutExpired")
+    except _sp.TimeoutExpired:
+        pass
+    assert _time.time() - t0 < 10
+    gpid = int(pidf.read_text())
+    deadline = _time.time() + 5
+    def gone():
+        st = _sp.run(["ps", "-o", "stat=", "-p", str(gpid)], capture_output=True, text=True).stdout.strip()
+        return st == "" or st.startswith("Z")
+    while not gone() and _time.time() < deadline:
+        _time.sleep(0.1)
+    assert gone(), "the event call's own child outlived the timeout"
+
+
+def test_an_event_read_timeout_kills_a_sigterm_ignoring_member_when_the_leader_exits(tmp_path):
+    """The leader exits on SIGTERM; its child ignores SIGTERM. The group SIGKILL must still follow."""
+    import os as _os
+    import subprocess as _sp
+    import sys as _sys
+    import time as _time
+    pidf = tmp_path / "member.pid"
+    leader = ("import subprocess,sys,time\n"
+              "m=subprocess.Popen([sys.executable,'-c',"
+              "'import signal,time;signal.signal(signal.SIGTERM,signal.SIG_IGN);time.sleep(60)'])\n"
+              "open(sys.argv[1],'w').write(str(m.pid))\n"
+              "time.sleep(60)\n")
+    t0 = _time.time()
+    try:
+        review._run_grouped([_sys.executable, "-c", leader, str(pidf)], 1.5)
+        raise AssertionError("expected TimeoutExpired")
+    except _sp.TimeoutExpired:
+        pass
+    assert _time.time() - t0 < 6
+    mpid = int(pidf.read_text())
+    def gone():
+        st = _sp.run(["ps", "-o", "stat=", "-p", str(mpid)], capture_output=True, text=True).stdout.strip()
+        return st == "" or st.startswith("Z")
+    deadline = _time.time() + 3
+    while not gone() and _time.time() < deadline:
+        _time.sleep(0.1)
+    alive = not gone()
+    if alive:
+        _os.kill(mpid, 9)
+    assert not alive, "a SIGTERM-ignoring group member outlived the event-read timeout"
+
+
+def test_the_event_read_runs_one_process_with_stdin_closed():
+    import sys as _sys
+    p = review._run_grouped([_sys.executable, "-c",
+                             "import os,sys;print(os.environ.get('OPENCLAW_NO_RESPAWN'),"
+                             "os.getsid(0)==os.getpid(),sys.stdin.read()=='')"], 10)
+    assert p.stdout.strip() == "1 True True"
 
 
 # ─────────────────────── stdout context-cost slimming (the samurai-pro timeout fix) ───────────────
