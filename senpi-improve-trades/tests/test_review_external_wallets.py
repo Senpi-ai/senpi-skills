@@ -856,8 +856,8 @@ def _camel_base(harvest_value="400.50"):
         _closed("0xP1", "SOL", "30.00", 1782710000000), _closed("0xP2", "ETH", "-10.00", 1782720000000)]}
     fx[f"discovery_get_trader_history::{CAMEL_H}"] = {"closedPositions": [
         _closed("0xH1", "BTC", "25.00", 1782730000000)]}
-    fx[f"ratchet_stop_list::{CAMEL_P}"] = {"configs": []}
-    fx[f"ratchet_stop_list::{CAMEL_H}"] = {"configs": []}
+    fx[f"ratchet_stop_list::{CAMEL_P}"] = {"success": True, "data": {"positions": [], "count": 0}}
+    fx[f"ratchet_stop_list::{CAMEL_H}"] = {"success": True, "data": {"positions": [], "count": 0}}
     return fx
 
 

@@ -830,8 +830,9 @@ def test_live_position_dsl_armed_and_unarmed():
                               "leverage": {"value": 4}, "liquidationPx": 1300}}]},
             "xyz": {"marginSummary": {"accountValue": "100"}, "withdrawable": "100", "assetPositions": []}},
         # LIVE ratchet state — only SOL has crossed Tier 1. ETH is absent BY DESIGN.
-        f"ratchet_stop_list::{KODIAK_WALLET.lower()}": {"configs": [
-            {"asset": "SOL", "status": "ACTIVE", "currentTierIndex": 0, "highWaterRoe": 36.5}]},
+        # The MCP's real envelope and row shape (see `_ratchet_row`).
+        f"ratchet_stop_list::{KODIAK_WALLET.lower()}": _ratchet_envelope(
+            [_ratchet_row("SOL", 0, hw=36.5, tiers=((8, 50),))], KODIAK_WALLET),
     }
     res = run_engine(mcp_fixture=fixture)
     pos = {p["asset"]: p for p in by_wallet(res, KODIAK_WALLET)["positions"]}
@@ -839,7 +840,7 @@ def test_live_position_dsl_armed_and_unarmed():
     # SOL — armed at the live tier, with the locked % pulled from the descriptor's ladder
     sol = pos["SOL"]["dsl"]
     assert sol["armed"] is True
-    assert sol["tier_index"] == 0
+    assert sol["tier_index"] == 0 and sol["tier"] == 1     # 0-based index, 1-based "Tier N"
     assert sol["high_water_roe"] == 36.5
     assert sol["status"] == "ACTIVE"
     assert sol["locked"] == 50          # lock_hw_pct at tier 0
@@ -857,9 +858,9 @@ def test_live_position_dsl_armed_and_unarmed():
 
 
 def test_live_position_dsl_fails_open_when_ratchet_call_absent():
-    """If the ratchet_stop_list call returns nothing at all (no fixture entry → the engine's list read
-    yields no records), an open position STILL gets a config-based dsl object (armed False + arm-at
-    framing) that stands alone — never left looking unprotected."""
+    """If the ratchet_stop_list call returns nothing at all (no fixture entry → None), that is not a
+    record list: an open position STILL gets a config-based dsl object (armed False + arm-at framing)
+    that stands alone — never left looking unprotected — and meta.warnings says the read was not usable."""
     fixture = {
         "user_get_me": {"wallets": [
             {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
@@ -883,6 +884,337 @@ def test_live_position_dsl_fails_open_when_ratchet_call_absent():
     assert sol["hard_stop_roe_pct"] == -14
     assert sol["arm_at_roe_pct"] == 8
     assert "protected from entry" in sol["note"]
+    assert any("ratchet_stop_list" in w and "unrecognised shape" in w for w in res["meta"]["warnings"])
+
+
+# ── sub-Tier-1 ratchet records (1.36.0) ───────────────────────────────────────────────────────────────
+# A strategy with `phase1.enabled: false` starts in phase 2, so the runtime hands the position to the
+# backend at open: `ratchet_stop_list` returns a record FROM OPEN with currentTierIndex -1, a null floor
+# and no SL order of its own (a live xyz:CL short, 22 Oct). The runtime's max-loss stop still rests
+# on the venue. Such a record is sub-Tier-1 — never "armed", never "unprotected" for a runtime ladder.
+#
+# Rows below are the REAL `ratchet_stop_list` shape (Box A, 2026-10-23): a `{positions, count, query}`
+# envelope; `currentTierIndex` a 0-based int, -1 before the first tier, never null (the column is
+# NOT NULL DEFAULT -1); `highWaterRoe` a float from 0.0; `dslConfig.tiered.tiers[] = {triggerRoe,
+# lockRoe}`; crypto rows `dex: ""`; HIP-3 rows `asset: "xyz:SYM", dex: "xyz"`; newest first.
+RAW_WALLET = "0xRAW0000000000000000000000000000000000raw"
+REAL_TIERS = ((10, 0), (14, 40), (24, 62), (40, 80))      # tiers[0].triggerRoe 10 ≠ kodiak's +8 ladder
+
+
+def _ratchet_row(asset, tier, dex="", hw=0.0, tiers=REAL_TIERS, status="ACTIVE"):
+    engaged = tier >= 0
+    return {
+        "id": f"dsl-{asset}-{tier}", "strategyId": "strat-1", "asset": asset,
+        "strategyWalletAddress": "0xwallet", "dex": dex, "direction": "LONG", "entryPrice": 100,
+        "size": 1.0, "leverage": 5, "status": status, "currentTierIndex": tier,
+        "tierFloorPrice": 101.5 if engaged else None, "highWaterPrice": 107.0 if engaged else None,
+        "highWaterRoe": hw, "currentBreachCount": 0,
+        "activeSLOrderId": "521763973955" if engaged else None,
+        "dslConfig": {"tiered": {"tiers": [{"triggerRoe": t, "lockRoe": lk} for t, lk in tiers]}},
+        "lastEvaluatedAt": "2026-10-23T12:00:00Z", "lastPrice": 104.0, "lastPriceSource": "price-feed",
+        "createdAt": "2026-10-23T00:04:59Z", "updatedAt": "2026-10-23T12:42:18Z"}
+
+
+def _ratchet_envelope(rows, wallet):
+    return {"success": True,
+            "data": {"positions": rows, "count": len(rows),
+                     "query": {"filter": {"strategyId": "strat-1", "strategyWalletAddress": wallet},
+                               "status": "ACTIVE", "limit": 500}},
+            "meta": {"tool": "ratchet_stop_list", "action_type": "read"}}
+
+
+def _one_strategy_fixture(wallet, positions, ratchet_rows=None, strat_extra=None, ratchet_resp=None):
+    """ONE strategy on `wallet` holding `positions` ({coin, dex, szi, roe}); `ratchet_rows` go into the
+    MCP's real `ratchet_stop_list` envelope; `ratchet_resp` replaces the whole response; neither = no
+    entry at all (the fixture client answers None)."""
+    by_dex = {"main": [], "xyz": []}
+    for p in positions:
+        by_dex[p.get("dex", "main")].append({"position": {
+            "coin": p["coin"], "szi": p["szi"], "positionValue": 500, "marginUsed": 100, "entryPx": 100,
+            "unrealizedPnl": 1, "returnOnEquity": p["roe"], "leverage": {"value": 5}, "liquidationPx": 50}})
+    strat = {"id": "strat-1", "strategyWalletAddress": wallet, "status": "ACTIVE"}
+    strat.update(strat_extra or {})
+    fixture = {
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"portfolio": {"total_balance_usd": 500, "total_withdrawable": 100,
+                                                "total_in_hyperliquid": 0, "token_balances": []}},
+        "strategy_list": {"strategies": [strat]},
+        f"strategy_get_clearinghouse_state::{wallet.lower()}": {
+            dex: {"marginSummary": {"accountValue": "500"}, "withdrawable": "100", "assetPositions": rows}
+            for dex, rows in by_dex.items()},
+    }
+    if ratchet_resp is not None:
+        fixture[f"ratchet_stop_list::{wallet.lower()}"] = ratchet_resp
+    elif ratchet_rows is not None:
+        fixture[f"ratchet_stop_list::{wallet.lower()}"] = _ratchet_envelope(ratchet_rows, wallet)
+    return fixture
+
+
+def _kodiak(positions, ratchet_rows=None, ratchet_resp=None):
+    return _one_strategy_fixture(KODIAK_WALLET, positions, ratchet_rows,
+                                 {"tradingStrategyName": "kodiak",
+                                  "strategyMetadata": {"skillName": "kodiak", "skillVersion": "1.0.0"}},
+                                 ratchet_resp)
+
+
+def _raw(positions, ratchet_rows=None, ratchet_resp=None):
+    return _one_strategy_fixture(RAW_WALLET, positions, ratchet_rows, {"strategyName": "my eth long"},
+                                 ratchet_resp)
+
+
+def _kodiak_with_descriptor(descriptor):
+    """The runtimes fixture with kodiak-main's descriptor replaced (None = registered, did not render)."""
+    payload = _runtimes_payload()
+    payload["runtimes"][0]["descriptor"] = descriptor
+    return _write_runtimes(payload)
+
+
+def _kodiak_dsl(positions, ratchet_rows=None, descriptor="keep", ratchet_resp=None):
+    rt = RUNTIMES_FIXTURE if descriptor == "keep" else _kodiak_with_descriptor(descriptor)
+    res = run_engine(runtimes_fixture=rt, mcp_fixture=_kodiak(positions, ratchet_rows, ratchet_resp))
+    return res, {p["asset"]: p["dsl"] for p in by_wallet(res, KODIAK_WALLET)["positions"]}
+
+
+def _assert_never_protected(dsl):
+    low = dsl["note"].lower()
+    assert "protected" not in low, dsl["note"]
+    assert dsl["hard_stop_roe_pct"] is None
+
+
+def test_tier_minus_one_record_on_a_runtime_ladder_is_sub_tier1_and_protected():
+    """(a) That live shape on a runtime strategy: a -1 / null-floor / no-SL-order record on the real HIP-3
+    row (`asset: "xyz:CL", dex: "xyz"`, the book's coin). Not armed, framed as protected from entry, and
+    "arms at" is the RECORD's tiers[0].triggerRoe (+10), what the backend will do — not the profile's +8."""
+    _, pos = _kodiak_dsl([{"coin": "xyz:CL", "dex": "xyz", "szi": -2.0, "roe": -0.03}],
+                         [_ratchet_row("xyz:CL", -1, dex="xyz")])
+    dsl = pos["xyz:CL"]
+    assert dsl["armed"] is False
+    assert dsl["ratchet_record"] is True and dsl["tier_index"] == -1
+    assert "locked" not in dsl and "tier" not in dsl
+    assert dsl["hard_stop_roe_pct"] == -14 and dsl["arm_at_roe_pct"] == 10
+    assert "protected from entry" in dsl["note"] and "Tier 1 (+10%)" in dsl["note"]
+    low = dsl["note"].lower()
+    assert "unprotected" not in low and "no dsl" not in low and "no downside stop" not in low
+
+
+def test_no_record_on_a_runtime_ladder_keeps_the_profile_arm_point():
+    """Without a record the profile ladder's arm point (+8) stands."""
+    _, pos = _kodiak_dsl([{"coin": "SOL", "szi": 1.0, "roe": 0.02}], [])
+    assert pos["SOL"]["arm_at_roe_pct"] == 8 and "Tier 1 (+8%)" in pos["SOL"]["note"]
+
+
+def test_hip3_row_matches_only_its_own_coin():
+    """Records match on their `asset` as is. The real xyz row (`xyz:CL`) arms xyz:CL and never a main-dex
+    `CL`; a bare-asset row with a HIP-3 dex (never seen in real data) is skipped, so it cannot match a
+    main-dex coin of the same name either."""
+    rows = [_ratchet_row("xyz:CL", 1, dex="xyz", hw=17.2),
+            _ratchet_row("CL", 2, dex="xyz", hw=30.0)]
+    _, pos = _kodiak_dsl([{"coin": "xyz:CL", "dex": "xyz", "szi": -2.0, "roe": 0.15},
+                          {"coin": "CL", "szi": 1.0, "roe": 0.01}], rows)
+    assert pos["xyz:CL"]["armed"] is True and pos["xyz:CL"]["tier"] == 2
+    assert pos["CL"]["armed"] is False and "ratchet_record" not in pos["CL"]
+
+
+def test_tier_minus_one_record_on_a_raw_position_says_no_downside_stop():
+    """(b) A raw position (no runtime, no ladder: `protected: false`) with a -1 record. `ratchet_stop_add`
+    does not persist a max-loss floor, so the ratchet gives NO downside stop until Tier 1: armed false,
+    downside_stop false, and the note says so — never "protected"."""
+    res = run_engine(mcp_fixture=_raw([{"coin": "ETH", "szi": 0.5, "roe": 0.02}], [_ratchet_row("ETH", -1)]))
+    row = by_wallet(res, RAW_WALLET)
+    assert row["protected"] is False and row["profile"] is None
+    dsl = row["positions"][0]["dsl"]
+    assert dsl == {
+        "armed": False, "hard_stop_roe_pct": None, "arm_at_roe_pct": 10, "roe": 2.0, "downside_stop": False,
+        "note": ("ratchet registered, not yet armed: no downside stop from the ratchet until Tier 1 (+10%); "
+                 "resting stop orders are not read here — read strategy_get_open_orders before saying it "
+                 "has no stop"),
+        "ratchet_record": True, "tier_index": -1, "status": "ACTIVE"}
+
+
+def test_engaged_tier_is_one_based_with_locked_from_the_record():
+    """(c) currentTierIndex is 0-based: index 2 is Tier 3 (`tier`), with `tier_index` kept. `locked` is the
+    RECORD's lockRoe at that tier (what the backend enforces, e.g. after a `ratchet_stop_edit`), not the
+    profile ladder's — kodiak's profile says 50 at tier 0, this record says 0."""
+    _, pos = _kodiak_dsl([{"coin": "BTC", "szi": 0.1, "roe": 0.3}, {"coin": "SOL", "szi": 3.0, "roe": 0.2}],
+                         [_ratchet_row("BTC", 2, hw=35.456002), _ratchet_row("SOL", 0, hw=10.4)])
+    assert pos["BTC"] == {"armed": True, "tier": 3, "tier_index": 2, "high_water_roe": 35.456002,
+                          "status": "ACTIVE", "locked": 62}
+    assert pos["SOL"]["tier"] == 1 and pos["SOL"]["locked"] == 0
+
+
+def test_armed_raw_position_reads_locked_from_its_record():
+    """An armed position with NO runtime ladder (raw / `ratchet_stop_add`) used to read `locked: null`;
+    the record carries its own ladder."""
+    res = run_engine(mcp_fixture=_raw([{"coin": "ETH", "szi": 0.5, "roe": 0.2}], [_ratchet_row("ETH", 1, hw=15.0)]))
+    dsl = by_wallet(res, RAW_WALLET)["positions"][0]["dsl"]
+    assert dsl == {"armed": True, "tier": 2, "tier_index": 1, "high_water_roe": 15.0, "status": "ACTIVE",
+                   "locked": 40}
+
+
+def test_locked_falls_back_to_the_profile_ladder():
+    """A record without its own ladder falls back to the profile's lock_hw_pct at that tier."""
+    row = _ratchet_row("SOL", 0, hw=9.0)
+    del row["dslConfig"]
+    _, pos = _kodiak_dsl([{"coin": "SOL", "szi": 3.0, "roe": 0.2}], [row])
+    assert pos["SOL"]["locked"] == 50
+
+
+def test_record_with_missing_or_non_numeric_tier_is_unarmed():
+    """(d) Defensive: the real column is NOT NULL DEFAULT -1, but a record with no `currentTierIndex` (or a
+    null / non-numeric one) is still not evidence of an engaged tier: sub-Tier-1, never armed."""
+    rows = []
+    for coin, tier in (("SOL", "drop"), ("ETH", None), ("BTC", "n/a")):
+        r = _ratchet_row(coin, -1)
+        if tier == "drop":
+            del r["currentTierIndex"]
+        else:
+            r["currentTierIndex"] = tier
+        rows.append(r)
+    rows.append(_ratchet_row("HYPE", 0))                    # control: the rows were read
+    _, pos = _kodiak_dsl([{"coin": c, "szi": 1.0, "roe": 0.01} for c in ("SOL", "ETH", "BTC", "HYPE")], rows)
+    assert pos["HYPE"]["armed"] is True
+    for coin in ("SOL", "ETH", "BTC"):
+        assert pos[coin]["armed"] is False, coin
+        assert pos[coin]["ratchet_record"] is True, coin
+        assert "protected from entry" in pos[coin]["note"], coin
+
+
+def test_raw_position_without_a_record_is_no_ratchet_never_protected():
+    """No record and no runtime ladder on a raw position: "no ratchet", never "protected by the strategy's
+    DSL exit" (that framing is for a runtime the engine read). Resting stops are not read here."""
+    res = run_engine(mcp_fixture=_raw([{"coin": "ETH", "szi": 0.5, "roe": 0.02}], []))
+    dsl = by_wallet(res, RAW_WALLET)["positions"][0]["dsl"]
+    assert dsl["armed"] is False and dsl["downside_stop"] is None
+    assert dsl["note"].startswith("no ratchet: no runtime DSL exit")
+    _assert_never_protected(dsl)
+
+
+def test_mirror_position_without_a_record_is_framed_as_a_copy_trade():
+    """A copy-trade has no DSL by design: its position's dsl note names the trader's exits + its own SL/TP,
+    never "protected by the strategy's DSL exit"."""
+    res = run_engine(mcp_fixture=_one_strategy_fixture(
+        RAW_WALLET, [{"coin": "BTC", "szi": -0.1, "roe": 0.01}], [],
+        {"strategyType": "MIRROR", "shortTraderAddress": "0x35d1...acb1"}))
+    dsl = by_wallet(res, RAW_WALLET)["positions"][0]["dsl"]
+    assert dsl["armed"] is False
+    assert dsl["note"].startswith("copy-trade: no DSL by design")
+    assert "DSL exit from entry" not in dsl["note"]
+
+
+def test_mirror_tier_minus_one_note_comes_from_the_same_builder():
+    """A copy-trade's -1 record: the same copy-trade body as no record, prefixed "ratchet registered"."""
+    res = run_engine(mcp_fixture=_one_strategy_fixture(
+        RAW_WALLET, [{"coin": "BTC", "szi": -0.1, "roe": 0.01}], [_ratchet_row("BTC", -1)],
+        {"strategyType": "MIRROR", "shortTraderAddress": "0x35d1...acb1"}))
+    dsl = by_wallet(res, RAW_WALLET)["positions"][0]["dsl"]
+    assert dsl["note"].startswith("ratchet registered, not yet armed (Tier 1 (+10%)); copy-trade: no DSL by design")
+    assert dsl["downside_stop"] is None and dsl["ratchet_record"] is True
+
+
+# ── a DSL exit the engine does not enforce (runtime-descriptor.ts `hasExit` docs) ─────────────────────
+def test_dsl_exit_with_no_preset_is_not_protected_from_entry():
+    """`exit: {engine: dsl}` with no `dsl_preset` = hasExit true, dsl null: the engine runs no ladder, so
+    the strategy has no hard stop and no trailing floor. Never "protected by the strategy's DSL exit"."""
+    desc = {"name": "kodiak-main", "group": "kodiak", "description": "SOL alpha hunter",
+            "hasExit": True, "dslPreset": None, "dsl": None}
+    res, pos = _kodiak_dsl([{"coin": "SOL", "szi": 1.0, "roe": 0.02}], [], descriptor=desc)
+    assert by_wallet(res, KODIAK_WALLET)["protected"] is True       # config posture unchanged
+    dsl = pos["SOL"]
+    assert dsl["downside_stop"] is False and dsl["arm_at_roe_pct"] is None
+    assert dsl["note"].startswith("its exit is `engine: dsl` with no dsl_preset, so the runtime enforces "
+                                  "no hard stop and no trailing floor")
+    _assert_never_protected(dsl)
+
+
+def test_dsl_preset_the_engine_could_not_install_is_not_protected():
+    """A preset the descriptor did not render — a string preset (`{preset_name, note}`) or an inline one
+    the engine's parser refused (`dsl: null` with a `dslPreset`) — installs no ladder. With a -1 record
+    the note keeps the record's arm point."""
+    for dsl_field, preset in (({"preset_name": "conviction", "note": "string preset — unsupported by this "
+                                "runtime; no ladder installed"}, "conviction"), (None, True)):
+        desc = {"name": "kodiak-main", "group": "kodiak", "description": "SOL alpha hunter",
+                "hasExit": True, "dslPreset": preset, "dsl": dsl_field}
+        _, pos = _kodiak_dsl([{"coin": "SOL", "szi": 1.0, "roe": 0.02}], [_ratchet_row("SOL", -1)],
+                             descriptor=desc)
+        dsl = pos["SOL"]
+        assert dsl["downside_stop"] is False and dsl["arm_at_roe_pct"] == 10, preset
+        assert dsl["note"].startswith("ratchet registered, not yet armed (Tier 1 (+10%)); the engine could "
+                                      "not install its dsl_preset"), preset
+        _assert_never_protected(dsl)
+
+
+def test_registered_runtime_whose_descriptor_did_not_render_is_unverified():
+    """A registered, running runtime with `descriptor: null` has `protected: false` (no exit READ), but it
+    is not a raw position: never "no runtime DSL exit", never `downside_stop: false`."""
+    res, pos = _kodiak_dsl([{"coin": "SOL", "szi": 1.0, "roe": 0.02}, {"coin": "ETH", "szi": 1.0, "roe": 0.02}],
+                           [_ratchet_row("ETH", -1)], descriptor=None)
+    row = by_wallet(res, KODIAK_WALLET)
+    assert row["runtime_registered"] is True and row["protected"] is False
+    for coin in ("SOL", "ETH"):
+        dsl = pos[coin]
+        assert dsl["downside_stop"] is None, coin
+        assert "the runtime is registered but its runtime.yaml did not render" in dsl["note"], coin
+        assert "no runtime DSL exit" not in dsl["note"] and "no downside stop" not in dsl["note"], coin
+        _assert_never_protected(dsl)
+
+
+# ── the ratchet read failing, or answering a shape we don't know ──────────────────────────────────────
+class _RaisingRatchet(portfolio._FixtureClient):
+    def mcp_call(self, tool, timeout=12, **kw):
+        if tool == "ratchet_stop_list":
+            raise RuntimeError("SERR031 auth")
+        return super().mcp_call(tool, timeout=timeout, **kw)
+
+
+def _run_raising(fixture):
+    saved = os.environ.get("SENPI_RUNTIMES_FIXTURE")
+    os.environ["SENPI_RUNTIMES_FIXTURE"] = RUNTIMES_FIXTURE
+    try:
+        return portfolio.run(_RaisingRatchet(fixture), want_market=False)
+    finally:
+        if saved is None:
+            os.environ.pop("SENPI_RUNTIMES_FIXTURE", None)
+        else:
+            os.environ["SENPI_RUNTIMES_FIXTURE"] = saved
+
+
+def test_ratchet_call_raising_still_fails_open_with_config_framing():
+    """The ratchet read RAISING keeps the fail-open contract: config-based framing for every position plus
+    a `meta.warnings` entry."""
+    res = _run_raising(_kodiak([{"coin": "SOL", "szi": 3.0, "roe": 0.2}]))
+    dsl = by_wallet(res, KODIAK_WALLET)["positions"][0]["dsl"]
+    assert dsl["armed"] is False and "protected from entry" in dsl["note"]
+    assert any("ratchet_stop_list" in w and "DSL tier from config only" in w for w in res["meta"]["warnings"])
+
+
+def test_ratchet_call_raising_never_makes_a_raw_or_mirror_position_protected():
+    """The failed read used to drop the strategy row, so raw and copy-trade positions read "protected by
+    the strategy's DSL exit from entry" on a transient MCP error."""
+    res = _run_raising(_raw([{"coin": "ETH", "szi": 0.5, "roe": 0.02}]))
+    dsl = by_wallet(res, RAW_WALLET)["positions"][0]["dsl"]
+    assert dsl["downside_stop"] is None
+    assert dsl["note"].startswith("ratchet read failed, so whether a ratchet is registered is unknown")
+    _assert_never_protected(dsl)
+    res = _run_raising(_one_strategy_fixture(RAW_WALLET, [{"coin": "BTC", "szi": -0.1, "roe": 0.01}], None,
+                                             {"strategyType": "MIRROR", "shortTraderAddress": "0x35d1...acb1"}))
+    dsl = by_wallet(res, RAW_WALLET)["positions"][0]["dsl"]
+    assert dsl["note"].startswith("copy-trade: no DSL by design")
+    _assert_never_protected(dsl)
+
+
+def test_unrecognised_ratchet_shape_fails_open_with_a_warning():
+    """A response that parses but carries none of the known row keys, a `success: false`, or the raw text
+    `_unwrap` hands back, is NOT "no records": it takes the fail-open path and says so in meta.warnings."""
+    for resp in ({"success": True, "data": {"dslPositions": [_ratchet_row("ETH", 1)]}},
+                 {"success": False, "error": {"code": "SERR031"}},
+                 "upstream error: 502 Bad Gateway"):
+        res = run_engine(mcp_fixture=_raw([{"coin": "ETH", "szi": 0.5, "roe": 0.02}], ratchet_resp=resp))
+        dsl = by_wallet(res, RAW_WALLET)["positions"][0]["dsl"]
+        assert dsl["note"].startswith("ratchet read failed"), resp
+        assert any("ratchet_stop_list" in w and "unrecognised shape" in w
+                   for w in res["meta"].get("warnings", [])), resp
+
 
 def test_embedded_idle_reads_nested_total_in_hyperliquid():
     """Regression (the invisible-$10k bug): account_get_portfolio nests balances under a `portfolio`
