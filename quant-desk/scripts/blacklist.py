@@ -120,7 +120,9 @@ class BlacklistUnavailable(Exception):
 
 def _post(payload, url, token, timeout):
     body = json.dumps(payload).encode()
-    headers = {"Content-Type": "application/json"}
+    # Cloudflare rejects urllib's default User-Agent ("Python-urllib/3.x") on this host with
+    # 403 "error code: 1010" before the request reaches the service, so name the client.
+    headers = {"Content-Type": "application/json", "User-Agent": "senpi-mm-blacklist"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
