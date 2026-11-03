@@ -351,7 +351,7 @@ or shut down anything the user is already running. So:
 - **Multiple strategies / wallets at once is normal — within the user's strategy limits.** Each is fully
   isolated (own wallet, slots, risk gates), but every wallet is one strategy against the plan's limits:
   before proposing more than one, call `strategy_get_limits`; when `enforced` is true, size the proposal
-  to `runningLeft` and `startsLeft` (a `null` left is no limit). A long book + short hedge "fund" is **two instances / two wallets**, two slots.
+  to `runningLeft` and `startsLeft` (a `null` left is no limit); another plan's limits come from the `senpi-account-status` plan table, never memory. A long book + short hedge "fund" is **two instances / two wallets**, two slots.
 - **Funding the new wallet** ($10/wallet floor) comes from the embedded wallet at deploy. If the
   embedded wallet is short on USDC because funds are in other strategies, **offer options** — deposit
   more, or `strategy_withdraw_funds` from an existing strategy (it keeps running) and fund the new

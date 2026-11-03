@@ -32,6 +32,7 @@ class SeveralPicksOnlyWithinTheLimits(unittest.TestCase):
             "quote `summary`",
             "size the set to fit",
             "never limit numbers from memory",
+            "their own come from this read; another plan's from the `senpi-account-status` plan table",
         ):
             self.assertIn(needle, section, needle)
 
