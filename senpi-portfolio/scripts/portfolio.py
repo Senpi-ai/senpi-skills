@@ -398,6 +398,10 @@ def _fleet_statuses(meta):
             head = (err or "")[:200]
             if head.startswith(SPAWN_FAILED_PREFIX) or "unknown method" in head.lower():
                 return None                        # a dead host; the per-id path says so once and stops
+            if head.startswith("timed out"):       # the per-id reads pay the same start-up: don't run N more
+                meta["_telemetry_dead"] = True
+                _note_telemetry_unavailable(meta, f"runtime status read {head.split(':')[0]} — liveness unverified")
+                return None
             continue
         data = _extract_json(out)
         recs = _status_entries(data) if isinstance(data, dict) else []
@@ -444,7 +448,7 @@ def _fetch_runtime_status(runtime_id, meta):
         # fleet document does not list gets an EMPTY `statuses` — the same answer the per-id call
         # gives for a runtime that is registered but not running — which maps to 'unknown'.
         return {"ok": True, "statuses": [r for r in fleet if _record_is(r, runtime_id)]}
-    rc, out, err = _run_cli(["openclaw", "senpi", "status", "-r", str(runtime_id), "--json"], timeout=20)
+    rc, out, err = _run_cli(["openclaw", "senpi", "status", "-r", str(runtime_id), "--json"], timeout=REGISTRY_TIMEOUT_S)
     if rc != 0:
         err = (err or "")[:200]
         if err.startswith(SPAWN_FAILED_PREFIX):   # not a runtime host → every call fails; stop shelling out
