@@ -4,7 +4,8 @@
 
 `deploy.py` writes it (mint, reuse, resolve on a reply naming a job, `deploy.py status` seeing the
 job); `close.py <id>` resolves it when it ends with nothing of the package live
-(a close it triggered, or every strategy already closed). Nothing deletes an entry."""
+(a close it triggered, or every strategy already closed) and, when no strategy is live, only once
+the job record shows no deploy job running. Nothing deletes an entry."""
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import json
 import os

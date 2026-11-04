@@ -20,6 +20,7 @@ import shutil
 import sys
 import tempfile
 import types
+import time
 import unittest
 from pathlib import Path
 
@@ -368,11 +369,21 @@ class MainPackagePollReportsClosed(unittest.TestCase):
 
     def setUp(self):
         self._orig = (close.MCPClient, _cli.strategies_for_or_none, _cli.list_runtimes,
-                      _cli.list_runtimes_or_none, _cli.run_cli, close._pkg.load)
+                      _cli.list_runtimes_or_none, _cli.run_cli, close._pkg.load, _cli.gateway_call)
         self.closed = []
         self.rows = []
         self.unreadable = False
+        # What `senpi.deploy.status` answers. Default: no deploy ever ran on this agent.
+        self.job_status = _gw("refused", message="[NOT_FOUND] No deploy has been started on this agent.")
+        self.status_reads = 0
         outer = self
+
+        def _fake_gateway(method, params=None, rpc_timeout_ms=None, timeout_s=None):
+            if method != "senpi.deploy.status":
+                raise AssertionError(f"unexpected gateway call {method!r}")
+            outer.status_reads += 1
+            return outer.job_status
+        _cli.gateway_call = _fake_gateway
 
         class _FakeMCP:
             def mcp_call(self, name, timeout=None, **kw):
@@ -409,7 +420,7 @@ class MainPackagePollReportsClosed(unittest.TestCase):
 
     def tearDown(self):
         (close.MCPClient, _cli.strategies_for_or_none, _cli.list_runtimes,
-         _cli.list_runtimes_or_none, _cli.run_cli, close._pkg.load) = self._orig
+         _cli.list_runtimes_or_none, _cli.run_cli, close._pkg.load, _cli.gateway_call) = self._orig
 
     def _run(self, *args):
         buf = io.StringIO()
@@ -436,6 +447,7 @@ class MainPackagePollReportsClosed(unittest.TestCase):
 
     def _next_create_request_id(self, root):
         import deploy
+        _cli.gateway_call = self._orig[-1]      # the real classifier over the stubbed _spawn below
         real = _cli._spawn
         self.addCleanup(setattr, _cli, "_spawn", real)
         sent = []
@@ -471,10 +483,74 @@ class MainPackagePollReportsClosed(unittest.TestCase):
         self.assertNotEqual(self._next_create_request_id(root), rid)
 
     def test_a_package_with_no_strategies_at_all_closes_the_open_request(self):
+        # Only because the job record answers that no deploy is running (the gateway's [NOT_FOUND]).
         _root, _rid = self._seed_open_request()
         self.rows = []
-        self._run("omega")
+        _out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.status_reads, 1)
         self.assertEqual(_journal.read("omega")["resolved"], "closed-by-close.py")
+
+    def _running_job(self, rid=None, pkg="omega"):
+        return _gw("ok", payload={"state": {"status": "running"},
+                                  "meta": {"deployId": "dpl-1", "packageId": pkg, "requestId": rid}})
+
+    def test_review_4473504980_a_lost_starts_running_job_keeps_the_request_open(self):
+        # START lost, recovery found nothing, the job is still before wallet creation: no strategy
+        # yet. Closing the entry here would let the next create mint a fresh id and START again.
+        _root, rid = self._seed_open_request()
+        for rows in ([], [self._CLOSED_ROW]):          # the empty and the all-terminal branch
+            self.rows = rows
+            self.job_status = self._running_job(rid)
+            out, code = self._run("omega")
+            self.assertEqual(code, 2)
+            self.assertIsNone(_journal.read("omega")["resolved"])
+            self.assertIn("NOT torn down", out)
+            self.assertIn(rid, out)
+            self.assertIn("deploy.py status", out)
+            self.assertNotIn("nothing to close", out)
+            self.assertNotIn("closed —", out)
+
+    def test_an_unreadable_job_record_keeps_the_request_open(self):
+        _root, _rid = self._seed_open_request()
+        self.rows = []
+        for answer in (_gw("timeout", message="x"), _gw("unknown_method", message="unknown method"),
+                       _gw("ok", payload={"ok": False})):
+            self.job_status = answer
+            _out, code = self._run("omega")
+            self.assertEqual(code, 2)
+            self.assertIsNone(_journal.read("omega")["resolved"])
+
+    def test_a_start_younger_than_its_wall_clock_keeps_the_request_open_without_a_read(self):
+        _root, rid = self._seed_open_request()
+        entry = _journal.read("omega")
+        entry["sentAt"] = _journal.utc_stamp(time.time())
+        _journal.write("omega", entry)
+        self.rows = []
+        out, code = self._run("omega")
+        self.assertEqual(code, 2)
+        self.assertEqual(self.status_reads, 0)
+        self.assertIsNone(_journal.read("omega")["resolved"])
+        self.assertIn("may not show yet", out)
+
+    def test_a_finished_job_closes_the_request(self):
+        _root, rid = self._seed_open_request()
+        self.rows = [self._CLOSED_ROW]
+        self.job_status = _gw("ok", payload={"state": {"status": "done"},
+                                             "meta": {"deployId": "dpl-1", "packageId": "omega",
+                                                      "requestId": rid}})
+        out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertIn("closed — 1 strategy, all CLOSED.", out)
+        self.assertEqual(_journal.read("omega")["resolved"], "closed-by-close.py")
+
+    def test_no_open_request_reads_no_job_record(self):
+        _root, rid = self._seed_open_request()
+        _journal.resolve("omega", rid, "dpl-1")          # an answered START: nothing open
+        self.rows = []
+        _out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.status_reads, 0)
 
     def test_a_close_that_leaves_something_live_or_refuses_keeps_the_request_open(self):
         # strategy_close submit fails → the strategy stays live (exit 2, "failed").

@@ -12,6 +12,7 @@ from strategy_list by attribution skillName == manifest id, or directly by strat
 close too):
   1. STOP    — gateway `senpi.deleteRuntime` (if a runtime is live), confirm gone from
                `senpi.listRuntimes`. An unreadable inventory refuses the whole run: nothing is closed.
+               Nothing live but an unanswered deploy START whose job may still run also refuses.
   2. TRIGGER — submit MCP strategy_close(<strategyId>) — flattens ALL positions + closes the strategy
                (returns funds). Submit only; no poll.
   → reports `closing`. strategy_close is async, so POLL by re-running `close.py <id>`: it's idempotent
@@ -182,6 +183,26 @@ def _close_open_request(pkg, a):
         _journal.resolve(pkg.id, None, "closed-by-close.py")
 
 
+def _unanswered_start_may_be_running(pkg):
+    """`(open entry, why)` when the package has an open START request whose job may still be running,
+    else None.
+
+    Used when nothing of the package is live in strategy_list. That is exactly the window of a lost
+    START: its job may still be in reconcile, preflight or wallet creation, with no strategy yet.
+    Closing the entry there lets the next `create` mint a fresh id and START again over a job that
+    goes on to fund a wallet (RT566-08's second funding). So the entry closes only on the rule
+    `deploy.py` uses for it: the job record answers, the START's wall clock has passed, and no job is
+    running (the gateway's `[NOT_FOUND]`, or a finished job; one deploy slot per agent). A running
+    job or an unreadable record keeps it open."""
+    entry = _journal.read(pkg.id) or {}
+    if entry.get("packageId") != str(pkg.id) or entry.get("resolved") is not None \
+            or not entry.get("requestId"):
+        return None
+    import deploy  # lazy: only this branch needs the job-record reader
+    why = deploy._why_a_job_may_be_running(entry)
+    return (entry, why) if why else None
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description="Close strategies: stop runtime(s) → trigger strategy_close (no wait).")
     ap.add_argument("package", nargs="?", help="Strategy id (e.g. spider). Omit with --all.")
@@ -289,6 +310,18 @@ def main(argv):
         if pkg is not None:
             ever = _read_or_refuse(
                 _cli.strategies_for_or_none(mcp, skill_name=pkg.id, why=why), why, pkg.id)
+            pending = None if a.instance else _unanswered_start_may_be_running(pkg)
+            if pending:
+                entry, why_open = pending
+                print(f"{hdr}: NOT torn down. Nothing of this package is live in strategy_list, but "
+                      f"the deploy START {entry['requestId']} (sent at {entry.get('sentAt', '?')}) "
+                      f"never got an answer, and {why_open}. A deploy MAY BE RUNNING and may still "
+                      f"create and fund a wallet; close.py cannot stop a deploy job. Nothing was "
+                      f"closed and the request stays open.\n"
+                      f"  Next: python3 deploy.py status   — wait until it shows no job running (or "
+                      f"that job finished), then re-run: close.py {pkg.id}. Do not run "
+                      f"`deploy.py create` meanwhile.")
+                sys.exit(2)
             if ever:
                 # Rows exist but none is LIVE, so every one is terminal. Name the statuses rather
                 # than printing a bare `closed.`: this branch also fires for a package whose only
