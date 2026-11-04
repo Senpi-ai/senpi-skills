@@ -562,8 +562,9 @@ own verdict + active-position count. Classes:
   (`deploy.py runtime <id>` to start, or `close.py <id>` to recover funds).
 - **copy** — copy-trading strategy (follows a `traderAddress`) → run by Senpi's copy engine, no runtime.
 - **manual** — manual / app-managed strategy → you manage it in the app, no runtime.
-- **runtime-unknown** — the host has no `openclaw`, so the registry is not visible at all. Not a
-  diagnosis and **never** to be read as an interrupted deploy: check again from the runtime host.
+- **runtime-unknown** — the registry couldn't be read: no `openclaw` on this host, or `runtime list`
+  failed or timed out. Not a diagnosis and **never** to be read as an interrupted deploy: re-run, or
+  check from the runtime host.
 
 A strategy off the runtime is **not broken** — copy/manual are managed elsewhere by design; `status.py`
 prints *how* each is managed (an info line, not a warning). Only `no-runtime` (autonomous, missing runtime)
