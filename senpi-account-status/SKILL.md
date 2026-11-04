@@ -87,7 +87,8 @@ catalog question: quote the "Plans & free credits" table as written, never a num
 - **"What are the limits on Pro / the paid plans?"** is a catalog question: answer from that table, no
   engine run. Their own limits or usage ("what are my limits", "how many have I used") come from `limits`.
 - **A free trial** is a `source: "trial"` read. Call it the **free trial**, never "Pro trial" or
-  "<plan> trial", even though `limits.plan` names a plan; when quoting `summary`, say "free trial".
+  "<plan> trial", and never pair it with a plan name ("Free trial — Pro plan", "trial of Pro"): `limits.plan` on a
+  trial read is the plan the trial grants access to, so do not show it. When quoting `summary`, say "free trial".
   Its new-strategy allowance covers the 14-day trial, never a "per billing cycle" or 30-day count, and
   `startsResetAt` is when the trial ends, not a reset.
 
@@ -211,7 +212,7 @@ always wins for them.
   until then and there are no mid-cycle refunds.
 - **Payment is web only** (Stripe, senpi.ai/settings/subscription); the app links out to change anything.
 - **Free trial:** activates when the user **deploys their agent**, is one-time, and expires **14 days
-  after activation**. Always "free trial", never "Pro trial". **Never quote a trial credit figure** — the starting
+  after activation**. Always "free trial", never "Pro trial" or a plan beside it. **Never quote a trial credit figure** — the starting
   amount has changed more than once; their subscription page is the only source of truth. On expiry or exhaustion the agent stops until
   they subscribe: active strategies pause, **open positions are NOT auto-closed**, funds untouched.
 - **A lapsed plan pauses everything, not just chat.** Strategies run on the agent. When a trial or

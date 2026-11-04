@@ -495,10 +495,12 @@ class PlanLimitsAreCatalogFacts(unittest.TestCase):
         limits = self._limits()
         for needle in (
             'A free trial** is a `source: "trial"` read. Call it the **free trial**, never "Pro trial" or '
-            '"<plan> trial", even though `limits.plan` names a plan; when quoting `summary`, say "free trial".',
+            '"<plan> trial", and never pair it with a plan name ("Free trial — Pro plan", "trial of Pro"): '
+            '`limits.plan` on a trial read is the plan the trial grants access to, so do not show it. '
+            'When quoting `summary`, say "free trial".',
         ):
             self.assertIn(needle, limits, needle)
-        self.assertIn('Always "free trial", never "Pro trial".', self._plans())
+        self.assertIn('Always "free trial", never "Pro trial" or a plan beside it.', self._plans())
 
     def test_a_trials_allowance_covers_the_trial_not_a_cycle(self):
         self.assertIn(
