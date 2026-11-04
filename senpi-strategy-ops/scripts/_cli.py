@@ -237,6 +237,9 @@ def _parse_runtime_list(out):
     return rows, (seen_header or empty_marker)
 
 
+RUNTIME_LIST_TIMEOUT_S = 120  # the openclaw CLI alone can take over a minute to start on a loaded box
+
+
 def list_runtimes():
     """All runtimes (running AND stopped) by parsing `runtime list` text. NOTE on runtime v3: `runtime
     list --json` exists only on newer builds (see `senpi-trading-runtime/references/runtime-cli.md`) and
@@ -246,7 +249,7 @@ def list_runtimes():
     here; use `status -r <id>` only for health.
     Returns [] on a failed/garbled read; a caller that must NOT conflate 'none' with 'unreadable'
     (teardown's money path) uses `list_runtimes_or_none` instead."""
-    rc, out, _err = run_cli(["openclaw", "senpi", "runtime", "list"])
+    rc, out, _err = run_cli(["openclaw", "senpi", "runtime", "list"], RUNTIME_LIST_TIMEOUT_S)
     if rc != 0:
         return []
     rows, _valid = _parse_runtime_list(out)
@@ -257,7 +260,7 @@ def list_runtimes_or_none():
     """Like `list_runtimes()` but returns None when the `runtime list` read FAILED (rc != 0) or produced
     unparseable output — so callers can tell 'no runtimes' (→ []) from 'couldn't read the inventory'
     (→ None). The teardown money path must never mistake an unreadable inventory for 'the runtime is gone'."""
-    rc, out, _err = run_cli(["openclaw", "senpi", "runtime", "list"])
+    rc, out, _err = run_cli(["openclaw", "senpi", "runtime", "list"], RUNTIME_LIST_TIMEOUT_S)
     if rc != 0:
         return None
     rows, valid = _parse_runtime_list(out)

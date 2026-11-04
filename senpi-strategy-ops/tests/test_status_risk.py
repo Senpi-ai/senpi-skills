@@ -192,7 +192,7 @@ class TestBuildWiring(unittest.TestCase):
         payload = {"strategyId": "sid-0001", "status": "ACTIVE", "strategyWalletAddress": wallet,
                    "totalFunded": 300, "strategyName": "spider",
                    "strategyMetadata": {"skillName": "spider"}}
-        saved = (_cli.list_strategies_or_none, _cli.list_runtimes, status._openclaw_available,
+        saved = (_cli.list_strategies_or_none, _cli.list_runtimes_or_none, status._openclaw_available,
                  _cli.runtime_health_map, _cli.runtime_descriptors)
         calls = {"health": 0, "desc": 0}
 
@@ -204,14 +204,14 @@ class TestBuildWiring(unittest.TestCase):
             calls["desc"] += 1
             return {}
         _cli.list_strategies_or_none = lambda *a, **k: [payload]
-        _cli.list_runtimes = lambda *a, **k: [{"name": "spider-main", "wallet": wallet,
+        _cli.list_runtimes_or_none = lambda *a, **k: [{"name": "spider-main", "wallet": wallet,
                                               "status": "running", "source": None}]
         status._openclaw_available = lambda: True
         _cli.runtime_health_map, _cli.runtime_descriptors = health_map, descriptors
         try:
             rows, _orphans, _ok = status.build(None, deep=True)
         finally:
-            (_cli.list_strategies_or_none, _cli.list_runtimes, status._openclaw_available,
+            (_cli.list_strategies_or_none, _cli.list_runtimes_or_none, status._openclaw_available,
              _cli.runtime_health_map, _cli.runtime_descriptors) = saved
         self.assertEqual((calls["health"], calls["desc"]), (1, 1))
         self.assertEqual(rows[0]["health"], "healthy")

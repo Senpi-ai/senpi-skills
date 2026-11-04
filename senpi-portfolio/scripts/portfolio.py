@@ -54,6 +54,7 @@ QUIET_AFTER_HOURS = 48      # a strategy whose newest CLOSE is older than this i
 # ASK THE RUNTIME, don't guess at its files. Every registry-derived field on this surface comes from
 # this ONE command — the process that owns the registry, answering through its own CLI.
 RUNTIME_LIST_CMD = ["openclaw", "senpi", "runtime", "list", "--json"]
+REGISTRY_TIMEOUT_S = 120  # the openclaw CLI alone can take over a minute to start on a loaded box
 RUNTIMES_FIXTURE_ENV = "SENPI_RUNTIMES_FIXTURE"     # offline test hook (see load_runtime_registry)
 # The producer's exact blind-runtime status is `running — NO ENTRY SCANNERS` (em dash, U+2014). Matched
 # on the phrase, not the whole string, so a dash/spacing drift cannot silently repaint blind as healthy.
@@ -307,7 +308,7 @@ def load_runtime_registry(meta):
         except Exception as e:  # noqa — a bad fixture is a failed read like any other, never an empty one
             return _runtime_read_failed(meta, f"fixture {fixture} unreadable ({e})")
     else:
-        rc, out, err = _run_cli(RUNTIME_LIST_CMD, timeout=30)
+        rc, out, err = _run_cli(RUNTIME_LIST_CMD, timeout=REGISTRY_TIMEOUT_S)
         payload = _extract_json(out)          # stdout carries `[plugins]` banners on a real box
         if payload is None:                   # spawn failure, timeout, or nothing parseable on stdout
             return _runtime_read_failed(meta, (err or "").strip()[:200] or f"exit {rc}, no JSON on stdout")
@@ -392,7 +393,7 @@ def _fleet_statuses(meta):
         return None
     print("reading runtime health (one status call for the whole fleet)…", file=sys.stderr, flush=True)
     for _ in range(2):
-        rc, out, err = _run_cli(FLEET_STATUS_CMD, timeout=30)
+        rc, out, err = _run_cli(FLEET_STATUS_CMD, timeout=REGISTRY_TIMEOUT_S)
         if rc != 0:
             head = (err or "")[:200]
             if head.startswith(SPAWN_FAILED_PREFIX) or "unknown method" in head.lower():
