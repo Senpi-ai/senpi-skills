@@ -486,8 +486,8 @@
       "version": "1.1.1"
     },
     "shadow": {
-      "behaviour": "c038133ad8c475c5",
-      "version": "2.2.0"
+      "behaviour": "41ce6817aa900e85",
+      "version": "2.2.1"
     },
     "sheep": {
       "behaviour": "6ef0f05ce9c21cb0",
@@ -502,8 +502,8 @@
       "version": "6.2.1"
     },
     "squid": {
-      "behaviour": "cae873169ddc8485",
-      "version": "1.0.0"
+      "behaviour": "2a00bf05fc9dbf9d",
+      "version": "1.0.1"
     },
     "stag": {
       "behaviour": "0adbfee0abc8a6bf",
