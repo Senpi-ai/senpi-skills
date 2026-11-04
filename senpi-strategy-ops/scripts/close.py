@@ -284,7 +284,10 @@ def main(argv):
         log("⚠ openclaw is not available on this host — runtimes (if any, on the runtime host) will "
             "NOT be stopped by this run and would be left orphaned. Run close.py on the runtime host "
             "too, or `openclaw senpi runtime delete <id>` there.")
-    runtimes = _cli.list_runtimes()
+    runtimes = _cli.list_runtimes_or_none() if rc0 == 0 else []
+    if runtimes is None:
+        raise SystemExit("error: couldn't read the runtime list (`openclaw senpi runtime list` failed or timed "
+                         "out), so runtimes can't be stopped with their strategies. Nothing was closed; re-run.")
     if a.dry_run or len(targets) == 1:
         results = [close_one(label, strat, runtimes, a.dry_run, log) for label, strat in targets]
     else:

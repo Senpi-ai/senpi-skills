@@ -237,6 +237,9 @@ def _parse_runtime_list(out):
     return rows, (seen_header or empty_marker)
 
 
+OPENCLAW_READ_TIMEOUT_S = 120  # the openclaw CLI alone can take over a minute to start on a loaded box
+
+
 def list_runtimes():
     """All runtimes (running AND stopped) by parsing `runtime list` text. NOTE on runtime v3: `runtime
     list --json` exists only on newer builds (see `senpi-trading-runtime/references/runtime-cli.md`) and
@@ -246,18 +249,14 @@ def list_runtimes():
     here; use `status -r <id>` only for health.
     Returns [] on a failed/garbled read; a caller that must NOT conflate 'none' with 'unreadable'
     (teardown's money path) uses `list_runtimes_or_none` instead."""
-    rc, out, _err = run_cli(["openclaw", "senpi", "runtime", "list"])
-    if rc != 0:
-        return []
-    rows, _valid = _parse_runtime_list(out)
-    return rows
+    return list_runtimes_or_none() or []
 
 
 def list_runtimes_or_none():
     """Like `list_runtimes()` but returns None when the `runtime list` read FAILED (rc != 0) or produced
     unparseable output — so callers can tell 'no runtimes' (→ []) from 'couldn't read the inventory'
     (→ None). The teardown money path must never mistake an unreadable inventory for 'the runtime is gone'."""
-    rc, out, _err = run_cli(["openclaw", "senpi", "runtime", "list"])
+    rc, out, _err = run_cli(["openclaw", "senpi", "runtime", "list"], OPENCLAW_READ_TIMEOUT_S)
     if rc != 0:
         return None
     rows, valid = _parse_runtime_list(out)
@@ -396,13 +395,15 @@ def scanner_reasons(status_entry):
             for r in scanner_rows(status_entry) if isinstance(r, dict) and r.get("degradedReason")]
 
 
-def runtime_health_map(timeout=15):
+def runtime_health_map(timeout=OPENCLAW_READ_TIMEOUT_S):
     """Health for ALL running runtimes in ONE `status --json` call, keyed by runtime name. One CLI
     invocation regardless of fleet size (each openclaw call pays ~2-3s plugin-load startup, so per-runtime
     calls are the slow path). The gateway is flaky-empty, so retry the single call twice."""
     for _ in range(2):
         obj = cli_json(["openclaw", "senpi", "status", "--json"], timeout)
-        sts = find_list(obj, "statuses") if obj else []
+        if obj is None:  # failed or timed out: only the flaky-empty answer is worth a retry
+            break
+        sts = find_list(obj, "statuses")
         if sts:
             return {runtime_name(e): e for e in sts}
     return {}
@@ -536,7 +537,7 @@ def describe_pause(pause):
 
 # ---- the running recipe vs the package on disk ----
 
-def runtime_descriptors(timeout=15):
+def runtime_descriptors(timeout=OPENCLAW_READ_TIMEOUT_S):
     """`runtime list --json` → {runtime name: descriptor} for every runtime that carries one. The
     engine renders the descriptor from the recipe it is actually RUNNING (senpi-trading-runtime
     `describeRuntimeEntry`), so it is the one read that can say whether an edit on disk ever reached

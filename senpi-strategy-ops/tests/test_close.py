@@ -261,6 +261,13 @@ class MainDirectAddressing(unittest.TestCase):
         self.assertEqual(payload["status"], "closing")
         self.assertEqual(self.closed, ["s1"])
 
+    def test_unreadable_runtime_list_refuses_without_closing(self):
+        self.rows = [{"strategyId": "s1", "strategyWalletAddress": "0xabc", "status": "ACTIVE"}]
+        _cli.list_runtimes_or_none = lambda: None   # openclaw is here, `runtime list` timed out
+        _out, code = self._run("--strategy-id", "s1")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(self.closed, [])
+
     def test_address_matches_case_insensitively(self):
         self.rows = [{"strategyId": "s1", "strategyWalletAddress": "0xABC", "status": "ACTIVE"}]
         out, code = self._run("--address", "0xabc", "--json")

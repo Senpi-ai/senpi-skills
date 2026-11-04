@@ -57,7 +57,7 @@ def build_rows(payload):
 
     Imports the row-building function directly rather than shelling out to `status.py`, per the
     task brief: monkeypatches the two reads `build()` makes (`_cli.list_strategies_or_none`,
-    `_cli.list_runtimes`) and `status._openclaw_available`, and runs with `deep=False` so no
+    `_cli.list_runtimes_or_none`) and `status._openclaw_available`, and runs with `deep=False` so no
     subprocess for the fleet-wide health map is spawned either."""
     payload = dict(payload)
     runtime_name = payload.pop("_runtime", None)
@@ -66,14 +66,14 @@ def build_rows(payload):
         if runtime_name else []
 
     orig_strats, orig_rts, orig_avail = (
-        _cli.list_strategies_or_none, _cli.list_runtimes, status._openclaw_available)
+        _cli.list_strategies_or_none, _cli.list_runtimes_or_none, status._openclaw_available)
     _cli.list_strategies_or_none = lambda *a, **k: [payload]
-    _cli.list_runtimes = lambda *a, **k: runtimes
+    _cli.list_runtimes_or_none = lambda *a, **k: runtimes
     status._openclaw_available = lambda: bool(runtimes)
     try:
         rows, _orphans, _cli_ok = status.build(None, deep=False)
     finally:
-        _cli.list_strategies_or_none, _cli.list_runtimes, status._openclaw_available = (
+        _cli.list_strategies_or_none, _cli.list_runtimes_or_none, status._openclaw_available = (
             orig_strats, orig_rts, orig_avail)
     return rows
 
@@ -149,6 +149,20 @@ class TestStatusTextRender(unittest.TestCase):
         text = render(build_rows(fixture_with(strategyName="owl", runtime="owl-main")))
         self.assertNotIn("*", row_line(text))
         self.assertNotIn("carried NO name of its own", text)
+
+
+class TestUnreadableRuntimeList(unittest.TestCase):
+    def test_a_runtime_list_that_cannot_be_read_is_unknown_not_no_runtime(self):
+        orig = (_cli.list_strategies_or_none, _cli.list_runtimes_or_none, status._openclaw_available)
+        _cli.list_strategies_or_none = lambda *a, **k: [fixture_with()]
+        _cli.list_runtimes_or_none = lambda *a, **k: None   # openclaw is here, the read timed out
+        status._openclaw_available = lambda: True
+        try:
+            rows, _orphans, cli_ok = status.build(None, deep=False)
+        finally:
+            _cli.list_strategies_or_none, _cli.list_runtimes_or_none, status._openclaw_available = orig
+        self.assertFalse(cli_ok)
+        self.assertEqual(rows[0]["health"], "runtime-unknown")
 
 
 # At the END of the file, not the middle: `unittest.main()` only runs the classes already defined
