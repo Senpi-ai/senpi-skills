@@ -131,7 +131,8 @@ def fetch_referral(client, meta):
 
 
 # The fields MCP strategy_get_limits documents, passed through as returned: a null limit is "no limit",
-# never 0, so nothing here is coerced.
+# never 0, so nothing here is coerced. `plan` is the exception: it is emitted only when the limits come
+# from a plan, so no other source hands the agent a null to misread as "no plan".
 LIMIT_FIELDS = ("enforced", "source", "plan", "running", "maxRunning", "runningLeft", "starts", "maxStarts",
                 "startsLeft", "window", "windowStart", "startsResetAt", "canStartNow", "summary")
 
@@ -146,7 +147,7 @@ def fetch_limits(client, meta):
         return {}
     lim = _ok(resp)
     if isinstance(lim, dict) and lim:
-        return {k: lim.get(k) for k in LIMIT_FIELDS}
+        return {k: lim.get(k) for k in LIMIT_FIELDS if k != "plan" or lim.get("source") == "plan"}
     err = resp.get("error") if isinstance(resp, dict) else None
     reason = (f"{err.get('code')}: {err.get('message')}" if isinstance(err, dict)
               else f"unexpected reply {str(resp)[:120]}")
