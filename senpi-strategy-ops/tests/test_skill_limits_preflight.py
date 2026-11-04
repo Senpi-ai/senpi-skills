@@ -57,7 +57,10 @@ class LimitsAreReadBeforeTheDeploy(unittest.TestCase):
             "say the package needs N",
             "give the ways forward of [`[STRATEGY_LIMIT_PREFLIGHT]`](references/refusal-playbook.md)",
             "the verb's own exit-2 refusal of it",
-            "Never fewer instances to fit",
+            "Never cut instances of this package to squeeze under the limit",
+            "a different, smaller package the user picks is fine",
+            "on a resume never close a sleeve of this package",
+            "a smaller package or an upgrade when the plan can't hold it",
         ):
             self.assertIn(needle, self.step, needle)
 
@@ -97,17 +100,24 @@ class TheRuntimeRefusalIsAnExit2Refusal(unittest.TestCase):
         for needle in (
             "**`refused` report (exit 2)**",
             "before the first create",
-            "**Nothing was created** and no money moved",
+            "**Nothing was created** by this run",
+            "read `status.py <id>` and tell the user which are",
             "every wallet is one strategy",
             "Quote its lines",
-            "close a running strategy themselves",
-            "wait until the reset time it names, or upgrade",
+            "the user closes strategies themselves",
+            "and never a sleeve of this package",
+            "wait until enough starts free up",
+            "a rolling window frees one at a time",
             "closing never gives a start back",
+            "so upgrading is the only way forward (no start comes back if the trial lapses)",
+            "deploy a smaller package or upgrade",
+            "Closing doesn't help, and there is no re-run until one of those is done",
             "only after the user has done one and asks",
             "**Never**",
             "on a timer",
             "close a strategy on the user's behalf",
-            "deploy fewer instances",
+            "cut instances of this package",
+            "a different, smaller package the user picks is fine",
             "strategy_create_custom_strategy",
         ):
             self.assertIn(needle, section, needle)
@@ -153,10 +163,14 @@ class TheTaxonomyCarriesTheNewCodes(unittest.TestCase):
             "`refused`",
             "before the first create",
             "`runningLeft` or `startsLeft`",
-            "Nothing was created",
+            "Nothing was created by this run",
+            "wallets from an earlier run may already be live and funded",
+            "so a later wallet can still be refused",
+            "deploy a smaller package or upgrade",
             "never split the deploy into smaller creates",
         ):
             self.assertIn(needle, row, needle)
+        self.assertNotIn("so a package is never half deployed", row)
 
     def test_the_rows_sit_after_serr184(self):
         index = {l.split("|")[1].strip(): i for i, l in enumerate(self.lines) if l.startswith("| `")}

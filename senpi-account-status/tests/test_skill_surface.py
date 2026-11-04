@@ -50,12 +50,12 @@ def _free_credits(body):
     return plans[start:]
 
 
-class GrandfatheredNullPlanIsNotNoSubscription(unittest.TestCase):
-    def test_the_limits_section_says_a_null_plan_is_not_no_subscription(self):
+class PlanFieldOnlyWhenLimitsComeFromAPlan(unittest.TestCase):
+    def test_the_limits_section_says_plan_is_present_only_for_a_plan_source(self):
         section = _flat(_section(_split(SKILL)[1], "## Strategy limits"))
         for needle in (
-            "On a grandfathered read `limits.plan` is `null` because the limits come from no plan: "
-            "that says nothing about whether the user subscribes, so never tell them they have no plan from it.",
+            "`limits.plan` is present only when the limits come from a plan (`source: \"plan\"`); "
+            "never infer the user's subscription from `limits`.",
             "A `0%` fee means a paid plan; name no plan you didn't read.",
         ):
             self.assertIn(needle, section, needle)
@@ -443,9 +443,8 @@ class StrategyLimitsComeFromTheEngine(unittest.TestCase):
         plans = _flat(_section(_split(SKILL)[1], PLANS))
         self.assertNotIn("You cannot see the user's plan, trial or renewal dates", plans)
         for needle in (
-            "`limits.plan` names their plan only when one is set",
-            "`null` for free, grandfathered and some override accounts",
-            'never conclude "no plan" from a `null`',
+            "`limits.plan` is present only when the limits come from a plan",
+            'its absence says nothing: never conclude "no plan" from `limits`',
             '`source: "trial"` means a trial; `limits: {}` means the read failed',
             "You cannot see trial or renewal dates",
         ):
@@ -495,8 +494,7 @@ class PlanLimitsAreCatalogFacts(unittest.TestCase):
         limits = self._limits()
         for needle in (
             'A free trial** is a `source: "trial"` read. Call it the **free trial**, never "Pro trial" or '
-            '"<plan> trial", and never pair it with a plan name ("Free trial — Pro plan", "trial of Pro"): '
-            '`limits.plan` on a trial read is the plan the trial grants access to, so do not show it. '
+            '"<plan> trial", and never pair it with a plan name ("Free trial — Pro plan", "trial of Pro"). '
             'When quoting `summary`, say "free trial".',
         ):
             self.assertIn(needle, limits, needle)
