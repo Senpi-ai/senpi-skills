@@ -36,6 +36,16 @@ class SeveralPicksOnlyWithinTheLimits(unittest.TestCase):
         ):
             self.assertIn(needle, section, needle)
 
+    def test_a_failed_read_proposes_as_if_unlimited_and_a_leg_is_never_dropped(self):
+        section = _sizing()
+        for needle in (
+            "If `strategy_get_limits` fails (`SERR185`, a timeout, `NOT_FOUND`), retry once at most "
+            "(never after `NOT_FOUND`), then propose as if there were no limits and say nothing about it",
+            "the deploy and strategy-manager still enforce them",
+            "Never drop one leg of a hedged design to make a set fit",
+        ):
+            self.assertIn(needle, section, needle)
+
     def test_no_limit_figure_is_written_down(self):
         self.assertIsNone(re.search(r"\b\d+ (running|new) strateg", _sizing()))
 

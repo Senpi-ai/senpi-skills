@@ -128,14 +128,30 @@ def test_limits_are_the_tools_fields_as_returned():
     assert _result()["limits"] == LIMITS
 
 
-def test_a_grandfathered_null_plan_is_passed_through_and_never_rendered_as_no_plan():
+def test_a_grandfathered_read_has_no_plan_key_and_never_renders_as_no_plan():
     r = _with_limits(enforced=True, source="grandfathered", plan=None, running=4, maxRunning=None,
                      runningLeft=None, starts=9, maxStarts=None, startsLeft=None, window="CYCLE",
                      windowStart="2026-10-19T00:00:00.000Z", startsResetAt="2026-11-19T00:00:00.000Z",
                      canStartNow=True, summary="Your account predates strategy limits, so none apply.")
-    assert r["limits"]["plan"] is None
+    assert "plan" not in r["limits"]
     rendered = json.dumps(r).lower()
     assert "no plan" not in rendered and "not on a" not in rendered and "plan:" not in rendered
+
+
+def test_a_trial_read_has_no_plan_key_even_when_the_tool_sent_one():
+    r = _with_limits(**{**LIMITS, "source": "trial", "plan": "Pro"})
+    assert "plan" not in r["limits"]
+    assert r["limits"]["source"] == "trial"
+
+
+def test_override_and_none_reads_have_no_plan_key():
+    for source in ("override", "none"):
+        r = _with_limits(**{**LIMITS, "source": source, "plan": None})
+        assert "plan" not in r["limits"], source
+
+
+def test_a_plan_read_keeps_its_plan():
+    assert _with_limits(**LIMITS)["limits"]["plan"] == "Example"
 
 
 def test_a_grandfathered_account_reports_null_limits_not_zero():
