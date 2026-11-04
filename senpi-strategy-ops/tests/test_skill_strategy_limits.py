@@ -105,7 +105,7 @@ class StrategyLimitIsThePlanNotARetry(unittest.TestCase):
         for needle in (
             "for a user on the free trial: the same sentence, but the allowance covers the 14-day trial "
             "and the time it names is when the trial ends, not a reset",
-            'Say "free trial", never "Pro trial", "per billing cycle" or 30 days',
+            'Say "free trial", never "Pro trial", a plan name beside it, "per billing cycle" or 30 days',
             "On a free trial, upgrading is the only way forward: waiting until the stated time means the trial ends",
         ):
             self.assertIn(needle, section, needle)

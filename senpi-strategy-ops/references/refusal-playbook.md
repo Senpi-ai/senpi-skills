@@ -288,8 +288,8 @@ raw MCP error if a create was called directly. The text takes one of two forms:
 - for a user on a plan, per billing cycle: `SERR184: Your Pro plan allows 5 new strategies
   per billing cycle. Your count resets at 2026-11-14 00:00 UTC, or upgrade your plan.`
 - for a user on the free trial: the same sentence, but the allowance covers the 14-day trial and the
-  time it names is when the trial ends, not a reset. Say "free trial", never "Pro trial", "per billing
-  cycle" or 30 days.
+  time it names is when the trial ends, not a reset. Say "free trial", never "Pro trial", a plan name beside it,
+  "per billing cycle" or 30 days.
 - for a user without one, the last 30 days: `SERR184: Your free account allows 1 new strategies
   per 30 days. Your next one frees up at 2026-11-02 14:00 UTC, or upgrade your plan.`
 
