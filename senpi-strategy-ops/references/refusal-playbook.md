@@ -317,20 +317,29 @@ package the sleeves created before it may be live: read `status.py <id>` and say
 
 Reaches you as a **`refused` report (exit 2)** on `create`. The deploy read `strategy_get_limits`
 before the first create and found that the wallets it would create (every wallet is one strategy; a
-resume counts only the ones still missing) exceed `runningLeft` or `startsLeft`. **Nothing was created**
-and no money moved, on any sleeve. It is the same limit as `SERR183` / `SERR184`, caught for the whole
-package instead of halfway through it. Step 0.6 of the skill catches it earlier, before the walkthrough.
+resume counts only the ones still missing) exceed `runningLeft` or `startsLeft`, or that the plan's own
+cap is below the package size. **Nothing was created** by this run. On a resume, sleeves from an
+earlier run can already be live and funded: read `status.py <id>` and tell the user which are. It is the
+same limit as `SERR183` / `SERR184`, caught for the whole package instead of halfway through it. Step
+0.6 of the skill catches it earlier, before the walkthrough.
 
 - **Tell the user in one or two sentences.** Quote its lines: how many the package needs, what is left of
-  each short limit, and the `summary` sentence. Then the ways forward: for the running limit, close a
-  running strategy themselves (the user picks which one, `close.py <id>`); for the starts limit, wait
-  until the reset time it names, or upgrade — closing never gives a start back. On a free trial that
-  time is when the trial ends, so upgrading is the only way forward.
+  each short limit, and the `summary` sentence. Then the way forward that matches the refusal's wording:
+  1. **The plan can hold the package, the running limit is short:** the user closes strategies
+     themselves (their pick, `close.py <id>`), and never a sleeve of this package, which would only
+     become a wallet to create again.
+  2. **The starts limit is short:** wait until enough starts free up (a rolling window frees one at a
+     time, so a package of several wallets can need several), or upgrade; closing never gives a start
+     back. On a free trial that time is when the trial ends, so upgrading is the only way forward
+     (no start comes back if the trial lapses).
+  3. **The plan can't hold the package** (its cap is below the package size): deploy a smaller package
+     or upgrade. Closing doesn't help, and there is no re-run until one of those is done.
 - **Try again only after the user has done one and asks**: then re-run the same `deploy.py create`
   command once.
-- **Never**: re-run on a timer or in a loop; close a strategy on the user's behalf; deploy fewer
-  instances or call `strategy_create` / `strategy_create_custom_strategy` directly to squeeze under the
-  limit; or tell the user Senpi is down.
+- **Never**: re-run on a timer or in a loop; close a strategy on the user's behalf, or a sleeve of this
+  package; cut instances of this package, or call `strategy_create` /
+  `strategy_create_custom_strategy` directly, to squeeze under the limit (a different, smaller package
+  the user picks is fine); or tell the user Senpi is down.
 
 ## Budget warnings (`W_`)
 

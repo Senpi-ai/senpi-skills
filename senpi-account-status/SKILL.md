@@ -80,7 +80,7 @@ Formatting: scannable, numbers from the data.
 `limits` is MCP `strategy_get_limits`: the user's own plan, usage and reset time. When a limit is
 enforced, lead with `limits.summary`, the sentence to quote. Then: `running` of `maxRunning` running,
 `starts` of `maxStarts` new this cycle (the last 30 days when `window` is not `CYCLE`), and
-`startsResetAt` in UTC (when the count resets in a cycle; otherwise when the next start frees up).
+`startsResetAt` in UTC (in a cycle, when the count resets; on a free trial that is the trial's end, and a start comes back only if the trial converts; otherwise when the next single start frees up). At a 0 limit waiting frees nothing; only an upgrade does.
 Their own usage and limits come from this live read, never from memory. Another plan's limits are a
 catalog question: quote the "Plans & free credits" table as written, never a number of your own.
 
