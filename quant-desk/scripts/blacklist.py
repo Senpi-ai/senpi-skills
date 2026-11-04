@@ -120,7 +120,7 @@ class BlacklistUnavailable(Exception):
 
 def _post(payload, url, token, timeout):
     body = json.dumps(payload).encode()
-    headers = {"Content-Type": "application/json"}
+    headers = {"Content-Type": "application/json", "User-Agent": "senpi-mm-blacklist"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
