@@ -128,6 +128,16 @@ def test_limits_are_the_tools_fields_as_returned():
     assert _result()["limits"] == LIMITS
 
 
+def test_a_grandfathered_null_plan_is_passed_through_and_never_rendered_as_no_plan():
+    r = _with_limits(enforced=True, source="grandfathered", plan=None, running=4, maxRunning=None,
+                     runningLeft=None, starts=9, maxStarts=None, startsLeft=None, window="CYCLE",
+                     windowStart="2026-10-19T00:00:00.000Z", startsResetAt="2026-11-19T00:00:00.000Z",
+                     canStartNow=True, summary="Your account predates strategy limits, so none apply.")
+    assert r["limits"]["plan"] is None
+    rendered = json.dumps(r).lower()
+    assert "no plan" not in rendered and "not on a" not in rendered and "plan:" not in rendered
+
+
 def test_a_grandfathered_account_reports_null_limits_not_zero():
     r = _with_limits(enforced=True, source="grandfathered", plan=None, running=4, maxRunning=None,
                      runningLeft=None, starts=9, maxStarts=None, startsLeft=None, window="CYCLE",

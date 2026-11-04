@@ -50,6 +50,17 @@ def _free_credits(body):
     return plans[start:]
 
 
+class GrandfatheredNullPlanIsNotNoSubscription(unittest.TestCase):
+    def test_the_limits_section_says_a_null_plan_is_not_no_subscription(self):
+        section = _flat(_section(_split(SKILL)[1], "## Strategy limits"))
+        for needle in (
+            "On a grandfathered read `limits.plan` is `null` because the limits come from no plan: "
+            "that says nothing about whether the user subscribes, so never tell them they have no plan from it.",
+            "A `0%` fee means a paid plan; name no plan you didn't read.",
+        ):
+            self.assertIn(needle, section, needle)
+
+
 class CreditsAreTheUsageMeter(unittest.TestCase):
     def test_the_section_and_its_rules_are_in_the_body(self):
         body = _flat(_split(SKILL)[1])
