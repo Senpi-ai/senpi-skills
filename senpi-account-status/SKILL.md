@@ -93,7 +93,10 @@ catalog question: quote the "Plans & free credits" table as written, never a num
 
 - **A `null` limit is no limit, never 0.** `source: "grandfathered"`: their account predates strategy
   limits, so none apply. Both limits `null` (some `source: "override"` accounts): no limits apply to
-  their account. Either way the card says "no strategy limits apply" at most.
+  their account. Either way the card says "no strategy limits apply" at most. On a grandfathered
+  read `limits.plan` is `null` because the limits come from no plan: that says nothing about whether
+  the user subscribes, so never tell them they have no plan from it. A `0%` fee means a paid plan;
+  name no plan you didn't read.
 - **`enforced: false`**: limits are not enforced right now, whatever the numbers say. Leave limits off
   the card and do not raise them; when asked, say limits are not enforced right now.
 - **How it counts**: every wallet is one strategy (a 3-wallet strategy uses 3); a PAUSED strategy counts
