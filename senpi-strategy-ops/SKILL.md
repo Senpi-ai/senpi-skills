@@ -6,7 +6,8 @@ description: >-
   supervises it at zero model cost, and there is no paper-trading mode ($10 floor = the test).
   Use when the user names a strategy to run — "install spider", "deploy polar",
   "set up kodiak", "reinstall athena", "run the spider strategy", "is my strategy live?",
-  "what am I running", "list my strategies" (→ status.py),
+  "what am I running", "list my strategies" (→ status.py), "why isn't polar trading?" /
+  "is it broken or just no signal?" (→ health + lastAliveAt; a tail of events.jsonl lists only errors, never ok ticks),
   A STRATEGY IS A PACKAGE, NEVER A SKILL: "install/reinstall <name>" is
   `deploy.py create <id>` here — never `openclaw skills install`, never clawhub, and
   never a GitHub user or repo named after the strategy. A package missing from disk is
@@ -320,7 +321,7 @@ POST, and `intervalSeconds: 0` / `nextRunAt: null` are the correct values rather
 `lastAliveAt` is the tick. So `runCount: 0` with a fresh `lastAliveAt` is a scanner finding nothing, not one that
 never ran — and the recipe's own `interval_seconds` is the scaffold's POST cadence, so a file saying 60 while the
 runtime reports 0 is not a contradiction either
-— never call a strategy dead without checking its ticks first: never a fault, never a reason to close and recreate (each new strategy wallet costs a real creation fee); the fix for "it isn't trading" is the gates or the budget, applied in place (below). A scanner interval under 60 s on a small book is fee churn — refuse it with the arithmetic (fills × fee against the budget), not a claim about timing. Decision tree: [`references/liveness-verification.md`](references/liveness-verification.md).
+— never call a strategy dead without checking its ticks first (the strategy's `events/events.jsonl` is not a tick log: an `ok` tick with no candidates writes nothing there, so a `tail` of it is only errors by construction — judge ticks by `health` + a fresh `lastAliveAt`): never a fault, never a reason to close and recreate (each new strategy wallet costs a real creation fee); the fix for "it isn't trading" is the gates or the budget, applied in place (below). A scanner interval under 60 s on a small book is fee churn — refuse it with the arithmetic (fills × fee against the budget), not a claim about timing. Decision tree: [`references/liveness-verification.md`](references/liveness-verification.md).
 `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/status.py` (`<id>` filters, `--fast` skips the per-runtime health call, `--json` for
 machine output). It is the single source of truth — live `strategy_list` ∪ `runtime list` (the same runtime-CLI
 read `senpi-portfolio` also quotes — neither surface independently confirms the other), never the
