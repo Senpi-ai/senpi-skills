@@ -19,8 +19,9 @@ OPEN strategy it classifies the runtime:
   runtime-stopped  — ACTIVE strategy + runtime exists but not running
   no-runtime       — autonomous PACKAGE strategy (skillName, no trader) with NO runtime → funded but not
                      running (likely an interrupted deploy); the only no-runtime case that's an anomaly
-  runtime-unknown  — the runtime registry can't be read from THIS host (no openclaw, or `runtime list`
-                     failed or timed out); NOT a diagnosis (re-run, or run status.py on the runtime host)
+  runtime-unknown  — the runtime registry can't be read from THIS host (no openclaw, or the
+                     `senpi.listRuntimes` read failed or timed out); NOT a diagnosis (re-run, or run
+                     status.py on the runtime host)
   copy             — copy-trading strategy (follows a traderAddress) — run by Senpi's copy engine, no runtime
   manual           — manual / app-managed strategy — you manage it in the app, no runtime
 Two more facts ride every deep row, because health alone misleads on both:
@@ -32,7 +33,7 @@ Two more facts ride every deep row, because health alone misleads on both:
 and separately flags orphan runtimes (a runtime with no open strategy). A strategy off the runtime is NOT
 broken — it's just not autonomous; status.py says how it's managed. Scanner health is fail-closed: an
 external scanner never proven by a tick reads `unknown`, not `healthy` — prove it on a READ-ONLY surface
-(`openclaw senpi scanner -r <rt>`, `openclaw senpi status|state -r <rt>`, `openclaw senpi deploy status`
+(`openclaw senpi scanner -r <rt>`, `openclaw senpi status|state -r <rt>`, `python3 deploy.py status`
 for the last deploy's verdict, `deploy.py verify <id>` for the per-instance verdict over the same
 surfaces). Everything this script prints is read-only. The RESUME — `deploy.py runtime <id>` — is the
 one money path near this surface: it runs the deploy verb and can install, start trading, and fund a
@@ -141,16 +142,16 @@ def build(mcp, only_pkg=None, deep=True):
     strategies = _read_or_refuse(
         _cli.list_strategies_or_none(mcp, statuses=_cli.LIVE_STATUSES, why=why), why)
     opens = [s for s in strategies if _cli.strategy_open(s)]
-    # No openclaw here, or a `runtime list` that failed or timed out: the registry is not visible,
-    # and an empty list must NOT read as "no runtimes" (that turns a healthy fleet into false
+    # No openclaw here, or a `senpi.listRuntimes` read that failed or timed out: the registry is not
+    # visible, and an empty list must NOT read as "no runtimes" (that turns a healthy fleet into false
     # 'interrupted deploy' alarms). Degrade to runtime-unknown instead.
     runtimes = _cli.list_runtimes_or_none() if _openclaw_available() else None
     cli_ok = runtimes is not None
     runtimes = runtimes or []
-    # ONE status --json for the whole fleet — only when runtimes actually exist (skip the flaky call otherwise)
+    # ONE `senpi.getHealthStatus` for the whole fleet — only when runtimes actually exist
     health_by_name = _cli.runtime_health_map() if (deep and runtimes) else {}
-    # ONE `runtime list --json` for the rendered descriptors — what each runtime is actually running.
-    descriptors = _cli.runtime_descriptors() if (deep and runtimes) else {}
+    # The rendered descriptors (what each runtime is actually running) ride the same listRuntimes rows.
+    descriptors = _cli.runtime_descriptors(runtimes) if (deep and runtimes) else {}
     matched_rt = set()  # runtime names already matched to a strategy
     rows = []
     for s in opens:
@@ -231,9 +232,9 @@ def main(argv):
         return 0
 
     if not cli_ok:
-        print("\nℹ couldn't read the runtime list on this host (no openclaw, or `runtime list` failed "
-              "or timed out) — runtime state is UNKNOWN, not stopped. Re-run, or run status.py on the "
-              "runtime host.")
+        print("\nℹ couldn't read the runtime list on this host (no openclaw, or `senpi.listRuntimes` "
+              "failed or timed out) — runtime state is UNKNOWN, not stopped. Re-run, or run status.py on "
+              "the runtime host.")
 
     if not rows and not orphans:
         print("No open strategies." + (f" (filter: {a.package})" if a.package else ""))
@@ -322,7 +323,7 @@ def main(argv):
             print(f"  - {_pkg_label(r)} {r['runtime'] or ''} → "
                   f"`openclaw senpi scanner -r {r['runtime']}` / "
                   f"`openclaw senpi status -r {r['runtime']} --json` to check (read-only); "
-                  f"`openclaw senpi deploy status` for the last deploy's verdict")
+                  f"`python3 deploy.py status` for the last deploy's verdict")
     if idle:
         print("\n⚠ Autonomous strategy with NO runtime (funded but not running — likely an interrupted deploy):")
         for r in idle:

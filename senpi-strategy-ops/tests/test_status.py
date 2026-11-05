@@ -164,6 +164,20 @@ class TestUnreadableRuntimeList(unittest.TestCase):
         self.assertFalse(cli_ok)
         self.assertEqual(rows[0]["health"], "runtime-unknown")
 
+    def test_a_timed_out_list_runtimes_gateway_call_is_unknown_not_no_runtime(self):
+        # The real reader, not a stub of it: only the `senpi.listRuntimes` gateway call is faked.
+        orig = (_cli.list_strategies_or_none, _cli.gateway_call, status._openclaw_available)
+        _cli.list_strategies_or_none = lambda *a, **k: [fixture_with()]
+        _cli.gateway_call = lambda *a, **k: {"kind": "timeout", "payload": None,
+                                             "message": "no answer within 25s"}
+        status._openclaw_available = lambda: True
+        try:
+            rows, _orphans, cli_ok = status.build(None, deep=False)
+        finally:
+            _cli.list_strategies_or_none, _cli.gateway_call, status._openclaw_available = orig
+        self.assertFalse(cli_ok)
+        self.assertEqual(rows[0]["health"], "runtime-unknown")
+
 
 # At the END of the file, not the middle: `unittest.main()` only runs the classes already defined
 # above it, so a mid-file call silently skipped every class declared after it.
