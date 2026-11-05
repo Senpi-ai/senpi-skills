@@ -518,6 +518,34 @@ class MainPackagePollReportsClosed(unittest.TestCase):
             self.assertNotIn("nothing to close", out)
             self.assertNotIn("closed —", out)
 
+    def test_review_4482329029_a_triggered_close_over_a_running_job_keeps_the_request_open(self):
+        # A lost START is still running (e.g. creating the next instance's wallet) while one wallet is
+        # already ACTIVE. The triggered close must not resolve the entry: the poll after it finds
+        # nothing live, and only the open entry makes it refuse instead of reporting `closed`.
+        _root, rid = self._seed_open_request()
+        self.rows = [self._ACTIVE_ROW]
+        self.job_status = self._running_job(None, pkg="omega")
+        out, code = self._run("omega")
+        self.assertEqual(code, 2)
+        self.assertEqual(self.closed, ["s1"])                  # the close itself was still triggered
+        self.assertIsNone(_journal.read("omega")["resolved"])
+        self.assertIn("NOT torn down", out)
+        self.assertIn(rid, out)
+        self.assertIn("deploy.py status", out)
+        # Poll 2: the close settled, the job still runs → refuse, do not report closed.
+        self.rows = [self._CLOSED_ROW]
+        out, code = self._run("omega")
+        self.assertEqual(code, 2)
+        self.assertNotIn("closed —", out)
+        self.assertIsNone(_journal.read("omega")["resolved"])
+        # Poll 3: the job finished → closed, and the entry closes.
+        self.job_status = _gw("ok", payload={"state": {"status": "done"},
+                                             "meta": {"deployId": "dpl-1", "packageId": "omega"}})
+        out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertIn("closed — 1 strategy, all CLOSED.", out)
+        self.assertEqual(_journal.read("omega")["resolved"], "closed-by-close.py")
+
     def test_an_unreadable_job_record_keeps_the_request_open(self):
         _root, _rid = self._seed_open_request()
         self.rows = []

@@ -174,13 +174,25 @@ def close_one(label, strat, runtimes, dry_run, log):
     return rec
 
 
-def _close_open_request(pkg, a):
+def _close_open_request(pkg, a, checked=False):
     """Close the package's open START request (deploy journal) once this command ends with nothing of
     the package live: a close triggered now, or every strategy already terminal. A close that leaves
-    something live, or that refused, keeps it open."""
+    something live, or that refused, keeps it open.
+
+    The entry also stays open while the job record says a deploy may be running (the rule of
+    `_unanswered_start_may_be_running`): a lost START can still be creating and funding wallets after
+    the close of the ones already live, and the open entry is what makes the next poll refuse instead
+    of reporting `closed`. Returns that `(entry, why)` when it kept the entry open, else None.
+    `checked=True` skips the read when the caller has just made it."""
     # `--instance` closes one instance; the package's other instances may still be live.
-    if pkg is not None and not a.dry_run and not a.instance:
-        _journal.resolve(pkg.id, None, "closed-by-close.py")
+    if pkg is None or a.dry_run or a.instance:
+        return None
+    if not checked:
+        pending = _unanswered_start_may_be_running(pkg)
+        if pending:
+            return pending
+    _journal.resolve(pkg.id, None, "closed-by-close.py")
+    return None
 
 
 def _unanswered_start_may_be_running(pkg):
@@ -333,7 +345,7 @@ def main(argv):
                 print(f"{hdr}: no strategies for this package on this account — nothing to close.")
             # Nothing of this package is live, so this command ends with the package torn down: an
             # open START request is accounted for here too, not only after a triggered close (P2-03).
-            _close_open_request(pkg, a)
+            _close_open_request(pkg, a, checked=True)
             sys.exit(0)
         print(f"{hdr}: no OPEN strategies to close.")
         sys.exit(0)
@@ -366,6 +378,17 @@ def main(argv):
                "closed" if statuses <= {"closed"} else "partial")
     out = {"strategy": strategy_label, "status": overall, "instances": results}
 
+    # A START for this package whose reply never came back left its request id open in the deploy
+    # journal, and the next `deploy.py create` would reuse it: the runtime then answers with the OLD
+    # job (`repeated`), now closed, and nothing new runs. Once the close is triggered, that START is
+    # accounted for, so close the entry and let the next deploy mint a new id. Not while its job may
+    # still be running, though: it can go on to create and fund a wallet the close did not see.
+    pending = _close_open_request(pkg, a) if overall in ("closing", "closed") else None
+    if pending:
+        entry, why_open = pending
+        out["openDeployRequest"] = {"requestId": entry["requestId"], "sentAt": entry.get("sentAt"),
+                                    "why": why_open}
+
     if a.json:
         print(json.dumps(out, indent=2))
     else:
@@ -382,13 +405,14 @@ def main(argv):
                 poll = "close.py --all"
             print(f"\nClose triggered (runtimes stopped). strategy_close is async — positions flatten "
                   f"on-chain. Poll until closed by re-running: {poll}  (or check strategy_list status).")
-
-    # A START for this package whose reply never came back left its request id open in the deploy
-    # journal, and the next `deploy.py create` would reuse it: the runtime then answers with the OLD
-    # job (`repeated`), now closed, and nothing new runs. Once the close is triggered, that START is
-    # accounted for, so close the entry and let the next deploy mint a new id.
-    if overall in ("closing", "closed"):
-        _close_open_request(pkg, a)
+        if pending:
+            print(f"\nNOT torn down yet: the deploy START {entry['requestId']} (sent at "
+                  f"{entry.get('sentAt', '?')}) never got an answer, and {why_open}. A deploy MAY BE "
+                  f"RUNNING and may still create and fund a wallet; close.py cannot stop a deploy job. "
+                  f"The request stays open.\n"
+                  f"  Next: python3 deploy.py status   — wait until it shows no job running (or that "
+                  f"job finished), then re-run: close.py {pkg.id}. Do not run `deploy.py create` "
+                  f"meanwhile.")
 
     # state is ephemeral: once a package is torn down, clear its deploy state so the next deploy is clean
     if pkg and not a.dry_run:
@@ -396,7 +420,7 @@ def main(argv):
             (pkg.dir / ".deploy-state.json").unlink()
         except OSError:
             pass
-    sys.exit(2 if overall in ("failed", "partial") else 0)
+    sys.exit(2 if overall in ("failed", "partial") or pending else 0)
 
 
 if __name__ == "__main__":
