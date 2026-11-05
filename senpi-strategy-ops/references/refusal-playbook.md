@@ -97,7 +97,7 @@ instance — which is also how each instance gets its own proof.
 
 ### `[E_DEPLOY_IN_PROGRESS]`
 
-Another deploy is running. Watch it (`deploy status`). There is nothing
+Another deploy is running. Watch it (`python3 deploy.py status`) and do not re-run `create`. There is nothing
 to cancel; a wedged job times out and frees the slot on its own.
 
 ### `[E_ROLLBACK_INCOMPLETE]`
@@ -122,7 +122,7 @@ else** — they are not interchangeable, and one of them permits no action at al
 - **The install is STILL RUNNING** (the report says so in those words, and that the wallet is fenced
   until it settles). **Change nothing and close nothing.** The install can still write its registry
   row and start a runtime seconds from now; a close here lands on a strategy the install is binding
-  and leaves a live runtime trading a closed strategy. Re-read shortly — `openclaw senpi deploy
+  and leaves a live runtime trading a closed strategy. Re-read shortly — `python3 deploy.py
   status`, then `openclaw senpi runtime list` — and act on the settled state. A re-run that reaches
   this wallet is refused (`[E_WALLET_INSTALL_IN_FLIGHT]`) rather than installing over it, so it
   cannot settle this for you. **No close appears in this arm of the report, and there is none to
@@ -166,7 +166,7 @@ to take yourself.
 
 **Delete nothing.** `openclaw senpi runtime delete` removes the row the in-flight install is about to
 bind, and `close.py` would tear down a wallet that is seconds from being watched. Read instead —
-`openclaw senpi deploy status`, then `openclaw senpi runtime list` — and once a row names the wallet,
+`python3 deploy.py status`, then `openclaw senpi runtime list` — and once a row names the wallet,
 re-run the same deploy command. A re-run adopts the wallet; it does not fund a second one.
 
 ### A live `<id>` strategy that is PAUSED (or mid-teardown)
@@ -222,9 +222,9 @@ runtime self-updates in place, so this hits packages nobody has touched). **`dep
 create|runtime` repairs that one for you**: it re-runs `senpi validate` once, re-runs the deploy,
 and does this for this reason only. If that re-validation does not PASS it prints validate's own
 findings and does **not** re-run the deploy — fix those, then re-run.
-That repair is the one **automatic** path that can outrun the ~180s tool timeout (re-validate +
-a second poll); an explicit `--max-wait` above 150 is the other, and you asked for that one.
-**If the call is killed mid-repair, nothing was created** — read `openclaw senpi deploy status`
+That repair is the one **automatic** path that can run past the ~150s poll (re-validate + a
+second poll); an explicit `--max-wait` above 150 is the other, and you asked for that one.
+**If the call is killed mid-repair, nothing was created** — read `python3 deploy.py status`
 and do NOT re-run `create`; the repair note is printed to stderr before validation starts, so a
 killed call still says what it was doing. Deploy needs **every**
 instance proven and stops at the first that is not, so on a multi-instance package expect to be
@@ -314,8 +314,9 @@ package the sleeves created before it may be live: read `status.py <id>` and say
 code never does. A warn rides `failed` and `pending` reports too, so `overall` — not the presence of
 a `W_` — is what says whether the deploy went through. The four budget codes below are the `W_` ones. They ride a
 `live` report as `minBudget` / `minWalletCount` / `belowMin` / `minBudgetNote` / `minBudgetUnresolved`
-/ `partialFundNote` (printed as `calculated minimum:` and `warn:` lines by `deploy status`), and they
-persist on the snapshot — a later `deploy status` re-renders the same warn. The first two judge the
+/ `partialFundNote` — fields of the job snapshot that `deploy.py status` / `create` print as-is (the
+`[W_…]` code opens the note's text) — and they persist on the snapshot: every later `deploy.py status`
+shows the same warn. The first two judge the
 funding **plan**; the last two judge what the backend actually **landed** (`[W_BUDGET_PARTIAL_FUND]`
 when the figure read short, `[W_BUDGET_FUNDED_UNREADABLE]` when no figure could be read at all — the
 whole point of the second is that it is never conflated with the first). A report can carry both
@@ -359,7 +360,7 @@ kinds.
   the requested one**; saying "$500 deployed" over a $60 book is the failure this code exists to stop.
   **Do not close the strategy over the shortfall** (that is a rule about this code; it never overrides
   a close another line on the report instructs — see `[E_ROLLBACK_INCOMPLETE]`). Those figures
-  are **as at deploy time** and the note re-renders on every later `deploy status`, so **re-read the
+  are **as at deploy time** and the note stays on the snapshot every later `deploy.py status` prints, so **re-read the
   current funding first**: `status.py <id>`, then add whatever difference it still shows via the
   `senpi-deposit-withdraw-transfer` skill (deploy never adds funds to an existing wallet, so
   re-running at the same `--budget` only adopts it). Acting on the stale figure tops up twice.
