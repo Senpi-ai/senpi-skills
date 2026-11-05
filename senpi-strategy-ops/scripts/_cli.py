@@ -498,7 +498,12 @@ def _deep_first(obj, keys):
     return None
 
 
-def runtime_status(name, timeout=15):
+# The few reads still on an `openclaw senpi …` verb (not `gateway call`) share one budget: the
+# openclaw CLI alone can take over a minute to start on a loaded box.
+OPENCLAW_READ_TIMEOUT_S = 120
+
+
+def runtime_status(name, timeout=OPENCLAW_READ_TIMEOUT_S):
     """`openclaw senpi status -r <name> --json` — lightweight per-runtime health (or None).
 
     Single fast read, no in-call retry. `_check_live` prefers the batched `runtime_health_map` (which
@@ -509,7 +514,7 @@ def runtime_status(name, timeout=15):
     return cli_json(["openclaw", "senpi", "status", "-r", name, "--json"], timeout)
 
 
-def runtime_state(name, timeout=15):
+def runtime_state(name, timeout=OPENCLAW_READ_TIMEOUT_S):
     """`openclaw senpi state -r <name> --json` → parsed state, or None.
 
     Single fast read — do NOT retry in-call. `senpi.getSystemState` transiently THROWS for minutes
@@ -567,7 +572,9 @@ def runtime_health_map():
     One call regardless of fleet size. The gateway is flaky-empty, so try the single call twice."""
     for _ in range(2):
         obj = health_or_none()
-        sts = find_list(obj, "statuses") if obj else []
+        if obj is None:  # failed or timed out: only the flaky-empty answer is worth a retry
+            break
+        sts = find_list(obj, "statuses")
         if sts:
             return {runtime_name(e): e for e in sts}
     return {}

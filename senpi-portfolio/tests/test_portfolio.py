@@ -1882,6 +1882,22 @@ def test_a_failed_fleet_read_falls_back_to_the_per_id_read():
     assert any("runtimeId" in c[-1] and "kodiak-main" in c[-1] for c in calls)
 
 
+def test_a_timed_out_fleet_read_is_not_retried_and_skips_the_per_id_reads():
+    """A fleet read that ran out of time — our wall clock, or the gateway's own RPC timeout on 5.x
+    (stderr) or 10.x (stdout envelope) — means every per-id read would wait the same: none is run."""
+    env_10x = json.dumps({"ok": False, "error": {"type": "gateway_transport_error", "kind": "timeout",
+                                                 "message": "gateway timeout after 15000ms"}})
+    for reply in ((-1, "", "timed out after 30s: openclaw gateway call senpi.getHealthStatus"),
+                  (1, "", "Gateway call failed: GatewayTransportError: gateway timeout after 15000ms"),
+                  (1, env_10x, "")):
+        res, calls = _run_with_cli(lambda a, reply=reply: reply if a == portfolio.FLEET_STATUS_CMD
+                                   else (0, json.dumps(status_doc({"runtimeName": "kodiak-main",
+                                                                   "health": "healthy"})), ""))
+        assert sum(1 for c in calls if c == portfolio.FLEET_STATUS_CMD) == 1, (reply, calls)
+        assert [c for c in calls if "runtimeId" in c[-1]] == [], (reply, calls)
+        assert by_wallet(res, KODIAK_WALLET)["runtime_health"] != "live", reply
+
+
 def test_a_runtime_the_fleet_document_does_not_list_is_unknown_never_live():
     fleet = json.dumps(status_doc({"runtimeName": "someone-else", "health": "healthy"}))
     res, _calls = _run_with_cli(lambda a: (0, fleet, ""))

@@ -452,9 +452,26 @@ class HealthAndDescriptorsReadTheGateway(unittest.TestCase):
         self.assertEqual(list(hmap), ["spider-main"])
         self.assertEqual(calls, [("senpi.getHealthStatus", {})] * 2)
 
-    def test_health_map_is_empty_when_unreadable(self):
-        with mock.patch.object(_cli, "gateway_call", lambda *a, **k: _gw("timeout")):
-            self.assertEqual(_cli.runtime_health_map(), {})
+    def test_health_map_is_empty_when_unreadable_and_a_failed_read_is_not_retried(self):
+        # Only the flaky-empty ANSWER earns the retry; a failed or timed-out read would just wait again.
+        for kind in ("timeout", "transport", "error"):
+            calls = []
+
+            def fake(method, params=None, **k):
+                calls.append(method)
+                return _gw(kind)
+            with mock.patch.object(_cli, "gateway_call", fake):
+                self.assertEqual(_cli.runtime_health_map(), {}, kind)
+            self.assertEqual(calls, ["senpi.getHealthStatus"], kind)
+
+    def test_the_remaining_cli_reads_share_the_cli_read_timeout(self):
+        # `status -r` / `state -r` still go through an `openclaw senpi` verb: they get the 120 s budget.
+        seen = []
+        with mock.patch.object(_cli, "cli_json", lambda args, timeout=60: seen.append(timeout)):
+            _cli.runtime_status("spider-main")
+            _cli.runtime_state("spider-main")
+        self.assertEqual(seen, [_cli.OPENCLAW_READ_TIMEOUT_S] * 2)
+        self.assertEqual(_cli.OPENCLAW_READ_TIMEOUT_S, 120)
 
     def test_descriptors_come_from_the_list_runtimes_rows(self):
         desc = {"name": "spider-main", "recipeHash": "abc"}

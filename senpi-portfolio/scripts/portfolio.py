@@ -474,12 +474,30 @@ def _fleet_statuses(meta):
             head = (err or out or "")[:200]       # 10.x writes a gateway error to stdout, 5.x to stderr
             if head.startswith(SPAWN_FAILED_PREFIX) or "unknown method" in head.lower():
                 return None                        # a dead host; the per-id path says so once and stops
+            timed_out = _read_timed_out(out, err)
+            if timed_out:                          # the per-id reads would wait the same: don't run N more
+                meta["_telemetry_dead"] = True
+                _note_telemetry_unavailable(meta, f"runtime status read {timed_out} — liveness unverified")
+                return None
             continue
         data = _extract_json(out)
         recs = _status_entries(data) if isinstance(data, dict) else []
         if recs:
             meta["_fleet_statuses"] = recs
             return recs
+    return None
+
+
+def _read_timed_out(out, err):
+    """How a failed read ran out of time, or None: our wall clock fired (`timed out after Ns`), or the
+    gateway's own RPC timeout (5.x `GatewayTransportError: … timeout …` on stderr, 10.x a
+    `gateway_transport_error` envelope on stdout)."""
+    err = err or ""
+    if err.startswith("timed out"):
+        return err.split(":")[0]
+    text = f"{err}\n{out or ''}".lower()
+    if ("gatewaytransporterror" in text or "gateway_transport_error" in text) and "timeout" in text:
+        return "timed out (gateway RPC timeout)"
     return None
 
 
@@ -514,6 +532,8 @@ def _fetch_runtime_status(runtime_id, meta):
             _note_telemetry_unavailable(meta, f"status fixture unreadable ({e})")
             return None
     fleet = _fleet_statuses(meta)
+    if meta.get("_telemetry_dead"):               # the fleet read timed out: this per-id read would too
+        return None
     if fleet:
         # The per-runtime slice of the fleet document, in the shape the `-r <id>` call prints, so
         # `_liveness_from_status` / `_risk_pause_from_status` read both paths identically. An id the
