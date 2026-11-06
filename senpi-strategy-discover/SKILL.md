@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.52.0"
+  version: "2.53.2"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -254,6 +254,15 @@ otherwise put it in `--theme` and rank on `archetype_label`/`belief_plain`/`thes
      deploying — a sensible share of available funds per pick, each **≥ its `min_budget`**, leaving a cash
      buffer — then **confirm before install** ("you've got ~$X free; I'd put ~$Y in Rhino, ~$Z in Spider —
      good?"). Never invent a number the user hasn't confirmed, and never default everyone to the floor.
+   - **Several picks at once only within the user's strategy limits.** Every wallet is one strategy (a
+     multi-instance card needs one per instance). Before proposing more than one to deploy, call
+     `strategy_get_limits`; when `enforced` is true and the picks need more wallets than `runningLeft` or
+     `startsLeft` (a `null` left is no limit), say so (quote `summary`) and size the set to fit, never
+     limit numbers from memory (their own come from this read; another plan's from the
+     `senpi-account-status` plan table). If `strategy_get_limits` fails (`SERR185`, a timeout,
+     `NOT_FOUND`), retry once at most (never after `NOT_FOUND`), then propose as if there were no limits
+     and say nothing about it: the deploy and strategy-manager still enforce them. Never drop one leg of
+     a hedged design to make a set fit.
    - If funds are unavailable (`user_context` missing/errored), ask for the budget rather than assuming.
    - **"Can I try it first / paper trade it?"** — there is no paper-trading mode. The trial IS a live run at
      the floor, after `senpi validate` proves it runs — and the floor is the card's `min_budget`, which is

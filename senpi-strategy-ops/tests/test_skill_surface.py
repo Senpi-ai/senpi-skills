@@ -100,7 +100,10 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # had 37 agent outputs quoting it in two days, several near-verbatim from that script — a funded strategy
 # that installs, scans and never opens. The pre-Decision-1 heads-up keeps the floor at main's line count (no
 # design exists yet); the two lines are Handoff step 1 quoting the design's minimum, in the tail `read` keeps.
-BODY_BUDGET = {"senpi-strategy-ops": 365, "senpi-strategy-author": 432}
+# ops 365 -> 368 (2026-10-29): +3 lines for Step 0.6, the strategy-limits read before a deploy. A package of N
+# wallets is N creates checked one by one, so without it a user one slot short gets a half-deployed package;
+# the ways forward live in the playbook's STRATEGY_LIMIT_PREFLIGHT section, not here.
+BODY_BUDGET = {"senpi-strategy-ops": 368, "senpi-strategy-author": 432}
 
 
 def _skill_body(path):

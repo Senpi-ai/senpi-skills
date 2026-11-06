@@ -257,9 +257,10 @@ debited**; the budget never left the funding wallet. No retry refills the pool: 
 ### `SERR183` — the plan's limit on running strategies
 
 Reaches you as a **`failed` report (exit 3)** on `create` with the backend's text quoted
-(`SERR183: Your Pro plan allows 3 running strategies and you have 3. Close one or upgrade your plan
+(`SERR183: Your Example plan allows 4 running strategies and you have 4. Close one or upgrade your plan
 to start another.`), or as the raw MCP error if a create was called directly. This is the user's plan,
-not a defect: the limit counts every strategy that is not closed, closing or failed, paused ones included.
+not a defect: the limit counts every strategy except CLOSED, FAILED, CLOSING_POSITIONS and MANUAL_REVIEW
+ones, so a PAUSED one counts.
 **Nothing was created** by the refused create and nothing was debited for it. The check is per wallet,
 so on a multi-instance package the sleeves created before it may be live: read `status.py <id>` and
 say which ones are.
@@ -284,8 +285,11 @@ say which ones are.
 Reaches you as a **`failed` report (exit 3)** on `create` with the backend's text quoted, or as the
 raw MCP error if a create was called directly. The text takes one of two forms:
 
-- for a user on a plan or trial, per billing cycle: `SERR184: Your Pro plan allows 5 new strategies
+- for a user on a plan, per billing cycle: `SERR184: Your Pro plan allows 5 new strategies
   per billing cycle. Your count resets at 2026-11-14 00:00 UTC, or upgrade your plan.`
+- for a user on the free trial: the same sentence, but the allowance covers the 14-day trial and the
+  time it names is when the trial ends, not a reset. Say "free trial", never "Pro trial", a plan name beside it,
+  "per billing cycle" or 30 days.
 - for a user without one, the last 30 days: `SERR184: Your free account allows 1 new strategies
   per 30 days. Your next one frees up at 2026-11-02 14:00 UTC, or upgrade your plan.`
 
@@ -297,7 +301,8 @@ package the sleeves created before it may be live: read `status.py <id>` and say
 - **Tell the user in one or two sentences.** Quote the backend's sentence (it names the plan, the
   limit and the time the backend names, in UTC: when the count resets or the next start frees up),
   then the two ways forward: wait until that time, or upgrade their plan. When the sentence names no
-  time (a limit of 0), upgrading is the only way forward; never estimate a time.
+  time (a limit of 0), upgrading is the only way forward; never estimate a time. On a free trial,
+  upgrading is the only way forward: waiting until the stated time means the trial ends.
 - **Closing a strategy does not free a start**: a closed strategy still counts until the count resets
   or its 30 days pass. Do not offer closing as a way forward.
 - **Try again only after that time has passed or the user has upgraded** and asks: then re-run the
@@ -307,6 +312,34 @@ package the sleeves created before it may be live: read `status.py <id>` and say
   smaller creates (deploy fewer sleeves, or call `strategy_create` / `strategy_create_custom_strategy`
   directly; every create is counted, and a raw create is not a runtime strategy); or tell the user
   Senpi is down.
+
+### `[STRATEGY_LIMIT_PREFLIGHT]` — the whole package needs more strategy slots than are left
+
+Reaches you as a **`refused` report (exit 2)** on `create`. The deploy read `strategy_get_limits`
+before the first create and found that the wallets it would create (every wallet is one strategy; a
+resume counts only the ones still missing) exceed `runningLeft` or `startsLeft`, or that the plan's own
+cap is below the package size. **Nothing was created** by this run. On a resume, sleeves from an
+earlier run can already be live and funded: read `status.py <id>` and tell the user which are. It is the
+same limit as `SERR183` / `SERR184`, caught for the whole package instead of halfway through it. Step
+0.6 of the skill catches it earlier, before the walkthrough.
+
+- **Tell the user in one or two sentences.** Quote its lines: how many the package needs, what is left of
+  each short limit, and the `summary` sentence. Then the way forward that matches the refusal's wording:
+  1. **The plan can hold the package, the running limit is short:** the user closes strategies
+     themselves (their pick, `close.py <id>`), and never a sleeve of this package, which would only
+     become a wallet to create again.
+  2. **The starts limit is short:** wait until enough starts free up (a rolling window frees one at a
+     time, so a package of several wallets can need several), or upgrade; closing never gives a start
+     back. On a free trial that time is when the trial ends, so upgrading is the only way forward
+     (no start comes back if the trial lapses).
+  3. **The plan can't hold the package** (its cap is below the package size): deploy a smaller package
+     or upgrade. Closing doesn't help, and there is no re-run until one of those is done.
+- **Try again only after the user has done one and asks**: then re-run the same `deploy.py create`
+  command once.
+- **Never**: re-run on a timer or in a loop; close a strategy on the user's behalf, or a sleeve of this
+  package; cut instances of this package, or call `strategy_create` /
+  `strategy_create_custom_strategy` directly, to squeeze under the limit (a different, smaller package
+  the user picks is fine); or tell the user Senpi is down.
 
 ## Budget warnings (`W_`)
 

@@ -50,6 +50,17 @@ def _free_credits(body):
     return plans[start:]
 
 
+class PlanFieldOnlyWhenLimitsComeFromAPlan(unittest.TestCase):
+    def test_the_limits_section_says_plan_is_present_only_for_a_plan_source(self):
+        section = _flat(_section(_split(SKILL)[1], "## Strategy limits"))
+        for needle in (
+            "`limits.plan` is present only when the limits come from a plan (`source: \"plan\"`); "
+            "never infer the user's subscription from `limits`.",
+            "A `0%` fee means a paid plan; name no plan you didn't read.",
+        ):
+            self.assertIn(needle, section, needle)
+
+
 class CreditsAreTheUsageMeter(unittest.TestCase):
     def test_the_section_and_its_rules_are_in_the_body(self):
         body = _flat(_split(SKILL)[1])
@@ -136,9 +147,10 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
         # numbers (credits from 2026-10-26: Pro $55, Advanced $115, Quant $240).
         section = _section(_split(SKILL)[1], PLANS)
         for row in (
-            "| Pro (default) | $50 | $55 (+10%) | 1.5 |",
-            "| Advanced | $100 | $115 (+15%) | 2 |",
-            "| Quant | $200 | $240 (+20%) | 3 |",
+            "| Plan | Price | Credits | Points per $1 volume | Running at once | New strategies per cycle |",
+            "| Pro (default) | $50 | $55 (+10%) | 1.5 | 10 | 40 |",
+            "| Advanced | $100 | $115 (+15%) | 2 | 25 | 100 |",
+            "| Quant | $200 | $240 (+20%) | 3 | no limit | no limit |",
         ):
             self.assertIn(row, section, row)
 
@@ -154,8 +166,9 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
         )
         self.assertNotIn("$25 |", section)
         self.assertIn(
-            "Starter ($25 a month, $25 credits, 1 point per $1 volume) is closed to new subscribers; "
-            "people already on it keep it and can upgrade, but cannot return to it after leaving.",
+            "Starter ($25 a month, $25 credits, 1 point per $1 volume, 3 running at once, 8 new per cycle) "
+            "is closed to new subscribers; people already on it keep it and can upgrade, but cannot "
+            "return to it after leaving.",
             _flat(section),
         )
 
@@ -183,7 +196,7 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
         # plan prices are fixed and quotable; the trial grant has moved more than once, so the
         # catalog may carry every plan number and still no trial number
         section = _flat(_section(_split(SKILL)[1], PLANS))
-        self.assertIn("Never quote a trial figure", section)
+        self.assertIn("Never quote a trial credit figure", section)
         self.assertIn("open positions are NOT auto-closed", section)
         self.assertIn("expires **14 days", section)   # the one trial number that IS published
 
@@ -351,6 +364,154 @@ class TiersCarryNoBenefit(unittest.TestCase):
         desc = _flat(_split(SKILL)[0])
         for needle in ("what's my rank/tier?", "where did my tier go?"):
             self.assertIn(needle, desc, needle)
+
+
+class StrategyLimitsComeFromTheEngine(unittest.TestCase):
+    """2026-10-29: the engine reads MCP `strategy_get_limits`, so the skill answers "what are my limits"
+    with the user's own plan, usage and reset time. Plan limits change and some accounts have none
+    (grandfathered, override), so a number from memory is wrong for someone; the section says where every
+    figure comes from and what a null means."""
+
+    LIMITS = "## Strategy limits"
+
+    def _limits(self):
+        return _flat(_section(_split(SKILL)[1], self.LIMITS))
+
+    def test_the_section_reads_the_engines_limits(self):
+        section = self._limits()
+        for needle in (
+            "`limits` is MCP `strategy_get_limits`",
+            "When a limit is enforced, lead with `limits.summary`",
+            "`running` of `maxRunning`",
+            "`starts` of `maxStarts` new this cycle",
+            "`startsResetAt`",
+            "Their own usage and limits come from this live read, never from memory",
+            "Another plan's limits are a catalog question: quote the \"Plans & free credits\" table as written",
+        ):
+            self.assertIn(needle, section, needle)
+
+    def test_unlimited_accounts_say_no_limits(self):
+        section = self._limits()
+        for needle in (
+            "A `null` limit is no limit, never 0",
+            '`source: "grandfathered"`',
+            "their account predates strategy limits, so none apply",
+            'Both limits `null` (some `source: "override"` accounts): no limits apply to their account',
+            'the card says "no strategy limits apply" at most',
+            "`enforced: false`",
+            "not enforced right now",
+            "Leave limits off the card and do not raise them; when asked, say limits are not enforced right now",
+        ):
+            self.assertIn(needle, section, needle)
+
+    def test_the_standing_card_shows_limits_only_when_one_is_enforced(self):
+        card = _flat(_section(_split(SKILL)[1], "## Output contract"))
+        for needle in (
+            "**Strategy limits** — only when a limit is enforced: `limits.summary`, usage and the reset time",
+            'No limits apply (grandfathered, or both limits `null`): one line at most, "no strategy limits apply"',
+            "`enforced: false` or `limits: {}`: leave it off",
+            "Full detail only when asked",
+        ):
+            self.assertIn(needle, card, needle)
+
+    def test_the_counting_rules_are_stated(self):
+        section = self._limits()
+        for needle in (
+            "every wallet is one strategy",
+            "a PAUSED strategy counts as running",
+            "closing frees a running slot, never a start",
+            "only a strategy that ends FAILED uses no start",
+            "the browser extension's own wallet never counts",
+        ):
+            self.assertIn(needle, section, needle)
+
+    def test_an_unread_limit_is_said_never_guessed(self):
+        section = self._limits()
+        for needle in (
+            "`limits: {}` with a `strategy_get_limits failed` warning",
+            "Leave limits off the card and say nothing about it unless the user asked about their limits",
+            "If they did, run the engine once more at most (not when the warning says `NOT_FOUND`)",
+            "say their limits couldn't be read right now",
+            "Deploys never wait on this read: the runtime and strategy-manager still enforce the limits",
+        ):
+            self.assertIn(needle, section, needle)
+
+    def test_no_limit_figure_is_written_down(self):
+        self.assertIsNone(re.search(r"\b\d+ (running|new) strateg", self._limits()))
+
+    def test_the_plan_is_no_longer_called_invisible(self):
+        plans = _flat(_section(_split(SKILL)[1], PLANS))
+        self.assertNotIn("You cannot see the user's plan, trial or renewal dates", plans)
+        for needle in (
+            "`limits.plan` is present only when the limits come from a plan",
+            'its absence says nothing: never conclude "no plan" from `limits`',
+            '`source: "trial"` means a trial; `limits: {}` means the read failed',
+            "You cannot see trial or renewal dates",
+        ):
+            self.assertIn(needle, plans, needle)
+
+    def test_the_router_finds_the_limits_questions(self):
+        front = _flat(_split(SKILL)[0])
+        self.assertIn('"what are my strategy limits?"', front)
+        self.assertIn('"when can I start a new strategy?"', front)
+        self.assertIn('"what are the strategy limits on the paid plans?"', front)
+
+
+class PlanLimitsAreCatalogFacts(unittest.TestCase):
+    """2026-11-04: asked "what are the strategy limits on the paid plans", the agent refused because the
+    plan table had no limit columns, then called a trial a "Pro trial" and its allowance "per 30-day
+    billing cycle" with the reset 14 days out. The table now carries the limits, a trial is a free
+    trial, and a trial's window is the trial."""
+
+    def _plans(self):
+        return _flat(_section(_split(SKILL)[1], PLANS))
+
+    def _limits(self):
+        return _flat(_section(_split(SKILL)[1], "## Strategy limits"))
+
+    def test_the_free_trial_line_and_the_prelimit_accounts_sentence(self):
+        plans = self._plans()
+        for needle in (
+            "Free trial: 1 running at once, 3 new strategies during the 14-day trial.",
+            'Accounts that predate strategy limits (`source: "grandfathered"`) have none on any plan, '
+            "and the user's own `limits` read always wins for them.",
+        ):
+            self.assertIn(needle, plans, needle)
+
+    def test_other_plans_limits_are_answered_from_the_table_not_refused(self):
+        limits = self._limits()
+        for needle in (
+            '**"What are the limits on Pro / the paid plans?"** is a catalog question: answer from that '
+            "table, no engine run.",
+            "Their own limits or usage",
+            "never a number of your own",
+        ):
+            self.assertIn(needle, limits, needle)
+        catalog = _flat(_section(_split(SKILL)[1]))
+        self.assertIn("what are the strategy limits on the paid plans\" are **catalog** questions", catalog)
+
+    def test_a_trial_is_a_free_trial_never_a_plan_trial(self):
+        limits = self._limits()
+        for needle in (
+            'A free trial** is a `source: "trial"` read. Call it the **free trial**, never "Pro trial" or '
+            '"<plan> trial", and never pair it with a plan name ("Free trial — Pro plan", "trial of Pro"). '
+            'When quoting `summary`, say "free trial".',
+        ):
+            self.assertIn(needle, limits, needle)
+        self.assertIn('Always "free trial", never "Pro trial" or a plan beside it.', self._plans())
+
+    def test_a_trials_allowance_covers_the_trial_not_a_cycle(self):
+        self.assertIn(
+            "Its new-strategy allowance covers the 14-day trial, never a \"per billing cycle\" or 30-day "
+            "count, and `startsResetAt` is when the trial ends, not a reset.",
+            self._limits(),
+        )
+
+    def test_no_skill_text_calls_the_trial_by_a_plan_name(self):
+        for path in REPO.glob("*/SKILL.md"):
+            text = _flat(path.read_text(encoding="utf-8"))
+            for hit in re.findall(r"[^.]*\b(?:Pro|Advanced|Quant|Starter) trial\b[^.]*", text):
+                self.assertRegex(hit, r"never|Never", f"{path.parent.name}: {hit.strip()}")
 
 
 class TheSkillDocumentsTheEnginesOutput(unittest.TestCase):

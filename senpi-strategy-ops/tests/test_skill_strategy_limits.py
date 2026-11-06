@@ -83,11 +83,11 @@ class StrategyLimitIsThePlanNotARetry(unittest.TestCase):
     def test_serr184_says_wait_and_that_closing_frees_nothing(self):
         section = _playbook_section("SERR184")
         for needle in (
-            # Both strategy-manager texts: per billing cycle for a plan or trial, the last 30
-            # days without one.
+            # Both strategy-manager texts: per billing cycle for a plan (the free trial's window is the
+            # trial), the last 30 days without one.
             "new strategies per billing cycle. Your count resets at",
             "new strategies per 30 days. Your next one frees up at",
-            "on a plan or trial",
+            "for a user on a plan, per billing cycle",
             "without one",
             "the time the backend names",
             "Closing a strategy does not free a start",
@@ -99,6 +99,18 @@ class StrategyLimitIsThePlanNotARetry(unittest.TestCase):
         self.assertIn("a closed strategy still counts until the count resets or its 30 days pass", section)
         # Closing is the SERR183 way forward, not this one.
         self.assertNotIn("`close.py <id>`", section)
+
+    def test_serr184_on_a_free_trial_is_the_trial_window_and_upgrade_only(self):
+        section = _playbook_section("SERR184")
+        for needle in (
+            "for a user on the free trial: the same sentence, but the allowance covers the 14-day trial "
+            "and the time it names is when the trial ends, not a reset",
+            'Say "free trial", never "Pro trial", a plan name beside it, "per billing cycle" or 30 days',
+            "On a free trial, upgrading is the only way forward: waiting until the stated time means the trial ends",
+        ):
+            self.assertIn(needle, section, needle)
+        text = " ".join(PLAYBOOK.read_text().split())
+        self.assertIn("On a free trial that time is when the trial ends, so upgrading is the only way forward", text)
 
     def test_a_zero_limit_leaves_upgrade_as_the_only_way_forward(self):
         # strategy-manager words a limit of 0 as "allows 0 running strategies and you have 0. Close one
@@ -120,7 +132,10 @@ class StrategyLimitIsThePlanNotARetry(unittest.TestCase):
         self.assertIn("| `SERR183` (backend) |", text)
         row = next(l for l in text.splitlines() if l.startswith("| `SERR184` (backend) |"))
         for needle in ("current billing cycle", "the last 30 days without a plan", "when the count resets",
-                       "when the next start frees up", "closing a strategy does not free a start"):
+                       "when the next start frees up", "closing a strategy does not free a start",
+                       "on a free trial, the 14-day trial", "when the trial ends (on a free trial)",
+                       "on a free trial upgrading is the only way forward",
+                       "waiting until the stated time means the trial ends"):
             self.assertIn(needle, row, needle)
 
 
