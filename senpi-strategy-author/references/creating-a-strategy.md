@@ -186,6 +186,22 @@ def scan(inputs, ctx):
             import sys; print(f"[scan] state append failed: {e!r}", file=sys.stderr)
     return out
 ```
+The dynamic universe in (1). A row's live numbers sit under `row["context"]`, as strings, and open interest is in coins; there is no `row["volume"]` or `row["openInterest"]`, and reading one returns the default on every row:
+```python
+def _dynamic_from_board(ctx, inputs):
+    resp = ctx.senpi_mcp.call_tool("market_list_instruments", {"fields": ["context"], "include_delisted": False})
+    rows = resp.get("data", {}).get("instruments", []) if isinstance(resp, dict) else []
+    if not rows:
+        import sys; print(f"[scan] empty instrument board: {str(resp)[:200]!r}", file=sys.stderr)
+    ranked = []
+    for row in rows:
+        c = row.get("context") or {}
+        vol = scoring._f(c.get("dayNtlVlm"))                                       # 24h volume, USD
+        oi_usd = scoring._f(c.get("openInterest")) * scoring._f(c.get("markPx"))   # coins x price
+        if vol >= inputs.get("minVolumeUsd", 10e6) and oi_usd >= inputs.get("minOiUsd", 5e6):
+            ranked.append((vol, row["name"]))
+    return [name for _, name in sorted(ranked, reverse=True)[: inputs.get("maxAssets", 20)]]
+```
 - **`ctx` is frozen:** `ctx.senpi_mcp.call_tool(name, args)` (read-only), `ctx.state` (`.last()/.recent(n)/.append()/len()`), `ctx.wallet`, `ctx.scanner_name`, `ctx.interval_seconds`. No logging handle — `print(..., file=sys.stderr)`.
 - **Signal dict keys:** `asset`✅, `direction`✅ (LONG/SHORT), `marginPct` (intent), `leverage` (optional), `data{}` (validated against `signal_data_schema`), optional `valid_for_seconds` / `signal_id`. The scaffold owns `produced_at`/`valid_until`/dedup — don't set them.
 - **Anchor every `call_tool` on the published MCP I/O reference** (`read_senpi_guide`). A guessed tool name, interval string, or output field = a silent dead scanner.
