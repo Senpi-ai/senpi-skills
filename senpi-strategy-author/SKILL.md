@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.14.14"
+  version: "3.14.15"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -313,10 +313,10 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
    - **FAIL** (exit 1) — every finding carries `what` / `why` / `fix`, computed against your actual
      package. Apply the fix, re-run. Don't go silent while you debug — narrate the fix and re-run.
 
-   **Quote the three stage lines back verbatim** — `✓ static`, `✓ import`, `✓ live` — plus the
-   verdict. If `live` is not in what you are about to paste, you did not run the gate and you have
-   nothing to report. This is the one claim in the whole flow that must carry its own evidence,
-   because nothing downstream re-checks it.
+   **Quote the stage lines (`✓ static`, `✓ import`, `✓ live`), every `⚠` line and the verdict
+   verbatim and unfiltered** (no `| grep`); if `live` is missing, you did not run the gate. **A PASS
+   with `⚠ W_VALIDATE_NO_SIGNALS_EMITTED` on a new scanner is not done:** call each tool it reads once
+   and check every key path the code reads is in that response; a missing key reads 0 on every row.
 
    **Fix → re-run is a loop, and it has a stop.** Re-running is not optional after an edit: the
    proof a PASS writes is tied to the exact bytes it validated, so any change invalidates it.
