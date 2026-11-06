@@ -191,6 +191,8 @@ The dynamic universe in (1). A row's live numbers sit under `row["context"]`, as
 def _dynamic_from_board(ctx, inputs):
     resp = ctx.senpi_mcp.call_tool("market_list_instruments", {"fields": ["context"], "include_delisted": False})
     rows = resp.get("data", {}).get("instruments", []) if isinstance(resp, dict) else []
+    if not rows:
+        import sys; print(f"[scan] empty instrument board: {str(resp)[:200]!r}", file=sys.stderr)
     ranked = []
     for row in rows:
         c = row.get("context") or {}
