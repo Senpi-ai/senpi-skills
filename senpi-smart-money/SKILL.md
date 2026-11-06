@@ -2,15 +2,17 @@
 name: senpi-smart-money
 description: >-
   Answer "where is smart money moving?" — show where the most-profitable Hyperliquid wallets are
-  positioned, where they diverge from the crowd, and the near-term flow. Use for "where's smart
-  money", "what are the whales doing", "smart money vs the crowd", "follow the smart money". Use
+  positioned, where they diverge from the crowd, the near-term flow, and what smart money and the
+  whales just DID (bought, sold, added, cut, closed, and why). Use for "where's smart money", "what
+  are the whales doing", "what did smart money buy / sell today", "are the whales adding or cutting",
+  "smart money vs the crowd", "follow the smart money". Use
   this instead of stitching discovery_get_top_traders + leaderboard calls by hand. A
   hidden engine (scripts/smartmoney.py) builds the cohorts and finds the divergences; you analyze.
   Requires a USER-scoped Senpi token.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.7.0"
+  version: "1.8.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -62,10 +64,10 @@ Invoke via the `exec` tool. **Prefer the STEPS below** for the full read (they s
 timeout); this one-shot form is the fallback for when a single blocking call is fine:
 
 ```
-python3 scripts/smartmoney.py [cohorts|near_term|all] [--no-near] [--state PATH]
+python3 scripts/smartmoney.py [cohorts|near_term|flow|all] [--no-near] [--state PATH] [--window latest|1h|4h|24h] [--asset ETH]
 ```
 
-The leading word is an optional **step** (`cohorts` · `near_term` · `all`, default `all`). `all` composes
+The leading word is an optional **step** (`cohorts` · `near_term` · `flow` · `all`, default `all`). `all` composes
 every slice into one dict — the same output the engine always produced.
 
 - Returns one JSON doc: `{cohorts, smart_leaning, divergences, near_term, meta}` (a step prints only its
@@ -78,6 +80,12 @@ every slice into one dict — the same output the engine always produced.
 - `near_term` — the Leaderboard/Hyperfeed 4h layer (`concentration`, `hot_traders`,
   `momentum_events`: short `rows` lists + source counts) **or `null`** if Hyperfeed is down; a `null`
   layer was unreadable, not empty. Use it to confirm/contradict the cohort read.
+- `flow` (`flow` step only, never in `all`) — what each cohort DID in the window, one list per cohort:
+  `proven` and `crowd` (the realized-PnL cohorts above), `apex` (≥ $5M account value) and `whale`
+  ($1M–$5M account value). Per asset: `net_usd`,
+  `wallets_adding`/`wallets_cutting`, `long_`/`short_` `added_usd`/`cut_usd`, `intent_usd` (e.g.
+  `PRESSING` = adding in profit, `CUTTING_LOSS`), plus `age_s`. A cohort whose call failed is `null`
+  with a line in `warnings`.
 - `cohorts` — the sample sizes (how many proven / crowd wallets were measured). Cite these so the
   user knows the sample behind the bias.
 - `meta` — `warnings`, `near_term_available`, and **`cohorts_unavailable`** — set only when the
@@ -87,19 +95,18 @@ every slice into one dict — the same output the engine always produced.
 
 ## Run it in steps — narrate as you go
 
-A full pull is several MCP round-trips (the per-wallet cohort read is the heavy one). Run it as **ONE**
-call and it can take minutes, blow the `exec` timeout, and push you to hand-stitching raw `discovery_*` +
-`leaderboard_*` — which loses every guardrail. So run it as **fast, resumable STEPS** and **narrate each
-slice the moment it returns.** Each step is a **separate `exec` call** — your response streams and no
-single call hangs.
+A full pull is several MCP round-trips; as **ONE** call it can blow the `exec` timeout and push you to
+raw `discovery_*` + `leaderboard_*` calls, which lose every guardrail. Run **fast, resumable STEPS**, each a
+**separate `exec` call**, and **narrate each slice the moment it returns.**
 
 ```sh
 python3 scripts/smartmoney.py cohorts      # 1. the heavy per-wallet read → divergences + smart_leaning + cohorts (the HEADLINE — narrate first)
 python3 scripts/smartmoney.py near_term    # 2. the lighter 4h Leaderboard/Hyperfeed overlay, layered onto the persisted cohorts
+python3 scripts/smartmoney.py flow         # 3. what each cohort DID in the window (--window latest|1h|4h|24h, default 1h)
 python3 scripts/smartmoney.py all          # one-shot fallback: the full composed dict (same output as before)
 ```
 
-**For the full read** — "where's smart money", "what are the whales doing", "smart money vs the crowd" —
+**For the full read** — "where's smart money", "smart money vs the crowd" —
 run both steps **in order** and narrate between:
 
 1. `smartmoney.py cohorts` → **narrate the divergence table + the headline lean IMMEDIATELY** (lead with
@@ -108,24 +115,19 @@ run both steps **in order** and narrate between:
 2. `smartmoney.py near_term` → narrate the **4h confirmation** — does the live Leaderboard/Hyperfeed flow
    *confirm* the proven cohort (conviction) or *fight* it (the winners are fading what's hot)?
 
-**Narrate each slice as it returns — never wait for both.** The steps share a state file
-(`<tempdir>/senpi-smart-money/state.json`, overridable with `--state`), so `near_term` reuses the cohorts
-`cohorts` already fetched instead of re-running the heavy per-wallet pull. **For a NARROW ask, run only the
-minimal step:**
+The steps share a state file (`<tempdir>/senpi-smart-money/state.json`, overridable with `--state`), so
+`near_term` reuses the cohorts `cohorts` already fetched. **For a NARROW ask, run only the minimal step:**
 
 | Intent (what the user asks) | Step to run | Slice it returns |
 |---|---|---|
-| *"who's profiting / what's smart money doing / where are the whales leaning"* | `cohorts` | `smart_leaning` + `divergences` + `cohorts` |
+| *"who's profiting / where are the whales leaning"* | `cohorts` | `smart_leaning` + `divergences` + `cohorts` |
 | *"smart money vs the crowd / crowd-fade setups / where do the winners split from the crowd"* | `cohorts` | `divergences` (opposite-sides first) |
 | *"what's the 4h hot-money flow / is the move building or fading"* | `near_term` (self-heals the cohorts) | `near_term` + the persisted cohort headline for context |
+| *"what is smart money / are the whales DOING (now, lately, today)"* | `cohorts`, then `flow` — two `exec` calls, narrate between | positioning first, then what proven, crowd, apex and whale wallets did |
 | *"the full read" (any of the above together)* | **both in order** (`cohorts`→`near_term`) — the fallback | the full composed dict |
 
 Each step is **idempotent + fail-open**: a missing/corrupt state file → recompute (self-heal), so
-`near_term` **also works standalone** (it just re-runs the cohort fetch first). `--no-near` / `--fixture` /
-`--state` apply to every step; same fail-open contract as `all` — each step returns valid JSON with
-`meta.warnings` on partial data, `meta.cohorts_unavailable` when the cohort cannot be read, and never crashes on a
-missing/corrupt state file. Prefer the steps for the full read; use `all` only when a single blocking call
-is fine.
+`near_term` **also works standalone**.
 
 ## ⚠ Token scope
 
@@ -148,10 +150,14 @@ that you can't read the proven-cohort positioning and why — don't report an em
    (`contribution_pct_change_*`)? Does it confirm the all-time cohort or fight it? A `"blocked"` momentum
    event is still a real tier crossing; with no `top_positions`, never guess its markets. If `near_term`
    is null, note it and move on.
-4. **Bottom line** — one paragraph: where the proven money is positioned, where it diverges from the
+4. **What they did (flow)** — from `flow`, kept apart from positioning (where they sit vs what they
+   changed). Cover each cohort that came back: proven, crowd, apex, whale; for "the whales", lead with
+   `apex` and `whale`. Give the data age from `age_s` in plain words ("as of ~15 min ago"); never call it real time.
+   Name each move with its intent: "6 proven wallets cut ETH shorts at a loss".
+5. **Bottom line** — one paragraph: where the proven money is positioned, where it diverges from the
    crowd, whether the near-term flow backs it — plus a **"what to watch"** (e.g. "if the crowd
    capitulates and flips short, the divergence is resolving").
-5. **The two CTAs** (next section).
+6. **The two CTAs** (next section).
 
 Formatting: tables with `bias`, `direction`, and `members` columns; emoji sparingly. Always pair a
 bias with its member count — conviction is the whole point.
@@ -211,6 +217,8 @@ bias with its member count — conviction is the whole point.
 ## Resilience (engine handles; narrate honestly)
 
 - **Hyperfeed down** → `near_term: null`. Note it; deliver the cohort read in full.
+- **Flow down** → `flow: null` + `flow_unavailable`, which quotes the tool's own error. Say flow data is
+  unavailable and quote that reason; give positioning only.
 - **Cohort unreadable** → `meta.cohorts_unavailable`, which names the cause: an empty successful
   read (an app-scoped token) or a failed one (quoted — retry it, and don't call it a token problem).
   Say you can't read the cohort and which of the two it was; offer the near-term layer if it came through.
