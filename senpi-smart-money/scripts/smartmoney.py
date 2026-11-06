@@ -397,7 +397,7 @@ def fetch_near_term(client, meta):
 # smart_money_flow diffs consecutive position snapshots: what each cohort opened, added, cut or closed
 # in the window, with the intent of each change. It is snapshot-delayed (`age_s`), never real time.
 FLOW_WINDOWS = ("latest", "1h", "4h", "24h")
-FLOW_COHORTS = ("proven", "crowd")      # one call each, so each list is ranked by its own net_usd
+FLOW_COHORTS = ("proven", "crowd", "apex", "whale")   # one call each, so each list is ranked by its own net_usd
 FLOW_ASSET_LIMIT = 8
 FLOW_DIVERGENCE_LIMIT = 8
 FLOW_ROW_FIELDS = ("net_usd", "wallets_adding", "wallets_cutting",
@@ -419,11 +419,16 @@ def _flow_row(r):
 
 
 def _flow_call(client, cohort, window, asset):
-    """The `flow` body for one cohort. Raises on a failed call or a response without a `flow` object."""
+    """The `flow` body for one cohort. Raises on a failed call, with the tool's own error message when it
+    returns `success: false`, or on a response without a `flow` object."""
     kw = {"window": window, "cohort": cohort, "limit": FLOW_ASSET_LIMIT}
     if asset:
         kw["asset"] = asset
-    data = _ok(client.mcp_call("smart_money_flow", timeout=15, **kw))
+    resp = client.mcp_call("smart_money_flow", timeout=15, **kw)
+    if isinstance(resp, dict) and resp.get("success") is False:
+        err = resp.get("error") if isinstance(resp.get("error"), dict) else {}
+        raise ValueError(err.get("message") or err.get("code") or "the tool returned success: false")
+    data = _ok(resp)
     flow = data.get("flow") if isinstance(data, dict) else None
     if not isinstance(flow, dict) or not isinstance(flow.get("assets"), list):
         raise ValueError("response has no `flow.assets` list")
@@ -431,19 +436,21 @@ def _flow_call(client, cohort, window, asset):
 
 
 def fetch_flow(client, window="1h", asset=None):
-    """Returns (slice, None), or (None, reason) when the tool is missing or unavailable. The proven call
-    carries the shared fields (age, window, cohort sizes, divergences, quality); a failed crowd call
-    leaves `crowd: null` plus a warning."""
-    flows, warnings = {}, []
+    """Returns (slice, None), or (None, reason) when every cohort call failed (the reason is the first
+    failure). The first cohort that answered carries the shared fields (age, window, cohort sizes,
+    divergences, quality); a failed cohort call leaves that cohort `null` plus a warning."""
+    flows, errors = {}, {}
     for cohort in FLOW_COHORTS:
         try:
             flows[cohort] = _flow_call(client, cohort, window, asset)
         except Exception as e:  # noqa
-            if cohort == FLOW_COHORTS[0]:
-                return None, f"smart_money_flow failed: {e}"
-            warnings.append(f"smart_money_flow ({cohort}) failed: {e}")
+            errors[cohort] = str(e)
             flows[cohort] = None
-    head = flows[FLOW_COHORTS[0]]
+    answered = [c for c in FLOW_COHORTS if flows[c] is not None]
+    if not answered:
+        return None, f"smart_money_flow failed: {errors[FLOW_COHORTS[0]]}"
+    warnings = [f"smart_money_flow ({c}) failed: {errors[c]}" for c in FLOW_COHORTS if c in errors]
+    head = flows[answered[0]]
     win = head.get("window") if isinstance(head.get("window"), dict) else {}
     sizes = head.get("cohorts") if isinstance(head.get("cohorts"), dict) else {}
     out = {
@@ -673,7 +680,7 @@ def _dry(client):
 
 
 def step_flow(client, window="1h", asset=None):
-    """`flow` — what the proven cohort and the crowd DID in the window (opened, added, cut, closed, and
+    """`flow` — what the proven, crowd, apex and whale cohorts DID in the window (opened, added, cut, closed, and
     why). Standalone: no cohort fetch, no state. Fails open to `{"flow": null, "flow_unavailable": ...}`."""
     flow, reason = fetch_flow(client, window=window, asset=asset)
     if flow is None:

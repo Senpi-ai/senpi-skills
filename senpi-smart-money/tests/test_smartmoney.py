@@ -313,8 +313,12 @@ def _flow_responses():
               for i in range(12)]
     proven.insert(1, _flow_row("P0", "all", 99, 50, 50))           # other-cohort rows are dropped
     crowd = [_flow_row("ETH", "crowd", -3000000, 40, 90, CUTTING_LOSS=2500000)]
+    apex = [_flow_row("BTC", "apex", 5000000, 14, 20, PRESSING=4000000)]
+    whale = [_flow_row("BTC", "whale", -4800000, 14, 21, CUTTING_LOSS=5200000)]
     return {"smart_money_flow::proven": _flow_body(proven),
-            "smart_money_flow::crowd": _flow_body(crowd)}
+            "smart_money_flow::crowd": _flow_body(crowd),
+            "smart_money_flow::apex": _flow_body(apex),
+            "smart_money_flow::whale": _flow_body(whale)}
 
 
 class _RecordingClient(smartmoney._FixtureClient):
@@ -342,12 +346,16 @@ def test_flow_happy_path_slice_shape():
     res = smartmoney.step_flow(_RecordingClient(_flow_responses()))
     assert set(res) == {"flow"}
     f = res["flow"]
-    assert set(f) == {"as_of_ts", "age_s", "window", "cohort_sizes", "proven", "crowd",
+    assert set(f) == {"as_of_ts", "age_s", "window", "cohort_sizes", "proven", "crowd", "apex", "whale",
                       "divergences", "quality", "warnings"}
     assert (f["as_of_ts"], f["age_s"]) == (1793408222, 652)
     assert f["window"] == {"name": "1h", "from_ts": 1793404622, "to_ts": 1793408222,
                            "snapshots": 5, "max_gap_s": 713}
-    assert f["cohort_sizes"] == {"proven": 370, "crowd": 7560}
+    assert f["cohort_sizes"] == {"proven": 370, "crowd": 7560, "apex": 210, "whale": 740}
+    assert f["apex"] == [{"asset": "BTC", "net_usd": 5000000, "wallets_adding": 14, "wallets_cutting": 20,
+                          "long_added_usd": 5000000, "long_cut_usd": 0, "short_added_usd": 0,
+                          "short_cut_usd": 0, "intent_usd": {"PRESSING": 4000000}}]
+    assert [r["net_usd"] for r in f["whale"]] == [-4800000]
     assert len(f["proven"]) == smartmoney.FLOW_ASSET_LIMIT
     assert [r["asset"] for r in f["proven"][:2]] == ["P0", "P1"]
     assert f["proven"][0] == {"asset": "P0", "net_usd": 12000, "wallets_adding": 6, "wallets_cutting": 2,
@@ -377,6 +385,25 @@ def test_flow_tool_unavailable_is_null_and_exit_0():
                                "flow_unavailable": "smart_money_flow failed: response has no `flow.assets` list"}
 
 
+def test_flow_unavailable_quotes_the_tool_error_message():
+    unavailable = {"success": False, "error": {
+        "code": "UNAVAILABLE", "message": "Smart money flow data unavailable: Flow API error ECONNREFUSED."}}
+    res = smartmoney.step_flow(_RecordingClient({"smart_money_flow": unavailable}))
+    assert res == {"flow": None, "flow_unavailable":
+                   "smart_money_flow failed: Smart money flow data unavailable: Flow API error ECONNREFUSED."}
+    res = smartmoney.step_flow(_RecordingClient({"smart_money_flow": {"success": False, "error": {"code": "UNAVAILABLE"}}}))
+    assert res["flow_unavailable"] == "smart_money_flow failed: UNAVAILABLE"
+
+
+def test_flow_proven_call_failure_keeps_the_other_cohorts():
+    responses = _flow_responses()
+    responses["smart_money_flow::proven"] = {"success": False, "error": {"message": "proven read failed"}}
+    f = smartmoney.step_flow(_RecordingClient(responses))["flow"]
+    assert f["proven"] is None and f["crowd"] and f["apex"] and f["whale"]
+    assert f["age_s"] == 652
+    assert f["warnings"] == ["smart_money_flow (proven) failed: proven read failed"]
+
+
 def test_flow_crowd_call_failure_keeps_proven():
     responses = _flow_responses()
     responses["smart_money_flow::crowd"] = TimeoutError("timed out")
@@ -392,6 +419,8 @@ def test_flow_passes_window_and_asset_through():
     assert client.calls == [
         ("smart_money_flow", {"window": "4h", "cohort": "proven", "limit": limit, "asset": "ETH"}),
         ("smart_money_flow", {"window": "4h", "cohort": "crowd", "limit": limit, "asset": "ETH"}),
+        ("smart_money_flow", {"window": "4h", "cohort": "apex", "limit": limit, "asset": "ETH"}),
+        ("smart_money_flow", {"window": "4h", "cohort": "whale", "limit": limit, "asset": "ETH"}),
     ]
     # the CLI flags reach the call; no --asset sends no asset, and the window defaults to 1h
     fixture = os.path.join(tempfile.mkdtemp(), "flow.json")
@@ -411,7 +440,7 @@ def test_flow_passes_window_and_asset_through():
         assert _main_out(["flow", "--fixture", fixture])[0] == 0
     finally:
         smartmoney._FixtureClient.mcp_call = real
-    assert [(k["window"], k.get("asset")) for k in seen] == [("24h", "xyz:TSLA")] * 2 + [("1h", None)] * 2
+    assert [(k["window"], k.get("asset")) for k in seen] == [("24h", "xyz:TSLA")] * 4 + [("1h", None)] * 4
 
 
 def test_all_output_unchanged_by_flow():
