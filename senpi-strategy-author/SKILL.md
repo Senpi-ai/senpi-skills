@@ -2,7 +2,7 @@
 name: senpi-strategy-author
 description: >-
   Build or edit a Senpi trading strategy — interactively, ONE decision at a time.
-  There is no paper-trading mode: a strategy is tested with `senpi validate` and a
+  A strategy is tested with `senpi validate`, then a simulation (`--paper`) or a
   $10-floor live run, never with a scanner re-run on a timer (a model call per firing).
   Use for "build a strategy", "create a strategy from scratch", "design a
   strategy", "I have a trading idea", or ANY strategy that needs DSL (a
@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.14.15"
+  version: "3.15.2"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -126,7 +126,7 @@ Before the template offer / Decision 1, read the **deployable** balance ONCE: `a
 Never `total_withdrawable`, never `total_balance_usd` — committed capital. **0 is a fact, not a missing read**: no `or` chain.
 Never say "$total free": say what is free, and that freeing the rest means withdrawing from a strategy — their call. [`references/deployable-balance.md`](references/deployable-balance.md). **~$11.50/wallet opens a wallet** (`deploy.py create` reserves the
 ~$1.50 fee first; exactly $10 refuses with `[E_FUNDS_BELOW_FLOOR]`) — **not what the strategy needs to trade**: under the design's own minimum it installs, scans and never opens.
-No design exists yet, so check the floor here; Handoff step 1 quotes the minimum. That floor is also how a strategy is **tested**: there is no paper-trading mode, and a scan re-run on a timer is a model call per tick, not a simulation — [`references/shadow-testing.md`](references/shadow-testing.md).
+No design exists yet, so check the floor here; Handoff step 1 quotes the minimum. That floor is also how a strategy is **tested** live; a simulation (`deploy.py create <id> --budget <usd> --paper`) tests it on simulated money first, and a scan re-run on a timer is a model call per tick, not a simulation — [`references/shadow-testing.md`](references/shadow-testing.md).
 
 - **Balance ≥ ~$11.50/wallet, or unreadable** → say nothing about funding and move on. Unreadable
   means move on too — no retry loop, no blocking; funding is re-checked at deploy anyway.

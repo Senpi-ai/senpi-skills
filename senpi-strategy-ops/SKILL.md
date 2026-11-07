@@ -3,7 +3,8 @@ name: senpi-strategy-ops
 description: >-
   Deploy / monitor / close a NAMED Senpi trading strategy. Monitoring is on demand:
   never an agent-turn cron to watch a strategy (a model call per firing) — the runtime
-  supervises it at zero model cost, and there is no paper-trading mode ($10 floor = the test).
+  supervises it at zero model cost. A simulation (`--paper`, simulated money) is the test before the
+  $10-floor live run.
   Use when the user names a strategy to run — "install spider", "deploy polar",
   "set up kodiak", "reinstall athena", "run the spider strategy", "is my strategy live?",
   "what am I running", "list my strategies" (→ status.py),
@@ -33,7 +34,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.29.5"
+  version: "3.29.6"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -66,7 +67,7 @@ report **verbatim**. The wrapper's value is resolution, that structural pass and
 Both call `openclaw gateway call senpi.*` (~1 s; the verbs take 30-160 s on 10.x): read the job with **`deploy.py status`**.
 **Always tear down through `close.py`** (one `<id>` or `--all`) — it deletes the runtime *and* closes
 the strategy. A raw `strategy_close` MCP call closes the strategy but **leaves the runtime
-registered**, which collides on the next deploy.
+registered**, which collides on the next deploy. **Simulations: add `--paper` to `deploy.py create|runtime`, `status.py` and `close.py`.** A simulation runs the same code on simulated money. Each command reads one world: with `--paper` simulations only, without it live strategies only, so `close.py <id>` never closes a simulation of the same name and `close.py <id> --paper` never closes a live one. A `--paper` refusal (`could not read your simulations`, or no `senpi.deploy.startPaper` on the runtime) means simulations are not available here: relay it, and never re-run without `--paper` unless the user asks for a live strategy with real money.
 **`close.py` is never a repair.** It market-exits every position and returns the funds; a deploy after it is a
 NEW wallet whose scanner state starts empty — needed only when `update` refuses `E_UPDATE_WALLET_CHANGED` (below).
 "Relaunch", "restart", "redeploy", "fix it" → the read-only `deploy.py verify` on the id they run (`status.py`
