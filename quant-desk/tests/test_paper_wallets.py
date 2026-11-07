@@ -41,6 +41,15 @@ def test_hl_info_refuses_a_paper_address_before_any_request(monkeypatch, tmp_pat
     assert hl.calls == 0
 
 
+def test_the_zero_address_is_live_not_a_simulation():
+    zero = "0x" + "0" * 40
+    for value in (zero, zero.upper().replace("0X", "0x")):
+        assert not hl_api.is_paper_address(value)
+        assert desk._simulation_refusal([value]) is None
+    assert hl_api.HLFixture({f"hl::clearinghouseState::{zero}": {"ok": 1}}).info(
+        {"type": "clearinghouseState", "user": zero}) is not None
+
+
 def test_the_fixture_client_refuses_too():
     with pytest.raises(hl_api.PaperWalletRefused):
         hl_api.HLFixture({f"hl::clearinghouseState::{PAPER_WALLET}": {}}).info(
