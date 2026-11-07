@@ -49,9 +49,10 @@ WINDOW_DEFAULT_DAYS = 7      # the default review window
 TOP_MOVERS_CAP = 12          # cap the book-vs-market movers surfaced
 HL_INFO_URL = "https://api.hyperliquid.xyz/info"   # public, no-auth — durable closed-trade recovery
 HL_FILLS_CAP = 2000          # userFills returns the most recent N fills; ample for any review window
-# hypaper's simulation wallet format today (`0x`, 16 zeros, 13-digit ms timestamp, 11 hex). Held equal
-# to every copy in this repo by `tests/test_paper_address_parity.py`.
-PAPER_ADDRESS_RE = re.compile(r"^0x0{16}\d{13}[0-9a-f]{11}$")
+# hypaper's simulation wallet format today (`0x`, 16 zeros, 13-digit ms timestamp, 11 hex). The
+# timestamp is a real ms epoch, so it never starts with 0: that keeps the zero address, the runtime's
+# stand-in wallet, live. Held equal to every copy in this repo by `tests/test_paper_address_parity.py`.
+PAPER_ADDRESS_RE = re.compile(r"^0x0{16}[1-9]\d{12}[0-9a-f]{11}$")
 
 
 def _is_paper_address(address):

@@ -1026,9 +1026,10 @@ def strategy_active(s):
     return str(strategy_status(s) or "").upper() == "ACTIVE"
 
 
-# hypaper's simulation wallet format today (`0x`, 16 zeros, 13-digit ms timestamp, 11 hex). Held equal
-# to every copy in this repo by `tests/test_paper_address_parity.py`.
-PAPER_ADDRESS_RE = re.compile(r"^0x0{16}\d{13}[0-9a-f]{11}$")
+# hypaper's simulation wallet format today (`0x`, 16 zeros, 13-digit ms timestamp, 11 hex). The
+# timestamp is a real ms epoch, so it never starts with 0: that keeps the zero address, the runtime's
+# stand-in wallet, live. Held equal to every copy in this repo by `tests/test_paper_address_parity.py`.
+PAPER_ADDRESS_RE = re.compile(r"^0x0{16}[1-9]\d{12}[0-9a-f]{11}$")
 PAPER_ID_RE = re.compile(r"^paper-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 PAPER_RUNTIME_SUFFIX = "-paper"
 RUNTIME_ID_MAX = 40
