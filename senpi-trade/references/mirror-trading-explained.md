@@ -101,7 +101,7 @@ dislocation and OI surges across the whole book hourly, taking what clears the s
   catalog minimum. Answer "how much do I need for *this* OG" with it as a factual floor; the sim confirms it.
 - You pay **Hyperliquid trading fees on every mirrored fill**, so copying a hyper-active trader costs
   more in fees over time.
-- **Always simulate before funding** (`execution_estimate_position_opening` — a one-shot sizing estimate, not paper trading; Senpi has no paper mode, the live test is the $10 floor) — it shows exactly what
+- **Always simulate before funding** (`execution_estimate_position_opening` — a one-shot sizing estimate, not a simulation; copy-trading has no simulation mode, the live test is the $10 floor) — it shows exactly what
   would open, what would be skipped, and the minimum budget needed. The one check that prevents funding
   capital that then barely trades.
 

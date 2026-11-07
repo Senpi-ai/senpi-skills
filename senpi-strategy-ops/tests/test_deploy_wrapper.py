@@ -745,7 +745,7 @@ class RequestIdRetry(_JournalDir, unittest.TestCase):
 
     def test_unconfirmed_support_refuses_an_open_id_with_other_parameters(self):
         rid = "dpl-req-20261028T000000Z-deadbeef"
-        for caps in (None, False):
+        for caps in (None,):
             self._seed_journal(rid, params={"packageDir": str(self.pkg.dir), "budget": 50.0}, verb="runtime")
             fake = FakeCli([])
             out, err = self._start(fake, request_ids=caps)    # this run asks for budget 30
@@ -770,6 +770,143 @@ class RequestIdRetry(_JournalDir, unittest.TestCase):
         fake = FakeCli([_ok({"deployId": "dpl-old", "state": "running", "requestId": rid,
                              "repeated": True})])
         self.assertEqual(self._start(fake, request_ids=None)[0], "dpl-old")
+
+    # caps False: a runtime with no request ids can never show a job carrying this id, so the open
+    # entry closes on what this command can read: a reply naming a job, or no job running.
+    def _old_budget_entry(self, rid="dpl-req-20261028T000000Z-deadbeef", age_s=60):
+        self._seed_journal(rid, age_s=age_s, params={"packageDir": str(self.pkg.dir), "budget": 50.0})
+
+    def test_no_id_support_a_reply_naming_a_job_closes_the_open_entry(self):
+        self._seed_journal("dpl-req-20261028T000000Z-deadbeef")         # same parameters
+        fake = FakeCli([_ok({"deployId": "dpl-new", "state": "running"})])
+        out, _err = self._start(fake, request_ids=False)
+        self.assertEqual(out, "dpl-new")
+        self.assertNotIn("requestId", _gw_params(fake.argv_for("senpi.deploy.start")[0]))
+        self.assertEqual(self._journal()["resolved"], "dpl-new")
+
+    def test_no_id_support_an_adopted_job_closes_the_open_entry(self):
+        self._seed_journal("dpl-req-20261028T000000Z-deadbeef")
+        fresh = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time() + 1))
+        fake = FakeCli([TIMEOUT, _status({"meta": {"deployId": "dpl-new", "packageId": "spider",
+                                                   "startedAt": fresh},
+                                          "state": {"status": "running"}})])
+        out, _err = self._start(fake, request_ids=False)
+        self.assertEqual(out, "dpl-new")
+        self.assertEqual(self._journal()["resolved"], "dpl-new")
+
+    def test_no_id_support_a_refused_start_leaves_the_open_entry(self):
+        self._seed_journal("dpl-req-20261028T000000Z-deadbeef")
+        out, _err = self._start(FakeCli([_refused("[E_DEPLOY_IN_PROGRESS] a deploy is running")]),
+                                request_ids=False)
+        self.assertEqual(out, ("exit", 2))
+        self.assertIsNone(self._journal()["resolved"])
+
+    def test_no_id_support_other_parameters_go_out_once_no_job_is_running(self):
+        ended = {"meta": {"deployId": "dpl-old", "packageId": "spider"},
+                 "state": {"status": "done", "overall": "failed"}}
+        interrupted = {"meta": {"deployId": "dpl-old", "packageId": "spider"},
+                       "state": {"status": "interrupted"}}
+        for read in (_status(ended), _status(interrupted), _refused(NOT_FOUND)):
+            self._old_budget_entry()
+            fake = FakeCli([read, _ok({"deployId": "dpl-new", "state": "running"})])
+            out, err = self._start(fake, request_ids=False)           # this run asks for budget 30
+            self.assertEqual(out, "dpl-new", err)
+            self.assertEqual([m for m, _ in fake.gateway()], ["senpi.deploy.status", "senpi.deploy.start"])
+            params = _gw_params(fake.argv_for("senpi.deploy.start")[0])
+            self.assertEqual(params["budget"], 30.0)
+            self.assertNotIn("requestId", params)
+            self.assertEqual(self._journal()["resolved"], "no-running-job")
+            self.assertIn("no job is running", err)
+
+    def test_no_id_support_other_parameters_stay_refused_while_it_cannot_say_no_job_is_running(self):
+        rid = "dpl-req-20261028T000000Z-deadbeef"
+        running = _status({"meta": {"deployId": "dpl-old", "packageId": "spider"},
+                           "state": {"status": "running"}})
+        other = _status({"meta": {"deployId": "dpl-o", "packageId": "other"},
+                         "state": {"status": "running"}})
+        broken = _status({"meta": {"deployId": "dpl-old"}})
+        for read in (running, other, broken, TIMEOUT, SPAWN_FAILED, _refused("nope")):
+            self._old_budget_entry(rid)
+            fake = FakeCli([read])
+            out, err = self._start(fake, request_ids=False)
+            self.assertEqual(out, ("exit", 2), read)
+            self.assertEqual(fake.argv_for("senpi.deploy.start"), [])
+            self.assertIsNone(self._journal()["resolved"])
+            self.assertIn("[E_OPEN_DEPLOY_REQUEST]", err)
+            self.assertIn("Nothing was started", err)
+            # The way out is one this runtime can reach: no job carries a request id here.
+            self.assertIn("python3 deploy.py status", err)
+            self.assertIn("re-run this command", err)
+            self.assertNotIn(f"It shows a job with request id {rid}", err)
+
+    def test_no_id_support_a_start_this_young_is_refused_without_a_read(self):
+        self._old_budget_entry(age_s=5)
+        fake = FakeCli([])
+        out, err = self._start(fake, request_ids=False)
+        self.assertEqual(out, ("exit", 2))
+        self.assertEqual(fake.calls, [])
+        self.assertIsNone(self._journal()["resolved"])
+        self.assertIn("re-run this command", err)
+
+    def test_no_id_support_an_unreadable_sent_time_is_refused_as_too_young(self):
+        self._old_budget_entry()
+        entry = self._journal()
+        entry["sentAt"] = "?"
+        (self.root / ".deploy-requests" / "spider.json").write_text(json.dumps(entry))
+        fake = FakeCli([])
+        self.assertEqual(self._start(fake, request_ids=False)[0], ("exit", 2))
+        self.assertEqual(fake.calls, [])
+
+    def test_no_id_support_a_budget_change_end_to_end(self):
+        self._old_budget_entry()
+        job = _status({"meta": {"deployId": "dpl-new", "packageId": "spider"},
+                       "state": {"status": "done", "overall": "live"}})
+        ended = _status({"meta": {"deployId": "dpl-old", "packageId": "spider"},
+                         "state": {"status": "done", "overall": "failed"}})
+        code, _out, err = self._main_create(FakeCli([HEALTH_PLAIN, ended,
+                                                     _ok({"deployId": "dpl-new", "state": "running"}), job]))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self._journal()["resolved"], "no-running-job")
+
+    def test_a_repeated_job_with_other_parameters_never_exits_zero(self):
+        rid = "dpl-req-20261028T000000Z-deadbeef"
+        ends = {"live": 1, "failed": 3, "refused": 2}
+        for overall, want in ends.items():
+            self._old_budget_entry(rid)
+            fake = FakeCli([HEALTH_ADVERTISED,
+                            _ok({"deployId": "dpl-old", "state": "running", "requestId": rid,
+                                 "repeated": True}),
+                            _status({"meta": {"deployId": "dpl-old", "packageId": "spider", "requestId": rid},
+                                     "state": {"status": "done", "overall": overall}})])
+            code, out, err = self._main_create(fake, "--json")        # asks for budget 30, job is 50
+            self.assertEqual(code, want, overall)
+            json.loads(out)                                           # stdout stays the snapshot
+            if overall == "live":
+                self.assertIn("Exit 1", err)
+                self.assertIn("parameters were NOT applied", err)
+                self.assertIn("$50.00", err)
+                self.assertIn("python3 status.py spider", err)
+
+    def test_a_repeated_job_with_other_parameters_that_had_ended_live_says_so_once(self):
+        rid = "dpl-req-20261028T000000Z-deadbeef"
+        self._old_budget_entry(rid)
+        fake = FakeCli([HEALTH_ADVERTISED,
+                        _ok({"deployId": "dpl-old", "state": "done", "requestId": rid, "repeated": True}),
+                        _status({"meta": {"deployId": "dpl-old", "packageId": "spider", "requestId": rid},
+                                 "state": {"status": "done", "overall": "live"}})])
+        code, _out, err = self._main_create(fake)
+        self.assertEqual(code, 1)
+        self.assertEqual(err.count("\nExit 1:"), 1)
+        self.assertIn("parameters were NOT applied", err)
+
+    def test_a_repeated_job_with_the_same_parameters_still_exits_by_its_outcome(self):
+        rid = "dpl-req-20261028T000000Z-deadbeef"
+        self._seed_journal(rid)
+        fake = FakeCli([HEALTH_ADVERTISED,
+                        _ok({"deployId": "dpl-old", "state": "running", "requestId": rid, "repeated": True}),
+                        _status({"meta": {"deployId": "dpl-old", "packageId": "spider", "requestId": rid},
+                                 "state": {"status": "done", "overall": "live"}})])
+        self.assertEqual(self._main_create(fake)[0], 0)
 
     def test_a_repeated_job_that_had_already_ended_live_never_exits_zero(self):
         rid = "dpl-req-20261028T000000Z-deadbeef"

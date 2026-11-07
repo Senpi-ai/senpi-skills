@@ -1,10 +1,12 @@
-"""The deploy request journal (K2): one JSON entry per package under the durable strategies root,
-`<strategies_root()>/.deploy-requests/<package id>.json`, holding the request id the last
+"""The deploy request journal (K2): one JSON entry per package and world under the durable strategies
+root, `<strategies_root()>/.deploy-requests/<package id>.json` (`<package id>.paper.json` for a
+simulation), holding the request id the last
 `senpi.deploy.start` carried and whether that START was accounted for (`resolved`).
 
 `deploy.py` writes it (mint, reuse, resolve on a reply naming a job, `deploy.py status` seeing the
 job); `close.py <id>` resolves it when it ends with nothing of the package live
-(a close it triggered, or every strategy already closed). Nothing deletes an entry."""
+(a close it triggered, or every strategy already closed) and, when no strategy is live, only once
+the job record shows no deploy job running. Nothing deletes an entry."""
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import json
 import os
@@ -24,6 +26,12 @@ _PLAIN_ID = re.compile(r"[A-Za-z0-9_][A-Za-z0-9._-]*")
 
 def utc_stamp(ts):
     return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def key(pkg_id, paper):
+    """The journal key for a package in one world. A simulation deploy (`senpi.deploy.startPaper`)
+    keeps its own entry, so a paper START never reuses a live START's request id, nor the reverse."""
+    return f"{pkg_id}.paper" if paper else pkg_id
 
 
 def path_for(pkg_id):

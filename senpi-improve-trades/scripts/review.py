@@ -49,6 +49,13 @@ WINDOW_DEFAULT_DAYS = 7      # the default review window
 TOP_MOVERS_CAP = 12          # cap the book-vs-market movers surfaced
 HL_INFO_URL = "https://api.hyperliquid.xyz/info"   # public, no-auth — durable closed-trade recovery
 HL_FILLS_CAP = 2000          # userFills returns the most recent N fills; ample for any review window
+# hypaper's simulation wallet format today (`0x`, 16 zeros, 13-digit ms timestamp, 11 hex). Held equal
+# to every copy in this repo by `tests/test_paper_address_parity.py`.
+PAPER_ADDRESS_RE = re.compile(r"^0x0{16}\d{13}[0-9a-f]{11}$")
+
+
+def _is_paper_address(address):
+    return bool(PAPER_ADDRESS_RE.match(str(address or "").strip().lower()))
 
 # The runtime registers every deployed strategy in installed_runtimes.json in the state dir — the
 # UNIVERSAL source of a strategy's mandate (the runtime.yaml `description`) + its DSL ladder. Reused
@@ -61,12 +68,26 @@ REGISTRY_FILENAME = "installed_runtimes.json"
 # events → telemetry (the per-strategy on-disk event ring, read via `openclaw senpi events`). Telemetry
 # fills each discovery trade's EXIT REASON and, as a standalone stream, the blocked/rejected signal cohort
 # ("what did I miss"). It NEVER reconstructs a trade or re-derives a price/PnL — discovery OWNS those.
+# The `openclaw senpi …` verbs wrap one gateway method each, but on OpenClaw 10.x every verb first
+# copies and hashes the runtime's dependency tree (30-160 s). `gateway call` loads no plugins and takes
+# about 1 s. Vendored from senpi-strategy-ops/scripts/_cli.py (test_name_reader_parity.py pins the copy).
+READ_RPC_MS = 15000
+
+
+def gateway_argv(method, params=None, rpc_timeout_ms=READ_RPC_MS):
+    """The exact `openclaw gateway call` argv for one method (also what `--dry-run` prints). Every
+    call passes its own `--timeout`: the CLI default is 10 s on 5.7, 5.12 and 10.x. Params are JSON
+    with `allow_nan=False`, so a non-finite number raises ValueError here, before anything runs."""
+    return ["openclaw", "gateway", "call", method, "--json", "--timeout", str(int(rpc_timeout_ms)),
+            "--params", json.dumps(params or {}, allow_nan=False)]
+
+
 EVENTS_FIXTURE_ENV = "SENPI_EVENTS_FIXTURE"   # offline test hook: JSON {"<runtime_id>": [entries…]}
 EVENTS_PULL = 500                             # events to pull per runtime before matching (recent ring)
-# `openclaw senpi events` spawnSyncs a SECOND `openclaw gateway call` process, so this timer wraps two CLI
-# boots + the read — a HEALTHY fetch on a loaded host can take several seconds (it exceeded 8s during the
-# incident). Keep it generous; the current-book-only guard already bounds worst-case wall to ~ceil(N/8)×this.
-EVENTS_CALL_TIMEOUT_S = 8                      # per-runtime event shell-out timeout (wraps double CLI boot + read)
+# The `senpi.getEvents` gateway call is one CLI boot + the read. The current-book-only guard bounds
+# worst-case wall to ~ceil(N/8)×this.
+EVENTS_CALL_TIMEOUT_S = 8                      # per-runtime event call timeout, wall clock
+EVENTS_RPC_MS = 6000                           # inside the wall clock, so the gateway's answer wins the race
 EXIT_MATCH_WINDOW_MS = 120000.0               # ±2 min asset+time fallback when there's no order_id
 _EXIT_EVENT_NAMES = ("dsl.closed", "position.closed")
 _MISSED_RESULTS = ("rejected", "blocked")     # signal.outcome results that never became a trade
@@ -499,6 +520,7 @@ def fetch_strategies(client, meta):
         meta.setdefault("warnings", []).append(f"strategy_list failed: {e}")
         return []
     rows = sl if isinstance(sl, list) else _field(sl, "strategies", "data", default=[])
+    rows = [s for s in (rows or []) if not (isinstance(s, dict) and s.get("paper") is True)]
     registry, runtime_ids, registry_src = load_runtime_registry(meta)   # wallet_lower → profile / runtime id
     meta["registry_source"] = registry_src
     strategies = []
@@ -876,10 +898,11 @@ def _fetch_events(runtime_id, since_ms, meta):
         except Exception as e:  # noqa — a bad fixture is fail-open too
             _note_telemetry_unavailable(meta, f"events fixture unreadable ({e})")
             return []
-    cmd = ["openclaw", "senpi", "events", "--runtime", str(runtime_id), "--json", "-l", str(EVENTS_PULL)]
+    params = {"runtimeId": str(runtime_id), "limit": EVENTS_PULL}
     since_iso = _iso8601(since_ms)
     if since_iso:
-        cmd += ["--since", since_iso]
+        params["since"] = since_iso
+    cmd = gateway_argv("senpi.getEvents", params, rpc_timeout_ms=EVENTS_RPC_MS)
     try:
         proc = _run_grouped(cmd, EVENTS_CALL_TIMEOUT_S)
     except FileNotFoundError:                # no `openclaw` on PATH (not a runtime host)
@@ -896,7 +919,7 @@ def _fetch_events(runtime_id, since_ms, meta):
         _note_telemetry_unavailable(meta, f"event-log read failed ({e})")
         return []
     if proc.returncode != 0:
-        err = (proc.stderr or "")[:200]
+        err = (proc.stderr or proc.stdout or "")[:200]   # 10.x writes a gateway error to stdout, 5.x to stderr
         # older runtime build without the RPC → the CLI reports `unknown method: senpi.getEvents`
         if "unknown method" in err.lower() or "getevents" in err.lower():
             meta["_telemetry_dead"] = True    # build lacks the event RPC → every runtime fails; stop
@@ -1130,6 +1153,11 @@ def _hl_info(payload, meta, client=None, timeout=12):
     Hyperliquid rate-limits with HTTP 429 and a `null` body — that is a busy IP, not an answer, so a 429 or
     5xx is retried (3 tries, HL_RETRY_BACKOFF_S apart, within the review's HL_RETRY_BUDGET_S) before the
     read fails open. Any other non-200 is a failed read at once."""
+    if _is_paper_address(payload.get("user")):
+        meta.setdefault("warnings", []).append(
+            f"hl_info {payload.get('type')} {str(payload.get('user', '')).strip()[:8]} not read: a "
+            f"simulation wallet trades on the simulated venue, never on Hyperliquid; read as unknown")
+        return None
     if client is not None and hasattr(client, "_r"):          # _FixtureClient — serve recorded HL response
         u = str(payload.get("user", "")).lower()
         key = f"hl::{payload.get('type')}::{u}"
