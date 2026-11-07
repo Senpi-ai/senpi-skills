@@ -128,7 +128,7 @@ class UnreadableStrategyListRefuses(unittest.TestCase):
         status._openclaw_available = self._avail
 
     @staticmethod
-    def _unreadable(mcp, timeout=15, statuses=None, why=None):
+    def _unreadable(mcp, timeout=15, statuses=None, why=None, paper=False):
         if why is not None:
             why.append(UnreadableStrategyListRefuses.CAUSE)
         return None

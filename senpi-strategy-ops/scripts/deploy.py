@@ -18,6 +18,8 @@ see `stale_proof_dirs`, which keys on the gate's structured evidence, never on i
   python3 deploy.py validate <id>                                  # preflight (no money, nothing installed; DOES fetch a bare id)
   python3 deploy.py create   <id> --budget <usd> [--max-wait S]    # run the deploy (create+fund+install+tick)
   python3 deploy.py runtime  <id> [--decision-model M]             # resume/complete the same deploy
+  python3 deploy.py create   <id> --budget <usd> --paper           # the same deploy as a simulation
+                                                                   #   (`senpi.deploy.startPaper`)
   python3 deploy.py verify   <id>                                  # READ-ONLY: is it live? (deploys/fetches nothing)
   python3 deploy.py status   [<id>]                                # the last deploy job's status
 
@@ -575,6 +577,12 @@ def _journal_read(pkg_id):
     return _journal.read(pkg_id)
 
 
+def _start_method(a):
+    """`--paper` starts the same job as a simulation through its own gateway method, so a runtime
+    that predates simulations answers `unknown_method` instead of deploying live."""
+    return "senpi.deploy.startPaper" if getattr(a, "paper", False) else "senpi.deploy.start"
+
+
 def _journal_write(pkg_id, entry):
     return _journal.write(pkg_id, entry)
 
@@ -587,9 +595,10 @@ def _params_key(params):
     return {"packageDir": params.get("packageDir"), "budget": params.get("budget")}
 
 
-def _open_entry(pkg):
-    """The journal's open entry for this package (a START that never got an answer), or None."""
-    entry = _journal_read(pkg.id) or {}
+def _open_entry(pkg, paper=False):
+    """The journal's open entry for this package in this world (a START that never got an answer),
+    or None."""
+    entry = _journal_read(_journal.key(pkg.id, paper)) or {}
     rid = entry.get("requestId")
     if (entry.get("packageId") == str(pkg.id) and entry.get("resolved") is None
             and isinstance(rid, str) and _REQUEST_ID_SHAPE.match(rid)):
@@ -642,7 +651,7 @@ def resolve_seen_request(snap):
     request id: the START is then accounted for. A different id, or none, leaves the entry open."""
     meta = (snap or {}).get("meta") or {}
     if meta.get("requestId"):
-        _journal.resolve(meta.get("packageId"), meta["requestId"],
+        _journal.resolve(_journal.key(meta.get("packageId"), meta.get("paper") is True), meta["requestId"],
                          meta.get("deployId") or "seen-by-status")
 
 
@@ -667,7 +676,7 @@ def _why_a_job_may_be_running(entry):
     return "the job record could not be read"
 
 
-def _request_id_for(pkg, params, log, caps, verb="create"):
+def _request_id_for(pkg, params, log, caps, verb="create", paper=False):
     """`(request id | None, reused, the open entry | None, params changed)` for this START.
 
     An open entry (its START never got an answer) is reused, however old. With other parameters it is
@@ -677,15 +686,16 @@ def _request_id_for(pkg, params, log, caps, verb="create"):
     False` (a runtime that does not honour ids, and sends no id) when the job record shows no job
     running: that closes the entry and this START goes out. With no open entry a new id is minted
     under True and None (an older runtime ignores it; matching on it stays gated on True) and
-    journaled, unresolved, before this returns."""
-    entry = _open_entry(pkg)
+    journaled, unresolved, before this returns. `paper` picks the world's own entry."""
+    jkey = _journal.key(pkg.id, paper)
+    entry = _open_entry(pkg, paper)
     if entry:
         changed = entry.get("paramsKey") is not None and entry["paramsKey"] != _params_key(params)
         if changed and caps is False:
             why_open = _why_a_job_may_be_running(entry)
             if why_open:
                 _refuse_changed_params(pkg, entry, params, why_open)
-            _journal.resolve(pkg.id, entry["requestId"], "no-running-job")
+            _journal.resolve(jkey, entry["requestId"], "no-running-job")
             print(f"note: no job is running, so the unanswered START {entry['requestId']} (sent at "
                   f"{entry.get('sentAt', '?')}, budget {_usd((entry.get('paramsKey') or {}).get('budget'))}) "
                   f"is closed and this command's parameters go out.", file=sys.stderr)
@@ -701,15 +711,16 @@ def _request_id_for(pkg, params, log, caps, verb="create"):
         return None, False, None, False
     now = time.time()
     rid = f"dpl-req-{datetime.fromtimestamp(now, timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{os.urandom(4).hex()}"
-    _journal_write(pkg.id, {"packageId": str(pkg.id), "requestId": rid, "sentAt": _utc_stamp(now),
-                            "verb": verb, "paramsKey": _params_key(params), "resolved": None})
+    _journal_write(jkey, {"packageId": str(pkg.id), "requestId": rid, "sentAt": _utc_stamp(now),
+                          "verb": verb, "paramsKey": _params_key(params), "resolved": None,
+                          **({"paper": True} if paper else {})})
     return rid, False, None, False
 
 
-def _journal_resolve(pkg, rid, outcome):
+def _journal_resolve(pkg, rid, outcome, paper=False):
     """Close the journal entry for `rid` (only if it is still the open one)."""
     if rid:
-        _journal.resolve(pkg.id, rid, outcome)
+        _journal.resolve(_journal.key(pkg.id, paper), rid, outcome)
 
 
 def _rid_tag(rid):
@@ -780,8 +791,10 @@ def start_deploy(pkg, a, log):
     (recovery, the steers) needs True; a reply that says `repeated: true` is trusted either way, since
     only a runtime that honours ids says it."""
     params = _start_params(pkg, a)
+    method = _start_method(a)
+    paper = getattr(a, "paper", False)
     if getattr(a, "dry_run", False):
-        print("planned: " + shlex.join(_cli.gateway_argv("senpi.deploy.start", params, START_RPC_MS)))
+        print("planned: " + shlex.join(_cli.gateway_argv(method, params, START_RPC_MS)))
         raise SystemExit(0)
     # A caller that never read the capability (no `request_ids`) neither sends an id nor touches the
     # journal; `main` always reads it for create/runtime.
@@ -790,7 +803,7 @@ def start_deploy(pkg, a, log):
     else:
         caps = a.request_ids
         verb = getattr(a, "cmd", None) if getattr(a, "cmd", None) in ("create", "runtime") else "create"
-        rid, reused, entry, changed = _request_id_for(pkg, params, log, caps, verb)
+        rid, reused, entry, changed = _request_id_for(pkg, params, log, caps, verb, paper)
     try:
         a.repeated_terminal = None
         a.repeated_changed = None
@@ -806,8 +819,8 @@ def start_deploy(pkg, a, log):
         pass
     log("  starting the deploy job…" + _rid_tag(rid))
     t0 = time.time()
-    r = _gw("senpi.deploy.start", params, START_RPC_MS, START_WALL_S, min_wall_s=START_MIN_WALL_S)
-    log(f"  (senpi.deploy.start: {r['kind']} in {r['elapsed']}s)")
+    r = _gw(method, params, START_RPC_MS, START_WALL_S, min_wall_s=START_MIN_WALL_S)
+    log(f"  ({method}: {r['kind']} in {r['elapsed']}s)")
     kind = r["kind"]
     if kind == "ok":
         payload = r["payload"] if isinstance(r["payload"], dict) else {}
@@ -840,9 +853,9 @@ def start_deploy(pkg, a, log):
                         pass
                 if payload.get("next"):
                     print(f"  {payload['next']}", file=sys.stderr)
-            _journal_resolve(pkg, open_rid, deploy_id)
+            _journal_resolve(pkg, open_rid, deploy_id, paper)
             return deploy_id
-        print("senpi.deploy.start answered but named no deployId, so this script cannot follow the "
+        print(f"{method} answered but named no deployId, so this script cannot follow the "
               "job.\n"
               "  The outcome is UNKNOWN, and no gate said no: the deploy MAY BE RUNNING right now"
               f"{_rid_tag(rid)} — reconcile → preflight → create+fund can be in flight, and a wallet "
@@ -854,7 +867,7 @@ def start_deploy(pkg, a, log):
     # names a job.
     if kind == "budget_spent":
         if not reused:
-            _journal_resolve(pkg, rid, "not-sent")
+            _journal_resolve(pkg, rid, "not-sent", paper)
         print(f"NOTHING WAS DISPATCHED: less than {START_MIN_WALL_S}s of this command's budget was "
               f"left for START, so it was not sent {_budget_note()}. No job started, no wallet "
               f"created, no funds moved. Re-running this command starts over with a fresh budget.",
@@ -862,16 +875,22 @@ def start_deploy(pkg, a, log):
         raise SystemExit(EXIT_INTERNAL)
     if kind == "refused":
         if not reused:
-            _journal_resolve(pkg, rid, "refused")
+            _journal_resolve(pkg, rid, "refused", paper)
         print(r["message"], file=sys.stderr)
         raise SystemExit(EXIT_CODES["refused"])
     if kind in ("unknown_method", "cli_parse", "spawn_failed"):
         if not reused:
-            _journal_resolve(pkg, rid, "not-dispatched")
+            _journal_resolve(pkg, rid, "not-dispatched", paper)
         # Nothing reached a deploy handler: no such method, a command line openclaw rejected, or no
         # openclaw at all. Exit 1, never 2 — no gate said no; this box cannot run the call.
         print(r["message"] or kind, file=sys.stderr)
-        if kind == "unknown_method":
+        if kind == "unknown_method" and paper:
+            cure = ("  This box's runtime plugin has no simulation deploy (`senpi.deploy.startPaper`): "
+                    "it predates simulations. Update the runtime plugin, then re-run this exact "
+                    "command:\n"
+                    "    openclaw plugins install @senpi-ai/runtime\n"
+                    "  Do not re-run without --paper: that deploys a live strategy with real money.")
+        elif kind == "unknown_method":
             cure = ("  This box's runtime plugin has no `senpi.deploy.start` gateway method: it predates "
                     "the deploy verb, usually a wedged self-update. Update the runtime plugin, then "
                     "re-run this exact command:\n"
@@ -889,13 +908,13 @@ def start_deploy(pkg, a, log):
               f"is nothing to read and nothing to clean up.\n{cure}", file=sys.stderr)
         raise SystemExit(EXIT_INTERNAL)
     # timeout / transport / error / unreadable: the gateway may have taken the job.
-    print(f"senpi.deploy.start: {kind}: {r['message'] or 'no message'}", file=sys.stderr)
+    print(f"{method}: {kind}: {r['message'] or 'no message'}", file=sys.stderr)
     adopted = _recover_lost_start(pkg, t0, log, rid_by)
     if adopted:
         how = (f"the job record shows request id {rid_by} on job {adopted}" if rid_by else
                f"the gateway took job {adopted} for {pkg.id} after this command sent it")
         print(f"note: the START reply was lost, but {how}; following that job.", file=sys.stderr)
-        _journal_resolve(pkg, open_rid, adopted)
+        _journal_resolve(pkg, open_rid, adopted, paper)
         return adopted
     print(f"  No answer came back for the START call{_rid_tag(rid)}, and the reads of the job record "
           f"found no job for {pkg.id} started by it. That is not a verdict: the gateway may have "
@@ -1165,6 +1184,10 @@ def _unreadable_job(pkg, deploy_id, rid=None):
     return EXIT_INTERNAL
 
 
+def _paper_sfx(a):
+    return " --paper" if getattr(a, "paper", False) else ""
+
+
 def run_deploy(pkg, a, log):
     """Start → poll → relay. Exit code: the D-12 map (see EXIT_CODES).
 
@@ -1223,8 +1246,8 @@ def run_deploy(pkg, a, log):
         print(f"\nExit 1: this command's parameters were NOT applied (budget "
               f"{_usd(changed['newBudget'])}). Job {changed['deployId']} is the earlier START sent at "
               f"{changed['sentAt']}, budget {_usd(changed['oldBudget'])}, and that is what deployed.\n"
-              f"  Next: python3 {Path(__file__).with_name('status.py').name} {pkg.id}   — read what "
-              f"is live now, and report that.", file=sys.stderr)
+              f"  Next: python3 {Path(__file__).with_name('status.py').name} {pkg.id}{_paper_sfx(a)}   — "
+              f"read what is live now, and report that.", file=sys.stderr)
         return EXIT_INTERNAL
     earlier = getattr(a, "repeated_terminal", None)
     if earlier and code == 0:
@@ -1233,8 +1256,8 @@ def run_deploy(pkg, a, log):
         print(f"\nExit 1: this command started no deploy. Job {earlier['deployId']} is the outcome of "
               f"the earlier START sent at {earlier['sentAt']}, and it ended before this command ran; "
               f"whether that strategy still trades is not checked here.\n"
-              f"  Next: python3 {Path(__file__).with_name('status.py').name} {pkg.id}   — read what "
-              f"is live now, and report that.", file=sys.stderr)
+              f"  Next: python3 {Path(__file__).with_name('status.py').name} {pkg.id}{_paper_sfx(a)}   — "
+              f"read what is live now, and report that.", file=sys.stderr)
         return EXIT_INTERNAL
     return code
 
@@ -1952,7 +1975,7 @@ def _username():
     return str(_cli.dig(user, "userName") or "").strip() or None
 
 
-def outside_durable_root(pkg, cmd):
+def outside_durable_root(pkg, cmd, paper=False):
     """The refusal for a package that lives outside the durable strategies root, or None.
 
     A runtime keeps reading its scanners from the directory it was installed (or updated) from, and
@@ -1971,7 +1994,7 @@ def outside_durable_root(pkg, cmd):
             f"everything outside its volume on restart — the strategy would keep its wallet and lose "
             f"every scanner. Copy the package in and use the copy:\n"
             f"    cp -r {here} {dest}\n"
-            f"    python3 {Path(__file__).name} {cmd} {dest} ...\n"
+            f"    python3 {Path(__file__).name} {cmd} {dest}{' --paper' if paper else ''} ...\n"
             f"  (A catalog strategy can also go by its bare id, which fetches into {root}.) "
             f"Nothing was created, funded, installed or changed.")
 
@@ -1995,7 +2018,7 @@ def _fork_for_deploy(pkg, a, log):
         if not owner:
             print(f"✗ {pkg.id}: a template deploys under the user's name, never as the bare template, and their Senpi "
                   f"username could not be read. Ask what to call it, then re-run with\n"
-                  f"    python3 {Path(__file__).name} create {a.package} --name \"<their words>\" --budget <usd>\n"
+                  f"    python3 {Path(__file__).name} create {a.package} --name \"<their words>\" --budget <usd>{_paper_sfx(a)}\n"
                   f"  A user ID is never a name. Nothing was created, funded or installed.", file=sys.stderr)
             sys.exit(EXIT_CODES["refused"])
     try:
@@ -2052,6 +2075,12 @@ def cmd_fork(pkg, a, log):
     return 0
 
 
+def _paper_flag(p):
+    p.add_argument("--paper", action="store_true",
+                   help="Run the package as a simulation (gateway method `senpi.deploy.startPaper`): "
+                        "simulated money, no real funds move.")
+
+
 def _main(argv):
     ap = argparse.ArgumentParser(
         description="Deploy a strategy package via the runtime's deploy verb (gateway method `senpi.deploy.start`).")
@@ -2073,6 +2102,7 @@ def _main(argv):
     pc.add_argument("--tick-wait", type=int, default=None,
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")
     pc.add_argument("--dry-run", action="store_true")
+    _paper_flag(pc)
     _ownership_flags(pc)
 
     pr = sub.add_parser("runtime", help="Resume/complete the same deploy (installs the runtime(s)).")
@@ -2086,6 +2116,7 @@ def _main(argv):
     pr.add_argument("--tick-wait", type=int, default=None,
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")
     pr.add_argument("--dry-run", action="store_true")
+    _paper_flag(pr)
     _ownership_flags(pr)
 
     # `fork` makes the user's copy of a template and stops there — no money, nothing installed. It is
@@ -2274,7 +2305,7 @@ def _main(argv):
         sys.exit(cmd_fork(pkg, a, log))
     if a.cmd in ("create", "runtime"):
         pkg = _fork_for_deploy(pkg, a, log)
-        refusal = outside_durable_root(pkg, a.cmd)
+        refusal = outside_durable_root(pkg, a.cmd, getattr(a, "paper", False))
         if refusal:
             print(refusal, file=sys.stderr)
             sys.exit(EXIT_CODES["refused"])

@@ -5,6 +5,7 @@
   python3 close.py --all                                     # close EVERY open strategy + delete their runtimes
   python3 close.py --strategy-id <id> | --address <wallet>    # a wallet with NO package (unattributed
                                                                 # or app-created) — <id>/--all only resolve a package
+  python3 close.py <id> --paper                              # the same, for simulations only (any form above)
 
 Does NOT wait for the on-chain flatten — it hands off to the agent to poll. Per strategy (discovered
 from strategy_list by attribution skillName == manifest id, or directly by strategyId/wallet for
@@ -21,6 +22,8 @@ close too):
 
 --instance scopes which instance(s) to close; --dry-run prints the plan with no side effects.
 --strategy-id/--address are mutually exclusive with <id>/--all/--instance/--ref and with each other.
+--paper reads and closes simulations only (`strategy_list {paper: true}`); without it only live strategies
+are read. No run touches both.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
@@ -46,7 +49,7 @@ _CLOSED = _cli.DEAD_STATUSES
 LIVE_STATUSES = _cli.LIVE_STATUSES
 
 
-def _read_or_refuse(rows, why, what):
+def _read_or_refuse(rows, why, what, paper=False):
     """The strategy inventory, or a refusal — never an empty list standing in for an unread one.
 
     `strategy_list` degrading to `[]` on an unreadable read is not a silent no-op here: teardown then
@@ -57,6 +60,8 @@ def _read_or_refuse(rows, why, what):
     teardown money path, "couldn't read it" must never render as "there is nothing there"."""
     if rows is not None:
         return rows
+    if paper:
+        raise SystemExit(_cli.paper_refusal(what, why))
     raise SystemExit(
         f"error: could not read the strategy list, so NOTHING was closed and nothing about {what} is "
         f"known here — this is not 'there is nothing to close'.\n"
@@ -65,7 +70,7 @@ def _read_or_refuse(rows, why, what):
         f"open first (read-only):  python3 status.py")
 
 
-def _select_direct_target(rows, target):
+def _select_direct_target(rows, target, paper=False):
     """From an UNFILTERED-by-status `strategies_for_or_none()` read, pick the one row addressed by
     `--strategy-id`/`--address`. Refuses on 0 or >1 matches rather than guessing: `--all`/`<package>`
     answer a SET question ("what's open for X"), where zero rows is a legitimate true fact; this
@@ -76,7 +81,10 @@ def _select_direct_target(rows, target):
     duplicated across DIFFERENT addresses (never one address on two strategy rows), so >1 here would
     mean an unmodeled backend state — refuse and name every match rather than pick one silently."""
     if not rows:
-        raise SystemExit(f"error: no strategy found for {target!r} on this account — nothing to close.")
+        hint = (f"\n  {target!r} looks like a simulation. Simulations are closed with --paper."
+                if not paper and _cli.looks_paper(target) else "")
+        world = "simulation" if paper else "strategy"
+        raise SystemExit(f"error: no {world} found for {target!r} on this account — nothing to close.{hint}")
     if len(rows) > 1:
         ids = ", ".join(str(_cli.strategy_id_of(s) or "?")[:8] for s in rows)
         raise SystemExit(f"error: {target!r} matched {len(rows)} strategies ({ids}) — refusing to "
@@ -188,14 +196,14 @@ def _close_open_request(pkg, a, checked=False):
     if pkg is None or a.dry_run or a.instance:
         return None
     if not checked:
-        pending = _unanswered_start_may_be_running(pkg)
+        pending = _unanswered_start_may_be_running(pkg, a.paper)
         if pending:
             return pending
-    _journal.resolve(pkg.id, None, "closed-by-close.py")
+    _journal.resolve(_journal.key(pkg.id, a.paper), None, "closed-by-close.py")
     return None
 
 
-def _unanswered_start_may_be_running(pkg):
+def _unanswered_start_may_be_running(pkg, paper=False):
     """`(open entry, why)` when the package has an open START request whose job may still be running,
     else None.
 
@@ -206,7 +214,7 @@ def _unanswered_start_may_be_running(pkg):
     `deploy.py` uses for it: the job record answers, the START's wall clock has passed, and no job is
     running (the gateway's `[NOT_FOUND]`, or a finished job; one deploy slot per agent). A running
     job or an unreadable record keeps it open."""
-    entry = _journal.read(pkg.id) or {}
+    entry = _journal.read(_journal.key(pkg.id, paper)) or {}
     if entry.get("packageId") != str(pkg.id) or entry.get("resolved") is not None \
             or not entry.get("requestId"):
         return None
@@ -228,9 +236,13 @@ def main(argv):
                          "and with --address.")
     ap.add_argument("--address", default=None,
                     help="Close by wallet address directly — same use as --strategy-id.")
+    ap.add_argument("--paper", action="store_true",
+                    help="Simulations only: list them with strategy_list {paper: true} and close only "
+                         "those. Without it, only live strategies are read.")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv[1:])
+    sfx = " --paper" if a.paper else ""
     direct = a.strategy_id or a.address
     if a.strategy_id and a.address:
         raise SystemExit("error: pass --strategy-id or --address, not both.")
@@ -251,12 +263,13 @@ def main(argv):
         # Close every OPEN strategy across all packages — for "close all strategies / return funds".
         # sid + wallet come from each strategy record; close_one stops the matching runtime (by wallet)
         # and triggers strategy_close, so package runtimes are never stranded.
-        rows = _read_or_refuse(_cli.list_strategies_or_none(mcp, statuses=LIVE_STATUSES, why=why),
-                               why, "every open strategy")
+        rows = _read_or_refuse(_cli.list_strategies_or_none(mcp, statuses=LIVE_STATUSES, why=why,
+                                                            paper=a.paper),
+                               why, "every open strategy", a.paper)
         opens = [s for s in rows if _cli.strategy_open(s)]
         targets = [((_cli.strategy_skill(s) or "strategy") + ":" + str(_cli.strategy_id_of(s))[:8], s)
                    for s in opens]
-        hdr = "all open strategies"
+        hdr = "all open simulations" if a.paper else "all open strategies"
         strategy_label = "ALL"
     elif direct:
         # A wallet with NO package — unattributed, or app/manual-created — has no <id> to resolve
@@ -265,12 +278,13 @@ def main(argv):
         # otherwise fall through to the "no OPEN strategies to close" + exit 0 below — a false
         # all-clear on a target named explicitly. `_select_direct_target` refuses on 0 or >1 matches.
         rows = _read_or_refuse(
-            _cli.strategies_for_or_none(mcp, strategy_id=a.strategy_id, wallet=a.address, why=why),
-            why, direct)
-        strat = _select_direct_target(rows, direct)
+            _cli.strategies_for_or_none(mcp, strategy_id=a.strategy_id, wallet=a.address, why=why,
+                                        paper=a.paper),
+            why, direct, a.paper)
+        strat = _select_direct_target(rows, direct, a.paper)
         sid = str(_cli.strategy_id_of(strat) or "")
         targets = [(f"strategy:{sid[:8]}", strat)]
-        hdr = f"strategy {sid[:8]} (no package attribution)"
+        hdr = f"{'simulation' if a.paper else 'strategy'} {sid[:8]} (no package attribution)"
         strategy_label = sid
     else:
         try:
@@ -290,19 +304,21 @@ def main(argv):
         if a.instance and a.instance not in {i.name for i in pkg.instances}:
             raise SystemExit(f"error: no instance {a.instance!r} in {pkg.id} (have: {', '.join(i.name for i in pkg.instances)})")
         rows = _read_or_refuse(_cli.strategies_for_or_none(mcp, skill_name=pkg.id,
-                                                           statuses=LIVE_STATUSES, why=why),
-                               why, pkg.id)
+                                                           statuses=LIVE_STATUSES, why=why,
+                                                           paper=a.paper),
+                               why, pkg.id, a.paper)
         opens = [s for s in rows if _cli.strategy_open(s)]
         if a.instance:
-            rt = _cli.find_runtime(f"{pkg.id}-{a.instance}")  # reads senpi.listRuntimes
+            rid = _cli.runtime_id_for(pkg.id, a.instance, a.paper)
+            rt = _cli.find_runtime(rid)  # reads senpi.listRuntimes
             w = _cli.runtime_wallet(rt) if rt else None
             targets = [(a.instance, s) for s in opens if w and _cli.wallet_match(w, _cli.strategy_wallet(s))]
             if not targets:
                 raise SystemExit(f"error: can't map instance {a.instance!r} to a strategy without its live "
-                                 f"runtime ({pkg.id}-{a.instance}). Omit --instance to close all of {pkg.id}.")
+                                 f"runtime ({rid}). Omit --instance to close all of {pkg.id}{sfx}.")
         else:
             targets = [(f"{pkg.id}[{i + 1}]", s) for i, s in enumerate(opens)]
-        hdr = f"{pkg.id} v{pkg.version}"
+        hdr = f"{pkg.id} v{pkg.version}" + (" (simulation)" if a.paper else "")
         strategy_label = pkg.id
 
     if not targets and not a.dry_run:
@@ -321,8 +337,9 @@ def main(argv):
         # `--strategy-id`/`--address` already re-reads UNFILTERED for this reason; so does this now.
         if pkg is not None:
             ever = _read_or_refuse(
-                _cli.strategies_for_or_none(mcp, skill_name=pkg.id, why=why), why, pkg.id)
-            pending = None if a.instance else _unanswered_start_may_be_running(pkg)
+                _cli.strategies_for_or_none(mcp, skill_name=pkg.id, why=why, paper=a.paper), why, pkg.id,
+                a.paper)
+            pending = None if a.instance else _unanswered_start_may_be_running(pkg, a.paper)
             if pending:
                 entry, why_open = pending
                 print(f"{hdr}: NOT torn down. Nothing of this package is live in strategy_list, but "
@@ -331,7 +348,7 @@ def main(argv):
                       f"create and fund a wallet; close.py cannot stop a deploy job. Nothing was "
                       f"closed and the request stays open.\n"
                       f"  Next: python3 deploy.py status   — wait until it shows no job running (or "
-                      f"that job finished), then re-run: close.py {pkg.id}. Do not run "
+                      f"that job finished), then re-run: close.py {pkg.id}{sfx}. Do not run "
                       f"`deploy.py create` meanwhile.")
                 sys.exit(2)
             if ever:
@@ -398,11 +415,12 @@ def main(argv):
             print(f"  - {r['instance']}: {r['status']}{extra}")
         if overall == "closing":
             if pkg:
-                poll = f"close.py {pkg.id}"
+                poll = f"close.py {pkg.id}{sfx}"
             elif direct:
-                poll = f"close.py --strategy-id {a.strategy_id}" if a.strategy_id else f"close.py --address {a.address}"
+                poll = (f"close.py --strategy-id {a.strategy_id}{sfx}" if a.strategy_id
+                        else f"close.py --address {a.address}{sfx}")
             else:
-                poll = "close.py --all"
+                poll = f"close.py --all{sfx}"
             print(f"\nClose triggered (runtimes stopped). strategy_close is async — positions flatten "
                   f"on-chain. Poll until closed by re-running: {poll}  (or check strategy_list status).")
         if pending:
@@ -411,7 +429,7 @@ def main(argv):
                   f"RUNNING and may still create and fund a wallet; close.py cannot stop a deploy job. "
                   f"The request stays open.\n"
                   f"  Next: python3 deploy.py status   — wait until it shows no job running (or that "
-                  f"job finished), then re-run: close.py {pkg.id}. Do not run `deploy.py create` "
+                  f"job finished), then re-run: close.py {pkg.id}{sfx}. Do not run `deploy.py create` "
                   f"meanwhile.")
 
     # state is ephemeral: once a package is torn down, clear its deploy state so the next deploy is clean

@@ -233,7 +233,7 @@ class MainDirectAddressing(unittest.TestCase):
         close.MCPClient = _FakeMCP
 
         def _fake_strategies_for(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15,
-                                 statuses=None, why=None):
+                                 statuses=None, why=None, paper=False):
             return [s for s in outer.rows
                     if (strategy_id is None or _cli.strategy_id_of(s) == strategy_id)
                     and (wallet is None
@@ -401,7 +401,7 @@ class MainPackagePollReportsClosed(unittest.TestCase):
         close.MCPClient = _FakeMCP
 
         def _fake_strategies_for(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15,
-                                 statuses=None, why=None):
+                                 statuses=None, why=None, paper=False):
             # The point of the test: HONOUR `statuses`, the way the real server-side filter does.
             if statuses is None and outer.unreadable:
                 return None                      # unreadable second read -> must fail closed
