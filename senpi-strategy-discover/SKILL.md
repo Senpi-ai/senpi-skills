@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.53.1"
+  version: "2.53.2"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -264,8 +264,9 @@ otherwise put it in `--theme` and rank on `archetype_label`/`belief_plain`/`thes
      and say nothing about it: the deploy and strategy-manager still enforce them. Never drop one leg of
      a hedged design to make a set fit.
    - If funds are unavailable (`user_context` missing/errored), ask for the budget rather than assuming.
-   - **"Can I try it first / paper trade it?"** — there is no paper-trading mode. The trial IS a live run at
-     the floor, after `senpi validate` proves it runs — and the floor is the card's `min_budget`, which is
+   - **"Can I try it first / paper trade it?"** — yes: a simulation, `deploy.py create <id> --budget <usd>
+     --paper` (senpi-strategy-ops), runs it on simulated money with the same code as live. The live trial is a
+     run at the floor, after `senpi validate` proves it runs — and the floor is the card's `min_budget`, which is
      the number to quote. The $10 platform floor is the per-wallet minimum inside it, never the number to
      give a user. Say so, and never offer to watch it on a timer — an `openclaw cron` job is a model call
      per firing, not a simulation.

@@ -48,9 +48,12 @@ package. It closes when a reply names a job, when `deploy.py status` shows the j
 when `close.py <id>` (whole package, not `--instance`) ends with nothing of the package live: a close it
 triggered, or every strategy already closed.
 - **Other parameters.** Advertised: the open id is sent with the new parameters; a `repeated` reply
-  returns the earlier job, says the new parameters were NOT applied, and nothing new starts. Not
-  confirmed: refused `[E_OPEN_DEPLOY_REQUEST]` (read `deploy.py status`; if it shows the job, report it;
-  if not, re-run nothing and ask the user).
+  returns the earlier job, says the new parameters were NOT applied, nothing new starts, and it never
+  exits `0`, even when that job goes live. Capability
+  read failed: refused `[E_OPEN_DEPLOY_REQUEST]` (read `deploy.py status`; if it shows the job, report it;
+  if not, re-run nothing and ask the user). Runtime without ids: the command reads the job record itself.
+  No job running and the START over 40 s old closes the entry and the new parameters go out; otherwise
+  refused `[E_OPEN_DEPLOY_REQUEST]` (re-run once `deploy.py status` shows no job running).
 - **An earlier job that had already ended.** A `repeated` job that is `done`/`interrupted` is reported
   as the earlier START's outcome, not a new deploy, and never exits `0`.
 - **Capability read failed.** An id is still sent (minted or open; an older runtime ignores it) and
@@ -381,7 +384,7 @@ Four rules keep `verify` from steering at a state it did not read:
   `CLOSING_POSITIONS`, only `CLOSING_DONE` is dead) or a deploy still mid-flight
   (`CREATE_WALLET`/`FUND_WALLET`/`INITIALIZE_POSITIONS`) gets `status.py <id>` triage, never the resume
   verb — and is never verified, even with a healthy runtime still registered against it.
-- **A deploy job RUNNING for this package replaces every money steer** with `openclaw senpi deploy
+- **A deploy job RUNNING for this package replaces every money steer** with `python3 deploy.py
   status`, and the report says the picture is mid-flight. The resume already is that job; re-checking
   during your own `create` must not dispatch a second one. That bit is read fail-closed, and the read
   lands in exactly one of three classes. A **job snapshot** (the shape the verb emits — a
@@ -607,8 +610,9 @@ own verdict + active-position count. Classes:
   (`deploy.py runtime <id>` to start, or `close.py <id>` to recover funds).
 - **copy** — copy-trading strategy (follows a `traderAddress`) → run by Senpi's copy engine, no runtime.
 - **manual** — manual / app-managed strategy → you manage it in the app, no runtime.
-- **runtime-unknown** — the host has no `openclaw`, so the registry is not visible at all. Not a
-  diagnosis and **never** to be read as an interrupted deploy: check again from the runtime host.
+- **runtime-unknown** — the registry couldn't be read: no `openclaw` on this host, or
+  `senpi.listRuntimes` failed or timed out. Not a diagnosis and **never** to be read as an interrupted deploy: re-run, or
+  check from the runtime host.
 
 A strategy off the runtime is **not broken** — copy/manual are managed elsewhere by design; `status.py`
 prints *how* each is managed (an info line, not a warning). Only `no-runtime` (autonomous, missing runtime)

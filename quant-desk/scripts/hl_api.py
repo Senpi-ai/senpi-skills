@@ -15,6 +15,7 @@ import json
 import random
 import socket
 import os
+import re
 import tempfile
 import time
 import urllib.error
@@ -120,6 +121,26 @@ class HLError(Exception):
     pass
 
 
+# hypaper's simulation wallet format today (`0x`, 16 zeros, 13-digit ms timestamp, 11 hex). Held equal
+# to every copy in this repo by `tests/test_paper_address_parity.py`.
+PAPER_ADDRESS_RE = re.compile(r"^0x0{16}\d{13}[0-9a-f]{11}$")
+
+
+def is_paper_address(address):
+    return bool(PAPER_ADDRESS_RE.match(str(address or "").strip().lower()))
+
+
+class PaperWalletRefused(HLError):
+    """A read for a simulation's wallet, refused before any request left."""
+
+
+def _refuse_paper(body):
+    for k in ("user", "vaultAddress"):
+        if is_paper_address(body.get(k)):
+            raise PaperWalletRefused(f"{body.get('type')}: {str(body.get(k)).strip()} is a simulation "
+                                     f"wallet; it trades on the simulated venue, not on Hyperliquid")
+
+
 def is_perp(coin):
     """Spot fills name the pair (`@107`, `PURR/USDC`) and HIP-4 outcome (prediction) contracts are `#NNNNN`;
     perps are bare names or dex-prefixed (`xyz:`, `km:` …)."""
@@ -141,6 +162,7 @@ class HL:
 
     # ---- transport ----
     def info(self, body):
+        _refuse_paper(body)
         key = hashlib.sha1(json.dumps(body, sort_keys=True).encode()).hexdigest()
         ttl = TTL.get(body.get("type"), 300)
         path = os.path.join(self.cache_dir, key + ".json") if self.cache_dir else None
@@ -376,6 +398,7 @@ class HLFixture(HL):
         self._r = recorded
 
     def info(self, body):
+        _refuse_paper(body)
         t = body.get("type")
         req = body.get("req") or {}
         user = str(body.get("user", "")).lower(); dex = body.get("dex", "")

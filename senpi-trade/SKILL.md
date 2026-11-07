@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.10.0"
+  version: "1.10.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -276,8 +276,8 @@ Vetted trader → **budget** → **`mirrorMultiplier`** (the size knob; **immuta
 deliberately) → **slippage tolerance** (explain it above; **set it against where their current positions sit — not a silent 1% that opens nothing**) → **optional
 protection** (none / static strategy-level SL/TP on total PnL / per-position DSL).
 
-### The hero check — simulate BEFORE funding (a one-shot sizing estimate, not paper trading)
-Senpi has no paper-trading mode; the estimate below says what would open *right now*, and the only live test
+### The hero check — estimate BEFORE funding (a one-shot sizing estimate, not a simulation)
+Copy-trading has no simulation mode; the estimate below says what would open *right now*, and the only live test
 is running the mirror at the $10 floor. Never offer to watch a trader on a timer — a cron is a model call per firing.
 Run `execution_estimate_position_opening` at the user's budget × multiplier × slippage **before** creating
 anything. It returns, per position, `open` / `skipped(slippage)` / `skipped(budget)` + `minimumBudgetRequired`

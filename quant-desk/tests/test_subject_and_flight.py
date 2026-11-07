@@ -253,6 +253,23 @@ def test_the_skill_forbids_re_running_a_desk_that_is_still_going():
     assert "at least 180s" in sk, "the timeout that SIGTERMs a wide book is not named"
 
 
+def test_the_skill_names_the_exec_hard_kill_for_both_openclaw_lines():
+    """The exec hard-kill key differs by OpenClaw line: 5.7 / 5.12 read only `timeout` (a
+    `timeoutSeconds` is ignored, so the 1800 s default applies), 10.x refuses `timeout` and reads only
+    `timeoutSeconds`, and sending both fails on 10.x. Skills reach every box whatever its image, so the
+    skill names the key the way senpi-agent's AGENTS.md does: the one the exec tool lists. Neither key
+    is taught as a bare literal anywhere else."""
+    sk = _skill()
+    rule = "The hard kill (seconds) is `timeoutSeconds` when the exec tool lists it, otherwise `timeout`."
+    assert rule in sk
+    assert "Send only the one the exec tool lists." in sk
+    rest = sk.replace(rule, "")
+    assert rest.count("`timeout`") == 0, "an exec `timeout` key is taught outside the version-neutral rule"
+    assert rest.count("`timeoutSeconds`") == 0, "an exec `timeoutSeconds` key is taught outside the rule"
+    assert "timeout: 200" not in sk and "timeoutSeconds: 200" not in sk, "one line's key is taught as a literal"
+    assert "`yieldMs: 190000` together with a hard kill of 200 seconds" in sk
+
+
 def test_the_skill_tells_the_agent_what_a_vault_exit_means():
     sk = _skill()
     assert "exit 4" in sk and "not_a_trader" in sk

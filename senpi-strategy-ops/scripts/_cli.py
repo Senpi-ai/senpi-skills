@@ -33,8 +33,15 @@ def _cli_env():
     that worker is spawned `detached` into its own process group (`entry.respawn.ts`,
     `process/respawn-child-runner.ts`). A group kill of our child then misses the worker, and a
     timed-out START keeps running and can still deliver after this script reported (RT566-08). The
-    flag is honoured by 5.7, 5.12 and 10.10 (`entry.respawn.ts`, `isTruthyEnvValue(env.OPENCLAW_NO_RESPAWN)`)."""
-    return dict(os.environ, SENPI_LOG_LEVEL="error", OPENCLAW_NO_RESPAWN="1")
+    flag is honoured by 5.7, 5.12 and 10.10 (`entry.respawn.ts`, `isTruthyEnvValue(env.OPENCLAW_NO_RESPAWN)`).
+
+    SENPI_OPENCLAW_CLI_SKIP_PLUGIN_CAPTURE=1 lets an `openclaw senpi …` call skip the 10.x plugin
+    generation capture (two copies + hashes of the runtime's whole install tree, ~18 s of a 25 s
+    `senpi validate`). Only an agent image carrying the senpi-agent #102 dist patch reads it, and only
+    for the `runtime` plugin; 5.x and unpatched 10.x read nothing by this name, so it is inert there.
+    Built-in calls (`gateway call`, `--version`) load no plugins, so it is a no-op on them too."""
+    return dict(os.environ, SENPI_LOG_LEVEL="error", OPENCLAW_NO_RESPAWN="1",
+                SENPI_OPENCLAW_CLI_SKIP_PLUGIN_CAPTURE="1")
 
 
 def _kill_tree(p):
@@ -491,7 +498,12 @@ def _deep_first(obj, keys):
     return None
 
 
-def runtime_status(name, timeout=15):
+# The few reads still on an `openclaw senpi …` verb (not `gateway call`) share one budget: the
+# openclaw CLI alone can take over a minute to start on a loaded box.
+OPENCLAW_READ_TIMEOUT_S = 120
+
+
+def runtime_status(name, timeout=OPENCLAW_READ_TIMEOUT_S):
     """`openclaw senpi status -r <name> --json` — lightweight per-runtime health (or None).
 
     Single fast read, no in-call retry. `_check_live` prefers the batched `runtime_health_map` (which
@@ -502,7 +514,7 @@ def runtime_status(name, timeout=15):
     return cli_json(["openclaw", "senpi", "status", "-r", name, "--json"], timeout)
 
 
-def runtime_state(name, timeout=15):
+def runtime_state(name, timeout=OPENCLAW_READ_TIMEOUT_S):
     """`openclaw senpi state -r <name> --json` → parsed state, or None.
 
     Single fast read — do NOT retry in-call. `senpi.getSystemState` transiently THROWS for minutes
@@ -560,7 +572,9 @@ def runtime_health_map():
     One call regardless of fleet size. The gateway is flaky-empty, so try the single call twice."""
     for _ in range(2):
         obj = health_or_none()
-        sts = find_list(obj, "statuses") if obj else []
+        if obj is None:  # failed or timed out: only the flaky-empty answer is worth a retry
+            break
+        sts = find_list(obj, "statuses")
         if sts:
             return {runtime_name(e): e for e in sts}
     return {}
@@ -1012,7 +1026,58 @@ def strategy_active(s):
     return str(strategy_status(s) or "").upper() == "ACTIVE"
 
 
-def list_strategies_or_none(mcp, timeout=15, statuses=None, why=None):
+# hypaper's simulation wallet format today (`0x`, 16 zeros, 13-digit ms timestamp, 11 hex). Held equal
+# to every copy in this repo by `tests/test_paper_address_parity.py`.
+PAPER_ADDRESS_RE = re.compile(r"^0x0{16}\d{13}[0-9a-f]{11}$")
+PAPER_ID_RE = re.compile(r"^paper-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+PAPER_RUNTIME_SUFFIX = "-paper"
+RUNTIME_ID_MAX = 40
+
+
+def is_paper_address(address):
+    return bool(PAPER_ADDRESS_RE.match(str(address or "").strip().lower()))
+
+
+def looks_paper(value):
+    """A strategy id or wallet that names a simulation. Used only to point at `--paper` in a refusal."""
+    v = str(value or "").strip().lower()
+    return v.startswith("paper") or is_paper_address(v)
+
+
+def runtime_id_for(pkg_id, instance, paper):
+    """The runtime id the deploy verb installs: `<id>-<instance>`, and for a simulation the same cut
+    to fit `-paper` in 40 characters (the runtime's `runtimeIdFor`)."""
+    base = f"{pkg_id}-{instance}"
+    if not paper:
+        return base
+    room = RUNTIME_ID_MAX - len(PAPER_RUNTIME_SUFFIX)
+    return base[:room].rstrip("-") + PAPER_RUNTIME_SUFFIX
+
+
+def runtime_world_is(rt, paper):
+    """Whether a runtime belongs to the world being read, by its wallet."""
+    return is_paper_address(runtime_wallet(rt)) == bool(paper)
+
+
+def strategy_is_paper(s):
+    return (isinstance(s, dict) and s.get("paper") is True) or strategy_obj(s).get("paper") is True
+
+
+def _paper_routing(res):
+    data = res.get("data") if isinstance(res, dict) and isinstance(res.get("data"), dict) else res
+    return isinstance(data, dict) and data.get("paper_routing") is True
+
+
+def paper_refusal(what, why):
+    """The refusal for a `--paper` command whose simulation list could not be read."""
+    return (f"error: could not read your simulations, so NOTHING was done and nothing about {what} is "
+            f"known here.\n"
+            f"  Cause: {why[0] if why else 'no cause reported'}\n"
+            f"  Simulations may not be available on this Senpi MCP yet. Do not re-run without --paper: "
+            f"that acts on live strategies with real money.")
+
+
+def list_strategies_or_none(mcp, timeout=15, statuses=None, why=None, paper=False):
     """`strategy_list` for callers that must fail CLOSED: returns **None** when the read did not
     produce an answer — so a money path can tell 'no strategies' (→ `[]`, an answer) from 'couldn't
     read the list' (→ None) and REFUSE rather than fund a second wallet next to an unread live one.
@@ -1034,8 +1099,15 @@ def list_strategies_or_none(mcp, timeout=15, statuses=None, why=None):
     unreadable — so there is one sentinel and no caller can treat either mode as benign. The
     **cause** is still worth printing, so pass `why`: a list the reason is appended to, for callers
     that render a "could not check" line an operator has to act on ("no SENPI_AUTH_TOKEN" and "the
-    payload carried no list" send them to different places). Callers that only branch omit it."""
+    payload carried no list" send them to different places). Callers that only branch omit it.
+
+    One world per call. `paper=True` sends `paper: true` and reads simulations only: a reply without
+    `paper_routing: true` came from an MCP with no paper router, which drops the flag and answers with
+    LIVE rows, so it is no answer (None). `paper=False` is today's call, unchanged, and a reply that
+    carries the marker is no answer either. Either way only rows of the asked world are returned."""
     args = {"status": statuses} if statuses else {}
+    if paper:
+        args["paper"] = True
     try:
         res = mcp.mcp_call("strategy_list", timeout=timeout, **args)
     except Exception as e:  # noqa: BLE001 — the WHOLE point: surface the failure instead of swallowing to []
@@ -1043,10 +1115,20 @@ def list_strategies_or_none(mcp, timeout=15, statuses=None, why=None):
             why.append(f"the MCP `strategy_list` call failed ({e})")
         return None
     found = find_list_or_none(res, "strategies")
-    if found is None and why is not None:
-        why.append("MCP `strategy_list` answered, but with no recognisable strategies list in it "
-                   "(an empty list would have read as an answer; this payload carries none)")
-    return found
+    if found is None:
+        if why is not None:
+            why.append("MCP `strategy_list` answered, but with no recognisable strategies list in it "
+                       "(an empty list would have read as an answer; this payload carries none)")
+        return None
+    if _paper_routing(res) != bool(paper):
+        if why is not None:
+            why.append("`strategy_list {paper: true}` was answered without `paper_routing: true`: this "
+                       "MCP has no paper router, so its rows are live strategies, not simulations"
+                       if paper else
+                       "`strategy_list` for live strategies was answered with `paper_routing: true`, "
+                       "a simulation reply")
+        return None
+    return [s for s in found if strategy_is_paper(s) == bool(paper)]
 
 
 def _match_strategy(s, skill_name, strategy_id, wallet):
@@ -1073,12 +1155,12 @@ def strategies_for(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=
 
 
 def strategies_for_or_none(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15,
-                           statuses=None, why=None):
+                           statuses=None, why=None, paper=False):
     """Fail-CLOSED `strategies_for`: returns None when the `strategy_list` read produced no answer —
     either it failed or its payload carried no list — so a money path can refuse rather than mistake
     'unreadable' for 'none' (the double-fund / un-consented-flatten trap). `why` carries the cause
-    out for callers that render it; see `list_strategies_or_none`."""
-    rows = list_strategies_or_none(mcp, timeout, statuses=statuses, why=why)
+    out for callers that render it; see `list_strategies_or_none`. `paper` picks the world."""
+    rows = list_strategies_or_none(mcp, timeout, statuses=statuses, why=why, paper=paper)
     if rows is None:
         return None
     return [s for s in rows if _match_strategy(s, skill_name, strategy_id, wallet)]
