@@ -124,6 +124,13 @@ class RuntimeIds(unittest.TestCase):
         self.assertFalse(_cli.is_paper_address(LIVE_WALLET))
         self.assertFalse(_cli.is_paper_address(None))
 
+    def test_the_zero_address_is_live(self):
+        zero = "0x" + "0" * 40
+        for value in (zero, zero.upper().replace("0X", "0x")):
+            self.assertFalse(_cli.is_paper_address(value))
+            self.assertFalse(_cli.looks_paper(value))
+        self.assertFalse(_cli.is_paper_address("0x" + "0" * 29 + "0a1b2c3d4e5"))
+
 
 class _CloseHarness(unittest.TestCase):
     """Drives `close.main` end to end over a FakeMCP, with the runtime inventory stubbed."""

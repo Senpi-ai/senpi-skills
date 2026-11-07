@@ -31,6 +31,12 @@ def test_a_paper_address_is_refused_before_any_request(monkeypatch):
     assert any("simulation wallet" in w for w in meta["warnings"])
 
 
+def test_the_zero_address_is_live_not_a_simulation():
+    zero = "0x" + "0" * 40
+    for value in (zero, zero.upper().replace("0X", "0x")):
+        assert not review._is_paper_address(value)
+
+
 def test_strict_closed_trades_for_a_paper_wallet_read_unknown_not_empty(monkeypatch):
     sent = []
     monkeypatch.setattr(review.subprocess, "run", lambda argv, **kw: sent.append(argv))
