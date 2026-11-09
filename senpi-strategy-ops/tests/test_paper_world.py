@@ -15,6 +15,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import types
 import unittest
 from pathlib import Path
@@ -342,6 +343,36 @@ class StatusOneWorld(unittest.TestCase):
         self.assertNotIn("live-1", out)
 
 
+class StatusDriftPerWorld(unittest.TestCase):
+    """A simulation's runtime is `<id>-<inst>-paper`; drift must still find its instance on disk."""
+
+    def setUp(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / "strategy.yaml").write_text("id: omega\n")
+        inst = types.SimpleNamespace(name="main", runtime_name="omega-main", runtime_text="x: 1\n",
+                                     runtime_doc={"exit": {"dsl_preset": "new"}},
+                                     runtime_path=tmp / "main" / "runtime.yaml")
+        pkg = types.SimpleNamespace(id="omega", dir=tmp, instances=[inst])
+        self._orig = (status._pkg.resolve_pkg_dir, status._pkg.load)
+        status._pkg.resolve_pkg_dir = lambda _id: tmp
+        status._pkg.load = lambda _id: pkg
+
+    def tearDown(self):
+        status._pkg.resolve_pkg_dir, status._pkg.load = self._orig
+
+    def test_a_simulation_running_an_older_recipe_shows_drift(self):
+        drift = status._config_drift("omega", "omega-main-paper", {"omega-main-paper": {"dslPreset": "old"}},
+                                     paper=True)
+        self.assertEqual(drift["diffs"], [{"field": "dsl_preset", "running": "old", "on_disk": "new"}])
+
+    def test_live_drift_is_unchanged(self):
+        drift = status._config_drift("omega", "omega-main", {"omega-main": {"dslPreset": "old"}})
+        self.assertEqual(drift["diffs"][0]["field"], "dsl_preset")
+        self.assertIsNone(status._config_drift("omega", "omega-main-paper",
+                                               {"omega-main-paper": {"dslPreset": "old"}}))
+
+
 class DeployPaper(unittest.TestCase):
     def setUp(self):
         self._orig = _cli.gateway_call
@@ -437,6 +468,41 @@ class DeployPaper(unittest.TestCase):
             deploy._username = orig
         self.assertIn('--budget <usd> --paper', err.getvalue())
 
+    def _lost_start_reading(self, job_meta, paper):
+        fresh = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time() + 1))
+        job = {"meta": {"deployId": "dpl-other", "packageId": "omega", "startedAt": fresh, **job_meta},
+               "state": {"status": "running"}}
+
+        def _gateway(method, params=None, rpc_timeout_ms=None, timeout_s=None):
+            self.calls.append((method, dict(params or {})))
+            return _gw("timeout") if method.startswith("senpi.deploy.start") else _gw("ok", payload=job)
+        _cli.gateway_call = _gateway
+        orig_sleep = deploy.time.sleep
+        deploy.time.sleep = lambda s: None
+        try:
+            return self._start(self._args(paper, request_ids=False))[0]
+        finally:
+            deploy.time.sleep = orig_sleep
+
+    def test_a_lost_paper_start_never_adopts_a_live_job(self):
+        self.assertIsNone(self._lost_start_reading({}, paper=True))
+
+    def test_a_lost_live_start_never_adopts_a_paper_job(self):
+        self.assertIsNone(self._lost_start_reading({"paper": True}, paper=False))
+
+    def test_a_lost_paper_start_adopts_its_own_world_job(self):
+        self.assertEqual(self._lost_start_reading({"paper": True}, paper=True), "dpl-other")
+
+    def test_the_dry_run_json_refusal_keeps_paper_in_its_rerun(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()), \
+                self.assertRaises(SystemExit):
+            deploy.main(["deploy.py", "create", "omega", "--budget", "30", "--paper", "--dry-run", "--json"])
+        text = err.getvalue()
+        self.assertIn("create omega --paper", text)
+        self.assertIn("senpi.deploy.startPaper", text)
+        self.assertNotIn("senpi.deploy.start ", text)
+
     def test_the_parser_takes_paper_on_create_and_runtime(self):
         seen = []
         orig = deploy.run_deploy, deploy.ensure_pkg, deploy._fork_for_deploy, deploy.outside_durable_root, \
@@ -457,6 +523,47 @@ class DeployPaper(unittest.TestCase):
             (deploy.run_deploy, deploy.ensure_pkg, deploy._fork_for_deploy, deploy.outside_durable_root,
              deploy.full_validate, deploy.start_request_ids_supported) = orig
         self.assertEqual(seen, [("create", True), ("runtime", True), ("create", False)])
+
+
+class VerifySeesSimulations(unittest.TestCase):
+    """`verify` reads live strategies only. When the package has no live wallet but runs as a
+    simulation, it must say so and name no live `create`."""
+
+    def setUp(self):
+        self._orig = (deploy.verify_reads, deploy.deploy_job_facts, deploy.MCPClient)
+        deploy.verify_reads = lambda pkg: ([], [], {})
+        deploy.deploy_job_facts = lambda pkg_id: ([], False)
+        self.mcp = FakeMCP(paper=[_paper_row()])
+        deploy.MCPClient = lambda *a, **k: self.mcp
+
+    def tearDown(self):
+        deploy.verify_reads, deploy.deploy_job_facts, deploy.MCPClient = self._orig
+
+    def _verify(self):
+        inst = types.SimpleNamespace(name="main", runtime_name="omega-main")
+        pkg = types.SimpleNamespace(id="omega", instances=[inst])
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            code = deploy.cmd_verify(pkg, types.SimpleNamespace(json=False))
+        return code, err.getvalue()
+
+    def test_a_simulation_only_package_names_no_live_create(self):
+        code, err = self._verify()
+        self.assertEqual(code, deploy.VERIFY_NOT)
+        self.assertNotIn("create omega", err)
+        self.assertIn("simulation", err)
+        self.assertIn("status.py omega --paper", err)
+        self.assertEqual([c.get("paper") for c in self.mcp.lists], [True])
+
+    def test_no_simulation_keeps_the_create_step(self):
+        self.mcp.paper = []
+        _code, err = self._verify()
+        self.assertIn("create omega --budget <usd>", err)
+
+    def test_an_unreadable_simulation_list_keeps_todays_step(self):
+        self.mcp.router = False
+        _code, err = self._verify()
+        self.assertIn("create omega --budget <usd>", err)
 
 
 if __name__ == "__main__":
