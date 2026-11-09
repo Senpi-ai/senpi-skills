@@ -469,5 +469,46 @@ class DeployPaper(unittest.TestCase):
         self.assertEqual(seen, [("create", True), ("runtime", True), ("create", False)])
 
 
+class VerifySeesSimulations(unittest.TestCase):
+    """`verify` reads live strategies only. When the package has no live wallet but runs as a
+    simulation, it must say so and name no live `create`."""
+
+    def setUp(self):
+        self._orig = (deploy.verify_reads, deploy.deploy_job_facts, deploy.MCPClient)
+        deploy.verify_reads = lambda pkg: ([], [], {})
+        deploy.deploy_job_facts = lambda pkg_id: ([], False)
+        self.mcp = FakeMCP(paper=[_paper_row()])
+        deploy.MCPClient = lambda *a, **k: self.mcp
+
+    def tearDown(self):
+        deploy.verify_reads, deploy.deploy_job_facts, deploy.MCPClient = self._orig
+
+    def _verify(self):
+        inst = types.SimpleNamespace(name="main", runtime_name="omega-main")
+        pkg = types.SimpleNamespace(id="omega", instances=[inst])
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+            code = deploy.cmd_verify(pkg, types.SimpleNamespace(json=False))
+        return code, err.getvalue()
+
+    def test_a_simulation_only_package_names_no_live_create(self):
+        code, err = self._verify()
+        self.assertEqual(code, deploy.VERIFY_NOT)
+        self.assertNotIn("create omega", err)
+        self.assertIn("simulation", err)
+        self.assertIn("status.py omega --paper", err)
+        self.assertEqual([c.get("paper") for c in self.mcp.lists], [True])
+
+    def test_no_simulation_keeps_the_create_step(self):
+        self.mcp.paper = []
+        _code, err = self._verify()
+        self.assertIn("create omega --budget <usd>", err)
+
+    def test_an_unreadable_simulation_list_keeps_todays_step(self):
+        self.mcp.router = False
+        _code, err = self._verify()
+        self.assertIn("create omega --budget <usd>", err)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
