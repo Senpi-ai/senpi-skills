@@ -342,6 +342,36 @@ class StatusOneWorld(unittest.TestCase):
         self.assertNotIn("live-1", out)
 
 
+class StatusDriftPerWorld(unittest.TestCase):
+    """A simulation's runtime is `<id>-<inst>-paper`; drift must still find its instance on disk."""
+
+    def setUp(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / "strategy.yaml").write_text("id: omega\n")
+        inst = types.SimpleNamespace(name="main", runtime_name="omega-main", runtime_text="x: 1\n",
+                                     runtime_doc={"exit": {"dsl_preset": "new"}},
+                                     runtime_path=tmp / "main" / "runtime.yaml")
+        pkg = types.SimpleNamespace(id="omega", dir=tmp, instances=[inst])
+        self._orig = (status._pkg.resolve_pkg_dir, status._pkg.load)
+        status._pkg.resolve_pkg_dir = lambda _id: tmp
+        status._pkg.load = lambda _id: pkg
+
+    def tearDown(self):
+        status._pkg.resolve_pkg_dir, status._pkg.load = self._orig
+
+    def test_a_simulation_running_an_older_recipe_shows_drift(self):
+        drift = status._config_drift("omega", "omega-main-paper", {"omega-main-paper": {"dslPreset": "old"}},
+                                     paper=True)
+        self.assertEqual(drift["diffs"], [{"field": "dsl_preset", "running": "old", "on_disk": "new"}])
+
+    def test_live_drift_is_unchanged(self):
+        drift = status._config_drift("omega", "omega-main", {"omega-main": {"dslPreset": "old"}})
+        self.assertEqual(drift["diffs"][0]["field"], "dsl_preset")
+        self.assertIsNone(status._config_drift("omega", "omega-main-paper",
+                                               {"omega-main-paper": {"dslPreset": "old"}}))
+
+
 class DeployPaper(unittest.TestCase):
     def setUp(self):
         self._orig = _cli.gateway_call
