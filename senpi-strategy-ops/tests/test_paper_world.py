@@ -15,6 +15,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import types
 import unittest
 from pathlib import Path
@@ -466,6 +467,31 @@ class DeployPaper(unittest.TestCase):
         finally:
             deploy._username = orig
         self.assertIn('--budget <usd> --paper', err.getvalue())
+
+    def _lost_start_reading(self, job_meta, paper):
+        fresh = time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(time.time() + 1))
+        job = {"meta": {"deployId": "dpl-other", "packageId": "omega", "startedAt": fresh, **job_meta},
+               "state": {"status": "running"}}
+
+        def _gateway(method, params=None, rpc_timeout_ms=None, timeout_s=None):
+            self.calls.append((method, dict(params or {})))
+            return _gw("timeout") if method.startswith("senpi.deploy.start") else _gw("ok", payload=job)
+        _cli.gateway_call = _gateway
+        orig_sleep = deploy.time.sleep
+        deploy.time.sleep = lambda s: None
+        try:
+            return self._start(self._args(paper, request_ids=False))[0]
+        finally:
+            deploy.time.sleep = orig_sleep
+
+    def test_a_lost_paper_start_never_adopts_a_live_job(self):
+        self.assertIsNone(self._lost_start_reading({}, paper=True))
+
+    def test_a_lost_live_start_never_adopts_a_paper_job(self):
+        self.assertIsNone(self._lost_start_reading({"paper": True}, paper=False))
+
+    def test_a_lost_paper_start_adopts_its_own_world_job(self):
+        self.assertEqual(self._lost_start_reading({"paper": True}, paper=True), "dpl-other")
 
     def test_the_dry_run_json_refusal_keeps_paper_in_its_rerun(self):
         err = io.StringIO()
