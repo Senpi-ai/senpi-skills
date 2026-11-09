@@ -1449,9 +1449,24 @@ def _funded_text(funded):
     return funded or "funded amount UNKNOWN — the strategy record carried no totalFunded/netFunded"
 
 
-def verify_instance(pkg, inst, strategies, runtimes, hmap, job_running=False):
+def package_simulations(pkg):
+    """The package's open simulations, or None when they cannot be read (an MCP with no paper
+    router, PAPER_UNAVAILABLE, a failed call). Read-only; used only to keep `verify` from naming a
+    live `create` over a package that runs as a simulation."""
+    try:
+        rows = _cli.list_strategies_or_none(MCPClient(), timeout=STATUS_TIMEOUT,
+                                            statuses=_cli.LIVE_STATUSES, paper=True)
+    except Exception:  # noqa: BLE001 — best effort: None keeps today's answer
+        return None
+    if rows is None:
+        return None
+    return [s for s in rows if _cli.strategy_open(s) and _cli.strategy_skill(s) == pkg.id]
+
+
+def verify_instance(pkg, inst, strategies, runtimes, hmap, job_running=False, simulations=None):
     """One instance's row: what exists, quoted — plus the ONE non-destructive next step for what does
-    not. Never a close/teardown command, and never a step that is wrong for the state actually read."""
+    not. Never a close/teardown command, and never a step that is wrong for the state actually read.
+    `simulations` is the package's open simulations (None: not read)."""
     want = _wallet_name(pkg, inst)
     rt_name = getattr(inst, "runtime_name", None) or f"{pkg.id}-{inst.name}"
     row = {"instance": inst.name, "strategy_name": want, "runtime": None, "wallet": None,
@@ -1575,6 +1590,16 @@ def verify_instance(pkg, inst, strategies, runtimes, hmap, job_running=False):
                             f"for {pkg.id} is RUNNING on this agent right now, so its wallet may be "
                             f"mid-creation")
             row["next"] = watch
+        elif simulations:
+            # verify reads live strategies only. A package that runs only as a simulation must not get
+            # a live `create` as its next step: that funds a real wallet for a user who meant the
+            # simulation.
+            row["issue"] = (f"no live strategy named {want!r} on the backend — {pkg.id} runs as a "
+                            f"SIMULATION ({len(simulations)} simulated strategy(s)), which this check "
+                            f"does not verify")
+            row["next"] = (f"python3 {Path(__file__).with_name('status.py').name} {pkg.id} --paper   "
+                           f"# read-only: the simulation. A live deploy funds a REAL wallet: name one "
+                           f"only if the user asks for real money")
         else:
             row["issue"] = f"no live strategy named {want!r} on the backend — nothing is funded here"
             row["next"] = (f"python3 {Path(__file__).name} create {pkg.id} --budget <usd>   # RUNS THE "
@@ -1756,7 +1781,12 @@ def cmd_verify(pkg, a):
         warns, job_running = deploy_job_facts(pkg.id)
     except ReadFailed as e:
         return _verify_unreadable(pkg.id, [str(e)], a.json)
-    rows = [verify_instance(pkg, inst, strategies, runtimes, hmap, job_running)
+    # Only a package with no live wallet and no running job can reach the live `create` step, so
+    # only then is the simulation list worth one more read.
+    sims = None
+    if not job_running and not any(_cli.strategy_skill(s) == pkg.id for s in strategies):
+        sims = package_simulations(pkg)
+    rows = [verify_instance(pkg, inst, strategies, runtimes, hmap, job_running, sims)
             for inst in pkg.instances]
     unreadable = [r["unreadable"] for r in rows if r["unreadable"]]
     if unreadable:
