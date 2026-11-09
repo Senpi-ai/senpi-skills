@@ -2198,11 +2198,12 @@ def _main(argv):
         # stdout got nothing — and the only fix that keeps the promise is refusing, not inventing a
         # shape. (A structured plan is the verb's `deploy --plan --json` work, not this wrapper's.)
         print(f"error: `--dry-run --json` is not a combination this command can answer — --dry-run "
-              f"renders the planned `openclaw gateway call senpi.deploy.start` line as PROSE, and there is no JSON "
+              f"renders the planned `openclaw gateway call {_start_method(a)}` line as PROSE, and there is no JSON "
               f"rendering of a plan. NOTHING WAS STARTED, planned or resolved here.\n"
               f"  The plan (read-only, nothing runs):  python3 {Path(__file__).name} {a.cmd} "
-              f"{a.package} … --dry-run\n"
-              f"  A JSON report needs a REAL run:      drop --dry-run — that RUNS THE DEPLOY VERB "
+              f"{a.package}{_paper_sfx(a)} … --dry-run\n"
+              f"  A JSON report needs a REAL run:      drop --dry-run"
+              f"{' and keep --paper' if getattr(a, 'paper', False) else ''} — that RUNS THE DEPLOY VERB "
               f"(creates + funds wallets, installs, starts trading) and its report is what --json "
               f"renders.", file=sys.stderr)
         sys.exit(EXIT_INTERNAL)
