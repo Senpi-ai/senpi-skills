@@ -116,7 +116,7 @@ def _read_or_refuse(rows, why, paper=False):
         "run. Fix the cause and re-run:  python3 status.py")
 
 
-def _config_drift(pkg_id, rt_name, descriptors):
+def _config_drift(pkg_id, rt_name, descriptors, paper=False):
     """The running recipe vs the package on disk — `{"diffs": [...], "dir", "package_dir"}` when
     they differ, None when they agree or nothing can be compared (package not on disk here, no
     descriptor, unreadable YAML). Read-only and fail-open: a status surface may not crash on a
@@ -128,7 +128,11 @@ def _config_drift(pkg_id, rt_name, descriptors):
         if not (_pkg.resolve_pkg_dir(pkg_id) / "strategy.yaml").is_file():
             return None
         pkg = _pkg.load(pkg_id)
-        inst = next((i for i in pkg.instances if i.runtime_name == rt_name), None)
+        # A simulation runs the same runtime.yaml under `<id>-<inst>-paper`, so its instance is found
+        # by the id the deploy verb gives it, not by the runtime.yaml `name`.
+        inst = next((i for i in pkg.instances
+                     if (_cli.runtime_id_for(pkg.id, i.name, True) if paper else i.runtime_name) == rt_name),
+                    None)
         if inst is None or inst.runtime_doc is None:
             return None
         diffs = _cli.config_drift(desc, inst.runtime_text, inst.runtime_doc)
@@ -183,7 +187,7 @@ def build(mcp, only_pkg=None, deep=True, paper=False):
                 # The runtime's own entry gate — separate from health, because a paused runtime is
                 # healthy: it ticks, it manages what it holds, and it opens nothing.
                 paused = _cli.risk_pause(entry)
-            drift = _config_drift(skill, _cli.runtime_name(rt), descriptors)
+            drift = _config_drift(skill, _cli.runtime_name(rt), descriptors, paper)
             if _cli.runtime_no_entry_scanners(rt):
                 # positive wiring-failure evidence from the inventory itself ("running — NO ENTRY
                 # SCANNERS"): the runtime is up but cannot produce entry signals — own class, not
