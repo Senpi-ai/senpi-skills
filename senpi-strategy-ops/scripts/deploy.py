@@ -748,7 +748,7 @@ def _poll_steer(pkg_id, rid, deploy_id=None, since=None):
     return "\n".join(lines)
 
 
-def _recover_lost_start(pkg, t0, log, rid=None):
+def _recover_lost_start(pkg, t0, log, rid=None, paper=False):
     """A START whose reply never came back may still have been taken: killing our client does not
     take back a request the gateway already read. Read the job record (`senpi.deploy.status {}`) up
     to RECOVER_READS times. Returns the adopted deployId, or None. Never starts anything, and None
@@ -757,7 +757,8 @@ def _recover_lost_start(pkg, t0, log, rid=None):
     With `rid` (a request id the runtime advertised it honours) the match is exact: the job whose
     `meta.requestId` is ours, whenever it started (a retry's job was started by the first attempt).
     Without it the match is a heuristic (this package, started no earlier than RECOVER_SKEW_S before
-    the call): a job for the same package started by someone else in the same window would be
+    the call, same world: the job's `meta.paper` must match `paper`): a job for the same package
+    and world started by someone else in the same window would be
     adopted. That can only make this script follow and report the wrong job; it never dispatches,
     funds or closes anything."""
     _sleep(2)
@@ -774,6 +775,7 @@ def _recover_lost_start(pkg, t0, log, rid=None):
         else:
             started = _iso_ts(meta.get("startedAt"))
             if (str(meta.get("packageId") or "") == str(pkg.id) and started is not None
+                    and (meta.get("paper") is True) == bool(paper)
                     and started >= t0 - RECOVER_SKEW_S and meta.get("deployId")):
                 return meta["deployId"]
         if i + 1 < RECOVER_READS:
@@ -909,7 +911,7 @@ def start_deploy(pkg, a, log):
         raise SystemExit(EXIT_INTERNAL)
     # timeout / transport / error / unreadable: the gateway may have taken the job.
     print(f"{method}: {kind}: {r['message'] or 'no message'}", file=sys.stderr)
-    adopted = _recover_lost_start(pkg, t0, log, rid_by)
+    adopted = _recover_lost_start(pkg, t0, log, rid_by, paper)
     if adopted:
         how = (f"the job record shows request id {rid_by} on job {adopted}" if rid_by else
                f"the gateway took job {adopted} for {pkg.id} after this command sent it")
