@@ -437,6 +437,16 @@ class DeployPaper(unittest.TestCase):
             deploy._username = orig
         self.assertIn('--budget <usd> --paper', err.getvalue())
 
+    def test_the_dry_run_json_refusal_keeps_paper_in_its_rerun(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()), \
+                self.assertRaises(SystemExit):
+            deploy.main(["deploy.py", "create", "omega", "--budget", "30", "--paper", "--dry-run", "--json"])
+        text = err.getvalue()
+        self.assertIn("create omega --paper", text)
+        self.assertIn("senpi.deploy.startPaper", text)
+        self.assertNotIn("senpi.deploy.start ", text)
+
     def test_the_parser_takes_paper_on_create_and_runtime(self):
         seen = []
         orig = deploy.run_deploy, deploy.ensure_pkg, deploy._fork_for_deploy, deploy.outside_durable_root, \
