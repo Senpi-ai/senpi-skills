@@ -1901,6 +1901,12 @@ def update_target(pkg, runtime_id=None, address=None):
     if runtime_id:
         inst = next((i for i in insts if i.runtime_name == runtime_id), None)
         if inst is None:
+            # A simulation runs the same instance dir under `<id>-<inst>-paper` (what `status.py
+            # --paper` prints for a drifted one): resolve it back to its instance, and keep the id
+            # exactly as given so the verb is pointed at the simulation's runtime, not the live one.
+            inst = next((i for i in insts
+                         if _cli.runtime_id_for(pkg.id, i.name, True) == runtime_id), None)
+        if inst is None:
             return None, [], (f"✗ {pkg.id}: no instance of this package runs as {runtime_id!r} — its "
                               f"runtime ids are: {ids}. Nothing was changed.")
         return inst, ["--id", runtime_id], None
