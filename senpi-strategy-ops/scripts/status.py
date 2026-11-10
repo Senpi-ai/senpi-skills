@@ -87,9 +87,10 @@ def _funded(r):
     return r["funded"] or "unknown"
 
 
-def _openclaw_available():
-    rc, _o, _e = _cli.run_cli(["openclaw", "--version"], timeout=15)
-    return rc == 0
+def _openclaw_available(why=None):
+    """`openclaw --version` answered. A SIGKILLed probe is out of memory, never "no openclaw": `why`
+    receives its `Cause` (see `_cli.openclaw_available`)."""
+    return _cli.openclaw_available(why=why)
 
 
 def _read_or_refuse(rows, why):
@@ -137,8 +138,10 @@ def _config_drift(pkg_id, rt_name, descriptors):
             "dir": str(inst.runtime_path.parent), "package_dir": str(pkg.dir)}
 
 
-def build(mcp, only_pkg=None, deep=True, rwhy=None):
-    """`(rows, orphans, cli_ok)`. `rwhy`, a list, receives why the runtime list could not be read."""
+def build(mcp, only_pkg=None, deep=True, rwhy=None, kills=None):
+    """`(rows, orphans, cli_ok)`. `rwhy`, a list, receives why the runtime list could not be read.
+    `kills`, a list, receives every SIGKILLed read's `Cause` (the probe, the list, the health read):
+    the caller turns any of them into the out-of-memory stop."""
     why = []
     strategies = _read_or_refuse(
         _cli.list_strategies_or_none(mcp, statuses=_cli.LIVE_STATUSES, why=why), why)
@@ -146,11 +149,17 @@ def build(mcp, only_pkg=None, deep=True, rwhy=None):
     # No openclaw here, or a `senpi.listRuntimes` read that failed or timed out: the registry is not
     # visible, and an empty list must NOT read as "no runtimes" (that turns a healthy fleet into false
     # 'interrupted deploy' alarms). Degrade to runtime-unknown instead.
-    runtimes = _cli.list_runtimes_or_none(why=rwhy) if _openclaw_available() else None
+    rwhy = rwhy if rwhy is not None else []
+    vwhy, hwhy = [], []
+    runtimes = _cli.list_runtimes_or_none(why=rwhy) if _openclaw_available(why=vwhy) else None
+    if runtimes is None and _cli.sigkilled(vwhy):
+        rwhy.extend(vwhy)   # a killed probe IS why the list was not read (not "no openclaw")
     cli_ok = runtimes is not None
     runtimes = runtimes or []
     # ONE `senpi.getHealthStatus` for the whole fleet — only when runtimes actually exist
-    health_by_name = _cli.runtime_health_map() if (deep and runtimes) else {}
+    health_by_name = _cli.runtime_health_map(why=hwhy) if (deep and runtimes) else {}
+    if kills is not None:
+        kills.extend(c for c in rwhy + hwhy if _cli.sigkilled(c))
     # The rendered descriptors (what each runtime is actually running) ride the same listRuntimes rows.
     descriptors = _cli.runtime_descriptors(runtimes) if (deep and runtimes) else {}
     matched_rt = set()  # runtime names already matched to a strategy
@@ -225,18 +234,25 @@ def main(argv):
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv[1:])
 
-    rwhy = []
-    rows, orphans, cli_ok = build(MCPClient(), a.package, deep=not a.fast, rwhy=rwhy)
+    rwhy, kills = [], []
+    rows, orphans, cli_ok = build(MCPClient(), a.package, deep=not a.fast, rwhy=rwhy, kills=kills)
+    # A SIGKILLed read: what is below is only what was read before it, and this run exits EXIT_OOM —
+    # every kill steer names this script as the sign memory has freed, so its exit code is that sign.
+    stop = _cli.oom_stop("Nothing was changed. What is shown is only what was read before the kill; "
+                         "anything not read is UNKNOWN, not stopped.",
+                         "the box is out of memory, so what is running could not be fully read"
+                         ) if kills else None
+    code = _cli.EXIT_OOM if kills else 0
 
     if a.json:
         print(json.dumps({"strategies": rows, "orphan_runtimes": orphans, "openclaw_available": cli_ok,
-                          "runtime_list_error": str(rwhy[0]) if rwhy else None}, indent=2))
-        return 0
+                          "runtime_list_error": str(rwhy[0]) if rwhy else None,
+                          **(_cli.oom_fields(stop=stop) if kills else {})}, indent=2))
+        return code
 
-    if not cli_ok and rwhy and _cli.sigkilled(rwhy):
-        # The cause carries the stop and when to try again; a "Re-run" here would contradict it.
-        print(f"\nℹ couldn't read the runtime list on this host ({rwhy[0]}) — runtime state is "
-              f"UNKNOWN, not stopped.")
+    if kills:
+        # The fact once (the cause without its own stop), then the one stop; never a "Re-run".
+        print(f"\nℹ {_cli.cause_fact(kills[0])}. {stop}")
     elif not cli_ok:
         print("\nℹ couldn't read the runtime list on this host (no openclaw, or `senpi.listRuntimes` "
               "failed or timed out" + (f": {rwhy[0]}" if rwhy else "") + ") — runtime state is UNKNOWN, "
@@ -244,7 +260,7 @@ def main(argv):
 
     if not rows and not orphans:
         print("No open strategies." + (f" (filter: {a.package})" if a.package else ""))
-        return 0
+        return code
 
     by_pkg = defaultdict(list)
     for r in rows:
@@ -345,7 +361,7 @@ def main(argv):
         print("\n⚠ Orphan runtimes (no active strategy — safe to delete):")
         for o in orphans:
             print(f"  - {o['runtime']} ({str(o['wallet'] or '')[:10]}…) → `openclaw senpi runtime delete {o['runtime']}`")
-    return 0
+    return code
 
 
 if __name__ == "__main__":

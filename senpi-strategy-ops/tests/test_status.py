@@ -70,7 +70,7 @@ def build_rows(payload):
         _cli.list_strategies_or_none, _cli.list_runtimes_or_none, status._openclaw_available)
     _cli.list_strategies_or_none = lambda *a, **k: [payload]
     _cli.list_runtimes_or_none = lambda *a, **k: runtimes
-    status._openclaw_available = lambda: bool(runtimes)
+    status._openclaw_available = lambda why=None: bool(runtimes)
     try:
         rows, _orphans, _cli_ok = status.build(None, deep=False)
     finally:
@@ -157,7 +157,7 @@ class TestUnreadableRuntimeList(unittest.TestCase):
         orig = (_cli.list_strategies_or_none, _cli.list_runtimes_or_none, status._openclaw_available)
         _cli.list_strategies_or_none = lambda *a, **k: [fixture_with()]
         _cli.list_runtimes_or_none = lambda *a, **k: None   # openclaw is here, the read timed out
-        status._openclaw_available = lambda: True
+        status._openclaw_available = lambda why=None: True
         try:
             rows, _orphans, cli_ok = status.build(None, deep=False)
         finally:
@@ -171,7 +171,7 @@ class TestUnreadableRuntimeList(unittest.TestCase):
         _cli.list_strategies_or_none = lambda *a, **k: [fixture_with()]
         _cli.gateway_call = lambda *a, **k: {"kind": "timeout", "payload": None,
                                              "message": "no answer within 25s"}
-        status._openclaw_available = lambda: True
+        status._openclaw_available = lambda why=None: True
         try:
             rows, _orphans, cli_ok = status.build(None, deep=False)
         finally:
@@ -185,7 +185,7 @@ class TestUnreadableRuntimeList(unittest.TestCase):
         _cli.list_strategies_or_none = lambda *a, **k: [fixture_with()]
         _cli.gateway_call = lambda *a, **k: {"kind": "unreadable", "payload": None, "rc": -9,
                                              "message": _cli.killed_note(-9)}
-        status._openclaw_available = lambda: True
+        status._openclaw_available = lambda why=None: True
         status.MCPClient = lambda: None
         buf = io.StringIO()
         try:
