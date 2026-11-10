@@ -166,6 +166,28 @@ def _spawn(args, timeout):
         return -1, out or "", err or "", True, None
 
 
+def killed_note(rc):
+    """What to say when a child died by signal: `rc < -1` from Python, or a shell's `128 + n`.
+
+    `-1` is this module's own timeout/spawn sentinel, never a signal here. A SIGKILLed CLI prints
+    nothing, and `rc -9, no output` read as a mystery: the same command was retried again and
+    again into a box that kept killing it. On a box near its memory limit the kernel's OOM killer
+    is the usual sender (not proven per process: the agent cannot read the kernel log)."""
+    n = -rc if rc < -1 else rc - 128 if 128 < rc < 160 else None
+    if n is None:
+        return ""
+    try:
+        name = signal.Signals(n).name
+    except ValueError:
+        name = f"signal {n}"
+    note = f"killed by {name} (rc {rc}) before it answered — not a verdict on the package."
+    if n == signal.SIGKILL:
+        note += (" On a box near its memory limit that is most likely out of memory. Do not retry the "
+                 "same command: it will be killed again. Report it as not done; senpi-strategy-ops "
+                 "`status.py` reads what is running without loading the plugin.")
+    return note
+
+
 def _run_cli(args, timeout=60):
     """Run a CLI command; return (returncode, stdout, stderr). rc=-1 on spawn failure/timeout —
     `SPAWN_FAILED_PREFIX` on stderr distinguishes the never-ran case from the stopped-waiting one.
@@ -183,6 +205,9 @@ def _run_cli(args, timeout=60):
                                                             else f" ({e})")
     if timed_out:
         return -1, "", f"timed out after {timeout}s: {' '.join(args)}"
+    note = killed_note(rc)
+    if note:
+        err = f"{err.rstrip()}\n{note}" if err.strip() else note
     return rc, out, err
 
 

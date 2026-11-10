@@ -319,6 +319,21 @@ class ProcessGroupKill(unittest.TestCase):
         self.assertIn("timed out after 1s", err)
         self.assertLess(time.time() - t0, 10)
 
+    def test_run_cli_names_a_signal_kill_instead_of_no_output(self):
+        # A child SIGKILLed mid-bootstrap prints nothing; `rc -9 — no output` read as a mystery and
+        # the same command was retried again and again. The kill is the answer: say so.
+        rc, out, err = _cli.run_cli(
+            [sys.executable, "-c", "import os, signal; os.kill(os.getpid(), signal.SIGKILL)"])
+        self.assertEqual((rc, out), (-9, ""))
+        self.assertIn("killed by SIGKILL", err)
+        self.assertIn("out of memory", err)
+        self.assertIn("do not retry", err.lower())
+
+    def test_a_shell_style_137_is_a_kill_too(self):
+        self.assertIn("killed by SIGKILL", _cli.killed_note(137))
+        self.assertEqual(_cli.killed_note(1), "")
+        self.assertEqual(_cli.killed_note(-1), "")  # this module's own timeout/spawn sentinel
+
 
 def _gw(kind, payload=None, message=None):
     return {"kind": kind, "payload": payload, "message": message, "code": None, "rc": 0, "stderr": "",

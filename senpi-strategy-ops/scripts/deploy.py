@@ -1922,8 +1922,11 @@ def cmd_update(a):
                   file=sys.stderr)
     if rc in (0, 1, 2, 3):
         return rc
+    # `status.py`, not `openclaw senpi runtime list`: that verb loads the same plugin tree and, on a
+    # box whose memory killed this one, is killed too.
     print(f"✗ {pkg.id}: `senpi update` did not answer (rc {rc}) — {tail or 'no output'}. Read the "
-          f"runtime before retrying: openclaw senpi runtime list --json", file=sys.stderr)
+          f"runtime before retrying: python3 {Path(__file__).with_name('status.py').name} {pkg.id}",
+          file=sys.stderr)
     return EXIT_INTERNAL
 
 
