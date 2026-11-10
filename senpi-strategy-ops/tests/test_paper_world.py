@@ -120,11 +120,11 @@ class RuntimeIds(unittest.TestCase):
         self.assertEqual(_cli.runtime_id_for("omega", "main", False), "omega-main")
         self.assertEqual(_cli.runtime_id_for("omega", "main", True), "omega-main-paper")
 
-    def test_the_paper_suffix_survives_the_40_character_cut(self):
-        rid = _cli.runtime_id_for("a" * 30, "instance", True)
-        self.assertEqual(rid, "a" * 30 + "-ins-paper")
-        self.assertEqual(len(rid), 40)
-        self.assertEqual(_cli.runtime_id_for("a" * 33, "main", True), "a" * 33 + "-paper")
+    def test_a_paper_id_is_never_cut(self):
+        # The runtime refuses a paper `<id>-<instance>` over 34 characters instead of cutting it,
+        # because a cut gave two packages one runtime id.
+        self.assertEqual(_cli.runtime_id_for("a" * 29, "main", True), "a" * 29 + "-main-paper")
+        self.assertEqual(_cli.runtime_id_for("a" * 30, "instance", True), "a" * 30 + "-instance-paper")
 
     def test_paper_addresses(self):
         self.assertTrue(_cli.is_paper_address(PAPER_WALLET))
