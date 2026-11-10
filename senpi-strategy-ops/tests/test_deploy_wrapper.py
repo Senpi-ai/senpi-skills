@@ -432,13 +432,25 @@ class LostStartReply(unittest.TestCase):
     def test_a_sigkilled_start_says_out_of_memory_and_when_to_poll_not_poll_now(self):
         kill = (-9, "", _cli.killed_note(-9))
         out, fake, err = self._start([kill, kill, kill, kill])
-        self.assertEqual(out, ("exit", deploy.EXIT_INTERNAL))
+        self.assertEqual(out, ("exit", _cli.EXIT_OOM))
         self.assertEqual(len(fake.gateway("senpi.deploy.status")), 1)   # a SIGKILLed read ends the reads
         self.assertIn("out of memory", err)
-        self.assertIn("Do not poll now", err)
+        self.assertIn("do not poll", err)
         self.assertIn("after the box restarts or memory frees", err)
         self.assertIn("Do not re-run create", err)
         self.assertNotIn("  Next: python3", err)
+
+    def test_a_sigkilled_start_whose_reads_answer_is_not_out_of_memory(self):
+        # The START's own kill is not "every read is killed too": the recovery reads answered, so the
+        # box can read, and the step is the ordinary poll (a job may be funding a wallet right now).
+        other = _status(self._job(package_id="polar"))
+        out, fake, err = self._start([(-9, "", _cli.killed_note(-9))] + [other] * deploy.RECOVER_READS)
+        self.assertEqual(out, ("exit", deploy.EXIT_INTERNAL))
+        self.assertEqual(len(fake.gateway("senpi.deploy.status")), deploy.RECOVER_READS)
+        self.assertIn("  Next: python3 deploy.py status", err)
+        self.assertIn("a job MAY BE RUNNING", err)
+        self.assertNotIn("out of memory", err)
+        self.assertNotIn("do not poll", err)
 
     def test_a_start_killed_by_another_signal_keeps_the_ordinary_poll_steer(self):
         out, fake, err = self._start([(-15, "", _cli.killed_note(-15))])
@@ -1278,7 +1290,7 @@ class ForwardedMaxWaitDefault(unittest.TestCase):
         deploy.ensure_pkg = lambda arg, ref, log: _pkg()
         deploy.full_validate = lambda pkg: []
         self.waited = []
-        deploy.wait_for_terminal = lambda did, budget, log: (
+        deploy.wait_for_terminal = lambda did, budget, log, why=None: (
             self.waited.append(budget) or {"state": {"status": "done", "overall": "live"}})
 
     def tearDown(self):
@@ -1694,7 +1706,7 @@ class StatusSubcommand(unittest.TestCase):
     def test_a_sigkilled_status_read_says_stop_and_when_not_re_run(self):
         # Every START/poll steer sends the agent here; "Re-run this command" here is the loop.
         code, _out, err = self._run(["deploy.py", "status"], [(-9, "", _cli.killed_note(-9))])
-        self.assertEqual(code, 1)
+        self.assertEqual(code, _cli.EXIT_OOM)
         self.assertIn("killed by SIGKILL", err)
         self.assertIn("out of memory", err)
         self.assertIn("after the box restarts or memory frees", err)
@@ -1859,8 +1871,11 @@ class StaleProofRepair(unittest.TestCase):
     def test_a_killed_re_proof_is_not_a_validate_fail(self):
         # A SIGKILLed validate never finished: no verdict on the package, and never "fix what validate
         # reported" (there is nothing to fix) or a re-run into the box that killed it.
-        code, fake, _out, err = self._run(self._repaired(validate=(-9, "", _cli.killed_note(-9)))[:3])
-        self.assertEqual(code, 2)                          # the original refusal, relayed unchanged
+        code, fake, out, err = self._run(self._repaired(validate=(-9, "", _cli.killed_note(-9)))[:3])
+        # The same exit as the same kill on the fork path, never the refusal's 2 (whose playbook step,
+        # "create repairs it", is a re-run into the box that killed validate).
+        self.assertEqual(code, _cli.EXIT_OOM)
+        self.assertEqual(out, "")                          # no refused snapshot on stdout
         self.assertEqual(len(fake.argv_for("validate")), 1)
         self.assertEqual(len(fake.gateway("senpi.deploy.start")), 1)   # the deploy was NOT re-run
         self.assertIn("killed by SIGKILL", err)
@@ -1872,7 +1887,7 @@ class StaleProofRepair(unittest.TestCase):
 
     def test_a_re_proof_killed_by_another_signal_is_no_verdict_and_not_out_of_memory(self):
         code, _fake, _out, err = self._run(self._repaired(validate=(-15, "", _cli.killed_note(-15)))[:3])
-        self.assertEqual(code, 2)
+        self.assertEqual(code, deploy.EXIT_INTERNAL)       # as on the fork path: no verdict, not refused
         self.assertIn("NOT a verdict on the package", err)
         self.assertIn("Re-run this command", err)
         self.assertNotIn("memory", err)
@@ -2854,7 +2869,8 @@ class VerifyIsAReadOnlyCheck(VerifyHarness, unittest.TestCase):
                    {"deploy_status": (-9, "", _cli.killed_note(-9))}):
             code, out, _err, _router = self._verify("--json", **kw)
             payload = json.loads(out)
-            self.assertEqual(code, 1, kw)
+            self.assertEqual(code, _cli.EXIT_OOM, kw)
+            self.assertEqual((payload["oom"], payload["killed_rc"]), (True, -9), kw)
             self.assertNotIn("Retry", payload["next"], kw)
             self.assertIn("out of memory", payload["next"], kw)
             self.assertIn("after the box restarts or memory frees", payload["next"], kw)

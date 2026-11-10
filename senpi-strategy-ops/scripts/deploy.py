@@ -169,6 +169,7 @@ EXIT_CODES = {
 }
 EXIT_INTERNAL = 1
 EXIT_PENDING = 6
+# Outside the map: `_cli.EXIT_OOM` (9), a call here was SIGKILLed — the out-of-memory stop.
 
 
 # ---------- package resolution (unchanged — discovery stays in skills) ----------
@@ -556,11 +557,18 @@ def _gw(method, params, rpc_ms, wall_s, min_wall_s=1):
 
 # ---------- the request id on senpi.deploy.start (K2) ----------
 
-def start_request_ids_supported(log):
+def start_request_ids_supported(log, as_json=False):
     """`senpi.getHealthStatus` → True (`deploy.capabilities.deployStartRequestId` is true), False (a
     readable answer without it: the runtime does not honour an id), or None (the read failed, so
-    whether it does is unknown). Only True lets anything rely on an id."""
+    whether it does is unknown). Only True lets anything rely on an id.
+
+    A SIGKILLed read exits with the out-of-memory stop BEFORE the START: nothing is dispatched into a
+    box that kills its reads (the START would be killed too, and its outcome unknown)."""
     r = _gw("senpi.getHealthStatus", {}, _cli.READ_RPC_MS, _cli.READ_WALL_S)
+    if _cli.is_sigkill(r["rc"]):
+        sys.exit(_cli.emit_oom("  " + _cli.oom_stop(
+            "NOTHING WAS DISPATCHED: no job started, no wallet created, no funds moved.",
+            "the box is out of memory, so the deploy was not started"), as_json, {"deployId": None}))
     if r["kind"] != "ok" or not isinstance(r["payload"], dict):
         log(f"  (senpi.getHealthStatus: {r['kind']}; START request id support unknown)")
         return None
@@ -734,9 +742,10 @@ def _poll_steer(pkg_id, rid, deploy_id=None, since=None, oom=False):
     lines = [f"  Next: python3 {me} status   — read it {want}",
              "  Do not re-run create: a second start can fund a second wallet."]
     if oom:
-        lines[:1] = [f"  The box is most likely out of memory (a call here was {_cli.killed_note(-9)}): "
-                     f"stop here. Tell the user the deploy's outcome is unknown and a wallet may already "
-                     f"be funded. Do not poll now: every read is killed too. {_cli.oom_wait()}",
+        lines[:1] = ["  " + _cli.oom_stop("The deploy's outcome is unknown: a job MAY BE RUNNING and a "
+                                          "wallet may already be funded.",
+                                          "the deploy's outcome is unknown and a wallet may already be "
+                                          "funded"),
                      f"  Then: python3 {me} status   — read it {want}"]
     note = _budget_note()
     if note:
@@ -903,7 +912,9 @@ def start_deploy(pkg, a, log):
         raise SystemExit(EXIT_INTERNAL)
     # timeout / transport / error / unreadable: the gateway may have taken the job.
     print(f"senpi.deploy.start: {kind}: {r['message'] or 'no message'}", file=sys.stderr)
-    kills = [r["rc"]] if _cli.is_sigkill(r["rc"]) else []
+    # The START's own SIGKILL is not enough to say "out of memory, every read is killed too": only a
+    # recovery read that is killed as well says so. Reads that answer say the box can read, so poll.
+    kills = []
     adopted = _recover_lost_start(pkg, t0, log, rid_by, kills)
     if adopted:
         how = (f"the job record shows request id {rid_by} on job {adopted}" if rid_by else
@@ -911,12 +922,16 @@ def start_deploy(pkg, a, log):
         print(f"note: the START reply was lost, but {how}; following that job.", file=sys.stderr)
         _journal_resolve(pkg, open_rid, adopted)
         return adopted
-    print(f"  No answer came back for the START call{_rid_tag(rid)}, and the reads of the job record "
-          f"found no job for {pkg.id} started by it. That is not a verdict: the gateway may have "
-          f"taken the deploy, so a job MAY BE RUNNING (a wallet may already be funded). The START "
-          f"was sent at {_utc_stamp(t0)}.\n" + _poll_steer(pkg.id, rid_by, since=_utc_stamp(t0),
-                                                            oom=bool(kills)),
-          file=sys.stderr)
+    found = ("a read of the job record was killed too" if kills else
+             f"the reads of the job record found no job for {pkg.id} started by it")
+    text = (f"  No answer came back for the START call{_rid_tag(rid)}, and {found}. That is not a "
+            f"verdict: the gateway may have taken the deploy, so a job MAY BE RUNNING (a wallet may "
+            f"already be funded). The START was sent at {_utc_stamp(t0)}.\n"
+            + _poll_steer(pkg.id, rid_by, since=_utc_stamp(t0), oom=bool(kills)))
+    if kills:
+        raise SystemExit(_cli.emit_oom(text, getattr(a, "json", False),
+                                       {"deployId": None, "requestId": rid_by, "sentAt": _utc_stamp(t0)}))
+    print(text, file=sys.stderr)
     raise SystemExit(EXIT_INTERNAL)
 
 
@@ -941,9 +956,13 @@ def read_status(deploy_id):
     return None, _cli.Cause(f"senpi.deploy.status: {r['kind']}: {words}", r["rc"]), False
 
 
-def status_snapshot(deploy_id):
-    """The job snapshot as JSON, or None when the call produced none (see `read_status`)."""
-    return read_status(deploy_id)[0]
+def status_snapshot(deploy_id, why=None):
+    """The job snapshot as JSON, or None when the call produced none (see `read_status`). `why`, a
+    list, receives that read's `_cli.Cause` (its `rc` says whether it was killed)."""
+    snap, words, _no_job = read_status(deploy_id)
+    if snap is None and why is not None:
+        why.append(words)
+    return snap
 
 
 def check_status_package(arg, snap):
@@ -1002,13 +1021,19 @@ def print_status(deploy_id, as_json, snap):
     print(json.dumps(snap, indent=2, ensure_ascii=False))
 
 
-def wait_for_terminal(deploy_id, max_wait, log):
+def wait_for_terminal(deploy_id, max_wait, log, why=None):
     """Poll until the job leaves `running`, or the wait budget (or the command budget) runs out.
-    Returns the last snapshot."""
+    Returns the last snapshot. `why`, a list, receives each failed read's `_cli.Cause`; a SIGKILLed
+    read ends the polling (the next read is killed too), and the caller says stop."""
     deadline = time.time() + max_wait
     snap = None
     while True:
-        fresh = status_snapshot(deploy_id)
+        causes = []
+        fresh = status_snapshot(deploy_id, why=causes)
+        if why is not None:
+            why.extend(causes)
+        if _cli.sigkilled(causes):
+            return snap
         if fresh:
             snap = fresh
             state = (snap.get("state") or {}).get("status")
@@ -1174,26 +1199,45 @@ def revalidate(dirs, log):
     return True, "", False, None
 
 
-def _validate_killed(rc, retry):
-    """A killed `openclaw senpi validate`, in words: no verdict, and the next step by signal."""
-    nxt = (f" Stop here and tell the user the box is out of memory, so the package could not be "
-           f"proven; do not re-run this command now: validate is killed again. {_cli.oom_wait()} "
-           f"Then {retry}." if _cli.is_sigkill(rc) else f" {retry[0].upper()}{retry[1:]}.")
-    return (f"`openclaw senpi validate` was {_cli.killed_note(rc)}, so it never finished: that is NOT a "
-            f"verdict on the package (it neither passed nor failed), and no proof was recorded."
-            f"{_cli.oom_note(rc)}{nxt}")
+def _validate_killed(rc, retry, state=""):
+    """A killed `openclaw senpi validate`, in words: no verdict, and the next step by signal. `state`:
+    what the caller did and did not do around it."""
+    fact = (f"`openclaw senpi validate` was {_cli.killed_note(rc)}, so it never finished: that is NOT a "
+            f"verdict on the package (it neither passed nor failed), and no proof was recorded.")
+    if _cli.is_sigkill(rc):
+        return (f"{fact} " + _cli.oom_stop(state, "the box is out of memory, so the package could not "
+                                                   "be proven") + f" Then {retry}.")
+    return f"{fact}{' ' + state if state else ''} {retry[0].upper()}{retry[1:]}."
 
 
-def _poll_deploy(pkg, a, log):
-    """One start → poll pass: `(deployId, snapshot | None, the poll budget it used)`."""
+def _validate_killed_exit(rc, a, prefix, state, doc=None):
+    """Say a killed validate and return its exit: the out-of-memory stop for a SIGKILL, else
+    `EXIT_INTERNAL` (no verdict; re-running is how to get one). One exit per kill, on every path."""
+    text = prefix + _validate_killed(rc, "re-run this command", state)
+    if _cli.is_sigkill(rc):
+        return _cli.emit_oom(text, getattr(a, "json", False), doc)
+    print(text, file=sys.stderr)
+    return EXIT_INTERNAL
+
+
+def _poll_deploy(pkg, a, log, why=None):
+    """One start → poll pass: `(deployId, snapshot | None, the poll budget it used)`. `why` receives
+    every failed poll's `_cli.Cause`."""
     deploy_id = start_deploy(pkg, a, log)
     poll_budget = getattr(a, "poll_budget", None)
     if poll_budget is None:
         poll_budget = POLL_BUDGET
-    return deploy_id, wait_for_terminal(deploy_id, poll_budget, log), poll_budget
+    return deploy_id, wait_for_terminal(deploy_id, poll_budget, log, why), poll_budget
 
 
-def _unreadable_job(pkg, deploy_id, rid=None):
+def _unreadable_job(pkg, deploy_id, rid=None, why=None, as_json=False):
+    """The job was started but its status could not be read to an outcome. A SIGKILLed poll is the
+    out-of-memory stop (never "poll now"); anything else is the ordinary poll steer."""
+    if _cli.sigkilled(why or []):
+        return _cli.emit_oom(f"A read of the deploy job's status was {_cli.killed_note(-9)}, and the job "
+                             f"{deploy_id}{_rid_tag(rid)} may still be running.\n"
+                             + _poll_steer(pkg.id, rid, deploy_id, oom=True),
+                             as_json, {"deployId": deploy_id, "requestId": rid})
     print(f"Could not read the deploy job's status, and the job {deploy_id}{_rid_tag(rid)} may still "
           f"be running.\n" + _poll_steer(pkg.id, rid, deploy_id), file=sys.stderr)
     return EXIT_INTERNAL
@@ -1207,9 +1251,11 @@ def run_deploy(pkg, a, log):
     Everything else — every other gate, and the other two proof states — is relayed verbatim, and a
     re-validation that does not PASS carries validate's own findings out without re-running the
     deploy."""
-    deploy_id, snap, poll_budget = _poll_deploy(pkg, a, log)
-    if snap is None:
-        return _unreadable_job(pkg, deploy_id, getattr(a, "request_id", None))
+    why = []
+    deploy_id, snap, poll_budget = _poll_deploy(pkg, a, log, why)
+    if snap is None or _cli.sigkilled(why):
+        return _unreadable_job(pkg, deploy_id, getattr(a, "request_id", None), why,
+                               getattr(a, "json", False))
     dirs = stale_proof_dirs(snap, pkg)
     if dirs:
         # stderr, always: in `--json` mode stdout is the snapshot document and nothing else.
@@ -1222,15 +1268,20 @@ def run_deploy(pkg, a, log):
               file=sys.stderr)
         ok, text, cut_short, killed_rc = revalidate(dirs, log)
         if ok:
-            deploy_id, fresh, poll_budget = _poll_deploy(pkg, a, log)
-            if fresh is None:
-                return _unreadable_job(pkg, deploy_id, getattr(a, "request_id", None))
+            why = []
+            deploy_id, fresh, poll_budget = _poll_deploy(pkg, a, log, why)
+            if fresh is None or _cli.sigkilled(why):
+                return _unreadable_job(pkg, deploy_id, getattr(a, "request_id", None), why,
+                               getattr(a, "json", False))
             snap = fresh
         elif killed_rc is not None:
+            # The same exit and stop as the same kill in `_fork_for_deploy`. Never the refusal's
+            # exit 2: that code's playbook step is "create repairs it", a re-run into the kill.
             print(text, file=sys.stderr)
-            print(_validate_killed(killed_rc, "re-run this command") + " The deploy was NOT re-run — "
-                  "its refusal is reported below, unchanged. Nothing was created, funded or installed "
-                  "by either call.", file=sys.stderr)
+            return _validate_killed_exit(killed_rc, a, f"✗ {pkg.id}: ",
+                                         "The deploy was NOT re-run, and the stale-proof refusal "
+                                         "stands. Nothing was created, funded or installed by either "
+                                         "call.", {"deployId": deploy_id})
         elif cut_short:
             print(text, file=sys.stderr)
             print(f"This command's budget ran out before `openclaw senpi validate` finished "
@@ -1443,7 +1494,11 @@ def verify_reads(pkg):
         # The gateway transiently answers with an empty `statuses[]` even while runtimes are running
         # (why `senpi.listRuntimes` is the inventory and this call is only health). One retry, as
         # `runtime_health_map` does — otherwise a flaky read turns every instance into could-not-check.
-        retry = _cli.health_or_none()
+        rwhy2 = []
+        retry = _cli.health_or_none(why=rwhy2)
+        if _cli.sigkilled(rwhy2):
+            raise ReadFailed("the retry of an empty `senpi.getHealthStatus` answer was killed — no "
+                             f"runtime health verdict is available ({rwhy2[0]})", rc=rwhy2[0].rc)
         entries = _cli.find_list(retry, "statuses") if retry is not None else entries
     return strategies, runtimes, {_cli.runtime_name(e): e for e in entries}
 
@@ -1764,7 +1819,8 @@ def deploy_job_facts(pkg_id):
 
 def cmd_verify(pkg, a):
     """Is `<id>` live? A READ-ONLY composite — it starts no deploy, moves no money, and installs
-    nothing. Exit: 0 verified · 3 not verified · 1 could not check."""
+    nothing. Exit: 0 verified · 3 not verified · 1 could not check · `_cli.EXIT_OOM` a read was
+    SIGKILLed (out of memory)."""
     if not pkg.instances:
         return _verify_unreadable(pkg.id, [f"{pkg.id} declares no instances, so there is nothing to "
                                            f"check against"], a.json)
@@ -1839,24 +1895,28 @@ def _verify_unreadable(pkg_id, reasons, as_json, tail=None, job_running=None, ki
 
     `killed_rc`, a SIGKILLed read: "Retry" is the loop the kill steer forbids, so the step is the
     out-of-memory stop and when to try again, in `next` too."""
-    if tail is None and _cli.is_sigkill(killed_rc):
-        tail = (f"  Nothing was changed. The box is most likely out of memory: stop here and tell the "
-                f"user {pkg_id} could not be checked because the box is out of memory (this says "
-                f"nothing about whether it is live). Do not retry now: it is killed again. "
-                f"{_cli.oom_wait()}")
+    oom = tail is None and _cli.is_sigkill(killed_rc)
+    if oom:
+        tail = "  " + _cli.oom_stop(f"Nothing was changed, and nothing about {pkg_id} was verified "
+                                    f"(this says nothing about whether it is live).",
+                                    f"{pkg_id} could not be checked because the box is out of memory")
     step = tail or (f"  Nothing was changed. Retry, or triage read-only: python3 "
                     f"{Path(__file__).with_name('status.py').name} {pkg_id}")
+    code = _cli.EXIT_OOM if oom else VERIFY_UNREADABLE
+    if oom:   # each reason says the fact; the stop is said once, in `next`
+        reasons = [_cli.cause_fact(r) for r in reasons]
     if as_json:
         print(json.dumps({"verdict": "could-not-check", "id": pkg_id, "instances": [],
                           "warnings": [], "deploy_job_running": job_running,
-                          "unreadable": reasons, "next": step.strip()}, indent=2))
-        return VERIFY_UNREADABLE
+                          "unreadable": reasons, "next": step.strip(),
+                          **(_cli.oom_fields(killed_rc) if oom else {})}, indent=2))
+        return code
     print(f"? {pkg_id}: COULD NOT CHECK — a read this check needs failed, so NOTHING about {pkg_id} "
           f"is verified here (this says nothing about whether it is live):", file=sys.stderr)
     for r in reasons:
         print(f"    - {r}", file=sys.stderr)
     print(step, file=sys.stderr)
-    return VERIFY_UNREADABLE
+    return code
 
 
 # ---------- update: an edit applied IN PLACE ----------
@@ -1973,16 +2033,26 @@ def cmd_update(a):
     if rc in (0, 1, 2, 3):
         return rc
     if rc < -1:  # killed, by any signal: stderr above carries the bare fact, the next step is said here
-        again = ": it will be killed again" if _cli.is_sigkill(rc) else ""
+        head = f"✗ {pkg.id}: `senpi update` was killed before it answered (rc {rc})."
+        read = f"python3 {_cli.STATUS_PY} {pkg.id}"
+        if _cli.is_sigkill(rc):
+            if a.apply:
+                stop = _cli.oom_stop("The outcome is unknown: the edit may have been applied before the "
+                                     "kill.", "the update's outcome is unknown")
+                then = f" Then read what is running before anything else: {read}."
+            else:
+                stop = _cli.oom_stop("This was a plan (no --apply), so nothing was changed, and no plan "
+                                     "came back.", "the plan could not be computed yet")
+                then = " Then re-run this same plan."
+            return _cli.emit_oom(f"{head} {stop}{then}", a.json, {"id": pkg.id})
         if a.apply:
             nxt = (f"The outcome is unknown: the edit may have been applied before the kill. Read what is "
-                   f"running now before telling the user: python3 {_cli.STATUS_PY} {pkg.id}. Do NOT "
-                   f"re-run it{again}.")
+                   f"running now before telling the user: {read}. Do NOT re-run --apply until that read "
+                   f"shows whether it landed.")
         else:
-            nxt = (f"This was a plan (no --apply), so nothing was changed, and no plan came back. Do NOT "
-                   f"re-run it{again}; tell the user the plan could not be computed on this box.")
-        print(f"✗ {pkg.id}: `senpi update` was killed before it answered (rc {rc}).{_cli.oom_note(rc)} {nxt}",
-              file=sys.stderr)
+            nxt = ("This was a plan (no --apply), so nothing was changed, and no plan came back. Re-run "
+                   "this same plan: a plan changes nothing.")
+        print(f"{head} {nxt}", file=sys.stderr)
         return EXIT_INTERNAL
     # `status.py`, not `openclaw senpi runtime list`: that verb loads the same plugin tree and, on a
     # box whose memory killed this one, is killed too.
@@ -2079,10 +2149,9 @@ def _fork_for_deploy(pkg, a, log):
             ok, text, cut_short, killed_rc = revalidate(unproven, log)
             if not ok and killed_rc is not None:
                 print(text, file=sys.stderr)
-                print(f"✗ {info['id']}: " + _validate_killed(killed_rc, "re-run this command")
-                      + f" The deploy was not started. The fork is on disk at {dest}. Nothing was "
-                      f"created, funded or installed.", file=sys.stderr)
-                sys.exit(EXIT_INTERNAL)
+                sys.exit(_validate_killed_exit(killed_rc, a, f"✗ {info['id']}: ",
+                                               f"The deploy was not started. The fork is on disk at "
+                                               f"{dest}. Nothing was created, funded or installed."))
             if not ok and cut_short:
                 print(text, file=sys.stderr)
                 print(f"✗ {info['id']}: this command's budget ran out before `openclaw senpi validate` finished on "
@@ -2283,11 +2352,10 @@ def _main(argv):
                 print("  openclaw could not be started on this host, so nothing was read. Run this "
                       "command on the agent's own box, where the runtime runs.", file=sys.stderr)
             elif _cli.sigkilled(tail):
-                print("  No deploy state was read here, so nothing about any deploy is reported — a "
-                      "job may still be running. The box is most likely out of memory: stop here. "
-                      "Re-running this read now is killed too. Tell the user the box is out of memory "
-                      "and the deploy's state is unknown; do not run create meanwhile. "
-                      + _cli.oom_wait(), file=sys.stderr)
+                sys.exit(_cli.emit_oom("  " + _cli.oom_stop(
+                    "No deploy state was read here, so nothing about any deploy is reported — a job "
+                    "may still be running, so do not run create meanwhile.",
+                    "the box is out of memory and the deploy's state is unknown"), a.json, {}))
             else:
                 print("  No deploy state was read here, so nothing about any deploy is reported — a "
                       "job may still be running. Re-run this command; if it keeps failing, the "
@@ -2416,7 +2484,7 @@ def _main(argv):
     if a.max_wait is None:
         a.max_wait = DEFAULT_MAX_WAIT
     # K2: send a request id on START only when this runtime says it honours one.
-    a.request_ids = (not getattr(a, "dry_run", False)) and start_request_ids_supported(log)
+    a.request_ids = (not getattr(a, "dry_run", False)) and start_request_ids_supported(log, a.json)
 
     sys.exit(run_deploy(pkg, a, log))
 

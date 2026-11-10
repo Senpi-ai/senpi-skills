@@ -68,10 +68,11 @@ class TestUpdate(UpdateHarness):
         self.reply = (-9, "", _cli.killed_note(-9))
         (self.tmp / "main" / deploy.PROOF_FILE).write_text("{}")
         rc, _out, err = self.run_update(apply=True)
-        self.assertEqual(rc, deploy.EXIT_INTERNAL)
+        self.assertEqual(rc, _cli.EXIT_OOM)
         self.assertEqual(err.count("killed by SIGKILL"), 1)
         self.assertNotIn("before retrying", err)
-        self.assertIn("Do NOT re-run", err)
+        self.assertIn("Do not re-run this or any other command now", err)
+        self.assertIn("after the box restarts or memory frees", err)
         self.assertIn("out of memory", err)
         self.assertIn("outcome is unknown", err)
         self.assertIn(f"python3 {_cli.STATUS_PY} spider", err)
@@ -89,9 +90,19 @@ class TestUpdate(UpdateHarness):
     def test_a_killed_plan_says_nothing_was_changed(self):
         self.reply = (-9, "", _cli.killed_note(-9))
         rc, _out, err = self.run_update()
-        self.assertEqual(rc, deploy.EXIT_INTERNAL)
+        self.assertEqual(rc, _cli.EXIT_OOM)
         self.assertIn("nothing was changed", err)
         self.assertNotIn("may have been applied", err)
+        self.assertIn("after the box restarts or memory frees", err)   # the way back
+
+    def test_a_plan_killed_by_another_signal_may_be_re_run(self):
+        # A plan changes nothing, so a SIGTERM (a container stop) is no reason to forbid it.
+        self.reply = (-15, "", _cli.killed_note(-15))
+        rc, _out, err = self.run_update()
+        self.assertEqual(rc, deploy.EXIT_INTERNAL)
+        self.assertIn("Re-run this same plan", err)
+        self.assertNotIn("Do NOT re-run", err)
+        self.assertNotIn("memory", err)
 
     def test_a_killed_update_prints_its_stdout_once(self):
         # Real `_spawn`, real kill: a partial plan on stdout must not be echoed again through stderr.
