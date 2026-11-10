@@ -71,7 +71,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | **Run a strategy** | | |
 | [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.53.2 | Conversational picker — rank the catalog against your worldview; holdings context includes your saved wallets (read-only, never a budget) |
 | [`senpi-strategy-author`](senpi-strategy-author/) | 3.15.2 | Build/edit a DSL-protected strategy package, one decision at a time |
-| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.30.2 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
+| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.30.3 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
 | [`senpi-trade`](senpi-trade/) | 1.10.1 | Direct trade or mirror a specific trader — manual positions + copy trading, one decision at a time |
 | [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.1.16 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
 | **Move money / positioning** | | |
