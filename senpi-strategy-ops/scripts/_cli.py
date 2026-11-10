@@ -1031,7 +1031,6 @@ def strategy_active(s):
 # stand-in wallet, live. Held equal to every copy in this repo by `tests/test_paper_address_parity.py`.
 PAPER_ADDRESS_RE = re.compile(r"^0x0{16}[1-9]\d{12}[0-9a-f]{11}$")
 PAPER_RUNTIME_SUFFIX = "-paper"
-RUNTIME_ID_MAX = 40
 
 
 def is_paper_address(address):
@@ -1045,13 +1044,11 @@ def looks_paper(value):
 
 
 def runtime_id_for(pkg_id, instance, paper):
-    """The runtime id the deploy verb installs: `<id>-<instance>`, and for a simulation the same cut
-    to fit `-paper` in 40 characters (the runtime's `runtimeIdFor`)."""
+    """The runtime id the deploy verb installs: `<id>-<instance>`, plus `-paper` for a simulation (the
+    runtime's `runtimeIdFor`). Never cut: the runtime refuses a paper `<id>-<instance>` that leaves no
+    room for the suffix in 40 characters."""
     base = f"{pkg_id}-{instance}"
-    if not paper:
-        return base
-    room = RUNTIME_ID_MAX - len(PAPER_RUNTIME_SUFFIX)
-    return base[:room].rstrip("-") + PAPER_RUNTIME_SUFFIX
+    return base + PAPER_RUNTIME_SUFFIX if paper else base
 
 
 def runtime_world_is(rt, paper):
