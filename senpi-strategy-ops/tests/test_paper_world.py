@@ -35,6 +35,13 @@ PAPER_WALLET = "0x0000000000000000" + "1762500000000" + "0a1b2c3d4e5"
 PAPER_WALLET_2 = "0x0000000000000000" + "1762500000001" + "0a1b2c3d4e6"
 PAPER_ID = "paper-11111111-2222-4333-8444-555555555555"
 
+# What `mcp_client._unwrap` raises for the MCP's `{success: false, error: {code, message, ...}}`:
+# `tool failed: <code>: <message>`. The error's `details` (paper-service's name, path) are not in it.
+PAPER_OUTAGE = ("tool failed: PAPER_UNAVAILABLE: Simulations (paper trading) are unavailable right now: "
+                "paper-service did not answer within 5000 ms. Retry shortly with the same input.")
+ROUTER_OFF = ("tool failed: PAPER_UNAVAILABLE: Simulations (paper trading) are not available on this "
+              "server yet. Nothing was sent; try again later.")
+
 
 def _live_row(sid="live-1", wallet=LIVE_WALLET, skill="omega", status_="ACTIVE"):
     return {"id": sid, "strategyWalletAddress": wallet, "status": status_, "strategyName": skill,
@@ -67,7 +74,7 @@ class FakeMCP:
             return [r for r in rows if not want or str(r.get("status")).upper() in want]
         if kw.get("paper") is True and self.router:
             if self.unavailable:
-                raise MCPError("tool failed: PAPER_UNAVAILABLE: paper trading is not available")
+                raise MCPError(self.unavailable if isinstance(self.unavailable, str) else PAPER_OUTAGE)
             return {"success": True, "data": {"paper_routing": True, "strategies": pick(self.paper)}}
         return {"success": True, "data": {"strategies": pick(self.live)}}
 
@@ -616,10 +623,18 @@ class VerifySeesSimulations(unittest.TestCase):
         _code, err = self._verify()
         self.assertIn("create omega --budget <usd>", err)
 
-    def test_paper_unavailable_keeps_todays_step(self):
+    def test_a_paper_service_outage_names_no_live_create(self):
         self.mcp.unavailable = True
         _code, err = self._verify()
-        self.assertIn("create omega --budget <usd>", err)
+        self.assertNotIn("create omega", err)
+        self.assertIn("could not be read", err)
+        self.assertIn("status.py omega --paper", err)
+
+    def test_a_router_that_is_off_names_no_live_create_either(self):
+        self.mcp.unavailable = ROUTER_OFF
+        _code, err = self._verify()
+        self.assertNotIn("create omega", err)
+        self.assertIn("status.py omega --paper", err)
 
     def test_a_timed_out_simulation_lookup_names_no_live_create(self):
         class Timeout(FakeMCP):
