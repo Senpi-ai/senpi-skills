@@ -317,6 +317,13 @@ def main(argv):
                       f"on disk {x['on_disk']!r}")
             print(f"    → apply it in place (plans first; nothing is closed): python3 deploy.py update "
                   f"{d['package_dir']} --id {r['runtime']}   (add --apply to commit)")
+            if any(x["field"] == "recipe" for x in d["diffs"]):
+                # Runtimes from before the recipe hash re-formatted the recipe an `update --apply`
+                # stored, so a strategy last updated on one reads as drifted with no edit. One
+                # apply on a current runtime stores the byte-exact form; nothing is migrated.
+                print(f"    if this strategy was last updated before its runtime published a recipe hash, "
+                      f"the plan shows no recipe change: re-run python3 deploy.py update "
+                      f"{d['package_dir']} --id {r['runtime']} --apply once to refresh it")
     if unproven:
         print("\n❔ Unknown (fail-closed — not proven live: scanner not yet proven by a tick, or reporting disabled; verify, don't assume):")
         for r in unproven:

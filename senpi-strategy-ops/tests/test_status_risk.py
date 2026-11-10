@@ -177,6 +177,20 @@ class TestTextRender(unittest.TestCase):
         self.assertIn("deploy.py update /data/workspace/strategies/spider --id spider-main", out)
         self.assertNotIn("close.py", out.split("never applied", 1)[1].split("\n\n")[0])
 
+    def test_recipe_drift_names_the_one_apply_that_refreshes_a_pre_hash_update(self):
+        # A strategy `update --apply`'d before the runtime published recipeHash stored a
+        # re-formatted recipe, so it reads as drifted with no edit until one more apply.
+        drift = {"diffs": [{"field": "recipe", "running": "aaaaaaaaaaaa", "on_disk": "bbbbbbbbbbbb"}],
+                 "dir": "/data/workspace/strategies/spider", "package_dir": "/data/workspace/strategies/spider"}
+        out = _render([_row(config_drift=drift)])
+        self.assertIn("last updated before its runtime published a recipe hash", out)
+        self.assertIn("deploy.py update /data/workspace/strategies/spider --id spider-main --apply once", out)
+
+    def test_named_field_drift_carries_no_refresh_hint(self):
+        drift = {"diffs": [{"field": "dsl_preset", "running": "balanced", "on_disk": "scalp"}],
+                 "dir": "/data/workspace/strategies/spider", "package_dir": "/data/workspace/strategies/spider"}
+        self.assertNotIn("recipe hash", _render([_row(config_drift=drift)]))
+
     def test_quiet_rows_print_neither_section(self):
         out = _render([_row()])
         self.assertNotIn("⏸", out)
