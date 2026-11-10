@@ -221,8 +221,9 @@ For all three, the only fix is a run of `openclaw senpi validate`: **never write
 `.senpi-proof.json` by hand.** Recomputing its hashes proves nothing ran, and a hand-edited proof
 is a false record that the package passed. If validate itself cannot finish (killed, `rc -9`,
 out of memory), the gate stays shut and that is no verdict on the package: report the edit as
-saved, not applied, and stop. Try again only after the box restarts or memory frees — `status.py`
-reading the runtime list without being killed is the sign it has.
+saved, not applied, and stop (exit `9`, the out-of-memory stop every lifecycle script shares).
+Try again only after the box restarts or memory frees — `status.py` exiting `0` (not `9`) is the
+sign it has.
 `RUNTIME_VERSION_CHANGED` = the package is untouched and only the engine under it moved (the
 runtime self-updates in place, so this hits packages nobody has touched). **`deploy.py
 create|runtime` repairs that one for you**: it re-runs `senpi validate` once, re-runs the deploy,

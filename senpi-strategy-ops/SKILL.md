@@ -33,7 +33,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.30.5"
+  version: "3.30.6"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -202,7 +202,7 @@ the scanner row's `lastRunStatus`/`runCount`).
 **`2` is any gate saying no with nothing created past it** — the verb's refusals, and `deploy.py`'s own
 structural preflight when `create`/`runtime` fail it (nothing started; fix what it names and re-run — a
 bare retry refuses identically). **`1` is "could not answer", never an outcome**, and it is also what an
-unrecognised status returns, so a new status can never read as success. Branch on the code.
+unrecognised status returns, so a new status can never read as success. **`9` is the out-of-memory stop** (a call was SIGKILLed; the same code from `close.py`, `status.py`, `verify` and `update`, and `--json` carries `oom: true`): tell the user what it says and run nothing, not even a poll, until the box restarts or memory frees (`status.py` exits `0` again). Branch on the code.
 
 **Re-running is always safe.** There is **no local deploy-state file**: the backend strategies and the
 runtime registry are the record, so re-running the same command reconciles and adopts whatever already
@@ -376,7 +376,7 @@ the deployed scanner as it is.
 
 **Apply it in place — `openclaw senpi update`.** No close, no fresh wallet, no market exit; DSL state,
 scanner stores and action history survive. `senpi validate <instance-dir>` writes the proof `--apply`
-needs, and only a run of it may: **never write, edit or copy `.senpi-proof.json` yourself** — matching hashes are not a validation; if validate cannot finish (killed, `rc -9`), the edit is saved, **not applied** — tell the user and stop; `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py update <pkg> --id <runtime_id>` PLANS (the structural preflight, then the verb; add `--apply` to commit — it stops if the box has no `update` verb yet: then STOP too, never a close). **Read the
+needs, and only a run of it may: **never write, edit or copy `.senpi-proof.json` yourself** — matching hashes are not a validation; if validate cannot finish (killed, `rc -9`), the edit is saved, **not applied** — tell the user and stop, and try again only after the box restarts or memory frees (`status.py` exits `0`, not `9`); `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py update <pkg> --id <runtime_id>` PLANS (the structural preflight, then the verb; add `--apply` to commit — it stops if the box has no `update` verb yet: then STOP too, never a close). **Read the
 plan out first**: `dsl_preset` is **forward-only** — new entries only, never one already open (other `exit:`
 fields, e.g. `order_type`, DO reach open positions) — never let "tighter" be heard as "my open trades are tighter".
 **A DSL change has two targets, and the user picks which: (a) future positions — the file, via `update`;
