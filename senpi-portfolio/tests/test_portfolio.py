@@ -1927,3 +1927,12 @@ def test_open_gates_and_older_runtimes_are_not_paused():
     res = _run_with_status({"kodiak-main": status_doc({"health": "healthy"})})      # no risk component
     assert by_wallet(res, KODIAK_WALLET)["risk_pause"] is None
     assert "paused_by_risk_gate" not in res["meta"]
+
+
+def test_a_killed_status_read_is_not_retried_and_the_per_id_reads_are_skipped():
+    """A SIGKILL is the box's memory, not a flaky answer: retrying, then one read per runtime, only
+    feeds it more kills."""
+    res, calls = _run_with_cli(lambda a: (-9, "", portfolio.killed_note(-9)))
+    assert len(calls) == 1, calls
+    warns = " ".join(res["meta"]["warnings"])
+    assert "killed by signal 9" in warns, warns

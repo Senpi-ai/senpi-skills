@@ -156,7 +156,6 @@ def _spawn(args, timeout):
         return -1, "", "", False, e
     try:
         out, err = p.communicate(timeout=timeout)
-        return p.returncode, out or "", err or "", False, None
     except subprocess.TimeoutExpired:
         _kill_tree(p)
         try:
@@ -164,16 +163,21 @@ def _spawn(args, timeout):
         except (subprocess.TimeoutExpired, ValueError, OSError):
             out, err = "", ""
         return -1, out or "", err or "", True, None
+    out, err, note = out or "", err or "", killed_note(p.returncode)
+    if note:  # appended, never replacing: callers read `err or out`, and 10.x writes its error to stdout
+        err = "\n".join(t for t in (err.rstrip() or out.rstrip(), note) if t)
+    return p.returncode, out, err, False, None
 
 
 def killed_note(rc):
-    """What to say when a child died by signal: `rc < -1` from Python, or a shell's `128 + n`.
+    """What to say when a child died by signal: Python's `rc < -1`. Never a `128 + n` exit: the
+    CLI is exec'd with no shell, and a Node CLI exits 130/143 on purpose from its own signal handlers.
 
     `-1` is this module's own timeout/spawn sentinel, never a signal here. A SIGKILLed CLI prints
     nothing, and `rc -9, no output` read as a mystery: the same command was retried again and
     again into a box that kept killing it. On a box near its memory limit the kernel's OOM killer
     is the usual sender (not proven per process: the agent cannot read the kernel log)."""
-    n = -rc if rc < -1 else rc - 128 if 128 < rc < 160 else None
+    n = -rc if rc < -1 else None
     if n is None:
         return ""
     try:
@@ -182,9 +186,10 @@ def killed_note(rc):
         name = f"signal {n}"
     note = f"killed by {name} (rc {rc}) before it answered — not a verdict on the package."
     if n == signal.SIGKILL:
-        note += (" On a box near its memory limit that is most likely out of memory. Do not retry the "
-                 "same command: it will be killed again. Report it as not done; senpi-strategy-ops "
-                 "`status.py` reads what is running without loading the plugin.")
+        note += (" On a box near its memory limit that is most likely out of memory. Do not re-run the "
+                 "same command: it will be killed again. The outcome is unknown (a write may have landed "
+                 "before the kill): read `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/"
+                 "status.py` before telling the user.")
     return note
 
 
@@ -205,9 +210,6 @@ def _run_cli(args, timeout=60):
                                                             else f" ({e})")
     if timed_out:
         return -1, "", f"timed out after {timeout}s: {' '.join(args)}"
-    note = killed_note(rc)
-    if note:
-        err = f"{err.rstrip()}\n{note}" if err.strip() else note
     return rc, out, err
 
 
@@ -412,6 +414,9 @@ def load_runtime_registry(meta):
         rc, out, err = _run_cli(RUNTIME_LIST_CMD, timeout=30)
         payload = _extract_json(out)          # stdout carries `[plugins]` banners on a real box
         if payload is None:                   # spawn failure, timeout, or nothing parseable on stdout
+            if rc < -1:                       # killed (likely out of memory): any further read would be too
+                meta["_telemetry_dead"] = True
+                return _runtime_read_failed(meta, f"killed by signal {-rc}, likely out of memory — not retried")
             return _runtime_read_failed(meta, (err or "").strip()[:200] or f"exit {rc}, no JSON on stdout")
     if not isinstance(payload, dict):
         return _runtime_read_failed(meta, "output was not a JSON object")
@@ -495,6 +500,11 @@ def _fleet_statuses(meta):
     print("reading runtime health (one status call for the whole fleet)…", file=sys.stderr, flush=True)
     for _ in range(2):
         rc, out, err = _run_cli(FLEET_STATUS_CMD, timeout=30)
+        if rc < -1:                                # killed (likely out of memory): the per-id reads would be too
+            meta["_telemetry_dead"] = True
+            _note_telemetry_unavailable(meta, f"runtime status read killed by signal {-rc}, likely out of "
+                                              f"memory — not retried; liveness unverified")
+            return None
         if rc != 0:
             head = (err or out or "")[:200]       # 10.x writes a gateway error to stdout, 5.x to stderr
             if head.startswith(SPAWN_FAILED_PREFIX) or "unknown method" in head.lower():
@@ -568,7 +578,11 @@ def _fetch_runtime_status(runtime_id, meta):
     rc, out, err = _run_cli(gateway_argv("senpi.getHealthStatus", {"runtimeId": str(runtime_id)}), timeout=20)
     if rc != 0:
         err = (err or out or "")[:200]            # 10.x writes a gateway error to stdout, 5.x to stderr
-        if err.startswith(SPAWN_FAILED_PREFIX):   # not a runtime host → every call fails; stop shelling out
+        if rc < -1:                               # killed (likely out of memory): the next id would be too
+            meta["_telemetry_dead"] = True
+            _note_telemetry_unavailable(meta, f"status read killed by signal {-rc}, likely out of memory — "
+                                              f"not retried; liveness unverified")
+        elif err.startswith(SPAWN_FAILED_PREFIX):   # not a runtime host → every call fails; stop shelling out
             meta["_telemetry_dead"] = True
             _note_telemetry_unavailable(meta, "openclaw CLI not found — runtime liveness unverified")
         elif "unknown method" in err.lower():

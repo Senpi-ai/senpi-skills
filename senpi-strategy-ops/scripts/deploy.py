@@ -1913,7 +1913,7 @@ def cmd_update(a):
         sys.stderr.write(err if err.endswith("\n") else err + "\n")
     if rc == 0 and not a.json:
         if a.apply:
-            print(f"applied. Re-read what is running now: python3 {Path(__file__).with_name('status.py').name}"
+            print(f"applied. Re-read what is running now: python3 {Path(__file__).resolve().with_name('status.py')}"
                   f" {pkg.id}   — and remember `dsl_preset` is forward-only: positions already open "
                   f"keep the ladder they were opened under (the plan named them).", file=sys.stderr)
         else:
@@ -1922,10 +1922,13 @@ def cmd_update(a):
                   file=sys.stderr)
     if rc in (0, 1, 2, 3):
         return rc
+    if rc < -1:  # killed: stderr above already carries the note (outcome unknown, read status first)
+        print(f"✗ {pkg.id}: `senpi update` was killed (rc {rc}). Do NOT re-run it.", file=sys.stderr)
+        return EXIT_INTERNAL
     # `status.py`, not `openclaw senpi runtime list`: that verb loads the same plugin tree and, on a
     # box whose memory killed this one, is killed too.
     print(f"✗ {pkg.id}: `senpi update` did not answer (rc {rc}) — {tail or 'no output'}. Read the "
-          f"runtime before retrying: python3 {Path(__file__).with_name('status.py').name} {pkg.id}",
+          f"runtime before retrying: python3 {Path(__file__).resolve().with_name('status.py')} {pkg.id}",
           file=sys.stderr)
     return EXIT_INTERNAL
 

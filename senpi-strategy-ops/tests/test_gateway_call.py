@@ -24,6 +24,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -327,12 +328,33 @@ class ProcessGroupKill(unittest.TestCase):
         self.assertEqual((rc, out), (-9, ""))
         self.assertIn("killed by SIGKILL", err)
         self.assertIn("out of memory", err)
-        self.assertIn("do not retry", err.lower())
+        self.assertIn("do not re-run", err.lower())
 
-    def test_a_shell_style_137_is_a_kill_too(self):
-        self.assertIn("killed by SIGKILL", _cli.killed_note(137))
-        self.assertEqual(_cli.killed_note(1), "")
-        self.assertEqual(_cli.killed_note(-1), "")  # this module's own timeout/spawn sentinel
+    def test_only_a_real_signal_is_a_kill(self):
+        # No shell sits between us and the CLI, and a Node CLI exits 130/143 on purpose.
+        for rc in (1, 130, 137, 143, -1):           # -1: this module's own timeout/spawn sentinel
+            self.assertEqual(_cli.killed_note(rc), "", rc)
+
+    def test_a_kill_says_the_outcome_is_unknown_not_that_it_did_not_happen(self):
+        note = _cli.killed_note(-9)
+        self.assertNotIn("not done", note)
+        self.assertIn("outcome is unknown", note)
+        self.assertIn("/data/.openclaw/skills/senpi-strategy-ops/scripts/status.py", note)
+
+    def test_the_note_is_added_after_stdout_never_in_place_of_it(self):
+        # 10.x writes its error to stdout; `error_tail(err, out)` prefers stderr, so stderr must carry it.
+        rc, out, err = _cli.run_cli([sys.executable, "-c",
+                                     "import os, signal; print('real cause', flush=True); os.kill(os.getpid(), signal.SIGKILL)"])
+        self.assertEqual(rc, -9)
+        self.assertIn("real cause", _cli.error_tail(err, out))
+        self.assertIn("killed by SIGKILL", _cli.error_tail(err, out))
+
+    def test_gateway_call_names_the_kill_too(self):
+        with mock.patch.object(_cli, "gateway_argv",
+                               lambda *a, **k: [sys.executable, "-c", "import os, signal; os.kill(os.getpid(), signal.SIGKILL)"]):
+            r = _cli.gateway_call("senpi.deploy.start", {})
+        self.assertEqual(r["rc"], -9)
+        self.assertIn("killed by SIGKILL", r["message"])
 
 
 def _gw(kind, payload=None, message=None):

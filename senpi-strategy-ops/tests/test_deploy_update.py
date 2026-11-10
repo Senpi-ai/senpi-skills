@@ -64,6 +64,19 @@ class UpdateHarness(unittest.TestCase):
 
 
 class TestUpdate(UpdateHarness):
+    def test_a_killed_update_says_it_once_and_never_invites_a_retry(self):
+        self.reply = (-9, "", _cli.killed_note(-9))
+        rc, _out, err = self.run_update()
+        self.assertEqual(rc, deploy.EXIT_INTERNAL)
+        self.assertEqual(err.count("killed by SIGKILL"), 1)
+        self.assertNotIn("before retrying", err)
+        self.assertIn("Do NOT re-run", err)
+
+    def test_status_py_is_named_by_full_path(self):
+        self.reply = (7, "", "boom")
+        _rc, _out, err = self.run_update()
+        self.assertIn(f"python3 {Path(deploy.__file__).resolve().with_name('status.py')} spider", err)
+
     def test_plan_points_the_verb_at_the_instance_dir_with_a_selector(self):
         rc, out, err = self.run_update()
         self.assertEqual(rc, 0)
