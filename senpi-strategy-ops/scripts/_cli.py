@@ -1077,6 +1077,12 @@ def paper_refusal(what, why):
             f"that acts on live strategies with real money.")
 
 
+class NoPaperRouter(str):
+    """A `why` entry for the one unread simulation list that is a CLEAN answer: this MCP has no paper
+    router (a reply without the marker, or PAPER_UNAVAILABLE). Every other cause (a timeout, a
+    transport error, a payload with no list) leaves the outcome unknown. Callers test the type."""
+
+
 def list_strategies_or_none(mcp, timeout=15, statuses=None, why=None, paper=False):
     """`strategy_list` for callers that must fail CLOSED: returns **None** when the read did not
     produce an answer — so a money path can tell 'no strategies' (→ `[]`, an answer) from 'couldn't
@@ -1112,7 +1118,8 @@ def list_strategies_or_none(mcp, timeout=15, statuses=None, why=None, paper=Fals
         res = mcp.mcp_call("strategy_list", timeout=timeout, **args)
     except Exception as e:  # noqa: BLE001 — the WHOLE point: surface the failure instead of swallowing to []
         if why is not None:
-            why.append(f"the MCP `strategy_list` call failed ({e})")
+            msg = f"the MCP `strategy_list` call failed ({e})"
+            why.append(NoPaperRouter(msg) if paper and "PAPER_UNAVAILABLE" in str(e) else msg)
         return None
     found = find_list_or_none(res, "strategies")
     if found is None:
@@ -1122,8 +1129,9 @@ def list_strategies_or_none(mcp, timeout=15, statuses=None, why=None, paper=Fals
         return None
     if _paper_routing(res) != bool(paper):
         if why is not None:
-            why.append("`strategy_list {paper: true}` was answered without `paper_routing: true`: this "
-                       "MCP has no paper router, so its rows are live strategies, not simulations"
+            why.append(NoPaperRouter("`strategy_list {paper: true}` was answered without `paper_routing: "
+                                     "true`: this MCP has no paper router, so its rows are live "
+                                     "strategies, not simulations")
                        if paper else
                        "`strategy_list` for live strategies was answered with `paper_routing: true`, "
                        "a simulation reply")

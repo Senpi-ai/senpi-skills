@@ -560,10 +560,37 @@ class VerifySeesSimulations(unittest.TestCase):
         _code, err = self._verify()
         self.assertIn("create omega --budget <usd>", err)
 
-    def test_an_unreadable_simulation_list_keeps_todays_step(self):
+    def test_no_paper_router_keeps_todays_step(self):
         self.mcp.router = False
         _code, err = self._verify()
         self.assertIn("create omega --budget <usd>", err)
+
+    def test_paper_unavailable_keeps_todays_step(self):
+        self.mcp.unavailable = True
+        _code, err = self._verify()
+        self.assertIn("create omega --budget <usd>", err)
+
+    def test_a_timed_out_simulation_lookup_names_no_live_create(self):
+        class Timeout(FakeMCP):
+            def mcp_call(self, name, timeout=None, **kw):
+                if kw.get("paper") is True:
+                    raise TimeoutError("timed out")
+                return super().mcp_call(name, timeout=timeout, **kw)
+        self.mcp = Timeout(paper=[_paper_row()])
+        _code, err = self._verify()
+        self.assertNotIn("create omega", err)
+        self.assertIn("could not be read", err)
+        self.assertIn("status.py omega --paper", err)
+
+    def test_a_simulation_reply_with_no_list_names_no_live_create(self):
+        class Drift(FakeMCP):
+            def mcp_call(self, name, timeout=None, **kw):
+                if kw.get("paper") is True:
+                    return {"success": True, "data": {"paper_routing": True, "oops": []}}
+                return super().mcp_call(name, timeout=timeout, **kw)
+        self.mcp = Drift()
+        _code, err = self._verify()
+        self.assertNotIn("create omega", err)
 
 
 if __name__ == "__main__":
