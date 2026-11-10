@@ -103,6 +103,48 @@ class CloseRuntimeDeleteConfirm(unittest.TestCase):
         self.assertEqual(self.closed, [])             # unreadable inventory ⇒ never flatten a maybe-live strategy
         self.assertEqual(len(self.deletes), 2)
 
+    def _killed(self, rc, message=None):
+        def fake_gateway(method, params=None, rpc_timeout_ms=None, timeout_s=None):
+            self.deletes.append((params, rpc_timeout_ms, timeout_s))
+            return dict(_gw("unreadable", message=message or _cli.killed_note(rc)), rc=rc)
+        _cli.gateway_call = fake_gateway
+
+    def test_a_killed_delete_is_not_retried_and_says_read_status_not_re_run(self):
+        self._killed(-9)
+        _cli.list_runtimes_or_none = lambda: [{"name": "pkg-main", "wallet": "0xabc"}]
+        rec = close.close_one("main", self._STRAT, self._RUNTIMES, False, lambda m: None)
+        self.assertEqual(rec["status"], "failed")
+        self.assertEqual(len(self.deletes), 1)        # no second delete into a box that killed the first
+        self.assertEqual(self.closed, [])
+        self.assertIn("killed by SIGKILL", rec["error"])
+        self.assertIn("out of memory", rec["error"])
+        self.assertIn(_cli.STATUS_PY, rec["error"])
+        self.assertIn("Do not re-run close", rec["error"])
+
+    def test_a_killed_delete_by_another_signal_is_not_called_out_of_memory(self):
+        self._killed(-15)
+        _cli.list_runtimes_or_none = lambda: None
+        rec = close.close_one("main", self._STRAT, self._RUNTIMES, False, lambda m: None)
+        self.assertEqual(len(self.deletes), 1)
+        self.assertIn("killed by SIGTERM", rec["error"])
+        self.assertNotIn("memory", rec["error"])
+
+    def test_a_killed_delete_that_did_stop_the_runtime_still_closes(self):
+        self._killed(-9)
+        _cli.list_runtimes_or_none = lambda: []
+        rec = close.close_one("main", self._STRAT, self._RUNTIMES, False, lambda m: None)
+        self.assertEqual(rec["status"], "closing")
+        self.assertEqual(self.closed, ["s1"])
+
+    def test_the_log_clip_never_cuts_the_kill(self):
+        kill = _cli.killed_note(-9)
+        self._killed(-9, message="x" * 500 + "\n" + kill)
+        _cli.list_runtimes_or_none = lambda: []
+        lines = []
+        close.close_one("main", self._STRAT, self._RUNTIMES, False, lines.append)
+        logged = next(m for m in lines if "deleteRuntime" in m)
+        self.assertIn(kill, logged)
+
     def test_already_closed_is_idempotent_noop(self):
         _cli.list_runtimes_or_none = lambda: []
         rec = close.close_one("main", dict(self._STRAT, status="CLOSED"), self._RUNTIMES, False, lambda m: None)
@@ -476,6 +518,19 @@ class MainPackagePollReportsClosed(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(_journal.read("omega")["resolved"], "closed-by-close.py")
         self.assertNotEqual(self._next_create_request_id(root), rid)
+
+    def test_a_killed_inventory_read_never_adds_a_re_run(self):
+        # The cause already says stop (out of memory); a "Re-run this command" cure under it contradicts it.
+        def killed(why=None):
+            why.append("senpi.listRuntimes: unreadable: " + _cli.killed_note(-9) + _cli.read_killed_hint(-9))
+            return None
+        _cli.list_runtimes_or_none = killed
+        self.rows = [self._ACTIVE_ROW]
+        _out, code = self._run("omega")
+        self.assertIn("NOTHING WAS CLOSED", str(code))
+        self.assertIn("out of memory", str(code))
+        self.assertNotIn("Re-run this command", str(code))
+        self.assertEqual(self.closed, [])
 
     def test_box_p2_03_every_strategy_already_closed_closes_the_open_request(self):
         # Box A T7b (2026-10-29): a lost START left the entry open; `close.py <id>` found nothing live

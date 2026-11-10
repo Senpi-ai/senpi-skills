@@ -89,19 +89,19 @@ def _spawn(args, timeout):
             out, err = "", ""
         return -1, out or "", err or "", True, None
     out, err, note = out or "", err or "", killed_note(p.returncode)
-    if note:  # appended, never replacing: callers read `err or out`, and 10.x writes its error to stdout
-        err = "\n".join(t for t in (err.rstrip() or out.rstrip(), note) if t)
+    if note:  # the fact only, on stderr; stdout stays where it was (`error_tail` reads both)
+        err = "\n".join(t for t in (err.rstrip(), note) if t)
     return p.returncode, out, err, False, None
 
 
 def killed_note(rc):
-    """What to say when a child died by signal: Python's `rc < -1`. Never a `128 + n` exit: the
+    """The bare fact when a child died by signal: Python's `rc < -1`. Never a `128 + n` exit: the
     CLI is exec'd with no shell, and a Node CLI exits 130/143 on purpose from its own signal handlers.
+    `-1` is this module's own timeout/spawn sentinel, never a signal here.
 
-    `-1` is this module's own timeout/spawn sentinel, never a signal here. A SIGKILLed CLI prints
-    nothing, and `rc -9, no output` read as a mystery: the same command was retried again and
-    again into a box that kept killing it. On a box near its memory limit the kernel's OOM killer
-    is the usual sender (not proven per process: the agent cannot read the kernel log)."""
+    A SIGKILLed CLI prints nothing, and `rc -9, no output` read as a mystery: the same command was
+    retried again and again into a box that kept killing it. This line says only what happened. What
+    to do next depends on the verb (a read, a write, a poll), so the caller says it."""
     n = -rc if rc < -1 else None
     if n is None:
         return ""
@@ -109,13 +109,7 @@ def killed_note(rc):
         name = signal.Signals(n).name
     except ValueError:
         name = f"signal {n}"
-    note = f"killed by {name} (rc {rc}) before it answered — not a verdict on the package."
-    if n == signal.SIGKILL:
-        note += (" On a box near its memory limit that is most likely out of memory. Do not re-run the "
-                 "same command: it will be killed again. The outcome is unknown (a write may have landed "
-                 "before the kill): read `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/"
-                 "status.py` before telling the user.")
-    return note
+    return f"killed by {name} (rc {rc}) before it answered"
 
 
 def run_cli(args, timeout=60):
@@ -136,6 +130,32 @@ def run_cli(args, timeout=60):
     if timed_out:
         return -1, "", f"timed out after {timeout}s: {' '.join(args)}"
     return rc, out, err
+
+
+# The script beside this module that every kill steers to: resolved here, so it is right on an
+# overlay or under `~/.openclaw`, not only at the image's `/data/.openclaw` path.
+STATUS_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "status.py")
+_KILLED_LINE = re.compile(r"^killed by \S+ \(rc -\d+\) before it answered$")
+
+
+def is_sigkill(rc):
+    return isinstance(rc, int) and rc == -signal.SIGKILL
+
+
+def oom_note(rc):
+    """The out-of-memory reading, for SIGKILL only. On a box near its memory limit the kernel's OOM
+    killer is the usual sender (not proven per process: the agent cannot read the kernel log). A
+    SIGTERM (a container stop) or a SIGSEGV is not that, and is not called that."""
+    return " On a box near its memory limit that is most likely out of memory." if is_sigkill(rc) else ""
+
+
+def read_killed_hint(rc):
+    """What a killed READ adds to the fact: on SIGKILL, stop. Any further read loads the same CLI on
+    the same box and is killed too; a write was never in play, so there is nothing to check first."""
+    if not is_sigkill(rc):
+        return ""
+    return (" — the box is most likely out of memory: stop here. Re-running this or another read will be "
+            "killed too; tell the user the box is out of memory.")
 
 
 # ---- direct gateway calls (`openclaw gateway call <method> --json`) ----
@@ -330,6 +350,15 @@ def error_tail(err, out="", limit=600):
     cause. Filtering must never turn a non-empty capture into an empty message."""
     err_s = _strip_ansi(err or "").strip()
     out_s = _strip_ansi(out or "").strip()
+    # A kill line (`killed_note`, appended by `_spawn`) is the one sure fact, so it is set aside and
+    # always kept LAST; the cause is then looked for in the rest of stderr, then stdout (10.x writes
+    # its error there), exactly as for a call that was not killed.
+    err_lines = err_s.splitlines()
+    kill = [ln.strip() for ln in err_lines if _KILLED_LINE.match(ln.strip())]
+    if kill:
+        err_s = "\n".join(ln for ln in err_lines if not _KILLED_LINE.match(ln.strip())).strip()
+        rest = error_tail(err_s, out_s, max(limit - len(kill[-1]) - 1, 0)) if (err_s or out_s) else ""
+        return "\n".join(t for t in (rest, kill[-1]) if t)
     for text in (err_s, out_s):
         if not text:
             continue
@@ -436,7 +465,8 @@ def list_runtimes_or_none(why=None):
     r = gateway_call("senpi.listRuntimes", {}, rpc_timeout_ms=READ_RPC_MS, timeout_s=READ_WALL_S)
     rows = _runtime_rows(r["payload"]) if r["kind"] == "ok" else None
     if rows is None and why is not None:
-        why.append(f"senpi.listRuntimes: {r['kind']}: {r['message'] or 'no runtimes list in the answer'}")
+        why.append(f"senpi.listRuntimes: {r['kind']}: {r['message'] or 'no runtimes list in the answer'}"
+                   + read_killed_hint(r["rc"]))
     return rows
 
 
@@ -453,7 +483,8 @@ def health_or_none(runtime_id=None, why=None):
     if r["kind"] == "ok" and isinstance(r["payload"], dict):
         return r["payload"]
     if why is not None:
-        why.append(f"senpi.getHealthStatus: {r['kind']}: {r['message'] or 'no payload'}")
+        why.append(f"senpi.getHealthStatus: {r['kind']}: {r['message'] or 'no payload'}"
+                   + read_killed_hint(r["rc"]))
     return None
 
 

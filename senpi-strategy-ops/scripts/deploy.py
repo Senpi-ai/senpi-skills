@@ -1922,8 +1922,17 @@ def cmd_update(a):
                   file=sys.stderr)
     if rc in (0, 1, 2, 3):
         return rc
-    if rc < -1:  # killed: stderr above already carries the note (outcome unknown, read status first)
-        print(f"✗ {pkg.id}: `senpi update` was killed (rc {rc}). Do NOT re-run it.", file=sys.stderr)
+    if rc < -1:  # killed, by any signal: stderr above carries the bare fact, the next step is said here
+        again = ": it will be killed again" if _cli.is_sigkill(rc) else ""
+        if a.apply:
+            nxt = (f"The outcome is unknown: the edit may have been applied before the kill. Read what is "
+                   f"running now before telling the user: python3 {_cli.STATUS_PY} {pkg.id}. Do NOT "
+                   f"re-run it{again}.")
+        else:
+            nxt = (f"This was a plan (no --apply), so nothing was changed, and no plan came back. Do NOT "
+                   f"re-run it{again}; tell the user the plan could not be computed on this box.")
+        print(f"✗ {pkg.id}: `senpi update` was killed before it answered (rc {rc}).{_cli.oom_note(rc)} {nxt}",
+              file=sys.stderr)
         return EXIT_INTERNAL
     # `status.py`, not `openclaw senpi runtime list`: that verb loads the same plugin tree and, on a
     # box whose memory killed this one, is killed too.

@@ -66,11 +66,42 @@ class UpdateHarness(unittest.TestCase):
 class TestUpdate(UpdateHarness):
     def test_a_killed_update_says_it_once_and_never_invites_a_retry(self):
         self.reply = (-9, "", _cli.killed_note(-9))
-        rc, _out, err = self.run_update()
+        (self.tmp / "main" / deploy.PROOF_FILE).write_text("{}")
+        rc, _out, err = self.run_update(apply=True)
         self.assertEqual(rc, deploy.EXIT_INTERNAL)
         self.assertEqual(err.count("killed by SIGKILL"), 1)
         self.assertNotIn("before retrying", err)
         self.assertIn("Do NOT re-run", err)
+        self.assertIn("out of memory", err)
+        self.assertIn("outcome is unknown", err)
+        self.assertIn(f"python3 {_cli.STATUS_PY} spider", err)
+
+    def test_every_signal_kill_of_an_apply_says_outcome_unknown_and_read_status(self):
+        (self.tmp / "main" / deploy.PROOF_FILE).write_text("{}")
+        for rc in (-15, -11):
+            self.reply = (rc, "", _cli.killed_note(rc))
+            got, _out, err = self.run_update(apply=True)
+            self.assertEqual(got, deploy.EXIT_INTERNAL, rc)
+            self.assertIn("outcome is unknown", err, rc)
+            self.assertIn(f"python3 {_cli.STATUS_PY} spider", err, rc)
+            self.assertNotIn("memory", err, rc)         # only SIGKILL is read as out of memory
+
+    def test_a_killed_plan_says_nothing_was_changed(self):
+        self.reply = (-9, "", _cli.killed_note(-9))
+        rc, _out, err = self.run_update()
+        self.assertEqual(rc, deploy.EXIT_INTERNAL)
+        self.assertIn("nothing was changed", err)
+        self.assertNotIn("may have been applied", err)
+
+    def test_a_killed_update_prints_its_stdout_once(self):
+        # Real `_spawn`, real kill: a partial plan on stdout must not be echoed again through stderr.
+        _cli.run_cli = self._saved[2]           # the real one; tearDown puts the stub's original back
+        script = "import os, signal; print('PARTIAL-PLAN', flush=True); os.kill(os.getpid(), signal.SIGKILL)"
+        orig_spawn = _cli._spawn
+        self.addCleanup(setattr, _cli, "_spawn", orig_spawn)
+        _cli._spawn = lambda args, timeout: orig_spawn([sys.executable, "-c", script], timeout)
+        _rc, out, err = self.run_update()
+        self.assertEqual((out + err).count("PARTIAL-PLAN"), 1, out + err)
 
     def test_status_py_is_named_by_full_path(self):
         self.reply = (7, "", "boom")
