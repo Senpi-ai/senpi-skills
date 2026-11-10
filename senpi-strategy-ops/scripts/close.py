@@ -84,12 +84,13 @@ def _select_direct_target(rows, target):
     return rows[0]
 
 
-def _runtime_gone(name):
+def _runtime_gone(name, why=None):
     """True ONLY when `senpi.listRuntimes` was read successfully AND `name` is absent from it. An
     UNREADABLE inventory (no answer / no runtimes list → None) returns False: on teardown's money path we must never mistake
     'couldn't read the inventory' for 'the runtime is gone' and then strategy_close a strategy whose
-    runtime is still live and could re-enter positions. Fail CLOSED here — the caller retries / reports."""
-    rts = _cli.list_runtimes_or_none()
+    runtime is still live and could re-enter positions. Fail CLOSED here — the caller retries / reports.
+    `why`, a list, receives the read's `_cli.Cause` when it failed."""
+    rts = _cli.list_runtimes_or_none(why=why)
     if rts is None:
         return False
     return not any(_cli.runtime_name(r) == name for r in rts)
@@ -115,11 +116,34 @@ def _delete_runtime(rname, log, label):
     return r
 
 
-def close_one(label, strat, runtimes, dry_run, log):
+def _close_rerun(rerun):
+    return rerun or f"python3 {Path(__file__).resolve()} <the same arguments>"
+
+
+def oom_not_closed(rerun, cause_says_when=False):
+    """The out-of-memory stop for teardown: what is true (NOT closed, may be trading), what not to do
+    now, and the one sanctioned way back, with the read that says when. Never a raw strategy_close.
+    `cause_says_when`: the cause printed beside it is a killed read that already names when to try
+    again (`_cli.read_killed_hint`), so it is not said twice."""
+    head = "" if cause_says_when else "The box is most likely out of memory. "
+    when = ("When the read above says to try again, re-run: " if cause_says_when
+            else f"{_cli.oom_wait()} Then re-run: ")
+    return (f"{head}Tell the user: the strategy is NOT closed yet, and its runtime may still be "
+            f"trading. Do not re-run close now: it will be killed again. {when}{_close_rerun(rerun)}. "
+            f"Do not call strategy_close directly: it leaves the runtime trading.")
+
+
+def close_one(label, strat, runtimes, dry_run, log, rerun=None):
     """Stop the runtime (FIRE — no confirm-wait) + TRIGGER strategy_close, then return immediately. The
     agent polls by re-running close.py (idempotent: runtime already gone → skip; status closing/closed →
     skip re-submit). Thread-safe: uses the pre-fetched `runtimes` list and its OWN MCP client, so instances
-    run in parallel. sid + wallet come from the strategy record, not the runtime."""
+    run in parallel. sid + wallet come from the strategy record, not the runtime. `rerun` is the exact
+    close command, named in the out-of-memory stop.
+
+    A killed delete, by signal: a SIGKILL (on a box near its memory limit, the OOM killer) gets no
+    second delete, since that is killed too; the same holds for a SIGKILLed confirming read. Any other
+    signal (a SIGTERM, a crash) gets the one retry an unconfirmed delete always gets: the delete is
+    idempotent and `_runtime_gone` decides, so a retry can only finish the teardown."""
     sid = _cli.strategy_id_of(strat)
     wallet = _cli.strategy_wallet(strat)
     status0 = str(_cli.strategy_status(strat) or "").upper()
@@ -151,25 +175,34 @@ def close_one(label, strat, runtimes, dry_run, log):
     #    runtime is gone from `senpi.listRuntimes`.
     if rt:
         log(f"  [{label}] stopping runtime {rname!r}…")
-        r = _delete_runtime(rname, log, label)
-        killed = isinstance(r["rc"], int) and r["rc"] < -1
-        if not _runtime_gone(rname):
-            if killed:
-                # No second delete into a box that just killed the first: on SIGKILL it is killed
-                # again, and whether the first one stopped the runtime is not known.
+        attempts = []
+        for _ in range(2):   # still listed OR inventory unreadable → one retry, then treat as stuck
+            why = []
+            r = _delete_runtime(rname, log, label)
+            attempts.append(r)
+            if _runtime_gone(rname, why):
+                break
+            if _cli.sigkilled(r, why):
+                # No second delete into a box that just killed a call: it is killed again, and
+                # whether the delete stopped the runtime is not known.
                 rec["status"] = "failed"
-                again = (" Do not re-run close: it will be killed again." if _cli.is_sigkill(r["rc"])
-                         else " Re-run close only after that read.")
-                rec["error"] = (f"senpi.deleteRuntime was {_cli.killed_note(r['rc'])}, and runtime "
-                                f"{rname!r} is still in (or unreadable from) `senpi.listRuntimes` — "
-                                f"whether it stopped is unknown, so it was not retried and strategy_close "
-                                f"was NOT sent.{_cli.oom_note(r['rc'])} Read what is running now "
-                                f"(read-only): python3 {_cli.STATUS_PY}, then tell the user.{again}")
+                what = (f"senpi.deleteRuntime was {_cli.killed_note(r['rc'])}" if _cli.is_sigkill(r["rc"])
+                        else f"the read that confirms the delete was {_cli.killed_note(-9)}")
+                rec["error"] = (f"{what}, and runtime {rname!r} is still in (or unreadable from) "
+                                f"`senpi.listRuntimes` — whether it stopped is unknown, so no further "
+                                f"delete was sent and strategy_close was NOT sent. {oom_not_closed(rerun)}")
                 return rec
-            # still listed OR inventory unreadable → one retry, then treat as stuck
-            _delete_runtime(rname, log, label)
-        if not _runtime_gone(rname):
+        else:
             rec["status"] = "failed"
+            killed = [x["rc"] for x in attempts if isinstance(x["rc"], int) and x["rc"] < -1]
+            if killed:
+                # Killed by another signal (not out of memory): the next read says whether it stopped.
+                rec["error"] = (f"senpi.deleteRuntime was {_cli.killed_note(killed[-1])}, and runtime "
+                                f"{rname!r} is still in (or unreadable from) `senpi.listRuntimes` after "
+                                f"the retry — whether it stopped is unknown, so strategy_close was NOT "
+                                f"sent. Read what is running now (read-only): python3 {_cli.STATUS_PY}, "
+                                f"then re-run: {_close_rerun(rerun)}")
+                return rec
             delete = shlex.join(_cli.gateway_argv("senpi.deleteRuntime", {"id": rname}, DELETE_RPC_MS))
             rec["error"] = (f"runtime {rname!r} still in (or unreadable from) `senpi.listRuntimes` after "
                             f"delete — it may re-enter positions, so strategy_close was NOT sent. Delete "
@@ -372,28 +405,33 @@ def main(argv):
     # stop runtime + trigger strategy_close per instance — in PARALLEL (each instance uses its own MCP client),
     # then hand off to the agent to poll. The runtime inventory is fetched ONCE and shared (instances target distinct ids).
     rc0, _o0, _e0 = _cli.run_cli(["openclaw", "--version"], timeout=15)
+    rerun = shlex.join(["python3", str(Path(__file__).resolve())] + list(argv[1:]))
     rwhy = []
     runtimes = _cli.list_runtimes_or_none(why=rwhy)
     if runtimes is None:
         # Fail CLOSED. An unreadable inventory used to read as "no runtime", so every target skipped
         # the delete and strategy_close fired while its runtime kept running (and could re-enter).
-        if rc0 != 0:
+        # The kill comes first: a killed `openclaw --version` (rc -9) is openclaw running out of
+        # memory, never openclaw missing from this host.
+        oom = _cli.sigkilled(rwhy) or _cli.is_sigkill(rc0)
+        if oom:
+            cure = oom_not_closed(rerun, cause_says_when=_cli.sigkilled(rwhy))
+        elif rc0 != 0 and not rc0 < -1:
             cure = ("openclaw is not available on this host, so no runtime can be stopped from here. Run "
                     "this command on the agent's own box, where the runtimes run.")
-        elif any(_cli.read_killed_hint(-9) in w for w in rwhy):
-            # The cause already says stop (SIGKILL: the box is out of memory); never add a re-run here.
-            cure = "Tell the user nothing was closed because the box is out of memory."
         else:
             cure = "Re-run this command; if it keeps failing, the gateway is not answering."
         raise SystemExit(f"error: the runtime inventory (`senpi.listRuntimes`) could not be read "
                          f"({rwhy[0] if rwhy else 'no cause'}), so no runtime could be stopped first. "
-                         f"NOTHING WAS CLOSED and no runtime was stopped.\n  {cure}\n  Do not call "
-                         f"strategy_close directly: it leaves the runtime trading.")
+                         f"NOTHING WAS CLOSED and no runtime was stopped.\n  {cure}"
+                         + ("" if oom else "\n  Do not call strategy_close directly: it leaves the "
+                                           "runtime trading."))
     if a.dry_run or len(targets) == 1:
-        results = [close_one(label, strat, runtimes, a.dry_run, log) for label, strat in targets]
+        results = [close_one(label, strat, runtimes, a.dry_run, log, rerun) for label, strat in targets]
     else:
         with ThreadPoolExecutor(max_workers=min(8, len(targets))) as ex:
-            results = list(ex.map(lambda t: close_one(t[0], t[1], runtimes, a.dry_run, log), targets))
+            results = list(ex.map(lambda t: close_one(t[0], t[1], runtimes, a.dry_run, log, rerun),
+                                  targets))
 
     statuses = {r["status"] for r in results}
     overall = ("planned" if a.dry_run else

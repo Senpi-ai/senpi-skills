@@ -399,6 +399,32 @@ class ProcessGroupKill(unittest.TestCase):
             self.assertIn("stop here", w)
             self.assertNotIn("may have landed", w)
 
+    def test_a_kill_line_for_an_unnamed_signal_is_set_aside_too(self):
+        # `killed_note` writes `signal <n>` for a signal `signal.Signals` cannot name; that line must
+        # be kept last like any other, and the 10.x error on stdout still found.
+        line = "killed by signal 40 (rc -40) before it answered"
+        tail = _cli.error_tail(line, "the 10.x error")
+        self.assertIn("the 10.x error", tail)
+        self.assertTrue(tail.endswith(line), tail)
+        self.assertEqual(_cli.error_tail("x" * 5000 + "\n" + line, "", limit=200).splitlines()[-1], line)
+
+    def test_a_killed_read_carries_its_rc_so_no_caller_reads_the_wording(self):
+        kill = [sys.executable, "-c", "import os, signal; os.kill(os.getpid(), signal.SIGKILL)"]
+        with mock.patch.object(_cli, "gateway_argv", lambda *a, **k: kill):
+            why, hwhy = [], []
+            _cli.list_runtimes_or_none(why=why)
+            _cli.health_or_none(why=hwhy)
+        self.assertEqual((why[0].rc, hwhy[0].rc), (-9, -9))
+        self.assertTrue(_cli.sigkilled(why) and _cli.sigkilled(hwhy))
+        self.assertFalse(_cli.sigkilled([_cli.Cause("killed by SIGKILL (rc -9) before it answered", 1)]))
+        self.assertFalse(_cli.sigkilled([_cli.Cause("x", -15)]))
+
+    def test_the_read_stop_says_when_to_try_again(self):
+        hint = _cli.read_killed_hint(-9)
+        self.assertIn("stop here", hint)
+        self.assertIn("after the box restarts or memory frees", hint)
+        self.assertIn(_cli.STATUS_PY, hint)
+
 
 def _gw(kind, payload=None, message=None):
     return {"kind": kind, "payload": payload, "message": message, "code": None, "rc": 0, "stderr": "",

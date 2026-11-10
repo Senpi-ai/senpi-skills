@@ -135,11 +135,41 @@ def run_cli(args, timeout=60):
 # The script beside this module that every kill steers to: resolved here, so it is right on an
 # overlay or under `~/.openclaw`, not only at the image's `/data/.openclaw` path.
 STATUS_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "status.py")
-_KILLED_LINE = re.compile(r"^killed by \S+ \(rc -\d+\) before it answered$")
+# `killed_note`'s line: a named signal, or `signal <n>` for one `signal.Signals` cannot name.
+_KILLED_LINE = re.compile(r"^killed by (?:SIG[A-Z0-9]+|signal \d+) \(rc -\d+\) before it answered$")
 
 
 def is_sigkill(rc):
     return isinstance(rc, int) and rc == -signal.SIGKILL
+
+
+class Cause(str):
+    """A failed call's cause: the text every caller prints, plus the call's `rc`, so a caller decides
+    on the rc (a SIGKILL) and never on the wording. A `str`, so every existing reader is unchanged."""
+
+    def __new__(cls, text, rc=None):
+        c = super().__new__(cls, text)
+        c.rc = rc
+        return c
+
+
+def sigkilled(*causes):
+    """True when any cause (a `Cause`, a list of them, or a gateway_call result) carries a SIGKILL."""
+    for c in causes:
+        if isinstance(c, dict):
+            c = [Cause("", c.get("rc"))]
+        elif not isinstance(c, (list, tuple)):
+            c = [c]
+        if any(is_sigkill(getattr(x, "rc", None)) for x in c):
+            return True
+    return False
+
+
+def oom_wait():
+    """WHEN a SIGKILLed call may be tried again: an event, then the read that shows it happened. A
+    kill steer without it strands the user (told to stop, with no sanctioned way back)."""
+    return (f"Try again only after the box restarts or memory frees: `python3 {STATUS_PY}` reading "
+            f"the runtime list without being killed is the sign it has.")
 
 
 def oom_note(rc):
@@ -154,8 +184,8 @@ def read_killed_hint(rc):
     the same box and is killed too; a write was never in play, so there is nothing to check first."""
     if not is_sigkill(rc):
         return ""
-    return (" — the box is most likely out of memory: stop here. Re-running this or another read will be "
-            "killed too; tell the user the box is out of memory.")
+    return (" — the box is most likely out of memory: stop here. Re-running this or another read now will "
+            "be killed too; tell the user the box is out of memory. " + oom_wait())
 
 
 # ---- direct gateway calls (`openclaw gateway call <method> --json`) ----
@@ -461,12 +491,12 @@ def list_runtimes_or_none(why=None):
     """The runtime inventory (running AND stopped), straight from `senpi.listRuntimes`, or None when
     the read produced no answer — so callers can tell 'no runtimes' (→ []) from 'couldn't read the
     inventory' (→ None). The teardown money path must never mistake an unreadable inventory for 'the
-    runtime is gone'. `why`, a list, receives the cause."""
+    runtime is gone'. `why`, a list, receives the cause as a `Cause` (its `rc` says if it was killed)."""
     r = gateway_call("senpi.listRuntimes", {}, rpc_timeout_ms=READ_RPC_MS, timeout_s=READ_WALL_S)
     rows = _runtime_rows(r["payload"]) if r["kind"] == "ok" else None
     if rows is None and why is not None:
-        why.append(f"senpi.listRuntimes: {r['kind']}: {r['message'] or 'no runtimes list in the answer'}"
-                   + read_killed_hint(r["rc"]))
+        why.append(Cause(f"senpi.listRuntimes: {r['kind']}: {r['message'] or 'no runtimes list in the answer'}"
+                         + read_killed_hint(r["rc"]), r["rc"]))
     return rows
 
 
@@ -483,8 +513,8 @@ def health_or_none(runtime_id=None, why=None):
     if r["kind"] == "ok" and isinstance(r["payload"], dict):
         return r["payload"]
     if why is not None:
-        why.append(f"senpi.getHealthStatus: {r['kind']}: {r['message'] or 'no payload'}"
-                   + read_killed_hint(r["rc"]))
+        why.append(Cause(f"senpi.getHealthStatus: {r['kind']}: {r['message'] or 'no payload'}"
+                         + read_killed_hint(r["rc"]), r["rc"]))
     return None
 
 
@@ -839,7 +869,12 @@ class ReadFailed(Exception):
     """A surface a caller needs came back unusable — a transport failure, or a payload whose shape
     carries no answer. Raised by CALLERS of the fail-closed `*_or_none` readers
     (`list_strategies_or_none`, `list_runtimes_or_none`, `cli_json`) once they have turned that
-    sentinel into a refusal: a caller that catches this must render NO verdict."""
+    sentinel into a refusal: a caller that catches this must render NO verdict. `rc` is the failed
+    call's own rc when it is known, so a caller can tell a SIGKILL without reading the message."""
+
+    def __init__(self, message, rc=None):
+        super().__init__(message)
+        self.rc = rc
 
 
 def list_strategies(mcp, timeout=15, statuses=None):
