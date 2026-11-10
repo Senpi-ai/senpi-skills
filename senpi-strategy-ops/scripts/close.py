@@ -21,6 +21,8 @@ close too):
 
 --instance scopes which instance(s) to close; --dry-run prints the plan with no side effects.
 --strategy-id/--address are mutually exclusive with <id>/--all/--instance/--ref and with each other.
+Exit: 0 done · 2 failed/partial/refused · 1 error · `_cli.EXIT_OOM` (9) a call was SIGKILLed (out of
+memory): nothing more is sent, and `--json` carries `oom: true`.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
@@ -120,17 +122,41 @@ def _close_rerun(rerun):
     return rerun or f"python3 {Path(__file__).resolve()} <the same arguments>"
 
 
-def oom_not_closed(rerun, cause_says_when=False):
-    """The out-of-memory stop for teardown: what is true (NOT closed, may be trading), what not to do
-    now, and the one sanctioned way back, with the read that says when. Never a raw strategy_close.
-    `cause_says_when`: the cause printed beside it is a killed read that already names when to try
-    again (`_cli.read_killed_hint`), so it is not said twice."""
-    head = "" if cause_says_when else "The box is most likely out of memory. "
-    when = ("When the read above says to try again, re-run: " if cause_says_when
-            else f"{_cli.oom_wait()} Then re-run: ")
-    return (f"{head}Tell the user: the strategy is NOT closed yet, and its runtime may still be "
-            f"trading. Do not re-run close now: it will be killed again. {when}{_close_rerun(rerun)}. "
-            f"Do not call strategy_close directly: it leaves the runtime trading.")
+def oom_not_closed(rerun):
+    """The out-of-memory stop for teardown (`_cli.oom_stop`): what is true (NOT closed, may be
+    trading), and the one sanctioned way back. Never a raw strategy_close."""
+    return (_cli.oom_stop("The strategy is NOT closed yet, and its runtime may still be trading.",
+                          "the strategy is NOT closed yet")
+            + f" Then re-run: {_close_rerun(rerun)}. Do not call strategy_close directly: it leaves "
+            f"the runtime trading.")
+
+
+def _inventory_or_stop(rerun, as_json):
+    """The runtime inventory (`senpi.listRuntimes`), read ONCE for the whole run, or a stop: NOTHING
+    is closed off an unreadable inventory. Every target needs it (a strategy_close sent past a live
+    runtime leaves it trading), and so does `--instance`, which maps the instance to its wallet
+    through it: an unreadable read there is never "no such runtime"."""
+    vwhy, rwhy = [], []
+    _cli.openclaw_available(why=vwhy)
+    runtimes = _cli.list_runtimes_or_none(why=rwhy)
+    if runtimes is not None:
+        return runtimes
+    head = (f"error: the runtime inventory (`senpi.listRuntimes`) could not be read "
+            f"({_cli.cause_fact(rwhy[0]) if rwhy else 'no cause'}), so no runtime could be stopped first. "
+            f"NOTHING WAS CLOSED and no runtime was stopped.")
+    # The kill comes first: a killed `openclaw --version` (rc -9) is openclaw running out of memory,
+    # never openclaw missing from this host.
+    if _cli.sigkilled(rwhy, vwhy):
+        sys.exit(_cli.emit_oom(f"{head}\n  {oom_not_closed(rerun)}", as_json,
+                               {"status": "failed", "instances": []}))
+    rc0 = getattr(vwhy[0], "rc", None) if vwhy else 0
+    if rc0 != 0 and not (isinstance(rc0, int) and rc0 < -1):
+        cure = ("openclaw is not available on this host, so no runtime can be stopped from here. Run "
+                "this command on the agent's own box, where the runtimes run.")
+    else:
+        cure = "Re-run this command; if it keeps failing, the gateway is not answering."
+    raise SystemExit(f"{head}\n  {cure}\n  Do not call strategy_close directly: it leaves the runtime "
+                     f"trading.")
 
 
 def close_one(label, strat, runtimes, dry_run, log, rerun=None):
@@ -191,13 +217,16 @@ def close_one(label, strat, runtimes, dry_run, log, rerun=None):
                 rec["error"] = (f"{what}, and runtime {rname!r} is still in (or unreadable from) "
                                 f"`senpi.listRuntimes` — whether it stopped is unknown, so no further "
                                 f"delete was sent and strategy_close was NOT sent. {oom_not_closed(rerun)}")
+                rec.update(_cli.oom_fields())
                 return rec
         else:
             rec["status"] = "failed"
-            killed = [x["rc"] for x in attempts if isinstance(x["rc"], int) and x["rc"] < -1]
-            if killed:
-                # Killed by another signal (not out of memory): the next read says whether it stopped.
-                rec["error"] = (f"senpi.deleteRuntime was {_cli.killed_note(killed[-1])}, and runtime "
+            last = attempts[-1]["rc"]
+            if isinstance(last, int) and last < -1:
+                # The retry was killed by another signal (not out of memory): the next read says
+                # whether it stopped. A retry that ANSWERED and left the runtime listed is a stuck
+                # runtime, whatever happened to the first delete: that gets the manual delete below.
+                rec["error"] = (f"senpi.deleteRuntime was {_cli.killed_note(last)}, and runtime "
                                 f"{rname!r} is still in (or unreadable from) `senpi.listRuntimes` after "
                                 f"the retry — whether it stopped is unknown, so strategy_close was NOT "
                                 f"sent. Read what is running now (read-only): python3 {_cli.STATUS_PY}, "
@@ -298,6 +327,8 @@ def main(argv):
     mcp = MCPClient()
     pkg = None
     why = []
+    rerun = shlex.join(["python3", str(Path(__file__).resolve())] + list(argv[1:]))
+    runtimes = None   # the inventory, read once (`--instance` reads it before targeting)
 
     if a.all:
         # Close every OPEN strategy across all packages — for "close all strategies / return funds".
@@ -346,7 +377,10 @@ def main(argv):
                                why, pkg.id)
         opens = [s for s in rows if _cli.strategy_open(s)]
         if a.instance:
-            rt = _cli.find_runtime(f"{pkg.id}-{a.instance}")  # reads senpi.listRuntimes
+            # The instance maps to its wallet only through its runtime, so the inventory is read
+            # here, fail-closed: an unreadable read stops the run, never "no runtime".
+            runtimes = _inventory_or_stop(rerun, a.json)
+            rt = next((r for r in runtimes if _cli.runtime_name(r) == f"{pkg.id}-{a.instance}"), None)
             w = _cli.runtime_wallet(rt) if rt else None
             targets = [(a.instance, s) for s in opens if w and _cli.wallet_match(w, _cli.strategy_wallet(s))]
             if not targets:
@@ -404,28 +438,10 @@ def main(argv):
 
     # stop runtime + trigger strategy_close per instance — in PARALLEL (each instance uses its own MCP client),
     # then hand off to the agent to poll. The runtime inventory is fetched ONCE and shared (instances target distinct ids).
-    rc0, _o0, _e0 = _cli.run_cli(["openclaw", "--version"], timeout=15)
-    rerun = shlex.join(["python3", str(Path(__file__).resolve())] + list(argv[1:]))
-    rwhy = []
-    runtimes = _cli.list_runtimes_or_none(why=rwhy)
+    # Fail CLOSED. An unreadable inventory used to read as "no runtime", so every target skipped the
+    # delete and strategy_close fired while its runtime kept running (and could re-enter).
     if runtimes is None:
-        # Fail CLOSED. An unreadable inventory used to read as "no runtime", so every target skipped
-        # the delete and strategy_close fired while its runtime kept running (and could re-enter).
-        # The kill comes first: a killed `openclaw --version` (rc -9) is openclaw running out of
-        # memory, never openclaw missing from this host.
-        oom = _cli.sigkilled(rwhy) or _cli.is_sigkill(rc0)
-        if oom:
-            cure = oom_not_closed(rerun, cause_says_when=_cli.sigkilled(rwhy))
-        elif rc0 != 0 and not rc0 < -1:
-            cure = ("openclaw is not available on this host, so no runtime can be stopped from here. Run "
-                    "this command on the agent's own box, where the runtimes run.")
-        else:
-            cure = "Re-run this command; if it keeps failing, the gateway is not answering."
-        raise SystemExit(f"error: the runtime inventory (`senpi.listRuntimes`) could not be read "
-                         f"({rwhy[0] if rwhy else 'no cause'}), so no runtime could be stopped first. "
-                         f"NOTHING WAS CLOSED and no runtime was stopped.\n  {cure}"
-                         + ("" if oom else "\n  Do not call strategy_close directly: it leaves the "
-                                           "runtime trading."))
+        runtimes = _inventory_or_stop(rerun, a.json)
     if a.dry_run or len(targets) == 1:
         results = [close_one(label, strat, runtimes, a.dry_run, log, rerun) for label, strat in targets]
     else:
@@ -439,6 +455,9 @@ def main(argv):
                "closing" if "closing" in statuses else
                "closed" if statuses <= {"closed"} else "partial")
     out = {"strategy": strategy_label, "status": overall, "instances": results}
+    oom = any(r.get("oom") for r in results)
+    if oom:
+        out.update(_cli.oom_fields())
 
     # A START for this package whose reply never came back left its request id open in the deploy
     # journal, and the next `deploy.py create` would reuse it: the runtime then answers with the OLD
@@ -482,7 +501,7 @@ def main(argv):
             (pkg.dir / ".deploy-state.json").unlink()
         except OSError:
             pass
-    sys.exit(2 if overall in ("failed", "partial") or pending else 0)
+    sys.exit(_cli.EXIT_OOM if oom else 2 if overall in ("failed", "partial") or pending else 0)
 
 
 if __name__ == "__main__":

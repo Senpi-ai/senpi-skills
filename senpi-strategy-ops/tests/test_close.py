@@ -119,7 +119,26 @@ class CloseRuntimeDeleteConfirm(unittest.TestCase):
         self.assertIn("killed by SIGKILL", rec["error"])
         self.assertIn("out of memory", rec["error"])
         self.assertIn(_cli.STATUS_PY, rec["error"])
-        self.assertIn("Do not re-run close now", rec["error"])
+        self.assertIn("Do not re-run this or any other command now", rec["error"])
+        self.assertEqual((rec["oom"], rec["killed_rc"]), (True, -9))
+
+    def test_a_retry_that_answered_gets_the_manual_delete_whatever_killed_the_first(self):
+        # First delete SIGTERMed (a gateway restart), the retry ANSWERED, and the runtime is still
+        # listed: a stuck runtime. The steer is the hand-run delete, not "killed … after the retry".
+        answers = [dict(_gw("unreadable", message=_cli.killed_note(-15)), rc=-15),
+                   _gw("error", message="still running")]
+
+        def fake_gateway(method, params=None, rpc_timeout_ms=None, timeout_s=None):
+            self.deletes.append((params, rpc_timeout_ms, timeout_s))
+            return answers.pop(0)
+        _cli.gateway_call = fake_gateway
+        _cli.list_runtimes_or_none = lambda why=None: [{"name": "pkg-main", "wallet": "0xabc"}]
+        rec = close.close_one("main", self._STRAT, self._RUNTIMES, False, lambda m: None)
+        self.assertEqual(rec["status"], "failed")
+        self.assertEqual(len(self.deletes), 2)
+        self.assertEqual(self.closed, [])
+        self.assertIn("openclaw gateway call senpi.deleteRuntime", rec["error"])
+        self.assertNotIn("killed by SIGTERM", rec["error"])
 
     def test_a_sigkilled_delete_names_the_way_back_to_close(self):
         # Round 3: "do not re-run close" with no condition stranded a funded strategy. The stop now
@@ -537,6 +556,15 @@ class MainPackagePollReportsClosed(unittest.TestCase):
                 close.main(["close.py", *args])
         return buf.getvalue(), ctx.exception.code
 
+    def _run_oom(self, *args):
+        """The out-of-memory stop: exit `EXIT_OOM`, the stop on stderr. Returns the stderr text."""
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            with self.assertRaises(SystemExit) as ctx:
+                close.main(["close.py", *args])
+        self.assertEqual(ctx.exception.code, _cli.EXIT_OOM)
+        return err.getvalue()
+
     _CLOSED_ROW = {"strategyId": "s1", "strategyWalletAddress": "0xabc", "status": "CLOSED"}
     _ACTIVE_ROW = {"strategyId": "s1", "strategyWalletAddress": "0xabc", "status": "ACTIVE"}
 
@@ -587,10 +615,10 @@ class MainPackagePollReportsClosed(unittest.TestCase):
             return None
         _cli.list_runtimes_or_none = killed
         self.rows = [self._ACTIVE_ROW]
-        _out, code = self._run("omega")
-        self.assertIn("NOTHING WAS CLOSED", str(code))
-        self.assertIn("out of memory", str(code))
-        self.assertNotIn("Re-run this command", str(code))
+        msg = self._run_oom("omega")
+        self.assertIn("NOTHING WAS CLOSED", msg)
+        self.assertIn("out of memory", msg)
+        self.assertNotIn("Re-run this command", msg)
         self.assertEqual(self.closed, [])
 
     def test_a_killed_inventory_read_names_when_close_is_safe_again(self):
@@ -599,20 +627,32 @@ class MainPackagePollReportsClosed(unittest.TestCase):
             return None
         _cli.list_runtimes_or_none = killed
         self.rows = [self._ACTIVE_ROW]
-        _out, code = self._run("omega")
-        msg = str(code)
+        msg = self._run_oom("omega")
         self.assertIn("NOT closed yet", msg)
         self.assertIn("re-run: python3 ", msg)
         self.assertIn("close.py omega", msg)
         self.assertEqual(msg.count("Do not call strategy_close directly"), 1)
 
+    def test_instance_close_off_an_unreadable_inventory_stops_and_never_says_close_all(self):
+        # `--instance` maps the instance to its wallet through the inventory. An unreadable read used
+        # to be "no runtime" and steered at "Omit --instance to close all", which tears down the
+        # instances the user wanted kept.
+        _cli.list_runtimes_or_none = lambda why=None: (
+            why.append(_cli.Cause("senpi.listRuntimes: timeout: no answer within 25s", -1)), None)[1]
+        self.rows = [self._ACTIVE_ROW]
+        _out, code = self._run("omega", "--instance", "main")
+        self.assertIn("NOTHING WAS CLOSED", str(code))
+        self.assertNotIn("Omit --instance", str(code))
+        self.assertNotIn("close all", str(code))
+        self.assertEqual(self.closed, [])
+
     def test_a_killed_openclaw_version_is_not_openclaw_missing(self):
         _cli.run_cli = lambda args, timeout=60: (-9, "", _cli.killed_note(-9))   # tearDown restores it
         _cli.list_runtimes_or_none = lambda why=None: (why.append(_cli.Cause("senpi.listRuntimes: error: x", 1)), None)[1]
         self.rows = [self._ACTIVE_ROW]
-        _out, code = self._run("omega")
-        self.assertNotIn("not available on this host", str(code))
-        self.assertIn("out of memory", str(code))
+        msg = self._run_oom("omega")
+        self.assertNotIn("not available on this host", msg)
+        self.assertIn("out of memory", msg)
 
     def test_box_p2_03_every_strategy_already_closed_closes_the_open_request(self):
         # Box A T7b (2026-10-29): a lost START left the entry open; `close.py <id>` found nothing live
