@@ -13,6 +13,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import time
 
 
@@ -165,11 +166,41 @@ def sigkilled(*causes):
     return False
 
 
+# The ONE exit code for "a call here was SIGKILLed: out of memory, stop" — every lifecycle script
+# (deploy.py, close.py, status.py) exits with it, so a caller branches on the code, never the words.
+# Outside every other map (D-12 0-6, verify 0/1/3, close 0/1/2, validate 0-3); mnemonic for SIGKILL.
+EXIT_OOM = 9
+
+
 def oom_wait():
     """WHEN a SIGKILLed call may be tried again: an event, then the read that shows it happened. A
     kill steer without it strands the user (told to stop, with no sanctioned way back)."""
     return (f"Try again only after the box restarts or memory frees: `python3 {STATUS_PY}` reading "
-            f"the runtime list without being killed is the sign it has.")
+            f"the runtime list without being killed (exit 0, not {EXIT_OOM}) is the sign it has.")
+
+
+def oom_stop(state, tell):
+    """THE out-of-memory stop, one producer for every script: a call here was SIGKILLed, so every
+    further call on this box (a read, a poll, a re-run) loads the same CLI and is killed too. `state`
+    is what is true now (what was or was not changed); `tell` is what the user hears. Never a retry
+    now, and always the way back (`oom_wait`)."""
+    return (f"The box is most likely out of memory (a SIGKILL is what its out-of-memory killer sends): "
+            f"stop here. {state} Do not re-run this or any other command now, and do not poll: it is "
+            f"killed too. Tell the user {tell}. {oom_wait()}")
+
+
+def oom_fields(rc=-signal.SIGKILL, stop=None):
+    """The JSON fields every `--json` document carries on the out-of-memory stop."""
+    return {"oom": True, "killed_rc": rc, **({"stop": stop} if stop else {})}
+
+
+def emit_oom(stop, as_json=False, doc=None, rc=-signal.SIGKILL):
+    """Print the out-of-memory stop and return `EXIT_OOM`: the stop on stderr, and under `--json` one
+    document on stdout (`doc` plus `oom_fields`). Callers return or `sys.exit` what this returns."""
+    print(stop, file=sys.stderr)
+    if as_json:
+        print(json.dumps({**(doc or {}), **oom_fields(rc, stop)}, indent=2))
+    return EXIT_OOM
 
 
 def oom_note(rc):
@@ -186,6 +217,22 @@ def read_killed_hint(rc):
         return ""
     return (" — the box is most likely out of memory: stop here. Re-running this or another read now will "
             "be killed too; tell the user the box is out of memory. " + oom_wait())
+
+
+def cause_fact(cause):
+    """A cause without the stop `read_killed_hint` appended to it: for printing beside `oom_stop`,
+    which says the stop once."""
+    return str(cause).replace(read_killed_hint(-signal.SIGKILL), "")
+
+
+def openclaw_available(why=None):
+    """`openclaw --version` answered rc 0. A SIGKILLed probe is openclaw running out of memory, never
+    openclaw missing: `why` receives its `Cause` (rc -9) so the caller says stop, not "no openclaw"."""
+    rc, out, err = run_cli(["openclaw", "--version"], timeout=15)
+    if rc != 0 and why is not None:
+        why.append(Cause(f"openclaw --version: {error_tail(err, out) or f'exited {rc}'}"
+                         + read_killed_hint(rc), rc))
+    return rc == 0
 
 
 # ---- direct gateway calls (`openclaw gateway call <method> --json`) ----
@@ -496,14 +543,15 @@ def list_runtimes_or_none(why=None):
     rows = _runtime_rows(r["payload"]) if r["kind"] == "ok" else None
     if rows is None and why is not None:
         why.append(Cause(f"senpi.listRuntimes: {r['kind']}: {r['message'] or 'no runtimes list in the answer'}"
-                         + read_killed_hint(r["rc"]), r["rc"]))
+                         + read_killed_hint(r.get("rc")), r.get("rc")))
     return rows
 
 
-def list_runtimes():
+def list_runtimes(why=None):
     """Like `list_runtimes_or_none` but [] on a failed read. Only for reads that ADD information;
-    a money path uses `list_runtimes_or_none`."""
-    return list_runtimes_or_none() or []
+    a money path uses `list_runtimes_or_none`. `why` still receives the failed read's `Cause`, so a
+    caller can tell a SIGKILL (stop) from an empty inventory."""
+    return list_runtimes_or_none(why=why) or []
 
 
 def health_or_none(runtime_id=None, why=None):
@@ -514,7 +562,7 @@ def health_or_none(runtime_id=None, why=None):
         return r["payload"]
     if why is not None:
         why.append(Cause(f"senpi.getHealthStatus: {r['kind']}: {r['message'] or 'no payload'}"
-                         + read_killed_hint(r["rc"]), r["rc"]))
+                         + read_killed_hint(r.get("rc")), r.get("rc")))
     return None
 
 
@@ -550,19 +598,22 @@ def runtime_no_entry_scanners(rt):
     return "no entry scanners" in str(st or "").lower()
 
 
-def find_runtime(name):
-    for rt in list_runtimes():
+def find_runtime(name, why=None):
+    """The runtime named `name`, or None. None is also an UNREADABLE inventory: `why` receives that
+    read's `Cause`, and a caller that acts on "not found" must check it first."""
+    for rt in list_runtimes(why=why):
         if runtime_name(rt) == name:
             return rt
     return None
 
 
-def find_runtime_by_wallet(wallet):
+def find_runtime_by_wallet(wallet, why=None):
     """Find a runtime bound to a wallet address (close maps strategy→runtime by wallet,
-    so it doesn't depend on the runtime name). Tolerates truncated TTY wallets."""
+    so it doesn't depend on the runtime name). Tolerates truncated TTY wallets. `why`: as
+    `find_runtime`."""
     if not wallet:
         return None
-    for rt in list_runtimes():
+    for rt in list_runtimes(why=why):
         if wallet_match(runtime_wallet(rt), wallet):
             return rt
     return None
@@ -655,11 +706,12 @@ def scanner_reasons(status_entry):
             for r in scanner_rows(status_entry) if isinstance(r, dict) and r.get("degradedReason")]
 
 
-def runtime_health_map():
+def runtime_health_map(why=None):
     """Health for ALL running runtimes in ONE `senpi.getHealthStatus` call, keyed by runtime name.
-    One call regardless of fleet size. The gateway is flaky-empty, so try the single call twice."""
+    One call regardless of fleet size. The gateway is flaky-empty, so try the single call twice.
+    `why` receives a failed read's `Cause` (a SIGKILL among them)."""
     for _ in range(2):
-        obj = health_or_none()
+        obj = health_or_none(why=why)
         if obj is None:  # failed or timed out: only the flaky-empty answer is worth a retry
             break
         sts = find_list(obj, "statuses")
