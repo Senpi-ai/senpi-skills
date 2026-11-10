@@ -1452,23 +1452,31 @@ def _funded_text(funded):
 
 
 def package_simulations(pkg):
-    """The package's open simulations, or None when they cannot be read (an MCP with no paper
-    router, PAPER_UNAVAILABLE, a failed call). Read-only; used only to keep `verify` from naming a
-    live `create` over a package that runs as a simulation."""
+    """`(simulations, unread)` for the package. `simulations` is its open simulations (a list, empty
+    when there are none) or None when the list was not read. `unread` is None unless the read failed
+    in a way that leaves the outcome UNKNOWN (a timeout, a transport error, a payload with no list):
+    then it is the cause. An MCP with no paper router (no marker, PAPER_UNAVAILABLE) is a clean
+    answer, `(None, None)`: there are no simulations to find. Read-only; used only to keep `verify`
+    from naming a live `create` over a package that runs as a simulation."""
+    why = []
     try:
         rows = _cli.list_strategies_or_none(MCPClient(), timeout=STATUS_TIMEOUT,
-                                            statuses=_cli.LIVE_STATUSES, paper=True)
-    except Exception:  # noqa: BLE001 — best effort: None keeps today's answer
-        return None
+                                            statuses=_cli.LIVE_STATUSES, why=why, paper=True)
+    except Exception as e:  # noqa: BLE001 — an unexpected failure is an unknown outcome, not "none"
+        return None, f"the simulation lookup failed ({e})"
     if rows is None:
-        return None
-    return [s for s in rows if _cli.strategy_open(s) and _cli.strategy_skill(s) == pkg.id]
+        if why and all(isinstance(w, _cli.NoPaperRouter) for w in why):
+            return None, None
+        return None, (why[0] if why else "the simulation lookup produced no answer")
+    return [s for s in rows if _cli.strategy_open(s) and _cli.strategy_skill(s) == pkg.id], None
 
 
-def verify_instance(pkg, inst, strategies, runtimes, hmap, job_running=False, simulations=None):
+def verify_instance(pkg, inst, strategies, runtimes, hmap, job_running=False, simulations=None,
+                    sim_unread=None):
     """One instance's row: what exists, quoted — plus the ONE non-destructive next step for what does
     not. Never a close/teardown command, and never a step that is wrong for the state actually read.
-    `simulations` is the package's open simulations (None: not read)."""
+    `simulations` is the package's open simulations (None: not read); `sim_unread` is the cause when
+    that read failed with the outcome unknown, and then no live `create` is named."""
     want = _wallet_name(pkg, inst)
     rt_name = getattr(inst, "runtime_name", None) or f"{pkg.id}-{inst.name}"
     row = {"instance": inst.name, "strategy_name": want, "runtime": None, "wallet": None,
@@ -1592,6 +1600,16 @@ def verify_instance(pkg, inst, strategies, runtimes, hmap, job_running=False, si
                             f"for {pkg.id} is RUNNING on this agent right now, so its wallet may be "
                             f"mid-creation")
             row["next"] = watch
+        elif sim_unread:
+            # The simulation lookup failed and the outcome is unknown: the package may run as a
+            # simulation, and a live `create` would fund a real wallet for a user who meant that.
+            row["issue"] = (f"no live strategy named {want!r} on the backend — and the simulation list "
+                            f"could not be read ({sim_unread}), so whether {pkg.id} runs as a "
+                            f"SIMULATION is unknown")
+            row["next"] = (f"python3 {Path(__file__).with_name('status.py').name} {pkg.id} --paper   "
+                           f"# read-only: check for a simulation first (or retry verify). Name a live "
+                           f"deploy only once that read answers, and only if the user asks for real "
+                           f"money")
         elif simulations:
             # verify reads live strategies only. A package that runs only as a simulation must not get
             # a live `create` as its next step: that funds a real wallet for a user who meant the
@@ -1785,10 +1803,10 @@ def cmd_verify(pkg, a):
         return _verify_unreadable(pkg.id, [str(e)], a.json)
     # Only a package with no live wallet and no running job can reach the live `create` step, so
     # only then is the simulation list worth one more read.
-    sims = None
+    sims, sim_unread = None, None
     if not job_running and not any(_cli.strategy_skill(s) == pkg.id for s in strategies):
-        sims = package_simulations(pkg)
-    rows = [verify_instance(pkg, inst, strategies, runtimes, hmap, job_running, sims)
+        sims, sim_unread = package_simulations(pkg)
+    rows = [verify_instance(pkg, inst, strategies, runtimes, hmap, job_running, sims, sim_unread)
             for inst in pkg.instances]
     unreadable = [r["unreadable"] for r in rows if r["unreadable"]]
     if unreadable:
@@ -1882,6 +1900,12 @@ def update_target(pkg, runtime_id=None, address=None):
     ids = ", ".join(str(i.runtime_name) for i in insts) or "(none)"
     if runtime_id:
         inst = next((i for i in insts if i.runtime_name == runtime_id), None)
+        if inst is None:
+            # A simulation runs the same instance dir under `<id>-<inst>-paper` (what `status.py
+            # --paper` prints for a drifted one): resolve it back to its instance, and keep the id
+            # exactly as given so the verb is pointed at the simulation's runtime, not the live one.
+            inst = next((i for i in insts
+                         if _cli.runtime_id_for(pkg.id, i.name, True) == runtime_id), None)
         if inst is None:
             return None, [], (f"✗ {pkg.id}: no instance of this package runs as {runtime_id!r} — its "
                               f"runtime ids are: {ids}. Nothing was changed.")

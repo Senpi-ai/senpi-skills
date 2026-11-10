@@ -373,6 +373,57 @@ class StatusDriftPerWorld(unittest.TestCase):
                                                {"omega-main-paper": {"dslPreset": "old"}}))
 
 
+class UpdateFollowsTheDriftCommand(unittest.TestCase):
+    """The command `status.py --paper` prints for a drifted simulation must reach the update verb,
+    aimed at the simulation's runtime."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        (self.tmp / "main").mkdir()
+        inst = types.SimpleNamespace(name="main", runtime_name="omega-main",
+                                     runtime_path=self.tmp / "main" / "runtime.yaml")
+        self.pkg = types.SimpleNamespace(id="omega", dir=self.tmp, instances=[inst])
+        self.calls = []
+        self._orig = (status.build, deploy.local_pkg, deploy.full_validate, deploy.outside_durable_root,
+                      _cli.run_cli)
+        row = {"package": "omega", "is_pkg": True, "name": "omega", "name_source": "strategyName",
+               "strategyId": PAPER_ID, "wallet": PAPER_WALLET, "status": "ACTIVE", "funded": "100",
+               "positions": None, "paused": None, "reason": None, "runtime": "omega-main-paper",
+               "health": "running",
+               "config_drift": {"diffs": [{"field": "dsl_preset", "running": "old", "on_disk": "new"}],
+                                "dir": str(self.tmp / "main"), "package_dir": str(self.tmp)}}
+        status.build = lambda *a, **k: ([row], [], True)
+        deploy.local_pkg = lambda arg: self.pkg
+        deploy.full_validate = lambda pkg: []
+        deploy.outside_durable_root = lambda pkg, cmd, paper=False: None
+        _cli.run_cli = lambda argv, timeout=60: (self.calls.append(list(argv)) or (0, "", ""))
+
+    def tearDown(self):
+        (status.build, deploy.local_pkg, deploy.full_validate, deploy.outside_durable_root,
+         _cli.run_cli) = self._orig
+
+    def test_the_printed_command_updates_the_simulation(self):
+        import shlex
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            status.main(["status.py", "omega", "--paper"])
+        line = next(ln for ln in out.getvalue().splitlines() if "deploy.py update" in ln)
+        cmd = shlex.split(line.split("(add --apply")[0].split("python3 ", 1)[1])
+        self.assertEqual(cmd[0], "deploy.py")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as raised:
+                deploy.main(cmd)
+        self.assertEqual(raised.exception.code, 0)
+        self.assertEqual(self.calls, [["openclaw", "senpi", "update", str(self.tmp / "main"),
+                                       "--id", "omega-main-paper"]])
+
+    def test_an_unknown_runtime_id_is_still_refused(self):
+        inst, _sel, refusal = deploy.update_target(self.pkg, "omega-other-paper")
+        self.assertIsNone(inst)
+        self.assertIn("no instance of this package runs as", refusal)
+
+
 class DeployPaper(unittest.TestCase):
     def setUp(self):
         self._orig = _cli.gateway_call
@@ -560,10 +611,37 @@ class VerifySeesSimulations(unittest.TestCase):
         _code, err = self._verify()
         self.assertIn("create omega --budget <usd>", err)
 
-    def test_an_unreadable_simulation_list_keeps_todays_step(self):
+    def test_no_paper_router_keeps_todays_step(self):
         self.mcp.router = False
         _code, err = self._verify()
         self.assertIn("create omega --budget <usd>", err)
+
+    def test_paper_unavailable_keeps_todays_step(self):
+        self.mcp.unavailable = True
+        _code, err = self._verify()
+        self.assertIn("create omega --budget <usd>", err)
+
+    def test_a_timed_out_simulation_lookup_names_no_live_create(self):
+        class Timeout(FakeMCP):
+            def mcp_call(self, name, timeout=None, **kw):
+                if kw.get("paper") is True:
+                    raise TimeoutError("timed out")
+                return super().mcp_call(name, timeout=timeout, **kw)
+        self.mcp = Timeout(paper=[_paper_row()])
+        _code, err = self._verify()
+        self.assertNotIn("create omega", err)
+        self.assertIn("could not be read", err)
+        self.assertIn("status.py omega --paper", err)
+
+    def test_a_simulation_reply_with_no_list_names_no_live_create(self):
+        class Drift(FakeMCP):
+            def mcp_call(self, name, timeout=None, **kw):
+                if kw.get("paper") is True:
+                    return {"success": True, "data": {"paper_routing": True, "oops": []}}
+                return super().mcp_call(name, timeout=timeout, **kw)
+        self.mcp = Drift()
+        _code, err = self._verify()
+        self.assertNotIn("create omega", err)
 
 
 if __name__ == "__main__":
