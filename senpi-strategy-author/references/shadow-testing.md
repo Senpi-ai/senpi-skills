@@ -7,7 +7,8 @@ disappears in days while the strategy itself does nothing.
 **There is no paper-trading mode.** Senpi cannot run a strategy forward in simulated time, and nothing you
 schedule can stand in for that: a scanner re-run on a timer is a model call per tick, not a simulation, and
 it never sees fills, slippage, funding or the DSL. A one-shot offline backtest over historical candles is
-fine — no scheduler, no model call per tick, no venue contact — as long as it never wires to a trade tool.
+fine — no scheduler, no model call per tick, no venue contact — as long as it never wires to a trade tool
+and follows [the rules below](#an-offline-backtest--the-rules).
 Say that plainly when the user asks to paper trade or to "watch it on a timer", then offer the two real
 tests below; "shadow" means exactly one thing here — the `senpi validate` run.
 
@@ -29,6 +30,30 @@ minimum budget (a little over $10 per wallet; ops has the exact figure) through
 `senpi-strategy-ops` — never a raw MCP create. The runtime then supervises it every
 `interval_seconds` at **zero model cost**: the scanner, sizing, execution, the DSL exit and the risk
 gates all run inside the runtime process. There is nothing left for the agent to poll.
+
+## An offline backtest — the rules
+
+A replay you write yourself is only as honest as its clock. Each rule below is a way a hand-written
+backtest has already produced a confident, wrong recommendation for a live strategy.
+
+- **Decide on what was known at that moment.** Walk events in entry-time order. A gate at an entry
+  may read only trades that had already *closed* by then; a skipped trade never happened, so its
+  outcome cannot feed a later gate, a loss streak or a rolling win rate.
+- **A candle counts only once it has closed** before the decision. Never read the final close, high
+  or low of a bar still forming at entry, and never enter at the open of the bar whose close fired
+  the signal.
+- **Exits need the path, in order.** Use bars no coarser than the stop distance, clipped to the
+  holding interval. When one bar touches both the stop and a profit tier, take the stop first; with
+  no intraday data, report the trade as not covered — never fall back to its recorded exit.
+- **Start from the deployed `runtime.yaml`.** Load the baseline exit tiers, stop and guard rails
+  from the running instance's file — never retype them from memory or an older note.
+- **Every number names its run.** A kept subset cannot exceed its input; a combined variant is a new
+  run, never metrics copied from another.
+- **A bootstrap interval must pass its own check:** lower bound ≤ upper bound, and one value gives
+  that value at both ends. Index the sorted resamples; never subtract from the value.
+- **Say what it is.** A filter chosen on the same trades it is scored on is exploratory —
+  never "validated", "significant" or "proven" — until it holds on a later window that played no
+  part in choosing it. A backtest supports a change; the user decides it.
 
 ## Never schedule agent turns to watch it
 
