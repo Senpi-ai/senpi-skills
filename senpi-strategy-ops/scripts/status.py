@@ -137,7 +137,8 @@ def _config_drift(pkg_id, rt_name, descriptors):
             "dir": str(inst.runtime_path.parent), "package_dir": str(pkg.dir)}
 
 
-def build(mcp, only_pkg=None, deep=True):
+def build(mcp, only_pkg=None, deep=True, rwhy=None):
+    """`(rows, orphans, cli_ok)`. `rwhy`, a list, receives why the runtime list could not be read."""
     why = []
     strategies = _read_or_refuse(
         _cli.list_strategies_or_none(mcp, statuses=_cli.LIVE_STATUSES, why=why), why)
@@ -145,7 +146,7 @@ def build(mcp, only_pkg=None, deep=True):
     # No openclaw here, or a `senpi.listRuntimes` read that failed or timed out: the registry is not
     # visible, and an empty list must NOT read as "no runtimes" (that turns a healthy fleet into false
     # 'interrupted deploy' alarms). Degrade to runtime-unknown instead.
-    runtimes = _cli.list_runtimes_or_none() if _openclaw_available() else None
+    runtimes = _cli.list_runtimes_or_none(why=rwhy) if _openclaw_available() else None
     cli_ok = runtimes is not None
     runtimes = runtimes or []
     # ONE `senpi.getHealthStatus` for the whole fleet — only when runtimes actually exist
@@ -224,17 +225,22 @@ def main(argv):
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv[1:])
 
-    rows, orphans, cli_ok = build(MCPClient(), a.package, deep=not a.fast)
+    rwhy = []
+    rows, orphans, cli_ok = build(MCPClient(), a.package, deep=not a.fast, rwhy=rwhy)
 
     if a.json:
-        print(json.dumps({"strategies": rows, "orphan_runtimes": orphans,
-                          "openclaw_available": cli_ok}, indent=2))
+        print(json.dumps({"strategies": rows, "orphan_runtimes": orphans, "openclaw_available": cli_ok,
+                          "runtime_list_error": str(rwhy[0]) if rwhy else None}, indent=2))
         return 0
 
-    if not cli_ok:
+    if not cli_ok and rwhy and _cli.sigkilled(rwhy):
+        # The cause carries the stop and when to try again; a "Re-run" here would contradict it.
+        print(f"\nℹ couldn't read the runtime list on this host ({rwhy[0]}) — runtime state is "
+              f"UNKNOWN, not stopped.")
+    elif not cli_ok:
         print("\nℹ couldn't read the runtime list on this host (no openclaw, or `senpi.listRuntimes` "
-              "failed or timed out) — runtime state is UNKNOWN, not stopped. Re-run, or run status.py on "
-              "the runtime host.")
+              "failed or timed out" + (f": {rwhy[0]}" if rwhy else "") + ") — runtime state is UNKNOWN, "
+              "not stopped. Re-run, or run status.py on the runtime host.")
 
     if not rows and not orphans:
         print("No open strategies." + (f" (filter: {a.package})" if a.package else ""))

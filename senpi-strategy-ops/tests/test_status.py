@@ -14,6 +14,7 @@ Run:
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import contextlib
 import io
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -177,6 +178,37 @@ class TestUnreadableRuntimeList(unittest.TestCase):
             _cli.list_strategies_or_none, _cli.gateway_call, status._openclaw_available = orig
         self.assertFalse(cli_ok)
         self.assertEqual(rows[0]["health"], "runtime-unknown")
+
+    def _main_with_killed_read(self, *args):
+        # The real reader and status.main: only the `senpi.listRuntimes` gateway call is a SIGKILL.
+        orig = (_cli.list_strategies_or_none, _cli.gateway_call, status._openclaw_available, status.MCPClient)
+        _cli.list_strategies_or_none = lambda *a, **k: [fixture_with()]
+        _cli.gateway_call = lambda *a, **k: {"kind": "unreadable", "payload": None, "rc": -9,
+                                             "message": _cli.killed_note(-9)}
+        status._openclaw_available = lambda: True
+        status.MCPClient = lambda: None
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                status.main(["status.py", "--fast", *args])
+        finally:
+            (_cli.list_strategies_or_none, _cli.gateway_call, status._openclaw_available,
+             status.MCPClient) = orig
+        return buf.getvalue()
+
+    def test_a_sigkilled_runtime_read_says_stop_and_when_not_re_run(self):
+        # Every kill steer sends the agent here; a bare "Re-run" here is the loop the steer forbids.
+        out = self._main_with_killed_read()
+        self.assertIn("killed by SIGKILL", out)
+        self.assertIn("stop here", out)
+        self.assertIn("after the box restarts or memory frees", out)
+        self.assertNotIn("Re-run,", out)
+
+    def test_the_json_document_carries_the_runtime_read_cause(self):
+        doc = json.loads(self._main_with_killed_read("--json"))
+        self.assertFalse(doc["openclaw_available"])
+        self.assertIn("killed by SIGKILL", doc["runtime_list_error"])
+        self.assertIn("stop here", doc["runtime_list_error"])
 
 
 # At the END of the file, not the middle: `unittest.main()` only runs the classes already defined
