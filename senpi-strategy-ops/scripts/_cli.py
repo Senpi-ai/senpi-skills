@@ -219,13 +219,6 @@ def emit_oom(stop, as_json=False, doc=None, rc=-signal.SIGKILL):
     return EXIT_OOM
 
 
-def oom_note(rc):
-    """The out-of-memory reading, for SIGKILL only. On a box near its memory limit the kernel's OOM
-    killer is the usual sender (not proven per process: the agent cannot read the kernel log). A
-    SIGTERM (a container stop) or a SIGSEGV is not that, and is not called that."""
-    return " On a box near its memory limit that is most likely out of memory." if is_sigkill(rc) else ""
-
-
 def read_killed_hint(rc):
     """What a killed READ adds to the fact: on SIGKILL, stop. Any further read loads the same CLI on
     the same box and is killed too; a write was never in play, so there is nothing to check first."""

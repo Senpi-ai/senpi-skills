@@ -341,10 +341,9 @@ class ProcessGroupKill(unittest.TestCase):
                 self.assertNotIn(word, note.lower(), (rc, note))
 
     def test_out_of_memory_is_said_for_sigkill_only(self):
-        self.assertIn("out of memory", _cli.oom_note(-9))
         self.assertIn("out of memory", _cli.read_killed_hint(-9))
         for rc in (-15, -11, -6):
-            self.assertEqual((_cli.oom_note(rc), _cli.read_killed_hint(rc)), ("", ""), rc)
+            self.assertEqual(_cli.read_killed_hint(rc), "", rc)
 
     def test_status_py_is_the_one_beside_this_module(self):
         self.assertEqual(Path(_cli.STATUS_PY), Path(_cli.__file__).resolve().with_name("status.py"))
