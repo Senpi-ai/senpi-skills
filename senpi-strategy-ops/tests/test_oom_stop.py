@@ -327,10 +327,12 @@ class StatusExitZeroIsEarnedOnlyByAReadRuntimeList(_BoxCase):
     def test_the_way_back_has_a_way_out_when_1_outlasts_the_restart(self):
         # A wedged plugin answers `senpi.listRuntimes` with an error forever: 1 never turns to 0. But a
         # box still short of memory exits 1 on a timeout too, so the way out never calls 1 "not memory"
-        # and names no heavy cure status.py itself does not print.
+        # and names no heavy cure status.py itself does not print. Exit 1 has more than one cause (an
+        # unreadable strategy list too), so it follows the printed cause and never names one itself.
         w = _cli.oom_wait()
-        self.assertIn("If status.py still exits 1 after a restart, the gateway or runtime plugin isn't "
-                      "answering: tell the user that and stop. Don't keep re-running.", w)
+        self.assertIn("If status.py still exits 1 after a restart, follow the cause it prints; if that "
+                      "cause repeats, tell the user and stop. Don't keep re-running.", w)
+        self.assertNotIn("gateway or runtime plugin", w)
         self.assertNotIn("not the cause", w)
         self.assertNotIn("plugins install", w)
         self.assertNotIn("forever", w)

@@ -184,13 +184,15 @@ def oom_wait():
     the runtime list: an unreadable or timed-out list exits `STATUS_INVENTORY_UNREAD`, a kill
     `EXIT_OOM`. "Not killed" alone is not the sign: a timed-out read on a box still short of memory
     is not killed either. A list unreadable for another reason never turns 1 into 0, so past a
-    restart the way back ends in telling the user and stopping, rather than a wait or re-run with no
-    end. It never calls that cause "not memory": a box still short of memory exits 1 on a timeout too."""
+    restart the way back follows the cause status.py prints (it is not always the gateway: an
+    unreadable strategy list exits 1 too), and ends in telling the user and stopping when that cause
+    repeats, rather than a wait or re-run with no end. It never calls that cause "not memory": a box
+    still short of memory exits 1 on a timeout too."""
     return (f"Try again only after the box restarts or memory frees: `python3 {STATUS_PY}` exiting 0 "
             f"is the sign it has (it exits 0 only once it has read the runtime list; "
             f"{STATUS_INVENTORY_UNREAD} = the list could not be read, {EXIT_OOM} = killed again: "
-            f"not yet). If status.py still exits {STATUS_INVENTORY_UNREAD} after a restart, the gateway "
-            f"or runtime plugin isn't answering: tell the user that and stop. Don't keep re-running.")
+            f"not yet). If status.py still exits {STATUS_INVENTORY_UNREAD} after a restart, follow the "
+            f"cause it prints; if that cause repeats, tell the user and stop. Don't keep re-running.")
 
 
 def oom_stop(state, tell):
