@@ -402,6 +402,8 @@ class MainPackagePollReportsClosed(unittest.TestCase):
 
         def _fake_strategies_for(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15,
                                  statuses=None, why=None, paper=False):
+            if paper:
+                return []                        # this package has no simulations
             # The point of the test: HONOUR `statuses`, the way the real server-side filter does.
             if statuses is None and outer.unreadable:
                 return None                      # unreadable second read -> must fail closed
