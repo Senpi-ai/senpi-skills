@@ -22,8 +22,10 @@ close too):
 --instance scopes which instance(s) to close; --dry-run prints the plan with no side effects.
 --strategy-id/--address are mutually exclusive with <id>/--all/--instance/--ref and with each other.
 Exit: 0 done · 2 failed/partial/refused · 1 error · `_cli.EXIT_OOM` (9) a call was SIGKILLed (out of
-memory): the killed instance sends nothing more (in a parallel close, the other instances' workers
-finish their in-flight calls), and `--json` carries `oom: true`.
+memory): the killed instance sends nothing more, and `--json` carries `oom: true`. In a parallel
+close nothing is cancelled: the other workers run their own close to the end (delete retry, re-read,
+strategy_close) and queued instances still start. Close is the safe direction, and each instance
+reports its own outcome.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
