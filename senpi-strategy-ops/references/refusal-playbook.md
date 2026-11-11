@@ -18,8 +18,8 @@ Not a refusal and not a verdict: a call on this box was SIGKILLed (`rc -9`), mos
 out-of-memory killer. `deploy.py` (every subcommand), `close.py`, `status.py` and `run.sh` all exit `9`
 for it, and `--json` carries `oom: true`. Out of memory: stop, don't retry or poll now — every further
 command loads the same CLI and is killed too. Tell the user what the stop says (what was and was not
-changed). Safe again when `status.py` exits `0` (it does only once it has read the runtime list; `1`
-or `9` = not yet), then re-run the command the stop names.
+changed). Safe again when `status.py` exits `0` (it does only once it has read the runtime list and
+runtime health; `1` or `9` = not yet), then re-run the command the stop names.
 
 ## Refusals (`E_`)
 
@@ -232,7 +232,7 @@ is a false record that the package passed. If validate itself cannot finish (kil
 out of memory), the gate stays shut and that is no verdict on the package: report the edit as
 saved, not applied, and stop (exit `9`, the out-of-memory stop every lifecycle script shares).
 Try again only after the box restarts or memory frees — `status.py` exiting `0` is the sign it has
-(it exits `0` only once it has read the runtime list; `1` or `9` = not yet).
+(it exits `0` only once it has read the runtime list and runtime health; `1` or `9` = not yet).
 `RUNTIME_VERSION_CHANGED` = the package is untouched and only the engine under it moved (the
 runtime self-updates in place, so this hits packages nobody has touched). **`deploy.py
 create|runtime` repairs that one for you**: it re-runs `senpi validate` once, re-runs the deploy,

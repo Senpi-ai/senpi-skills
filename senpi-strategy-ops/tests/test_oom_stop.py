@@ -330,8 +330,8 @@ class StatusExitZeroIsEarnedOnlyByAReadRuntimeList(_BoxCase):
     def test_the_way_back_names_exit_0_as_a_read_list(self):
         w = _cli.oom_wait()
         self.assertIn("exiting 0", w)
-        self.assertIn("only once it has read the runtime list", w)
-        self.assertIn(f"{_cli.STATUS_INVENTORY_UNREAD} = the list could not be read", w)
+        self.assertIn("only once it has read the runtime list and runtime health", w)
+        self.assertIn(f"{_cli.STATUS_INVENTORY_UNREAD} = one could not be read", w)
 
     def test_the_way_back_has_a_way_out_when_1_outlasts_the_restart(self):
         # A wedged plugin answers `senpi.listRuntimes` with an error forever: 1 never turns to 0. But a
@@ -379,6 +379,52 @@ class StatusOnTheKillPathSteersNothing(_BoxCase):
                           "oom", "killed_rc"} - set(doc), set())
         self.assertEqual([o["runtime"] for o in doc["orphan_runtimes"]], ["orphan-x"])
         self.assertEqual({r["runtime"]: r["health"] for r in doc["strategies"]}["spider-main"], "unknown")
+
+    def test_the_kill_path_still_prints_orphans_and_drift_without_their_commands(self):
+        # Orphan runtimes and config drift have no per-row marker: dropping their section drops the
+        # FACT, not just its command. Only `runtime delete` / `deploy.py update` are withheld.
+        drift = {"diffs": [{"field": "dsl_preset", "running": "balanced", "on_disk": "scalp"}],
+                 "dir": "/x/spider/main", "package_dir": "/x/spider"}
+        saved = status._config_drift
+        self.addCleanup(setattr, status, "_config_drift", saved)
+        status._config_drift = lambda pkg_id, rt_name, d: drift if rt_name == "spider-main" else None
+        table = (0, _runtime_table(("spider-main", WALLET, "running"), ("orphan-x", self.W4, "running")), "")
+        answers = {"--version": (0, "openclaw 10.10", ""), "senpi.listRuntimes": table}
+        code, out, err, _box = self._drive(["status.py"], answers)
+        text = out + err
+        self.assertEqual(code, _cli.EXIT_OOM, text)
+        self.assertIn("dsl_preset running 'balanced', on disk 'scalp'", text)
+        self.assertIn("orphan-x", text)
+        for steer in ("runtime delete", "deploy.py update", "--apply", "safe to delete"):
+            self.assertNotIn(steer, text)
+
+
+class StatusHealthReadFailureIsNeverRunning(_BoxCase):
+    """Any failed health read, not only a SIGKILLed one, leaves health UNKNOWN: no ✅, a printed
+    cause, and no exit 0 (`oom_wait` reads exit 0 as "memory has freed")."""
+
+    def test_a_timed_out_health_read_is_unknown_and_not_exit_0(self):
+        answers = {"--version": (0, "openclaw 10.10", ""), "senpi.listRuntimes": _LISTED,
+                   "senpi.getHealthStatus": TIMED_OUT}
+        code, out, err, _box = self._drive(["status.py"], dict(answers))
+        text = out + err
+        self.assertEqual(code, _cli.STATUS_INVENTORY_UNREAD, text)
+        self.assertNotIn("✅", text)
+        self.assertRegex(text, r"❔ unknown\s+spider-main")
+        self.assertIn("senpi.getHealthStatus", text)          # the cause, for oom_wait to follow
+        self.assertNotIn("stop here", text)                   # a timeout is not the kill stop
+        code, out, _err, _box = self._drive(["status.py", "--json"], dict(answers))
+        doc = json.loads(out)
+        self.assertEqual(code, _cli.STATUS_INVENTORY_UNREAD)
+        self.assertEqual(doc["strategies"][0]["health"], "unknown")
+        self.assertIn("senpi.getHealthStatus", doc["health_read_error"])
+
+    def test_a_read_health_still_exits_0(self):
+        answers = {"--version": (0, "openclaw 10.10", ""), "senpi.listRuntimes": _LISTED,
+                   "senpi.getHealthStatus": HEALTH_PLAIN}
+        code, out, err, _box = self._drive(["status.py", "--json"], answers)
+        self.assertEqual(code, 0, out + err)
+        self.assertIsNone(json.loads(out)["health_read_error"])
 
 
 # ---- every documented exit-code map for deploy / verify / update / close / status carries 9 ----

@@ -151,7 +151,7 @@ class CloseRuntimeDeleteConfirm(unittest.TestCase):
         self.assertIn("NOT closed yet", err)
         self.assertIn("may still be trading", err)
         self.assertIn(f"`python3 {_cli.STATUS_PY}` exiting 0 is the sign", err)
-        self.assertIn("it exits 0 only once it has read the runtime list", err)
+        self.assertIn("it exits 0 only once it has read the runtime list and runtime health", err)
         self.assertIn(f"Then re-run: {rerun}", err)
         self.assertIn("Do not call strategy_close directly", err)
 
