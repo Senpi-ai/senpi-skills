@@ -34,7 +34,8 @@ running after the script answers. There is no fallback to the CLI verb. `opencla
 **A START whose reply is lost** (timeout, dropped connection, unreadable answer) may still have been
 taken by the gateway. `deploy.py` waits 2 s, then reads `senpi.deploy.status` up to 3 times, 3 s apart,
 and follows the job that matches. If none turns up it exits `1`: a job MAY BE RUNNING and a wallet may
-already be funded. Run `deploy.py status` until it shows that job's outcome, and do not re-run `create`.
+already be funded. Run `deploy.py status` until it shows that job's outcome, and do not re-run `create`,
+unless it exits 9 (out of memory): then stop, as that stop says. Don't poll now.
 A START the gateway never received (`unknown method`, a command line openclaw rejected, no `openclaw` on
 the host) exits `1` with NOTHING WAS DISPATCHED.
 

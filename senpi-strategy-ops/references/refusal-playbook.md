@@ -228,7 +228,7 @@ prose:**
 edit before re-proving it** — either restore the proven content or validate what is there now.
 For all three, the only fix is a run of `openclaw senpi validate`: **never write, edit or copy a
 `.senpi-proof.json` by hand.** Recomputing its hashes proves nothing ran, and a hand-edited proof
-is a false record that the package passed. If validate itself cannot finish (killed, `rc -9`,
+is a false record that the package passed. If validate itself cannot finish (killed (rc -9, exit 137, or 'Killed'),
 out of memory), the gate stays shut and that is no verdict on the package: report the edit as
 saved, not applied, and stop (exit `9`, the out-of-memory stop every lifecycle script shares).
 Try again only after the box restarts or memory frees — `status.py` exiting `0` is the sign it has

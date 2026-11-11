@@ -43,10 +43,11 @@ past it** — the verb's refusals, and this wrapper's own structural preflight (
 same pass the action subcommands run before the verb is started); both are deterministic and refuse
 identically on a re-run.
 
-**`verify` runs no job, so it returns none of that range beyond 0/3/1**: `0` verified (every instance
+**`verify` runs no job, so it returns none of that range beyond 0/3/1/9**: `0` verified (every instance
 has an ACTIVE wallet AND a registered runtime AND its health read healthy) · `3` NOT verified (something
 is missing or unhealthy — each instance says what, quoted, with the one non-destructive next step for
-that actual state) · `1` COULD NOT CHECK (a read it needs failed). 1 is fail-closed and load-bearing:
+that actual state) · `1` COULD NOT CHECK (a read it needs failed) · `9` a read was SIGKILLed (the
+out-of-memory stop: don't re-run or poll now). 1 is fail-closed and load-bearing:
 an unreadable surface must never render as verified, and must never steer at the money path over a
 package that may be perfectly live.
 
@@ -1362,7 +1363,8 @@ def run_deploy(pkg, a, log):
 # ---------- verify: a READ-ONLY composite (it never starts the verb) ----------
 
 # `verify`'s own exit codes. It runs no job, so it returns none of the job's D-12 range beyond these:
-#   0 verified · 3 not verified · 1 could not check (a read failed — no verdict is rendered).
+#   0 verified · 3 not verified · 1 could not check (a read failed — no verdict is rendered)
+#   · `_cli.EXIT_OOM` (9) a read was SIGKILLed (the out-of-memory stop).
 VERIFY_OK, VERIFY_NOT, VERIFY_UNREADABLE = 0, 3, EXIT_INTERNAL
 
 # Flags `verify` carried while it was a wrapper around the deploy verb. They are ACCEPTED and
@@ -1410,7 +1412,7 @@ def warn_obsolete_verify_flags(a):
           f"{'it' if n == 1 else 'them'}. If you are replaying an older transcript, that transcript "
           f"is out of date — the CURRENT contract is:\n"
           f"    python3 {Path(__file__).name} verify --help   # verify's flags and exit codes "
-          f"(0 verified / 3 not verified / 1 could not check)\n"
+          f"(0 verified / 3 not verified / 1 could not check / 9 out of memory: stop)\n"
           f"    {skill / 'SKILL.md'}   # what verify checks and how to read its verdict\n"
           f"    {skill / 'references' / 'lifecycle.md'}   # the full deploy.py reference\n"
           f"  (These flags live on `create`/`runtime` — the MONEY path, which this check is not. "
