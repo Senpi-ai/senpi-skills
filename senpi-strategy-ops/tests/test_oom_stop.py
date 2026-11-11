@@ -404,6 +404,13 @@ class StatusExitZeroIsEarnedOnlyByAReadRuntimeList(_BoxCase):
         self.assertIn("only once it has read the runtime list", w)
         self.assertIn(f"{_cli.STATUS_INVENTORY_UNREAD} = the list could not be read", w)
 
+    def test_the_way_back_has_a_way_out_when_1_outlasts_the_memory(self):
+        # A wedged plugin answers `senpi.listRuntimes` with an error forever: 1 never turns to 0.
+        w = _cli.oom_wait()
+        self.assertIn("keeps exiting 1", w)
+        self.assertIn("openclaw plugins install @senpi-ai/runtime", w)
+        self.assertNotIn("forever", w)
+
 
 # ---- every documented exit-code map for deploy / verify / update / close / status carries 9 ----
 
@@ -459,11 +466,14 @@ class EveryExitMapCarriesNine(unittest.TestCase):
                                     f"BUDGET=30; RC={rc}\n" + block], capture_output=True, text=True)
                 self.assertEqual(p.returncode, want, p.stderr)
                 if rc == 9:
-                    self.assertIn("Stop here", p.stderr)
-                    self.assertIn("do not poll", p.stderr)
-                    self.assertIn("status.py  exits 0", p.stderr)
-                    self.assertNotIn("read it until", p.stderr)
-                    self.assertNotIn("The job's own record", p.stderr)
+                    # deploy.py's report is the one producer: exit 9 also comes before any START
+                    # ("NOTHING WAS DISPATCHED"), so run.sh claims nothing of its own.
+                    self.assertIn("out of memory", p.stderr)
+                    self.assertIn("relay its report above as written", p.stderr)
+                    self.assertIn("don't re-run or poll now", p.stderr)
+                    for claim in ("may already be funded", "UNKNOWN", "outcome is unknown",
+                                  "read it until", "The job's own record"):
+                        self.assertNotIn(claim, p.stderr)
         self.assertRegex(sh.split("set -euo pipefail")[0], r"\b9 is the out-of-memory stop")
 
 

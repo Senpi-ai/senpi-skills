@@ -33,7 +33,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.30.7"
+  version: "3.30.8"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -365,7 +365,7 @@ Per strategy: **stop the runtime** (if live) → **trigger `strategy_close`** (f
 + closes the strategy, funds returned). `strategy_close` is **async**, so the script **does not wait** —
 it returns `closing` and hands polling to you: **re-run `close.py spider`** until it reports `closed`.
 Re-runs are idempotent. **Two refusals close nothing (exit ≠ 0), and neither has an override:** the runtime inventory (`senpi.listRuntimes`) could not be read, so no runtime could be stopped first (a live runtime would re-enter the positions); or nothing is live but a deploy START never got an answer and its job may still be running. Tell the user why it was refused, never call `strategy_close` yourself, and re-run once the gateway answers / once `deploy.py status` shows no job running. **Exit `9`** (a read was SIGKILLed — out of memory) is different: stop, don't retry or poll now; safe again when `status.py` exits `0`, then re-run the same close. A close that triggers while that START's job may still be running also exits ≠ 0 (`NOT torn down yet`): the live strategies are closing, but the job may still fund a wallet, so follow the same wait before re-running and never `deploy.py create` meanwhile. **A subset = one run each, sequential, never backgrounded with `&`** ([lifecycle.md](references/lifecycle.md#closing-several)). `--instance <name>` scopes an instance (needs its live runtime to map; without one it refuses and
-lists the package's open strategies — close the one meant with `--strategy-id <id>`, never by dropping `--instance`). **Starting over on a new wallet** = `openclaw senpi validate` → `close` → `create`, in that order. Discovery is strategy-driven: close also cleans up an attributed package's **orphaned** (no-runtime) wallet, and
+lists the package's open strategies no runtime claims — close the one meant with `--strategy-id <id>`, never by dropping `--instance`). **Starting over on a new wallet** = `openclaw senpi validate` → `close` → `create`, in that order. Discovery is strategy-driven: close also cleans up an attributed package's **orphaned** (no-runtime) wallet, and
 `--strategy-id`/`--address` close one with **no package at all** ([`references/lifecycle.md`](references/lifecycle.md)).
 
 ## Applying an edit to a strategy that is already LIVE

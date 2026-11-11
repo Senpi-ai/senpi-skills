@@ -60,9 +60,7 @@ case "$RC" in
      echo ">> Check in a few minutes:  openclaw senpi scanner -r <runtime_id>   (ids: openclaw senpi runtime list)" ;;
   6) echo ">> $ID: the deploy job is STILL RUNNING (a wallet may still be funding) — nothing failed."
      echo ">> Watch it:  python3 deploy.py status      (do not re-run this script while the job runs)" ;;
-  9) echo "error: the deploy hit the out-of-memory stop (exit 9): a call on this box was SIGKILLed, and the deploy's outcome is UNKNOWN (a wallet may already be funded). Read the report above." >&2
-     echo "       Stop here: do not re-run this script or any other command now, and do not poll deploy.py status: it is killed too. Tell the user the deploy's outcome is unknown." >&2
-     echo "       Out of memory: safe again only once  python3 status.py  exits 0 (it does only once it has read the runtime list; 1 or 9 = not yet), after the box restarts or memory frees." >&2
+  9) echo "error: deploy.py stopped because the box is out of memory (exit 9): relay its report above as written; don't re-run or poll now." >&2
      exit 9 ;;
   *) echo "error: the deploy did not complete (exit $RC) — read the report above, it carries the cause and the next step." >&2
      echo "       The job's own record:  python3 deploy.py status   (on exit 1: read it until it shows the job's outcome, and report that; do not re-run create)" >&2
