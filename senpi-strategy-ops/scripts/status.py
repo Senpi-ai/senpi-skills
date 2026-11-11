@@ -271,9 +271,12 @@ def main(argv):
               "failed or timed out" + (f": {rwhy[0]}" if rwhy else "") + ") — runtime state is UNKNOWN, "
               "not stopped. Re-run, or run status.py on the runtime host.")
     elif hwhy:
+        # Scoped to status.py: exit 0 here is the OOM stop's "safe again", so this must not read as
+        # "don't run the close/deploy that stop told you to re-run". Only the status re-run is bounded.
         print(f"\nℹ couldn't read runtime health ({hwhy[0]}) — every running runtime's health is "
-              "UNKNOWN, not running. Re-run status.py once; if health still can't be read, tell the "
-              "user and stop. Don't keep re-running.")
+              "UNKNOWN, not running. This doesn't block other commands: the runtime list was read. "
+              "Re-run status.py once; if health still can't be read, tell the user health is unknown "
+              "rather than re-running it again.")
 
     if not rows and not orphans:
         print("No open strategies." + (f" (filter: {a.package})" if a.package else ""))
@@ -296,7 +299,7 @@ def main(argv):
     if paused:
         bits.append(f"{len(paused)} paused by a risk gate")
     if unproven:
-        bits.append(f"{len(unproven)} unknown (not proven live)")
+        bits.append(f"{len(unproven)} unknown ({'health unread' if hwhy else 'not proven live'})")
     if idle:
         bits.append(f"{len(idle)} funded-but-idle")
     if unknown:
@@ -354,9 +357,10 @@ def main(argv):
         print("  Say it to the user as the strategy's rule. Never close/redeploy to clear it: a fresh wallet "
               "market-exits the book and starts the same gate again from zero.")
     _print_drift(drifted)
-    if unproven and hwhy:   # unread, not unproven: no scanner verdict and no per-row CLI to run
+    if unproven and hwhy:   # unread, not unproven: no scanner verdict; one generic read, not per row
         print(f"\n❔ {len(unproven)} running runtime(s) unknown: runtime health couldn't be read (see "
-              "the health line above).")
+              "the health line above). To read one runtime's health: "
+              "`openclaw senpi status -r <runtime> --json` (read-only).")
     elif unproven:
         print("\n❔ Unknown (fail-closed — not proven live: scanner not yet proven by a tick, or reporting disabled; verify, don't assume):")
         for r in unproven:

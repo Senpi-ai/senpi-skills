@@ -429,15 +429,26 @@ class StatusHealthReadFailureIsNeverRunning(_BoxCase):
         code, out, err, _box = self._drive(["status.py"], dict(self._ANSWERS))
         text = out + err
         self.assertNotIn("scanner not yet proven by a tick", text)
-        for cmd in ("openclaw senpi scanner -r", "openclaw senpi status -r", "deploy.py status"):
+        for cmd in ("openclaw senpi scanner -r", "openclaw senpi status -r spider-main", "deploy.py status"):
             self.assertNotIn(cmd, text)
         self.assertIn("1 running runtime(s) unknown: runtime health couldn't be read (see the health "
                       "line above).", text)
+        # One generic pointer, so the wedged runtime can still be found; never one per row.
+        pointer = "To read one runtime's health: `openclaw senpi status -r <runtime> --json`"
+        self.assertEqual(text.count(pointer), 1, text)
+        # The header names the same cause as the block: unread, not a scanner verdict.
+        self.assertIn("1 unknown (health unread)", text)
+        self.assertNotIn("not proven live", text)
 
     def test_the_health_failure_line_bounds_the_re_run(self):
         code, out, err, _box = self._drive(["status.py"], dict(self._ANSWERS))
-        self.assertIn("Re-run status.py once; if health still can't be read, tell the user and stop. "
-                      "Don't keep re-running.", out + err)
+        text = out + err
+        self.assertIn("This doesn't block other commands: the runtime list was read. Re-run status.py "
+                      "once; if health still can't be read, tell the user health is unknown rather than "
+                      "re-running it again.", text)
+        # Exit 0 is the OOM stop's "safe again": nothing here may read as a bare stop of everything.
+        self.assertNotIn("tell the user and stop", text)
+        self.assertNotIn("Don't keep re-running", text)
 
     def test_a_read_health_still_exits_0(self):
         answers = {"--version": (0, "openclaw 10.10", ""), "senpi.listRuntimes": _LISTED,
