@@ -311,6 +311,15 @@ class StatusExitZeroIsEarnedOnlyByAReadRuntimeList(_BoxCase):
         code, text = self._status({"--version": none, "senpi.listRuntimes": none})
         self.assertEqual(code, _cli.STATUS_INVENTORY_UNREAD, text)
 
+    def test_a_timed_out_version_probe_keeps_its_cause(self):
+        # A box still slow after a restart times the probe out (rc -1): exit 1 must print why, so
+        # `oom_wait`'s "follow the cause it prints" has something to follow.
+        code, text = self._status({"--version": TIMED_OUT, "senpi.listRuntimes": _LISTED})
+        self.assertEqual(code, _cli.STATUS_INVENTORY_UNREAD, text)
+        self.assertIn("openclaw --version", text)
+        code, text = self._status({"--version": TIMED_OUT, "senpi.listRuntimes": _LISTED}, "--json")
+        self.assertIn("openclaw --version", json.loads(text)["runtime_list_error"])
+
     def test_a_read_runtime_list_is_exit_0(self):
         code, text = self._status({"--version": (0, "openclaw 10.10", ""), "senpi.listRuntimes": _LISTED})
         self.assertEqual(code, 0, text)
@@ -336,6 +345,40 @@ class StatusExitZeroIsEarnedOnlyByAReadRuntimeList(_BoxCase):
         self.assertNotIn("not the cause", w)
         self.assertNotIn("plugins install", w)
         self.assertNotIn("forever", w)
+
+
+class StatusOnTheKillPathSteersNothing(_BoxCase):
+    """Exit 9 says run nothing now, so status.py prints the rows it read and no per-row commands
+    under it (resume, delete, update, triage), and a runtime whose health was never read is unknown."""
+
+    W2, W3, W4 = "0x" + "2" * 40, "0x" + "3" * 40, "0x" + "4" * 40
+
+    def test_a_killed_health_read_prints_the_rows_and_no_action_steers(self):
+        class Inventory(FakeMCP):
+            def mcp_call(s, tool, timeout=15, **kw):
+                return {"strategies": [_strategy(),
+                                       _strategy(name="polar-a", wallet=self.W2, skill="polar"),
+                                       _strategy(name="bear-a", wallet=self.W3, skill="bear")]}
+        status.MCPClient = Inventory
+        table = (0, _runtime_table(("spider-main", WALLET, "running"), ("bear-a", self.W3, "stopped"),
+                                   ("orphan-x", self.W4, "running")), "")
+        answers = {"--version": (0, "openclaw 10.10", ""), "senpi.listRuntimes": table}
+        code, out, err, _box = self._drive(["status.py"], dict(answers))
+        text = out + err
+        self.assertEqual(code, _cli.EXIT_OOM, text)
+        self.assertIn("stop here", text)
+        for steer in ("deploy.py runtime", "runtime delete", "update --apply", "openclaw senpi status -r",
+                      "openclaw senpi scanner", "close.py polar"):
+            self.assertNotIn(steer, text)
+        self.assertNotIn("✅", text)                     # health was never read
+        self.assertRegex(text, r"❔ unknown\s+spider-main")
+        code, out, _err, _box = self._drive(["status.py", "--json"], dict(answers))
+        doc = json.loads(out)
+        self.assertEqual(code, _cli.EXIT_OOM)
+        self.assertEqual({"strategies", "orphan_runtimes", "openclaw_available", "runtime_list_error",
+                          "oom", "killed_rc"} - set(doc), set())
+        self.assertEqual([o["runtime"] for o in doc["orphan_runtimes"]], ["orphan-x"])
+        self.assertEqual({r["runtime"]: r["health"] for r in doc["strategies"]}["spider-main"], "unknown")
 
 
 # ---- every documented exit-code map for deploy / verify / update / close / status carries 9 ----

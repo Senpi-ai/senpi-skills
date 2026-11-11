@@ -156,12 +156,13 @@ def build(mcp, only_pkg=None, deep=True, rwhy=None, kills=None):
     rwhy = rwhy if rwhy is not None else []
     vwhy, hwhy = [], []
     runtimes = _cli.list_runtimes_or_none(why=rwhy) if _openclaw_available(why=vwhy) else None
-    if runtimes is None and _cli.sigkilled(vwhy):
-        rwhy.extend(vwhy)   # a killed probe IS why the list was not read (not "no openclaw")
+    if runtimes is None:
+        rwhy.extend(vwhy)   # a failed probe IS why the list was not read (killed: not "no openclaw")
     cli_ok = runtimes is not None
     runtimes = runtimes or []
     # ONE `senpi.getHealthStatus` for the whole fleet — only when runtimes actually exist
     health_by_name = _cli.runtime_health_map(why=hwhy) if (deep and runtimes) else {}
+    health_killed = any(_cli.sigkilled(c) for c in hwhy)   # never read: unknown, not "running"
     if kills is not None:
         kills.extend(c for c in rwhy + hwhy if _cli.sigkilled(c))
     # The rendered descriptors (what each runtime is actually running) ride the same listRuntimes rows.
@@ -194,6 +195,8 @@ def build(mcp, only_pkg=None, deep=True, rwhy=None, kills=None):
                 # The runtime's own entry gate — separate from health, because a paused runtime is
                 # healthy: it ticks, it manages what it holds, and it opens nothing.
                 paused = _cli.risk_pause(entry)
+            elif health_killed:
+                health = "unknown"
             drift = _config_drift(skill, _cli.runtime_name(rt), descriptors)
             if _cli.runtime_no_entry_scanners(rt):
                 # positive wiring-failure evidence from the inventory itself ("running — NO ENTRY
@@ -316,6 +319,8 @@ def main(argv):
         print("\nℹ `unknown` in the funded column means the strategy record carried no funded amount "
               "(totalFunded/netFunded) — NOT $0, and never the budget that was requested. Read what "
               "actually landed on the wallet in the app before acting on the number.")
+    if kills:
+        return code   # the stop said run nothing now: no per-row command (resume, delete, update, triage)
     # Every command emitted below is READ-ONLY. This is the surface agents are sent to for monitoring,
     # so a per-row `deploy.py runtime <pkg>` here would be a copy-pasteable money path: on a funded
     # wallet with no runtime it installs and starts trading. The resume escape is named once, with
