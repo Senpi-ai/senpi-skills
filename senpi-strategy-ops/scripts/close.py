@@ -168,43 +168,16 @@ def _inventory_or_stop(rerun, as_json):
                      f"trading.")
 
 
-def _instance_unmapped(pkg, instance, rt, opens, runtimes):
-    """The refusal when `--instance` maps to no open strategy off a READ inventory. Nothing was
-    closed. The way on closes only a wallet that could be this instance (`--strategy-id`, which needs
-    no runtime): one that NO listed runtime claims, since a claimed wallet is another instance's live
-    sleeve. Never the whole package: dropping `--instance` would market-exit every healthy instance.
-    The caller runs the open-deploy-START guard first: such a START's job may still be installing
-    this instance's runtime on one of these wallets."""
-    rname = f"{pkg.id}-{instance}"
-    if rt is not None:
-        # Its runtime IS listed, on a wallet with no open strategy: none of the open ones is this
-        # instance, so none is offered; what is left is the runtime itself (close step 1).
-        delete = shlex.join(_cli.gateway_argv("senpi.deleteRuntime", {"id": rname}, DELETE_RPC_MS))
-        return (f"error: instance {instance!r} has no open strategy: runtime {rname} is on wallet "
-                f"{_cli.runtime_wallet(rt) or '?'}, and no OPEN {pkg.id} strategy is on that wallet, so "
-                f"its strategy is already closed. NOTHING WAS CLOSED, and no other {pkg.id} strategy is "
-                f"{instance!r}.\n  Its runtime is left over and trades nothing; remove it with:  {delete}")
-    claimed = [_cli.runtime_wallet(r) for r in runtimes]
-    free = [s for s in opens
-            if not any(_cli.wallet_match(w, _cli.strategy_wallet(s)) for w in claimed)]
-    lines = [f"error: can't map instance {instance!r} to an open strategy: no runtime named {rname} is "
-             f"in the runtime inventory, and only its runtime maps the instance to its wallet. "
-             f"NOTHING WAS CLOSED."]
-    if free:
-        lines.append(f"  Open {pkg.id} strategies that no runtime claims (close ONLY the one the user "
-                     f"means, by its id; each line closes that one wallet and nothing else):")
-        for s in free:
-            name, _src = _cli.strategy_name_and_source(s)
-            lines.append(f"    python3 {Path(__file__).resolve()} --strategy-id "
-                         f"{_cli.strategy_id_of(s)}   # {name or '?'}, wallet {_cli.strategy_wallet(s) or '?'}")
-        lines.append(f"  Not sure which one is {instance!r}? Read it first (read-only): "
-                     f"python3 {_cli.STATUS_PY} {pkg.id}")
-    elif opens:
-        lines.append(f"  Every open {pkg.id} strategy is on a wallet another instance's live runtime "
-                     f"claims, so none of them is {instance!r}: there is nothing of it to close.")
-    else:
-        lines.append(f"  No {pkg.id} strategy is open, so there is nothing of {instance!r} to close.")
-    return "\n".join(lines)
+def _instance_unmapped(pkg, instance):
+    """The refusal when `--instance` maps to no open strategy (the caller ran the open-deploy-START
+    guard first). Facts only: close.py's view is filtered by attribution and status, so it cannot tell
+    which wallet is (or was) this instance. It claims no state, names no delete and offers no wallet;
+    the user picks from status.py's full picture."""
+    return (f"error: can't map instance {instance!r} to a live runtime with an open {pkg.id} strategy. "
+            f"NOTHING WAS CLOSED.\n"
+            f"  Read it first (read-only) and show the user its rows: python3 {_cli.STATUS_PY} {pkg.id}\n"
+            f"  If the user names the strategy (wallet) to close, close that one only: "
+            f"python3 {Path(__file__).resolve()} --strategy-id <id>")
 
 
 def close_one(label, strat, runtimes, dry_run, log, rerun=None):
@@ -456,16 +429,15 @@ def main(argv):
             w = _cli.runtime_wallet(rt) if rt else None
             targets = [(a.instance, s) for s in opens if w and _cli.wallet_match(w, _cli.strategy_wallet(s))]
             if not targets:
-                if rt is None:
-                    # No runtime yet may be a lost START's job still installing it: refuse before
-                    # naming any wallet, as the package path does.
-                    pending = _unanswered_start_may_be_running(pkg)
-                    if pending:
-                        _refuse_open_start(
-                            pending, f"{pkg.id} v{pkg.version}",
-                            f"No runtime {pkg.id}-{a.instance} is in the runtime inventory",
-                            f"close.py {pkg.id} --instance {a.instance}", rerun, a.json, pkg.id)
-                raise SystemExit(_instance_unmapped(pkg, a.instance, rt, opens, runtimes))
+                # Runtime listed or not, a lost START's job may be installing or rebinding this
+                # instance's runtime: refuse on it first, as the package path does.
+                pending = _unanswered_start_may_be_running(pkg)
+                if pending:
+                    _refuse_open_start(
+                        pending, f"{pkg.id} v{pkg.version}",
+                        f"Instance {a.instance!r} maps to no open strategy",
+                        f"close.py {pkg.id} --instance {a.instance}", rerun, a.json, pkg.id)
+                raise SystemExit(_instance_unmapped(pkg, a.instance))
         else:
             targets = [(f"{pkg.id}[{i + 1}]", s) for i, s in enumerate(opens)]
         hdr = f"{pkg.id} v{pkg.version}"
