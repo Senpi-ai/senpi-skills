@@ -41,6 +41,10 @@ PAPER_OUTAGE = ("tool failed: PAPER_UNAVAILABLE: Simulations (paper trading) are
                 "paper-service did not answer within 5000 ms. Retry shortly with the same input.")
 ROUTER_OFF = ("tool failed: PAPER_UNAVAILABLE: Simulations (paper trading) are not available on this "
               "server yet. Nothing was sent; try again later.")
+# The router's answer when paper is switched off on that server: it holds no simulations.
+PAPER_OFF = ("tool failed: PAPER_DISABLED: Simulations (paper trading) are switched off on this server, so "
+             "there are none here. Nothing was sent. This error is deterministic. Do not retry with the "
+             "same arguments.")
 
 
 def _live_row(sid="live-1", wallet=LIVE_WALLET, skill="omega", status_="ACTIVE"):
@@ -257,6 +261,14 @@ class CloseOneWorld(_CloseHarness):
         self.assertEqual(code, 0)
         self.assertEqual(self.mcp.closed, [{"strategyId": "live-1"}])
         self.assertNotIn("simulation", out)
+        self.assertNotIn("--live", out)
+
+    def test_plain_close_is_unchanged_when_paper_is_off_on_the_server(self):
+        self._both()
+        self.mcp.unavailable = PAPER_OFF
+        out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.mcp.closed, [{"strategyId": "live-1"}])
         self.assertNotIn("--live", out)
 
     def test_plain_close_refuses_when_the_simulation_read_is_unknown(self):
@@ -684,6 +696,11 @@ class VerifySeesSimulations(unittest.TestCase):
 
     def test_no_simulation_keeps_the_create_step(self):
         self.mcp.paper = []
+        _code, err = self._verify()
+        self.assertIn("create omega --budget <usd>", err)
+
+    def test_paper_off_on_the_server_keeps_todays_step(self):
+        self.mcp.unavailable = PAPER_OFF
         _code, err = self._verify()
         self.assertIn("create omega --budget <usd>", err)
 
