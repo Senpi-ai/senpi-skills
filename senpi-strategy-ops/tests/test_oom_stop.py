@@ -325,18 +325,23 @@ class InstanceWithAReadInventoryButNoRuntime(_BoxCase):
         for name, listed in self.INVENTORIES:
             with self.subTest(name):
                 FakeMCP.closed = []
-                code, out, err, box = self._drive(["close.py", "spider", "--instance", "hedge"],
-                                                  dict(self.VERSION, **{"senpi.listRuntimes": listed}))
-                msg = f"{code}{out}{err}"
-                self.assertIn("NOTHING WAS CLOSED", msg)
-                self.assertIn("'hedge'", msg)
-                self.assertIn(f"{_cli.STATUS_PY} spider", msg)          # the read-only way on
-                self.assertIn("--strategy-id <id>", msg)                 # only for a wallet the user names
-                for destructive in ("deleteRuntime", "str-main", "str-hedge", "already closed",
-                                    "Omit --instance", "close all"):
-                    self.assertNotIn(destructive, msg)
-                self.assertEqual(box.sent("senpi.deleteRuntime"), [])
-                self.assertEqual(FakeMCP.closed, [])
+                for as_json in (False, True):
+                    code, out, err, box = self._drive(
+                        ["close.py", "spider", "--instance", "hedge"] + (["--json"] if as_json else []),
+                        dict(self.VERSION, **{"senpi.listRuntimes": listed}))
+                    msg = f"{code}{out}{err}"
+                    self.assertEqual(code, 2, msg)          # refused, like the START refusal beside it
+                    self.assertIn("NOTHING WAS CLOSED", msg)
+                    self.assertIn("'hedge'", msg)
+                    self.assertIn(f"{_cli.STATUS_PY} spider", msg)          # the read-only way on
+                    # status.py's own row carries the close; the user confirms which one.
+                    self.assertIn("'Autonomous strategy with NO runtime'", msg)
+                    self.assertIn("close only the one they confirm", msg)
+                    for destructive in ("deleteRuntime", "str-main", "str-hedge", "already closed",
+                                        "Omit --instance", "close all"):
+                        self.assertNotIn(destructive, msg)
+                    self.assertEqual(box.sent("senpi.deleteRuntime"), [])
+                    self.assertEqual(FakeMCP.closed, [])
 
     def test_an_open_deploy_start_refuses_first_runtime_listed_or_not(self):
         # A lost START's job may be installing hedge's runtime, or rebinding a listed one to a new wallet.
@@ -399,7 +404,8 @@ class StatusExitZeroIsEarnedOnlyByAReadRuntimeList(_BoxCase):
         # box still short of memory exits 1 on a timeout too, so the way out never calls 1 "not memory"
         # and names no heavy cure status.py itself does not print.
         w = _cli.oom_wait()
-        self.assertIn("If status.py still exits 1 after a restart, follow the cause it prints.", w)
+        self.assertIn("If status.py still exits 1 after a restart, the gateway or runtime plugin isn't "
+                      "answering: tell the user that and stop. Don't keep re-running.", w)
         self.assertNotIn("not the cause", w)
         self.assertNotIn("plugins install", w)
         self.assertNotIn("forever", w)

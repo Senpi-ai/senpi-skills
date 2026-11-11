@@ -192,6 +192,19 @@ class UnreadableStrategyListRefuses(unittest.TestCase):
         self.assertNotIn("No open strategies", text)
         self.assertIn("0xabc", text)
 
+    def test_a_no_runtime_row_names_its_own_close_by_full_strategy_id(self):
+        # `close.py <pkg>` here closes every instance of the package, healthy ones too, and the row's
+        # displayed ids are truncated. The row's own close takes the full id, ready to copy.
+        sid = "3f9a1c2b-0d4e-4c55-9a1f-7b2e8c6d5a40"
+        live = {"id": sid, "status": "ACTIVE", "strategyWalletAddress": "0xabc",
+                "totalFunded": 300, "strategyMetadata": {"skillName": "warpath"}}
+        _cli.list_strategies_or_none = lambda *a, **k: [live]
+        code, text = self._run("warpath")
+        self.assertEqual(code, 0)
+        self.assertIn("Autonomous strategy with NO runtime", text)
+        self.assertIn(f"`close.py --strategy-id {sid}`", text)
+        self.assertNotIn("`close.py warpath`", text)
+
     def test_a_package_filter_still_excludes_another_package(self):
         live = {"id": "sid-1", "status": "ACTIVE", "strategyWalletAddress": "0xabc",
                 "strategyMetadata": {"skillName": "polar"}}

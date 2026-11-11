@@ -357,7 +357,8 @@ def main(argv):
         for r in idle:
             print(f"  - {r['package']} {r['wallet'][:10]}… ({_funded(r)}) → "
                   f"`deploy.py runtime {r['package']}` to start it (runs the deploy verb: it installs and "
-                  f"starts trading this funded wallet), or `close.py {r['package']}` to recover funds")
+                  f"starts trading this funded wallet), or `close.py --strategy-id {r['strategyId']}` to "
+                  f"recover this wallet's funds")
     if off:
         print("\nℹ Not on a runtime — managed outside autonomous trading (this is normal):")
         for r in off:

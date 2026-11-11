@@ -170,14 +170,16 @@ def _inventory_or_stop(rerun, as_json):
 
 def _instance_unmapped(pkg, instance):
     """The refusal when `--instance` maps to no open strategy (the caller ran the open-deploy-START
-    guard first). Facts only: close.py's view is filtered by attribution and status, so it cannot tell
-    which wallet is (or was) this instance. It claims no state, names no delete and offers no wallet;
-    the user picks from status.py's full picture."""
-    return (f"error: can't map instance {instance!r} to a live runtime with an open {pkg.id} strategy. "
-            f"NOTHING WAS CLOSED.\n"
-            f"  Read it first (read-only) and show the user its rows: python3 {_cli.STATUS_PY} {pkg.id}\n"
-            f"  If the user names the strategy (wallet) to close, close that one only: "
-            f"python3 {Path(__file__).resolve()} --strategy-id <id>")
+    guard first); exits 2, refused. Facts only: close.py's view is filtered by attribution and status,
+    so it cannot tell which wallet is (or was) this instance. It claims no state, names no delete and
+    prints no id: status.py's no-runtime row carries each wallet's own close, by full strategy id."""
+    print(f"error: can't map instance {instance!r} to a live runtime with an open {pkg.id} strategy. "
+          f"NOTHING WAS CLOSED.\n"
+          f"  Read (read-only): python3 {_cli.STATUS_PY} {pkg.id}\n"
+          f"  status.py lists a funded wallet with no runtime under 'Autonomous strategy with NO "
+          f"runtime' with its own close command. Show the user those rows and close only the one "
+          f"they confirm.")
+    sys.exit(2)
 
 
 def close_one(label, strat, runtimes, dry_run, log, rerun=None):
@@ -301,8 +303,8 @@ def _unanswered_start_may_be_running(pkg):
     """`(open entry, why)` when the package has an open START request whose job may still be running,
     else None.
 
-    Used when nothing of the package is live in strategy_list. That is exactly the window of a lost
-    START: its job may still be in reconcile, preflight or wallet creation, with no strategy yet.
+    Used when nothing of the package is live in strategy_list, and on every `--instance` that maps
+    to no open strategy (siblings live or not). That is exactly the window of a lost START: its job may still be in reconcile, preflight or wallet creation, with no strategy yet.
     Closing the entry there lets the next `create` mint a fresh id and START again over a job that
     goes on to fund a wallet (RT566-08's second funding). So the entry closes only on the rule
     `deploy.py` uses for it: the job record answers, the START's wall clock has passed, and no job is
@@ -437,7 +439,7 @@ def main(argv):
                         pending, f"{pkg.id} v{pkg.version}",
                         f"Instance {a.instance!r} maps to no open strategy",
                         f"close.py {pkg.id} --instance {a.instance}", rerun, a.json, pkg.id)
-                raise SystemExit(_instance_unmapped(pkg, a.instance))
+                _instance_unmapped(pkg, a.instance)
         else:
             targets = [(f"{pkg.id}[{i + 1}]", s) for i, s in enumerate(opens)]
         hdr = f"{pkg.id} v{pkg.version}"
@@ -534,7 +536,12 @@ def main(argv):
             extra = f"  ({r['error']})" if r.get("error") else ""
             print(f"  - {r['instance']}: {r['status']}{extra}")
         if overall == "closing" and not oom:
-            if pkg:
+            if a.instance:
+                # Never `close.py <pkg>` (it closes every instance), and `--instance` itself can only
+                # refuse once its runtime is deleted: poll each closed target by its strategy id.
+                poll = "; ".join(f"close.py --strategy-id {r['strategy_id']}" for r in results
+                                 if r["status"] == "closing")
+            elif pkg:
                 poll = f"close.py {pkg.id}"
             elif direct:
                 poll = f"close.py --strategy-id {a.strategy_id}" if a.strategy_id else f"close.py --address {a.address}"
