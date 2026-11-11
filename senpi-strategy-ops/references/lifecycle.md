@@ -202,9 +202,9 @@ Per instance the job runs five steps, each recorded with its own outcome:
    because `close.py <id>` would tear down adopted, live, funded sleeves this warn is not about.
    **No emitted command may need a precondition the report lacks**, so the scoped form appears only
    when those sleeves have a live RUNTIME: `--instance` resolves a sleeve through its runtime and
-   refuses without one (it closes nothing and points at the read-only `status.py <id>`; the user names
-   the one strategy to close by `--strategy-id`, never "omit `--instance`", which would close the whole
-   package — the exact widening the scoping exists to prevent). The other states get what
+   refuses without one (it closes nothing and points at the read-only `status.py <id>`, whose no-runtime
+   row carries its own `close.py --strategy-id <id>`; the user confirms the one row to close, never "omit
+   `--instance`", which would close the whole package — the exact widening the scoping exists to prevent). The other states get what
    they can actually support: a funded wallet with no runtime (deadline-abandoned after create, or a
    failed rollback) gets a read-only `status.py <id>` triage pointer and NO teardown command; a
    deploy that created nothing gets no escape at all; and where `[E_ROLLBACK_INCOMPLETE]` is present
@@ -556,7 +556,10 @@ strategies; **`strategyId` + wallet come straight from each strategy record** �
 close also cleans up **orphaned** strategies (wallets a failed deploy created before its install step). The
 runtime is used **only to stop** the strategy, found by wallet (`find_runtime_by_wallet`).
 **`--all`** closes **every** OPEN strategy across all packages (for "close all strategies / return funds")
-and deletes their runtimes. `--instance` needs the live runtime to identify an instance; if it's gone, omit it.
+and deletes their runtimes. `--instance` needs the live runtime to identify an instance; without one it
+refuses (exit 2, nothing closed) and points at `status.py <id>`, whose no-runtime row carries that wallet's
+own `close.py --strategy-id <id>`: close only the row the user confirms. Never drop `--instance`: that
+closes the whole package. An `--instance` close polls with the `--strategy-id` command it prints.
 
 **`--strategy-id <id>` / `--address <wallet>`** close ONE strategy directly, bypassing package resolution
 entirely — the only route for a wallet with **no package at all** (unattributed create, or app/manual —
@@ -610,7 +613,8 @@ own verdict + active-position count. Classes:
   one): an edit that was never applied. Printed with `deploy.py update <pkg> --id <rt>`.
 - **no-runtime** — autonomous *package* strategy (`skillName`, no `traderAddress`) with **no runtime** →
   the only no-runtime anomaly (funded but not running, likely an interrupted deploy); printed with the fix
-  (`deploy.py runtime <id>` to start, or `close.py <id>` to recover funds).
+  (`deploy.py runtime <id>` to start, or `close.py --strategy-id <strategyId>` — the row's full id — to
+  recover that wallet's funds; never `close.py <id>`, which closes every instance of the package).
 - **copy** — copy-trading strategy (follows a `traderAddress`) → run by Senpi's copy engine, no runtime.
 - **manual** — manual / app-managed strategy → you manage it in the app, no runtime.
 - **runtime-unknown** — the registry couldn't be read: no `openclaw` on this host, or
