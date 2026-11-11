@@ -260,7 +260,7 @@ class TestBuildWiring(unittest.TestCase):
         _cli.list_strategies_or_none = lambda *a, **k: [payload]
         _cli.list_runtimes_or_none = lambda *a, **k: [{"name": "spider-main", "wallet": wallet,
                                               "status": "running", "source": None}]
-        status._openclaw_available = lambda: True
+        status._openclaw_available = lambda why=None: True
         _cli.runtime_health_map, _cli.runtime_descriptors = health_map, descriptors
         try:
             rows, _orphans, _ok = status.build(None, deep=True)

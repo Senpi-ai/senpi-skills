@@ -13,6 +13,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import time
 
 
@@ -81,7 +82,6 @@ def _spawn(args, timeout):
         return -1, "", "", False, e
     try:
         out, err = p.communicate(timeout=timeout)
-        return p.returncode, out or "", err or "", False, None
     except subprocess.TimeoutExpired:
         _kill_tree(p)
         try:
@@ -89,6 +89,28 @@ def _spawn(args, timeout):
         except (subprocess.TimeoutExpired, ValueError, OSError):
             out, err = "", ""
         return -1, out or "", err or "", True, None
+    out, err, note = out or "", err or "", killed_note(p.returncode)
+    if note:  # the fact only, on stderr; stdout stays where it was (`error_tail` reads both)
+        err = "\n".join(t for t in (err.rstrip(), note) if t)
+    return p.returncode, out, err, False, None
+
+
+def killed_note(rc):
+    """The bare fact when a child died by signal: Python's `rc < -1`. Never a `128 + n` exit: the
+    CLI is exec'd with no shell, and a Node CLI exits 130/143 on purpose from its own signal handlers.
+    `-1` is this module's own timeout/spawn sentinel, never a signal here.
+
+    A SIGKILLed CLI prints nothing, and `rc -9, no output` read as a mystery: the same command was
+    retried again and again into a box that kept killing it. This line says only what happened. What
+    to do next depends on the verb (a read, a write, a poll), so the caller says it."""
+    n = -rc if rc < -1 else None
+    if n is None:
+        return ""
+    try:
+        name = signal.Signals(n).name
+    except ValueError:
+        name = f"signal {n}"
+    return f"killed by {name} (rc {rc}) before it answered"
 
 
 def run_cli(args, timeout=60):
@@ -109,6 +131,117 @@ def run_cli(args, timeout=60):
     if timed_out:
         return -1, "", f"timed out after {timeout}s: {' '.join(args)}"
     return rc, out, err
+
+
+# The script beside this module that every kill steers to: resolved here, so it is right on an
+# overlay or under `~/.openclaw`, not only at the image's `/data/.openclaw` path.
+STATUS_PY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "status.py")
+# `killed_note`'s line: a named signal, or `signal <n>` for one `signal.Signals` cannot name.
+_KILLED_LINE = re.compile(r"^killed by (?:SIG[A-Z0-9]+|signal \d+) \(rc -\d+\) before it answered$")
+
+
+def is_sigkill(rc):
+    return isinstance(rc, int) and rc == -signal.SIGKILL
+
+
+class Cause(str):
+    """A failed call's cause: the text every caller prints, plus the call's `rc`, so a caller decides
+    on the rc (a SIGKILL) and never on the wording. A `str`, so every existing reader is unchanged."""
+
+    def __new__(cls, text, rc=None):
+        c = super().__new__(cls, text)
+        c.rc = rc
+        return c
+
+
+def sigkilled(*causes):
+    """True when any cause (a `Cause`, a list of them, or a gateway_call result) carries a SIGKILL."""
+    for c in causes:
+        if isinstance(c, dict):
+            c = [Cause("", c.get("rc"))]
+        elif not isinstance(c, (list, tuple)):
+            c = [c]
+        if any(is_sigkill(getattr(x, "rc", None)) for x in c):
+            return True
+    return False
+
+
+# The ONE exit code for "a call here was SIGKILLed: out of memory, stop" — every lifecycle script
+# (deploy.py, close.py, status.py) exits with it, so a caller branches on the code, never the words.
+# Outside every other map (D-12 0-6, verify 0/1/3, close 0/1/2, validate 0-3); mnemonic for SIGKILL.
+EXIT_OOM = 9
+# status.py's exit when the runtime list could not be read (and was not killed): no openclaw here,
+# or `senpi.listRuntimes` failed or timed out. Its rows still print (runtime-unknown); only exit 0
+# says the list was read, which is what makes 0 the out-of-memory way back (`oom_wait`).
+STATUS_INVENTORY_UNREAD = 1
+
+
+def oom_wait():
+    """WHEN a SIGKILLed call may be tried again: an event, then the read that shows it happened. A
+    kill steer without it strands the user (told to stop, with no sanctioned way back).
+
+    The sign is status.py's exit 0, and only because status.py exits 0 ONLY when it actually read
+    the runtime list: an unreadable or timed-out list exits `STATUS_INVENTORY_UNREAD`, a kill
+    `EXIT_OOM`. "Not killed" alone is not the sign: a timed-out read on a box still short of memory
+    is not killed either. A list unreadable for another reason never turns 1 into 0, so past a
+    restart the way back follows the cause status.py prints (it is not always the gateway: an
+    unreadable strategy list exits 1 too), and ends in telling the user and stopping when that cause
+    repeats, rather than a wait or re-run with no end. It never calls that cause "not memory": a box
+    still short of memory exits 1 on a timeout too."""
+    return (f"Try again only after the box restarts or memory frees: `python3 {STATUS_PY}` exiting 0 "
+            f"is the sign it has (it exits 0 only once it has read the runtime list; "
+            f"{STATUS_INVENTORY_UNREAD} = the list could not be read, {EXIT_OOM} = killed again: "
+            f"not yet). If status.py still exits {STATUS_INVENTORY_UNREAD} after a restart, follow the "
+            f"cause it prints; if that cause repeats, tell the user and stop. Don't keep re-running.")
+
+
+def oom_stop(state, tell):
+    """THE out-of-memory stop, one producer for every script: a call here was SIGKILLed, so every
+    further call on this box (a read, a poll, a re-run) loads the same CLI and is killed too. `state`
+    is what is true now (what was or was not changed); `tell` is what the user hears. Never a retry
+    now, and always the way back (`oom_wait`)."""
+    return (f"The box is most likely out of memory (a SIGKILL is what its out-of-memory killer sends): "
+            f"stop here. {state} Do not re-run this or any other command now, and do not poll: it is "
+            f"killed too. Tell the user {tell}. {oom_wait()}")
+
+
+def oom_fields(rc=-signal.SIGKILL, stop=None):
+    """The JSON fields every `--json` document carries on the out-of-memory stop."""
+    return {"oom": True, "killed_rc": rc, **({"stop": stop} if stop else {})}
+
+
+def emit_oom(stop, as_json=False, doc=None, rc=-signal.SIGKILL):
+    """Print the out-of-memory stop and return `EXIT_OOM`: the stop on stderr, and under `--json` one
+    document on stdout (`doc` plus `oom_fields`). Callers return or `sys.exit` what this returns."""
+    print(stop, file=sys.stderr)
+    if as_json:
+        print(json.dumps({**(doc or {}), **oom_fields(rc, stop)}, indent=2))
+    return EXIT_OOM
+
+
+def read_killed_hint(rc):
+    """What a killed READ adds to the fact: on SIGKILL, stop. Any further read loads the same CLI on
+    the same box and is killed too; a write was never in play, so there is nothing to check first."""
+    if not is_sigkill(rc):
+        return ""
+    return (" — the box is most likely out of memory: stop here. Re-running this or another read now will "
+            "be killed too; tell the user the box is out of memory. " + oom_wait())
+
+
+def cause_fact(cause):
+    """A cause without the stop `read_killed_hint` appended to it: for printing beside `oom_stop`,
+    which says the stop once."""
+    return str(cause).replace(read_killed_hint(-signal.SIGKILL), "")
+
+
+def openclaw_available(why=None):
+    """`openclaw --version` answered rc 0. A SIGKILLed probe is openclaw running out of memory, never
+    openclaw missing: `why` receives its `Cause` (rc -9) so the caller says stop, not "no openclaw"."""
+    rc, out, err = run_cli(["openclaw", "--version"], timeout=15)
+    if rc != 0 and why is not None:
+        why.append(Cause(f"openclaw --version: {error_tail(err, out) or f'exited {rc}'}"
+                         + read_killed_hint(rc), rc))
+    return rc == 0
 
 
 # ---- direct gateway calls (`openclaw gateway call <method> --json`) ----
@@ -303,6 +436,15 @@ def error_tail(err, out="", limit=600):
     cause. Filtering must never turn a non-empty capture into an empty message."""
     err_s = _strip_ansi(err or "").strip()
     out_s = _strip_ansi(out or "").strip()
+    # A kill line (`killed_note`, appended by `_spawn`) is the one sure fact, so it is set aside and
+    # always kept LAST; the cause is then looked for in the rest of stderr, then stdout (10.x writes
+    # its error there), exactly as for a call that was not killed.
+    err_lines = err_s.splitlines()
+    kill = [ln.strip() for ln in err_lines if _KILLED_LINE.match(ln.strip())]
+    if kill:
+        err_s = "\n".join(ln for ln in err_lines if not _KILLED_LINE.match(ln.strip())).strip()
+        rest = error_tail(err_s, out_s, max(limit - len(kill[-1]) - 1, 0)) if (err_s or out_s) else ""
+        return "\n".join(t for t in (rest, kill[-1]) if t)
     for text in (err_s, out_s):
         if not text:
             continue
@@ -405,18 +547,20 @@ def list_runtimes_or_none(why=None):
     """The runtime inventory (running AND stopped), straight from `senpi.listRuntimes`, or None when
     the read produced no answer — so callers can tell 'no runtimes' (→ []) from 'couldn't read the
     inventory' (→ None). The teardown money path must never mistake an unreadable inventory for 'the
-    runtime is gone'. `why`, a list, receives the cause."""
+    runtime is gone'. `why`, a list, receives the cause as a `Cause` (its `rc` says if it was killed)."""
     r = gateway_call("senpi.listRuntimes", {}, rpc_timeout_ms=READ_RPC_MS, timeout_s=READ_WALL_S)
     rows = _runtime_rows(r["payload"]) if r["kind"] == "ok" else None
     if rows is None and why is not None:
-        why.append(f"senpi.listRuntimes: {r['kind']}: {r['message'] or 'no runtimes list in the answer'}")
+        why.append(Cause(f"senpi.listRuntimes: {r['kind']}: {r['message'] or 'no runtimes list in the answer'}"
+                         + read_killed_hint(r.get("rc")), r.get("rc")))
     return rows
 
 
-def list_runtimes():
+def list_runtimes(why=None):
     """Like `list_runtimes_or_none` but [] on a failed read. Only for reads that ADD information;
-    a money path uses `list_runtimes_or_none`."""
-    return list_runtimes_or_none() or []
+    a money path uses `list_runtimes_or_none`. `why` still receives the failed read's `Cause`, so a
+    caller can tell a SIGKILL (stop) from an empty inventory."""
+    return list_runtimes_or_none(why=why) or []
 
 
 def health_or_none(runtime_id=None, why=None):
@@ -426,7 +570,8 @@ def health_or_none(runtime_id=None, why=None):
     if r["kind"] == "ok" and isinstance(r["payload"], dict):
         return r["payload"]
     if why is not None:
-        why.append(f"senpi.getHealthStatus: {r['kind']}: {r['message'] or 'no payload'}")
+        why.append(Cause(f"senpi.getHealthStatus: {r['kind']}: {r['message'] or 'no payload'}"
+                         + read_killed_hint(r.get("rc")), r.get("rc")))
     return None
 
 
@@ -462,19 +607,22 @@ def runtime_no_entry_scanners(rt):
     return "no entry scanners" in str(st or "").lower()
 
 
-def find_runtime(name):
-    for rt in list_runtimes():
+def find_runtime(name, why=None):
+    """The runtime named `name`, or None. None is also an UNREADABLE inventory: `why` receives that
+    read's `Cause`, and a caller that acts on "not found" must check it first."""
+    for rt in list_runtimes(why=why):
         if runtime_name(rt) == name:
             return rt
     return None
 
 
-def find_runtime_by_wallet(wallet):
+def find_runtime_by_wallet(wallet, why=None):
     """Find a runtime bound to a wallet address (close maps strategy→runtime by wallet,
-    so it doesn't depend on the runtime name). Tolerates truncated TTY wallets."""
+    so it doesn't depend on the runtime name). Tolerates truncated TTY wallets. `why`: as
+    `find_runtime`."""
     if not wallet:
         return None
-    for rt in list_runtimes():
+    for rt in list_runtimes(why=why):
         if wallet_match(runtime_wallet(rt), wallet):
             return rt
     return None
@@ -567,11 +715,12 @@ def scanner_reasons(status_entry):
             for r in scanner_rows(status_entry) if isinstance(r, dict) and r.get("degradedReason")]
 
 
-def runtime_health_map():
+def runtime_health_map(why=None):
     """Health for ALL running runtimes in ONE `senpi.getHealthStatus` call, keyed by runtime name.
-    One call regardless of fleet size. The gateway is flaky-empty, so try the single call twice."""
+    One call regardless of fleet size. The gateway is flaky-empty, so try the single call twice.
+    `why` receives a failed read's `Cause` (a SIGKILL among them)."""
     for _ in range(2):
-        obj = health_or_none()
+        obj = health_or_none(why=why)
         if obj is None:  # failed or timed out: only the flaky-empty answer is worth a retry
             break
         sts = find_list(obj, "statuses")
@@ -781,7 +930,12 @@ class ReadFailed(Exception):
     """A surface a caller needs came back unusable — a transport failure, or a payload whose shape
     carries no answer. Raised by CALLERS of the fail-closed `*_or_none` readers
     (`list_strategies_or_none`, `list_runtimes_or_none`, `cli_json`) once they have turned that
-    sentinel into a refusal: a caller that catches this must render NO verdict."""
+    sentinel into a refusal: a caller that catches this must render NO verdict. `rc` is the failed
+    call's own rc when it is known, so a caller can tell a SIGKILL without reading the message."""
+
+    def __init__(self, message, rc=None):
+        super().__init__(message)
+        self.rc = rc
 
 
 def list_strategies(mcp, timeout=15, statuses=None):
