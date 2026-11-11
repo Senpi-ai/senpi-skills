@@ -184,13 +184,13 @@ def oom_wait():
     the runtime list: an unreadable or timed-out list exits `STATUS_INVENTORY_UNREAD`, a kill
     `EXIT_OOM`. "Not killed" alone is not the sign: a timed-out read on a box still short of memory
     is not killed either. A list unreadable for another reason never turns 1 into 0, so the way back
-    names the way out of that too, rather than a wait with no end."""
+    points past a restart at the cause status.py prints, rather than a wait with no end. It never
+    calls that cause "not memory": a box still short of memory exits 1 on a timeout too."""
     return (f"Try again only after the box restarts or memory frees: `python3 {STATUS_PY}` exiting 0 "
             f"is the sign it has (it exits 0 only once it has read the runtime list; "
             f"{STATUS_INVENTORY_UNREAD} = the list could not be read, {EXIT_OOM} = killed again: "
-            f"not yet). If it keeps exiting {STATUS_INVENTORY_UNREAD} after that, memory is not the "
-            f"cause: follow the cause it prints (a wedged runtime-plugin self-update is cured by "
-            f"`openclaw plugins install @senpi-ai/runtime`) instead of waiting.")
+            f"not yet). If status.py still exits {STATUS_INVENTORY_UNREAD} after a restart, follow "
+            f"the cause it prints.")
 
 
 def oom_stop(state, tell):
