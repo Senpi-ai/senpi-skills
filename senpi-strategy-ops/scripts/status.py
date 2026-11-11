@@ -21,7 +21,7 @@ OPEN strategy it classifies the runtime:
                      running (likely an interrupted deploy); the only no-runtime case that's an anomaly
   runtime-unknown  — the runtime registry can't be read from THIS host (no openclaw, or the
                      `senpi.listRuntimes` read failed or timed out); NOT a diagnosis (re-run, or run
-                     status.py on the runtime host)
+                     status.py on the runtime host). The run then exits 1, never 0
   copy             — copy-trading strategy (follows a traderAddress) — run by Senpi's copy engine, no runtime
   manual           — manual / app-managed strategy — you manage it in the app, no runtime
 Two more facts ride every deep row, because health alone misleads on both:
@@ -38,6 +38,10 @@ for the last deploy's verdict, `deploy.py verify <id>` for the per-instance verd
 surfaces). Everything this script prints is read-only. The RESUME — `deploy.py runtime <id>` — is the
 one money path near this surface: it runs the deploy verb and can install, start trading, and fund a
 wallet. It is named once, with what it does, never per row.
+
+Exit: 0 both lists read · 1 a list could not be read (a strategy list refuses; a runtime list prints
+the rows as runtime-unknown) · `_cli.EXIT_OOM` (9) a read was SIGKILLed. Exit 0 is what every
+out-of-memory stop names as the sign the box can be used again, so only a read runtime list earns it.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
@@ -236,13 +240,15 @@ def main(argv):
 
     rwhy, kills = [], []
     rows, orphans, cli_ok = build(MCPClient(), a.package, deep=not a.fast, rwhy=rwhy, kills=kills)
-    # A SIGKILLed read: what is below is only what was read before it, and this run exits EXIT_OOM —
-    # every kill steer names this script as the sign memory has freed, so its exit code is that sign.
+    # A SIGKILLed read: what is below is only what was read before it, and this run exits EXIT_OOM.
+    # Every kill steer names this script's exit 0 as the sign memory has freed, so 0 is earned only by
+    # a runtime list that was actually read: one that could not be read (no openclaw, a failure, a
+    # timeout) exits STATUS_INVENTORY_UNREAD, whatever else printed.
     stop = _cli.oom_stop("Nothing was changed. What is shown is only what was read before the kill; "
                          "anything not read is UNKNOWN, not stopped.",
                          "the box is out of memory, so what is running could not be fully read"
                          ) if kills else None
-    code = _cli.EXIT_OOM if kills else 0
+    code = _cli.EXIT_OOM if kills else 0 if cli_ok else _cli.STATUS_INVENTORY_UNREAD
 
     if a.json:
         print(json.dumps({"strategies": rows, "orphan_runtimes": orphans, "openclaw_available": cli_ok,

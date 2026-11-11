@@ -170,13 +170,24 @@ def sigkilled(*causes):
 # (deploy.py, close.py, status.py) exits with it, so a caller branches on the code, never the words.
 # Outside every other map (D-12 0-6, verify 0/1/3, close 0/1/2, validate 0-3); mnemonic for SIGKILL.
 EXIT_OOM = 9
+# status.py's exit when the runtime list could not be read (and was not killed): no openclaw here,
+# or `senpi.listRuntimes` failed or timed out. Its rows still print (runtime-unknown); only exit 0
+# says the list was read, which is what makes 0 the out-of-memory way back (`oom_wait`).
+STATUS_INVENTORY_UNREAD = 1
 
 
 def oom_wait():
     """WHEN a SIGKILLed call may be tried again: an event, then the read that shows it happened. A
-    kill steer without it strands the user (told to stop, with no sanctioned way back)."""
-    return (f"Try again only after the box restarts or memory frees: `python3 {STATUS_PY}` reading "
-            f"the runtime list without being killed (exit 0, not {EXIT_OOM}) is the sign it has.")
+    kill steer without it strands the user (told to stop, with no sanctioned way back).
+
+    The sign is status.py's exit 0, and only because status.py exits 0 ONLY when it actually read
+    the runtime list: an unreadable or timed-out list exits `STATUS_INVENTORY_UNREAD`, a kill
+    `EXIT_OOM`. "Not killed" alone is not the sign: a timed-out read on a box still short of memory
+    is not killed either."""
+    return (f"Try again only after the box restarts or memory frees: `python3 {STATUS_PY}` exiting 0 "
+            f"is the sign it has (it exits 0 only once it has read the runtime list; "
+            f"{STATUS_INVENTORY_UNREAD} = the list could not be read, {EXIT_OOM} = killed again: "
+            f"not yet).")
 
 
 def oom_stop(state, tell):

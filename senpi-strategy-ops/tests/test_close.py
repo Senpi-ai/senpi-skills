@@ -150,7 +150,8 @@ class CloseRuntimeDeleteConfirm(unittest.TestCase):
         err = rec["error"]
         self.assertIn("NOT closed yet", err)
         self.assertIn("may still be trading", err)
-        self.assertIn(f"`python3 {_cli.STATUS_PY}` reading the runtime list without being killed", err)
+        self.assertIn(f"`python3 {_cli.STATUS_PY}` exiting 0 is the sign", err)
+        self.assertIn("it exits 0 only once it has read the runtime list", err)
         self.assertIn(f"Then re-run: {rerun}", err)
         self.assertIn("Do not call strategy_close directly", err)
 
@@ -785,11 +786,18 @@ class MainPackagePollReportsClosed(unittest.TestCase):
     def test_closing_one_instance_keeps_the_request_open(self):
         _root, _rid = self._seed_open_request()
         self.rows = [self._ACTIVE_ROW]
-        self.addCleanup(setattr, _cli, "find_runtime", _cli.find_runtime)
-        _cli.find_runtime = lambda name: {"id": name, "walletAddress": "0xabc"}
-        self.addCleanup(setattr, _cli, "runtime_wallet", _cli.runtime_wallet)
-        _cli.runtime_wallet = lambda rt: "0xabc"
-        self._run("omega", "--instance", "main")
+        # `--instance` maps through the inventory read: the instance's runtime is on the open wallet,
+        # so the instance close really triggers (not the "can't map" refusal) and the guard in
+        # `_close_open_request` is what keeps the package's START request open.
+        status_read = _cli.gateway_call
+        _cli.gateway_call = lambda method, *a, **k: (
+            {"kind": "ok", "payload": {}, "message": "", "rc": 0, "elapsed": 0}
+            if method == "senpi.deleteRuntime" else status_read(method, *a, **k))
+        gone = iter([[{"name": "omega-main", "wallet": "0xabc"}], []])   # listed, then gone
+        _cli.list_runtimes_or_none = lambda *a, **k: next(gone, [])
+        out, code = self._run("omega", "--instance", "main")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.closed, ["s1"])                  # the instance close went out
         self.assertIsNone(_journal.read("omega")["resolved"])
 
     def test_poll_after_a_completed_close_reports_closed(self):

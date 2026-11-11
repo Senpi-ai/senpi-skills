@@ -131,6 +131,15 @@ def oom_not_closed(rerun):
             f"the runtime trading.")
 
 
+def _deploy_job_unknown_stop(rerun):
+    """The out-of-memory stop when the deploy job-record read was killed: whether a lost START's job
+    is still running (and funding) is unknown, so nothing is read or re-run now."""
+    return (_cli.oom_stop("Whether the earlier deploy job is still running is unknown, and it may "
+                          "still fund a wallet.",
+                          "the strategy is NOT fully torn down yet and a deploy may still be running")
+            + f" Then re-run: {_close_rerun(rerun)}. Do not run `deploy.py create` meanwhile.")
+
+
 def _inventory_or_stop(rerun, as_json):
     """The runtime inventory (`senpi.listRuntimes`), read ONCE for the whole run, or a stop: NOTHING
     is closed off an unreadable inventory. Every target needs it (a strategy_close sent past a live
@@ -157,6 +166,33 @@ def _inventory_or_stop(rerun, as_json):
         cure = "Re-run this command; if it keeps failing, the gateway is not answering."
     raise SystemExit(f"{head}\n  {cure}\n  Do not call strategy_close directly: it leaves the runtime "
                      f"trading.")
+
+
+def _instance_unmapped(pkg, instance, rt, opens):
+    """The refusal when `--instance` maps to no open strategy off a READ inventory. Nothing was
+    closed. The way on closes only the one wallet the user means (`--strategy-id`, which needs no
+    runtime), never the whole package: dropping `--instance` would also market-exit every healthy
+    instance the user wanted kept."""
+    rname = f"{pkg.id}-{instance}"
+    if rt is None:
+        fact = (f"no runtime named {rname} is in the runtime inventory, and only its runtime maps "
+                f"the instance to its wallet")
+    else:
+        fact = (f"runtime {rname} is on wallet {_cli.runtime_wallet(rt) or '?'}, and no OPEN "
+                f"{pkg.id} strategy is on that wallet")
+    lines = [f"error: can't map instance {instance!r} to an open strategy: {fact}. NOTHING WAS CLOSED."]
+    if opens:
+        lines.append(f"  Open {pkg.id} strategies (close ONLY the one the user means, by its id; "
+                     f"each line closes that one wallet and nothing else):")
+        for s in opens:
+            name, _src = _cli.strategy_name_and_source(s)
+            lines.append(f"    python3 {Path(__file__).resolve()} --strategy-id "
+                         f"{_cli.strategy_id_of(s)}   # {name or '?'}, wallet {_cli.strategy_wallet(s) or '?'}")
+        lines.append(f"  Not sure which one is {instance!r}? Read it first (read-only): "
+                     f"python3 {_cli.STATUS_PY} {pkg.id}")
+    else:
+        lines.append(f"  No {pkg.id} strategy is open, so there is nothing of {instance!r} to close.")
+    return "\n".join(lines)
 
 
 def close_one(label, strat, runtimes, dry_run, log, rerun=None):
@@ -384,8 +420,7 @@ def main(argv):
             w = _cli.runtime_wallet(rt) if rt else None
             targets = [(a.instance, s) for s in opens if w and _cli.wallet_match(w, _cli.strategy_wallet(s))]
             if not targets:
-                raise SystemExit(f"error: can't map instance {a.instance!r} to a strategy without its live "
-                                 f"runtime ({pkg.id}-{a.instance}). Omit --instance to close all of {pkg.id}.")
+                raise SystemExit(_instance_unmapped(pkg, a.instance, rt, opens))
         else:
             targets = [(f"{pkg.id}[{i + 1}]", s) for i, s in enumerate(opens)]
         hdr = f"{pkg.id} v{pkg.version}"
@@ -409,6 +444,17 @@ def main(argv):
             ever = _read_or_refuse(
                 _cli.strategies_for_or_none(mcp, skill_name=pkg.id, why=why), why, pkg.id)
             pending = None if a.instance else _unanswered_start_may_be_running(pkg)
+            if pending and _cli.sigkilled(pending[1]):
+                entry, why_open = pending
+                sys.exit(_cli.emit_oom(
+                    f"{hdr}: NOT torn down. Nothing of this package is live in strategy_list, but the "
+                    f"deploy START {entry['requestId']} (sent at {entry.get('sentAt', '?')}) never got "
+                    f"an answer, and {why_open}, so whether a deploy is running is unknown: it may "
+                    f"still create and fund a wallet. Nothing was closed and the request stays open.\n  "
+                    + _deploy_job_unknown_stop(rerun),
+                    a.json, {"strategy": strategy_label, "status": "failed", "instances": [],
+                             "openDeployRequest": {"requestId": entry["requestId"],
+                                                   "sentAt": entry.get("sentAt"), "why": why_open}}))
             if pending:
                 entry, why_open = pending
                 print(f"{hdr}: NOT torn down. Nothing of this package is live in strategy_list, but "
@@ -469,15 +515,27 @@ def main(argv):
         entry, why_open = pending
         out["openDeployRequest"] = {"requestId": entry["requestId"], "sentAt": entry.get("sentAt"),
                                     "why": why_open}
+    job_stop = None
+    if pending and _cli.sigkilled(why_open):
+        # The close went out, but the job-record read was killed: the stop, never "poll status now"
+        # and never "poll by re-running close" (both load the CLI that was just killed).
+        job_stop = (f"NOT torn down yet: the deploy START {entry['requestId']} (sent at "
+                    f"{entry.get('sentAt', '?')}) never got an answer, and {why_open}, so whether a "
+                    f"deploy is running is unknown: it may still create and fund a wallet. The request "
+                    f"stays open.\n  " + _deploy_job_unknown_stop(rerun))
+        oom = True
+        out.update(_cli.oom_fields(stop=job_stop))
 
     if a.json:
+        if job_stop:
+            print(job_stop, file=sys.stderr)
         print(json.dumps(out, indent=2))
     else:
         print(f"\n{hdr}: {overall}")
         for r in results:
             extra = f"  ({r['error']})" if r.get("error") else ""
             print(f"  - {r['instance']}: {r['status']}{extra}")
-        if overall == "closing":
+        if overall == "closing" and not oom:
             if pkg:
                 poll = f"close.py {pkg.id}"
             elif direct:
@@ -486,7 +544,10 @@ def main(argv):
                 poll = "close.py --all"
             print(f"\nClose triggered (runtimes stopped). strategy_close is async — positions flatten "
                   f"on-chain. Poll until closed by re-running: {poll}  (or check strategy_list status).")
-        if pending:
+        if job_stop:
+            print(f"\nClose triggered for what is live (runtimes stopped); positions flatten on-chain.\n"
+                  + job_stop, file=sys.stderr)
+        elif pending:
             print(f"\nNOT torn down yet: the deploy START {entry['requestId']} (sent at "
                   f"{entry.get('sentAt', '?')}) never got an answer, and {why_open}. A deploy MAY BE "
                   f"RUNNING and may still create and fund a wallet; close.py cannot stop a deploy job. "

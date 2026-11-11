@@ -27,6 +27,7 @@ sys.path.insert(0, str(HERE.parent / "scripts"))
 sys.path.insert(0, str(HERE))
 
 import _cli    # noqa: E402
+import _journal  # noqa: E402
 import close   # noqa: E402
 import deploy  # noqa: E402
 import status  # noqa: E402
@@ -34,6 +35,7 @@ from test_deploy_wrapper import (HEALTH_PLAIN, WALLET, _JournalDir, _ok, _proof_
                                  _runtime_table, _status, _strategy)
 
 KILL = (-9, "", _cli.killed_note(-9), False, None)
+TIMED_OUT = (-1, "", "", True, None)
 _NO_JOB = (1, "", "Gateway call failed: GatewayClientRequestError: [NOT_FOUND] No deploy has been "
                   "started on this agent.\n")
 _LISTED = (0, _runtime_table(("spider-main", WALLET, "running")), "")
@@ -185,6 +187,156 @@ class EveryMoneyPathStopsOnASigkill(_JournalDir, unittest.TestCase):
                         self.assertIs(doc["oom"], True)
                         self.assertEqual(doc["killed_rc"], -9)
                         self.assertNotEqual((doc.get("state") or {}).get("overall"), "refused")
+
+
+class _BoxCase(EveryMoneyPathStopsOnASigkill):
+    """The same harness, for the paths that need more than `SCENARIOS` can say (a journal entry, a
+    budget that runs out mid-call, a second signal)."""
+
+    def test_every_entry_point_ends_in_the_one_out_of_memory_stop(self):
+        pass   # run once, in the parent class
+
+    def _open_request(self, budget=30.0):
+        rid = "dpl-req-20261028T000000Z-deadbeef"
+        _journal.write("spider", {"packageId": "spider", "requestId": rid,
+                                  "sentAt": "2026-10-28T00:00:00Z", "verb": "create",
+                                  "paramsKey": {"packageDir": str(self.pkg.dir), "budget": budget},
+                                  "resolved": None})
+        return rid
+
+    def _assert_oom_stop(self, code, out, err, as_json=False):
+        text = out + err
+        self.assertEqual(code, _cli.EXIT_OOM, text)
+        self.assertIn("stop here", text)
+        self.assertIn("after the box restarts or memory frees", text)
+        for steer in FORBIDDEN + ("Poll until closed",):
+            self.assertNotIn(steer, text)
+        if as_json:
+            doc = json.loads(out)
+            self.assertIs(doc["oom"], True)
+            self.assertEqual(doc["killed_rc"], -9)
+
+
+class StartKilledWithNoReadMade(_BoxCase):
+    """A SIGKILLed START that the budget left no recovery read for: the kill is all that is known."""
+
+    def test_a_killed_start_with_no_read_made_is_the_stop_and_never_says_the_reads_found_nothing(self):
+        saved = deploy._budget_spent
+        self.addCleanup(setattr, deploy, "_budget_spent", saved)
+        for as_json in (False, True):
+            with self.subTest(json=as_json):
+                started = []
+                box = Box({"senpi.getHealthStatus": HEALTH_PLAIN})
+
+                def spawn(args, timeout=60, box=box, started=started):
+                    if args[:4] == ["openclaw", "gateway", "call", "senpi.deploy.start"]:
+                        started.append(True)
+                    return box(args, timeout)
+                deploy._budget_spent = lambda started=started: bool(started)
+                argv = ["deploy.py", "create", "spider", "--budget", "30"] + (["--json"] if as_json else [])
+                _cli._spawn = spawn
+                out, err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
+                        self.assertRaises(SystemExit) as ctx:
+                    deploy.main(argv)
+                self.assertEqual(box.sent("senpi.deploy.status"), [])     # no read was made
+                self._assert_oom_stop(ctx.exception.code, out.getvalue(), err.getvalue(), as_json)
+                self.assertIn("no read of the job record could be made", err.getvalue())
+                self.assertNotIn("found no job", out.getvalue() + err.getvalue())
+
+
+class JobRecordReadKilled(_BoxCase):
+    """Every caller of `deploy._why_a_job_may_be_running` gets the read's rc and stops on a SIGKILL."""
+
+    def test_close_with_nothing_live_and_a_killed_job_record_read(self):
+        rid = self._open_request()
+        saved = FakeMCP.mcp_call
+        self.addCleanup(setattr, FakeMCP, "mcp_call", saved)
+        FakeMCP.mcp_call = lambda self_, tool, timeout=15, **kw: {
+            "strategies": [_strategy(status="CLOSED")]}
+        for as_json in (False, True):
+            with self.subTest(json=as_json):
+                code, out, err, box = self._drive(["close.py", "spider"] + (["--json"] if as_json else []), {})
+                self._assert_oom_stop(code, out, err, as_json)
+                self.assertTrue(box.sent("senpi.deploy.status"))
+                self.assertIn("NOT torn down", out + err)
+                self.assertIsNone(_journal.read("spider")["resolved"])    # the request stays open
+                self.assertEqual(_journal.read("spider")["requestId"], rid)
+
+    def test_a_triggered_close_whose_job_record_read_is_killed(self):
+        self._open_request()
+        for as_json in (False, True):
+            with self.subTest(json=as_json):
+                FakeMCP.closed = []
+                answers = {"--version": (0, "openclaw 10.10", ""),
+                           "senpi.listRuntimes": [_LISTED, _ok({"runtimes": []})],
+                           "senpi.deleteRuntime": _ok({"deleted": True})}
+                code, out, err, _box = self._drive(["close.py", "spider"] + (["--json"] if as_json else []),
+                                                   answers)
+                self._assert_oom_stop(code, out, err, as_json)
+                self.assertEqual(FakeMCP.closed, ["str-1234abcd"])          # the close did go out
+                self.assertIsNone(_journal.read("spider")["resolved"])
+                if as_json:
+                    self.assertIn("openDeployRequest", json.loads(out))
+
+    def test_create_with_changed_params_and_a_killed_job_record_read(self):
+        self._open_request(budget=99.0)    # an earlier START at another budget, never answered
+        for as_json in (False, True):
+            with self.subTest(json=as_json):
+                code, out, err, box = self._drive(
+                    ["deploy.py", "create", "spider", "--budget", "30"] + (["--json"] if as_json else []),
+                    {"senpi.getHealthStatus": HEALTH_PLAIN})   # a runtime that does not honour ids
+                self._assert_oom_stop(code, out, err, as_json)
+                self.assertEqual(box.sent("senpi.deploy.start"), [])    # nothing dispatched
+                self.assertIsNone(_journal.read("spider")["resolved"])
+
+
+class InstanceWithAReadInventoryButNoRuntime(_BoxCase):
+    """`--instance` whose runtime is not in a READ inventory: steer at the one wallet, never at all."""
+
+    def test_it_names_strategy_id_per_open_strategy_and_never_close_all(self):
+        code, out, err, _box = self._drive(
+            ["close.py", "spider", "--instance", "hedge"],
+            {"--version": (0, "openclaw 10.10", ""), "senpi.listRuntimes": _LISTED})
+        msg = str(code)
+        self.assertIn("NOTHING WAS CLOSED", msg)
+        self.assertIn("--strategy-id str-1234abcd", msg)
+        self.assertIn(_cli.STATUS_PY, msg)
+        self.assertNotIn("Omit --instance", msg)
+        self.assertNotIn("close all", msg)
+        self.assertEqual(FakeMCP.closed, [])
+
+
+class StatusExitZeroIsEarnedOnlyByAReadRuntimeList(_BoxCase):
+    """`oom_wait` names status.py's exit 0 as the way back, so 0 must mean the runtime list was read."""
+
+    def _status(self, answers, *args):
+        code, out, err, _box = self._drive(["status.py", "--fast", *args], answers)
+        return code, out + err
+
+    def test_a_timed_out_runtime_list_is_not_exit_0(self):
+        code, text = self._status({"--version": (0, "openclaw 10.10", ""), "senpi.listRuntimes": TIMED_OUT})
+        self.assertEqual(code, _cli.STATUS_INVENTORY_UNREAD, text)
+        self.assertNotEqual(code, 0)
+        self.assertIn("runtime state is UNKNOWN", text)
+
+    def test_no_openclaw_here_is_not_exit_0(self):
+        none = (-1, "", "", False, FileNotFoundError("openclaw"))
+        code, text = self._status({"--version": none, "senpi.listRuntimes": none})
+        self.assertEqual(code, _cli.STATUS_INVENTORY_UNREAD, text)
+
+    def test_a_read_runtime_list_is_exit_0(self):
+        code, text = self._status({"--version": (0, "openclaw 10.10", ""), "senpi.listRuntimes": _LISTED})
+        self.assertEqual(code, 0, text)
+        code, text = self._status({"--version": (0, "openclaw 10.10", ""), "senpi.listRuntimes": _LISTED},
+                                  "--json")
+        self.assertEqual(code, 0, text)
+
+    def test_the_way_back_names_exit_0_as_a_read_list(self):
+        w = _cli.oom_wait()
+        self.assertIn("exiting 0", w)
+        self.assertIn("only once it has read the runtime list", w)
+        self.assertIn(f"{_cli.STATUS_INVENTORY_UNREAD} = the list could not be read", w)
 
 
 if __name__ == "__main__":

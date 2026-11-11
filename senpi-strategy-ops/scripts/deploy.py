@@ -658,11 +658,16 @@ def _why_a_job_may_be_running(entry):
     """Why an open entry cannot be closed yet on a runtime without request ids, or None when the job
     record says no job is running. Fail-closed: only a readable record (a finished job, or the
     gateway's own "no deploy ever") clears it, and only once the START's wall clock has passed, since
-    a job from a START still in flight would not show yet."""
+    a job from a START still in flight would not show yet.
+
+    An unreadable record comes back as a `_cli.Cause` carrying the read's rc, so a caller sees a
+    SIGKILLed read (`_cli.sigkilled(why)`) and gives the out-of-memory stop, never "poll status"."""
     sent = _iso_ts(entry.get("sentAt"))
     if sent is None or time.time() - sent < START_WALL_S:
         return f"that START was sent under {START_WALL_S}s ago, so its job may not show yet"
-    payload, _message, no_job = read_status(None)
+    payload, message, no_job = read_status(None)
+    if payload is None and not no_job and _cli.sigkilled(message):
+        return _cli.Cause(f"the read of the job record was {_cli.killed_note(message.rc)}", message.rc)
     if no_job:
         return None
     snap = _job_snapshot(payload)
@@ -672,10 +677,10 @@ def _why_a_job_may_be_running(entry):
     if status == "running":
         meta = snap.get("meta") or {}
         return f"job {meta.get('deployId', '?')} for {meta.get('packageId', '?')} is running"
-    return "the job record could not be read"
+    return _cli.Cause("the job record could not be read", getattr(message, "rc", None))
 
 
-def _request_id_for(pkg, params, log, caps, verb="create"):
+def _request_id_for(pkg, params, log, caps, verb="create", as_json=False):
     """`(request id | None, reused, the open entry | None, params changed)` for this START.
 
     An open entry (its START never got an answer) is reused, however old. With other parameters it is
@@ -691,6 +696,17 @@ def _request_id_for(pkg, params, log, caps, verb="create"):
         changed = entry.get("paramsKey") is not None and entry["paramsKey"] != _params_key(params)
         if changed and caps is False:
             why_open = _why_a_job_may_be_running(entry)
+            if _cli.sigkilled(why_open):
+                raise SystemExit(_cli.emit_oom(
+                    f"[E_OPEN_DEPLOY_REQUEST] An earlier `{entry.get('verb') or 'create'}` START for "
+                    f"{pkg.id} (request id {entry['requestId']}, sent at {entry.get('sentAt', '?')}) "
+                    f"never got an answer, and {why_open}, so whether its job is running is unknown. "
+                    f"Nothing was started.\n  "
+                    + _cli.oom_stop("Nothing was started by this command; the earlier START's job MAY "
+                                    "BE RUNNING and a wallet may already be funded.",
+                                    "the earlier deploy's outcome is unknown and nothing new was started"),
+                    as_json, {"deployId": None, "requestId": entry["requestId"],
+                              "sentAt": entry.get("sentAt")}))
             if why_open:
                 _refuse_changed_params(pkg, entry, params, why_open)
             _journal.resolve(pkg.id, entry["requestId"], "no-running-job")
@@ -753,7 +769,7 @@ def _poll_steer(pkg_id, rid, deploy_id=None, since=None, oom=False):
     return "\n".join(lines)
 
 
-def _recover_lost_start(pkg, t0, log, rid=None, kills=None):
+def _recover_lost_start(pkg, t0, log, rid=None, kills=None, reads=None):
     """A START whose reply never came back may still have been taken: killing our client does not
     take back a request the gateway already read. Read the job record (`senpi.deploy.status {}`) up
     to RECOVER_READS times. Returns the adopted deployId, or None. Never starts anything, and None
@@ -766,13 +782,17 @@ def _recover_lost_start(pkg, t0, log, rid=None, kills=None):
     adopted. That can only make this script follow and report the wrong job; it never dispatches,
     funds or closes anything.
 
-    A SIGKILLed read ends the reads (the next one is killed too) and its rc goes to `kills`."""
+    A SIGKILLed read ends the reads (the next one is killed too) and its rc goes to `kills`. `reads`,
+    a list, receives each read's rc, so the caller never says "the reads found no job" when the
+    command's budget left room for none."""
     _sleep(2)
     for i in range(RECOVER_READS):
         if _budget_spent():
             break
         log(f"  reading the job record for a job the lost START may have started ({i + 1}/{RECOVER_READS})…")
         r = _gw("senpi.deploy.status", {}, STATUS_RPC_MS, STATUS_WALL_S)
+        if reads is not None:
+            reads.append(r["rc"])
         if _cli.is_sigkill(r["rc"]):
             if kills is not None:
                 kills.append(r["rc"])
@@ -812,7 +832,8 @@ def start_deploy(pkg, a, log):
     else:
         caps = a.request_ids
         verb = getattr(a, "cmd", None) if getattr(a, "cmd", None) in ("create", "runtime") else "create"
-        rid, reused, entry, changed = _request_id_for(pkg, params, log, caps, verb)
+        rid, reused, entry, changed = _request_id_for(pkg, params, log, caps, verb,
+                                                      getattr(a, "json", False))
     try:
         a.repeated_terminal = None
         a.repeated_changed = None
@@ -914,16 +935,25 @@ def start_deploy(pkg, a, log):
     print(f"senpi.deploy.start: {kind}: {r['message'] or 'no message'}", file=sys.stderr)
     # The START's own SIGKILL is not enough to say "out of memory, every read is killed too": only a
     # recovery read that is killed as well says so. Reads that answer say the box can read, so poll.
-    kills = []
-    adopted = _recover_lost_start(pkg, t0, log, rid_by, kills)
+    # A SIGKILLed START that no read followed (the budget left room for none) is the kill and nothing
+    # else known: the stop too, never "poll now".
+    kills, reads = [], []
+    adopted = _recover_lost_start(pkg, t0, log, rid_by, kills, reads)
     if adopted:
         how = (f"the job record shows request id {rid_by} on job {adopted}" if rid_by else
                f"the gateway took job {adopted} for {pkg.id} after this command sent it")
         print(f"note: the START reply was lost, but {how}; following that job.", file=sys.stderr)
         _journal_resolve(pkg, open_rid, adopted)
         return adopted
-    found = ("a read of the job record was killed too" if kills else
-             f"the reads of the job record found no job for {pkg.id} started by it")
+    if not reads and _cli.is_sigkill(r.get("rc")):
+        kills.append(r["rc"])
+    if not reads:
+        note = _budget_note()
+        found = "no read of the job record could be made" + (f" {note}" if note else "")
+    elif kills:
+        found = "a read of the job record was killed too"
+    else:
+        found = f"the reads of the job record found no job for {pkg.id} started by it"
     text = (f"  No answer came back for the START call{_rid_tag(rid)}, and {found}. That is not a "
             f"verdict: the gateway may have taken the deploy, so a job MAY BE RUNNING (a wallet may "
             f"already be funded). The START was sent at {_utc_stamp(t0)}.\n"
