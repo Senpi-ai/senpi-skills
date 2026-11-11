@@ -294,19 +294,83 @@ class JobRecordReadKilled(_BoxCase):
 
 
 class InstanceWithAReadInventoryButNoRuntime(_BoxCase):
-    """`--instance` whose runtime is not in a READ inventory: steer at the one wallet, never at all."""
+    """`--instance` that maps to no open strategy off a READ inventory: never a steer at a wallet
+    another instance's runtime claims, never at all of the package, never past an open deploy START."""
 
-    def test_it_names_strategy_id_per_open_strategy_and_never_close_all(self):
-        code, out, err, _box = self._drive(
-            ["close.py", "spider", "--instance", "hedge"],
-            {"--version": (0, "openclaw 10.10", ""), "senpi.listRuntimes": _LISTED})
+    HEDGE_WALLET = "0x" + "be" * 20
+    VERSION = {"--version": (0, "openclaw 10.10", "")}
+
+    def _strategies(self, *rows):
+        saved = FakeMCP.mcp_call
+        self.addCleanup(setattr, FakeMCP, "mcp_call", saved)
+
+        def call(self_, tool, timeout=15, **kw):
+            if tool == "strategy_close":
+                FakeMCP.closed.append(kw.get("strategyId"))
+                return {"success": True}
+            return {"strategies": [dict(_strategy(name=n, wallet=w), strategyId=sid) for sid, n, w in rows]}
+        FakeMCP.mcp_call = call
+
+    def test_a_wallet_another_instances_runtime_claims_is_never_listed(self):
+        # spider-main runs on WALLET; hedge's runtime is gone and its wallet is orphaned.
+        self._strategies(("str-main", "spider-main", WALLET), ("str-hedge", "spider-hedge", self.HEDGE_WALLET))
+        code, _out, _err, _box = self._drive(["close.py", "spider", "--instance", "hedge"],
+                                             dict(self.VERSION, **{"senpi.listRuntimes": _LISTED}))
         msg = str(code)
         self.assertIn("NOTHING WAS CLOSED", msg)
-        self.assertIn("--strategy-id str-1234abcd", msg)
+        self.assertIn("--strategy-id str-hedge", msg)
+        self.assertNotIn("str-main", msg)                  # main's live sleeve is not a candidate
         self.assertIn(_cli.STATUS_PY, msg)
         self.assertNotIn("Omit --instance", msg)
         self.assertNotIn("close all", msg)
         self.assertEqual(FakeMCP.closed, [])
+
+    def test_every_open_wallet_claimed_lists_nothing(self):
+        self._strategies(("str-main", "spider-main", WALLET))
+        code, _out, _err, _box = self._drive(["close.py", "spider", "--instance", "hedge"],
+                                             dict(self.VERSION, **{"senpi.listRuntimes": _LISTED}))
+        msg = str(code)
+        self.assertIn("NOTHING WAS CLOSED", msg)
+        self.assertNotIn("--strategy-id", msg)
+        self.assertEqual(FakeMCP.closed, [])
+
+    def test_a_runtime_on_a_wallet_with_no_open_strategy_lists_nothing_and_names_its_delete(self):
+        self._strategies(("str-main", "spider-main", WALLET))
+        listed = (0, _runtime_table(("spider-main", WALLET, "running"),
+                                    ("spider-hedge", self.HEDGE_WALLET, "running")), "")
+        code, _out, _err, box = self._drive(["close.py", "spider", "--instance", "hedge"],
+                                            dict(self.VERSION, **{"senpi.listRuntimes": listed}))
+        msg = str(code)
+        self.assertIn("NOTHING WAS CLOSED", msg)
+        self.assertIn("already closed", msg)
+        self.assertNotIn("--strategy-id", msg)            # none of the open ones is hedge
+        self.assertNotIn("str-main", msg)
+        self.assertIn('senpi.deleteRuntime --json --timeout', msg)
+        self.assertIn('"id": "spider-hedge"', msg)
+        self.assertEqual(box.sent("senpi.deleteRuntime"), [])   # named, not run
+        self.assertEqual(FakeMCP.closed, [])
+
+    def test_an_open_deploy_start_refuses_before_any_strategy_id(self):
+        # A lost START's job may have created hedge's wallet and not installed its runtime yet.
+        self._strategies(("str-main", "spider-main", WALLET), ("str-hedge", "spider-hedge", self.HEDGE_WALLET))
+        rid = self._open_request()
+        running = _ok({"state": {"status": "running"},
+                       "meta": {"deployId": "dpl-1", "packageId": "spider", "requestId": rid}})
+        for job, want in ((running, 2), (None, _cli.EXIT_OOM)):     # None: the record read is killed
+            with self.subTest(killed=job is None):
+                answers = dict(self.VERSION, **{"senpi.listRuntimes": _LISTED})
+                if job:
+                    answers["senpi.deploy.status"] = job
+                code, out, err, box = self._drive(["close.py", "spider", "--instance", "hedge"], answers)
+                text = f"{code}{out}{err}"
+                self.assertEqual(code, want, text)
+                self.assertTrue(box.sent("senpi.deploy.status"))
+                self.assertIn("NOT torn down", text)
+                self.assertIn(rid, text)
+                self.assertNotIn("--strategy-id", text)
+                self.assertIn("close.py spider --instance hedge", text)
+                self.assertIsNone(_journal.read("spider")["resolved"])
+                self.assertEqual(FakeMCP.closed, [])
 
 
 class StatusExitZeroIsEarnedOnlyByAReadRuntimeList(_BoxCase):

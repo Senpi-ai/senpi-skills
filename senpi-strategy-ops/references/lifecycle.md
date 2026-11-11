@@ -202,7 +202,7 @@ Per instance the job runs five steps, each recorded with its own outcome:
    because `close.py <id>` would tear down adopted, live, funded sleeves this warn is not about.
    **No emitted command may need a precondition the report lacks**, so the scoped form appears only
    when those sleeves have a live RUNTIME: `--instance` resolves a sleeve through its runtime and
-   refuses without one (it lists the package's open strategies and names `--strategy-id` for each,
+   refuses without one (it lists the package's open strategies no runtime claims and names `--strategy-id` for each,
    never "omit `--instance`", which would close the whole package — the exact widening the scoping
    exists to prevent). The other states get what
    they can actually support: a funded wallet with no runtime (deadline-abandoned after create, or a
