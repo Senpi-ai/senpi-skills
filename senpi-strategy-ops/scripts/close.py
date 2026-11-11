@@ -6,6 +6,7 @@
   python3 close.py --strategy-id <id> | --address <wallet>    # a wallet with NO package (unattributed
                                                                 # or app-created) — <id>/--all only resolve a package
   python3 close.py <id> --paper                              # the same, for simulations only (any form above)
+  python3 close.py <id> --live                               # live only, though the package also has a simulation
 
 Does NOT wait for the on-chain flatten — it hands off to the agent to poll. Per strategy (discovered
 from strategy_list by attribution skillName == manifest id, or directly by strategyId/wallet for
@@ -24,6 +25,8 @@ close too):
 --strategy-id/--address are mutually exclusive with <id>/--all/--instance/--ref and with each other.
 --paper reads and closes simulations only (`strategy_list {paper: true}`); without it only live strategies
 are read. No run touches both.
+A plain `close.py <id>` that finds live strategies refuses, closing nothing, when the same package also has an
+open simulation (or the simulation read is unknown): name `--live` or `--paper` to say which.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
@@ -68,6 +71,32 @@ def _read_or_refuse(rows, why, what, paper=False):
         f"  Cause: {why[0] if why else 'no cause reported'}\n"
         f"  Your strategies may be live and funded. Re-run this command, or read what is actually "
         f"open first (read-only):  python3 status.py")
+
+
+def _refuse_if_simulations_exist(mcp, pkg, targets, instance):
+    """A plain package close must not take the live strategy when the same package also has a
+    simulation: an agent that meant the simulation and dropped `--paper` would close real money.
+    Refuses, naming both worlds and the command for each. An MCP with no paper router has no
+    simulations, so it passes; any other unreadable answer refuses too, since a simulation may exist."""
+    why = []
+    sims = _cli.strategies_for_or_none(mcp, skill_name=pkg.id, statuses=LIVE_STATUSES, why=why, paper=True)
+    base = f"close.py {pkg.id}" + (f" --instance {instance}" if instance else "")
+    if sims is None:
+        if why and isinstance(why[0], _cli.NoPaperRouter):
+            return
+        raise SystemExit(
+            f"error: {pkg.id} has live strategies to close, but its simulations could not be read, so "
+            f"NOTHING was closed.\n  Cause: {why[0] if why else 'no cause reported'}\n"
+            f"  A simulation may exist. To close the live strategy only:  {base} --live")
+    sims = [s for s in sims if _cli.strategy_open(s)]
+    if not sims:
+        return
+    raise SystemExit(
+        f"error: {pkg.id} has both live strategies and simulations, so NOTHING was closed.\n"
+        f"  Live ({len(targets)}): {', '.join(str(_cli.strategy_id_of(s))[:8] for _l, s in targets)}\n"
+        f"  Simulation ({len(sims)}): {', '.join(str(_cli.strategy_id_of(s))[:8] for s in sims)}\n"
+        f"  Close the live one(s):  {base} --live\n"
+        f"  Close the simulation(s):  {base} --paper")
 
 
 def _select_direct_target(rows, target, paper=False):
@@ -236,9 +265,13 @@ def main(argv):
                          "and with --address.")
     ap.add_argument("--address", default=None,
                     help="Close by wallet address directly — same use as --strategy-id.")
-    ap.add_argument("--paper", action="store_true",
-                    help="Simulations only: list them with strategy_list {paper: true} and close only "
-                         "those. Without it, only live strategies are read.")
+    world = ap.add_mutually_exclusive_group()
+    world.add_argument("--paper", action="store_true",
+                       help="Simulations only: list them with strategy_list {paper: true} and close only "
+                            "those. Without it, only live strategies are read.")
+    world.add_argument("--live", action="store_true",
+                       help="Live strategies only. Skips the refusal a plain `<package>` close makes "
+                            "when the package also has a simulation.")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv[1:])
@@ -318,6 +351,8 @@ def main(argv):
                                  f"runtime ({rid}). Omit --instance to close all of {pkg.id}{sfx}.")
         else:
             targets = [(f"{pkg.id}[{i + 1}]", s) for i, s in enumerate(opens)]
+        if targets and not a.paper and not a.live:
+            _refuse_if_simulations_exist(mcp, pkg, targets, a.instance)
         hdr = f"{pkg.id} v{pkg.version}" + (" (simulation)" if a.paper else "")
         strategy_label = pkg.id
 
