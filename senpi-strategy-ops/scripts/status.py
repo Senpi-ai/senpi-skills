@@ -395,6 +395,16 @@ def _print_drift(drifted, commands=True):
         if commands:
             print(f"    → apply it in place (plans first; nothing is closed): python3 deploy.py update "
                   f"{d['package_dir']} --id {r['runtime']}   (add --apply to commit)")
+            if {x["field"] for x in d["diffs"]} == {"recipe"}:
+                # Only when `recipe` is the ONLY diff: runtimes before the recipe hash re-formatted
+                # the stored recipe but never changed a parsed value, so a `dsl_preset` or
+                # `description` diff beside it is always a real edit. Even alone it may be one (an
+                # inline-ladder edit), so the plan is the gate. `--apply` stays out of the command.
+                print(f"    only the recipe differs. Run the plan (python3 deploy.py update "
+                      f"{d['package_dir']} --id {r['runtime']}). If it says 'The recipe is unchanged', "
+                      f"this drift is left over from an update made on an older runtime: applying once "
+                      f"(add --apply) records the file as it is. If it lists changes, it is an unapplied "
+                      f"edit: read the plan to the user first.")
 
 
 def _print_orphans(orphans, commands=True):

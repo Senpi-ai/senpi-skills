@@ -126,7 +126,7 @@ def test_unallocated_means_the_funding_wallet_and_a_strategy_source_needs_a_yes(
              "means the funding wallet's free perps USDC only",
              "a flat strategy waiting for its signal is still allocated",
              "name each strategy and amount and get a yes to that plan",
-             "Never withdraw from a strategy the user did not name"):
+             "Never withdraw from a strategy the user did not name without a confirmed plan"):
         assert needle in text, needle
 
 

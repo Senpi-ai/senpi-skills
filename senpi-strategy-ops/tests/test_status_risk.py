@@ -14,6 +14,7 @@ package on disk — an edit that was never applied, printed with the in-place fi
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import contextlib
 import io
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -158,6 +159,28 @@ def _render(rows):
     return buf.getvalue()
 
 
+_RECIPE_DIFF = {"field": "recipe", "running": "aaaaaaaaaaaa", "on_disk": "bbbbbbbbbbbb"}
+_PRESET_DIFF = {"field": "dsl_preset", "running": "balanced", "on_disk": "scalp"}
+_DESC_DIFF = {"field": "description", "running": "SOL alpha hunter", "on_disk": "SOL beta hunter"}
+_PKG_DIR = "/data/workspace/strategies/spider"
+# A pasteable `deploy.py update …` that carries `--apply` itself. "(add --apply to commit)" after
+# the command is the sanctioned form: the `(` ends the command.
+_COMMITTING = re.compile(r"deploy\.py update[^(\n]*--apply")
+
+
+def _drift(*diffs):
+    return {"diffs": list(diffs), "dir": _PKG_DIR, "package_dir": _PKG_DIR}
+
+
+def _drift_section(out):
+    """The ✎ section's lines after its header, up to the next blank line."""
+    return out.split("never applied:", 1)[1].split("\n\n", 1)[0].strip("\n").splitlines()
+
+
+def _committing_commands(out):
+    return _COMMITTING.findall(out)
+
+
 class TestTextRender(unittest.TestCase):
     def test_paused_row_carries_the_hold_and_the_section_quotes_the_gate(self):
         out = _render([_row(paused=_cli.risk_pause(_entry("CLOSED", [_CAP])))])
@@ -176,6 +199,37 @@ class TestTextRender(unittest.TestCase):
         self.assertIn("dsl_preset running 'balanced', on disk 'scalp'", out)
         self.assertIn("deploy.py update /data/workspace/strategies/spider --id spider-main", out)
         self.assertNotIn("close.py", out.split("never applied", 1)[1].split("\n\n")[0])
+
+    def test_recipe_only_drift_makes_the_plan_the_gate(self):
+        # An update applied on a runtime from before the recipe hash stored a re-formatted recipe,
+        # so it reads as drifted with no edit. A real inline-ladder edit reads the same way, so the
+        # hint sends the agent to the plan and quotes the plan's own text for the left-over case.
+        out = _render([_row(config_drift=_drift(_RECIPE_DIFF))])
+        self.assertIn("Run the plan (python3 deploy.py update /data/workspace/strategies/spider "
+                      "--id spider-main)", out)
+        self.assertIn("If it says 'The recipe is unchanged'", out)   # runtime update-report.ts
+        self.assertIn("read the plan to the user first", out)
+        self.assertEqual(_committing_commands(out), [])
+
+    def test_recipe_drift_beside_a_named_field_is_a_real_edit_and_carries_no_hint(self):
+        # Old runtimes only re-serialized the recipe text, never a parsed value: a `dsl_preset` or
+        # `description` diff beside `recipe` is always an unapplied edit, never left-over drift.
+        for other in (_PRESET_DIFF, _DESC_DIFF):
+            out = _render([_row(config_drift=_drift(_RECIPE_DIFF, other))])
+            self.assertTrue(_drift_section(out)[-1].lstrip().startswith("→ apply it in place"),
+                            _drift_section(out))
+
+    def test_named_field_drift_carries_no_hint(self):
+        out = _render([_row(config_drift=_drift(_PRESET_DIFF))])
+        self.assertTrue(_drift_section(out)[-1].lstrip().startswith("→ apply it in place"))
+
+    def test_no_drift_line_emits_a_command_that_commits(self):
+        # status.py is read-only: every command it prints may be pasted as-is. `--apply` is only
+        # ever named beside a command, as "(add --apply …)", never inside one.
+        for diffs in ((_RECIPE_DIFF,), (_PRESET_DIFF,), (_DESC_DIFF,), (_RECIPE_DIFF, _PRESET_DIFF),
+                      (_RECIPE_DIFF, _DESC_DIFF), (_RECIPE_DIFF, _PRESET_DIFF, _DESC_DIFF)):
+            out = _render([_row(config_drift=_drift(*diffs))])
+            self.assertEqual(_committing_commands(out), [], diffs)
 
     def test_quiet_rows_print_neither_section(self):
         out = _render([_row()])
