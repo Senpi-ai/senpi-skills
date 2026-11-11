@@ -71,9 +71,9 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | **Run a strategy** | | |
 | [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.52.0 | Conversational picker — rank the catalog against your worldview; holdings context includes your saved wallets (read-only, never a budget) |
 | [`senpi-strategy-author`](senpi-strategy-author/) | 3.14.15 | Build/edit a DSL-protected strategy package, one decision at a time |
-| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.30.6 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
+| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.30.7 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
 | [`senpi-trade`](senpi-trade/) | 1.10.0 | Direct trade or mirror a specific trader — manual positions + copy trading, one decision at a time |
-| [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.1.15 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
+| [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.1.16 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
 | **Move money / positioning** | | |
 | [`senpi-deposit-withdraw-transfer`](senpi-deposit-withdraw-transfer/) | 1.6.2 | The money-movement rails (funds in via the funding card — deposit address or in-card USDC purchase; out via the app); top-ups prechecked against perps and traced to Spot when they fail, withdrawals at the exact available figure, fees stated before money moves |
 | [`senpi-why`](senpi-why/) | 1.7.0 | "What makes Senpi different" — your AI quant: reads the market, reviews your trading, runs your strategy 24/7, wherever you trade |

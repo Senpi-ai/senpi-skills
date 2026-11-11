@@ -16,6 +16,8 @@ point or a new read on a money path belongs in `SCENARIOS`.
 import contextlib
 import io
 import json
+import re
+import subprocess
 import sys
 import tempfile
 import types
@@ -337,6 +339,68 @@ class StatusExitZeroIsEarnedOnlyByAReadRuntimeList(_BoxCase):
         self.assertIn("exiting 0", w)
         self.assertIn("only once it has read the runtime list", w)
         self.assertIn(f"{_cli.STATUS_INVENTORY_UNREAD} = the list could not be read", w)
+
+
+# ---- every documented exit-code map for deploy / verify / update / close / status carries 9 ----
+
+REPO = HERE.parent.parent
+# A map of these scripts' codes, by the words that open it. Each must name 9 and what it means.
+MAP_ANCHORS = (
+    re.compile(r"`0`\**\s+verified"),                       # verify: 0 verified / 3 / 1
+    re.compile(r"`0`\**\s+live\s+·\s+\**`2`\**\s+refused"),  # D-12 inline: 0 live · 2 refused · …
+    re.compile(r"`0`\**\s+planned/applied"),                # update
+)
+TABLE_ANCHOR = re.compile(r"^\|\s*`0`\s*\|\s*`live`", re.M)  # D-12 table
+WINDOW = 900
+# Where a map lives today; a map moved or dropped must fail here, not pass by finding nothing.
+EXPECTED = {"CLAUDE.md", "senpi-strategy-ops/SKILL.md", "senpi-strategy-ops/references/lifecycle.md",
+            "senpi-strategy-ops/references/liveness-verification.md",
+            "senpi-strategy-ops/references/editing-a-live-strategy.md",
+            "senpi-trading-runtime/references/runtime-cli.md"}
+
+
+def _skill_docs():
+    yield REPO / "CLAUDE.md"
+    for p in sorted(REPO.glob("*/SKILL.md")):
+        yield p
+    for p in sorted(REPO.glob("*/references/**/*.md")):
+        yield p
+
+
+class EveryExitMapCarriesNine(unittest.TestCase):
+
+    def test_every_documented_map_lists_9_as_the_out_of_memory_stop(self):
+        seen = set()
+        for path in _skill_docs():
+            text = path.read_text()
+            rel = str(path.relative_to(REPO))
+            spans = [(m.start(), m.start() + WINDOW) for a in MAP_ANCHORS for m in a.finditer(text)]
+            spans += [(m.start(), text.find("\n\n", m.start()) % (len(text) + 1)) for m in TABLE_ANCHOR.finditer(text)]
+            for start, end in spans:
+                seen.add(rel)
+                window = re.sub(r"\s*\n>?\s*", " ", text[start:end])   # one line, no `>` quoting
+                with self.subTest(rel, at=text[start:start + 40]):
+                    self.assertRegex(window, r"`9`", f"{rel}: an exit map without 9")
+                    self.assertIn("out of memory", window)
+                    self.assertRegex(window, r"`status\.py` exits `0`")
+        self.assertLessEqual(EXPECTED, seen)
+
+    def test_run_sh_handles_9_with_the_stop_and_never_the_poll(self):
+        sh = (HERE.parent / "scripts" / "run.sh").read_text()
+        start = sh.index('WHERE="')
+        block = sh[start:sh.index("esac", start) + len("esac")]
+        for rc, want in ((9, 9), (1, 1)):
+            with self.subTest(rc=rc):
+                p = subprocess.run(["bash", "-c", "set -euo pipefail; ID=spider; ROOT=/r; BRANCH=b; "
+                                    f"BUDGET=30; RC={rc}\n" + block], capture_output=True, text=True)
+                self.assertEqual(p.returncode, want, p.stderr)
+                if rc == 9:
+                    self.assertIn("Stop here", p.stderr)
+                    self.assertIn("do not poll", p.stderr)
+                    self.assertIn("status.py  exits 0", p.stderr)
+                    self.assertNotIn("read it until", p.stderr)
+                    self.assertNotIn("The job's own record", p.stderr)
+        self.assertRegex(sh.split("set -euo pipefail")[0], r"\b9 is the out-of-memory stop")
 
 
 if __name__ == "__main__":

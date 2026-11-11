@@ -202,8 +202,9 @@ Per instance the job runs five steps, each recorded with its own outcome:
    because `close.py <id>` would tear down adopted, live, funded sleeves this warn is not about.
    **No emitted command may need a precondition the report lacks**, so the scoped form appears only
    when those sleeves have a live RUNTIME: `--instance` resolves a sleeve through its runtime and
-   hard-exits without one, and its error text then tells the reader to omit `--instance` and close
-   the whole package — the exact widening the scoping exists to prevent. The other states get what
+   refuses without one (it lists the package's open strategies and names `--strategy-id` for each,
+   never "omit `--instance`", which would close the whole package — the exact widening the scoping
+   exists to prevent). The other states get what
    they can actually support: a funded wallet with no runtime (deadline-abandoned after create, or a
    failed rollback) gets a read-only `status.py <id>` triage pointer and NO teardown command; a
    deploy that created nothing gets no escape at all; and where `[E_ROLLBACK_INCOMPLETE]` is present
@@ -360,7 +361,8 @@ instance) ·
 **`3`** not verified (each instance names what is missing/unhealthy plus the one non-destructive next
 step: `deploy.py create <id> --budget <usd>` where nothing is funded, `deploy.py runtime <id>` on a
 funded runtime-less wallet — each named **with the fact that it installs and starts trading** — and
-`status.py <id>` for degraded/unknown/ambiguous states) · **`1`** could-not-check, fail-closed: if
+`status.py <id>` for degraded/unknown/ambiguous states) · **`9`** out of memory: stop, don't retry
+or poll now; safe again when `status.py` exits `0` · **`1`** could-not-check, fail-closed: if
 `strategy_list`, `runtime list`, `status --json`, **the deploy-job read** or **the package itself**
 cannot be read, NO verdict is rendered at all, the failed read is named, and nothing steers at the
 money path. It never emits a close command. All three verdicts print the SAME `--json` keys on clean
@@ -474,9 +476,10 @@ same predicates and reports them beside its structural verdict), and it is what 
 the fix → re-check → deploy loop.
 
 **Exit codes** for `validate`/`create`/`runtime`/`status` (identical to the verb's; `verify` has its
-own 0/3/1 above): `0` live · `2` refused · `3` failed · `4`
+own 0/3/1/9 above): `0` live · `2` refused · `3` failed · `4`
 installed-unobserved · `5` interrupted · `6` pending (a wallet still funding, or the job still running) ·
-`1` internal/transport error. `2` is **any gate saying no with nothing created past it**: the verb's
+`1` internal/transport error · `9` out of memory (a call was SIGKILLed): stop, don't retry or poll now;
+safe again when `status.py` exits `0` (it does only once it has read the runtime list). `2` is **any gate saying no with nothing created past it**: the verb's
 refusals, and the wrapper's own structural preflight failing on `create`/`runtime` — the same
 check `validate` runs, deterministic, so a bare retry refuses identically. `1` is also the fallback
 for a status the wrapper does not recognise, so a new
