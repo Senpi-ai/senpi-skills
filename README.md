@@ -62,7 +62,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | **Analyze** | | |
 | [`senpi-portfolio`](senpi-portfolio/) | 1.36.5 | All-wallet portfolio, positions, DSL protection, per-strategy mandate reads; every wallet — Senpi and the ones you added — in one list by value, managed and read-only subtotals |
 | [`senpi-market-pulse`](senpi-market-pulse/) | 1.10.0 | Daily cross-asset market read (crypto, equities, commodities, macro, funding regime); the positions check includes your saved wallets, read-only |
-| [`senpi-smart-money`](senpi-smart-money/) | 1.7.0 | Where the most-profitable wallets are positioned vs. the crowd; the alignment check includes your saved wallets, read-only |
+| [`senpi-smart-money`](senpi-smart-money/) | 1.8.0 | Where the most-profitable wallets are positioned vs. the crowd, and what they just did; the alignment check includes your saved wallets, read-only |
 | [`senpi-signals`](senpi-signals/) | 2.11.0 | Non-obvious market developments (funding extremes, proven cohort vs the 4h crowd, momentum events, cross-asset laggards), ranked through a trade lens and a news lens — read from Senpi's backend, the same Senpi Signals the app and the browser extension show; on demand, no cron |
 | [`senpi-trader-research`](senpi-trader-research/) | 1.7.0 | Rank + vet Hyperliquid traders before copying them (mirror-aware: copyability, min-budget, live book); your saved wallets go to the quant desk, never the copy shortlist |
 | [`senpi-improve-trades`](senpi-improve-trades/) | 1.24.5 | Retrospective review + health checks off the **telemetry event log**: PnL **net of fees**, exit quality, peak-to-exit give-back, missed signals, leaks, crashes; your saved wallets reviewed read-only as manual trades, in one book with your Senpi strategies ordered by value |
@@ -70,7 +70,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | [`senpi-account-status`](senpi-account-status/) | 1.10.0 | Points and rank, the Senpi trading fee (none on a paid plan), referrals — and the AI-credits usage meter: chat + tool turns spend plan credits; not trading money; the balance is the meter in the app header, which no tool reads. Carries the plan catalog (Pro/Advanced/Quant; Starter closed to new subscribers), the end of the free-credit milestones, and what a lapsed plan pauses (the agent and every strategy on it) |
 | **Run a strategy** | | |
 | [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.52.0 | Conversational picker — rank the catalog against your worldview; holdings context includes your saved wallets (read-only, never a budget) |
-| [`senpi-strategy-author`](senpi-strategy-author/) | 3.14.15 | Build/edit a DSL-protected strategy package, one decision at a time |
+| [`senpi-strategy-author`](senpi-strategy-author/) | 3.15.3 | Build/edit a DSL-protected strategy package, one decision at a time |
 | [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.30.4 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
 | [`senpi-trade`](senpi-trade/) | 1.10.0 | Direct trade or mirror a specific trader — manual positions + copy trading, one decision at a time |
 | [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.1.15 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
