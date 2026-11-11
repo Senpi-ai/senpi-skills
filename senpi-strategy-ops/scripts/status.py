@@ -13,9 +13,8 @@ OPEN strategy it classifies the runtime:
                                the runtime's OWN verdict via `openclaw senpi status -r <id>` (+ position
                                count). `--fast` skips this per-runtime call and just reports `running`.
   unknown          — live runtime whose scanner has not yet PROVEN itself with a tick (the runtime's
-                     fail-closed verdict), or whose health read failed (killed, timed out, errored:
-                     the run then exits 1, or 9 if killed). Not sickness, not health — verify rather
-                     than assume.
+                     fail-closed verdict), or whose health read failed (its cause is printed; 9 if
+                     killed). Not sickness, not health — verify rather than assume.
   no-entry-scanners — runtime is UP but its entry scanners never wired ("running — NO ENTRY SCANNERS"
                      in runtime list): it cannot produce entry signals — broken wiring, not stopped.
   runtime-stopped  — ACTIVE strategy + runtime exists but not running
@@ -41,10 +40,9 @@ surfaces). Everything this script prints is read-only. The RESUME — `deploy.py
 one money path near this surface: it runs the deploy verb and can install, start trading, and fund a
 wallet. It is named once, with what it does, never per row.
 
-Exit: 0 every read made · 1 a read failed (a strategy list refuses; a runtime list prints the rows as
-runtime-unknown; a health read prints running runtimes as unknown) · `_cli.EXIT_OOM` (9) a read was
-SIGKILLed. Exit 0 is what every out-of-memory stop names as the sign the box can be used again, so
-only reads that succeeded earn it.
+Exit: 0 both lists read · 1 a list could not be read (a strategy list refuses; a runtime list prints
+the rows as runtime-unknown) · `_cli.EXIT_OOM` (9) a read was SIGKILLed. Exit 0 is what every
+out-of-memory stop names as the sign the box can be used again, so only a read runtime list earns it.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
@@ -250,13 +248,13 @@ def main(argv):
                                   hwhy=hwhy)
     # A SIGKILLed read: what is below is only what was read before it, and this run exits EXIT_OOM.
     # Every kill steer names this script's exit 0 as the sign memory has freed, so 0 is earned only by
-    # reads that succeeded: a runtime list that could not be read (no openclaw, a failure, a timeout),
-    # or a health read that failed, exits STATUS_INVENTORY_UNREAD, whatever else printed.
+    # a runtime list that was actually read: one that could not be read (no openclaw, a failure, a
+    # timeout) exits STATUS_INVENTORY_UNREAD, whatever else printed.
     stop = _cli.oom_stop("Nothing was changed. What is shown is only what was read before the kill; "
                          "anything not read is UNKNOWN, not stopped.",
                          "the box is out of memory, so what is running could not be fully read"
                          ) if kills else None
-    code = _cli.EXIT_OOM if kills else 0 if (cli_ok and not hwhy) else _cli.STATUS_INVENTORY_UNREAD
+    code = _cli.EXIT_OOM if kills else 0 if cli_ok else _cli.STATUS_INVENTORY_UNREAD
 
     if a.json:
         print(json.dumps({"strategies": rows, "orphan_runtimes": orphans, "openclaw_available": cli_ok,
@@ -274,7 +272,8 @@ def main(argv):
               "not stopped. Re-run, or run status.py on the runtime host.")
     elif hwhy:
         print(f"\nℹ couldn't read runtime health ({hwhy[0]}) — every running runtime's health is "
-              "UNKNOWN, not running. Re-run status.py.")
+              "UNKNOWN, not running. Re-run status.py once; if health still can't be read, tell the "
+              "user and stop. Don't keep re-running.")
 
     if not rows and not orphans:
         print("No open strategies." + (f" (filter: {a.package})" if a.package else ""))
@@ -355,7 +354,10 @@ def main(argv):
         print("  Say it to the user as the strategy's rule. Never close/redeploy to clear it: a fresh wallet "
               "market-exits the book and starts the same gate again from zero.")
     _print_drift(drifted)
-    if unproven:
+    if unproven and hwhy:   # unread, not unproven: no scanner verdict and no per-row CLI to run
+        print(f"\n❔ {len(unproven)} running runtime(s) unknown: runtime health couldn't be read (see "
+              "the health line above).")
+    elif unproven:
         print("\n❔ Unknown (fail-closed — not proven live: scanner not yet proven by a tick, or reporting disabled; verify, don't assume):")
         for r in unproven:
             print(f"  - {_pkg_label(r)} {r['runtime'] or ''} → "

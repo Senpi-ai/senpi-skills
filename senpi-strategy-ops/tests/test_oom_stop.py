@@ -330,8 +330,9 @@ class StatusExitZeroIsEarnedOnlyByAReadRuntimeList(_BoxCase):
     def test_the_way_back_names_exit_0_as_a_read_list(self):
         w = _cli.oom_wait()
         self.assertIn("exiting 0", w)
-        self.assertIn("only once it has read the runtime list and runtime health", w)
-        self.assertIn(f"{_cli.STATUS_INVENTORY_UNREAD} = one could not be read", w)
+        self.assertIn("only once it has read the runtime list;", w)
+        self.assertIn(f"{_cli.STATUS_INVENTORY_UNREAD} = the list could not be read", w)
+        self.assertNotIn("runtime health", w)
 
     def test_the_way_back_has_a_way_out_when_1_outlasts_the_restart(self):
         # A wedged plugin answers `senpi.listRuntimes` with an error forever: 1 never turns to 0. But a
@@ -400,24 +401,43 @@ class StatusOnTheKillPathSteersNothing(_BoxCase):
 
 
 class StatusHealthReadFailureIsNeverRunning(_BoxCase):
-    """Any failed health read, not only a SIGKILLed one, leaves health UNKNOWN: no ✅, a printed
-    cause, and no exit 0 (`oom_wait` reads exit 0 as "memory has freed")."""
+    """Any failed health read, not only a SIGKILLed one, leaves health UNKNOWN: no ✅ and a printed
+    cause. Only a KILLED health read changes the exit (9). A timed-out or erroring one still exits 0
+    when the runtime list was read: the health read is fleet-wide and one wedged runtime fails it on
+    every run, so gating 0 on it would strand a half-finished close behind an exit 1 that never ends."""
 
-    def test_a_timed_out_health_read_is_unknown_and_not_exit_0(self):
-        answers = {"--version": (0, "openclaw 10.10", ""), "senpi.listRuntimes": _LISTED,
-                   "senpi.getHealthStatus": TIMED_OUT}
-        code, out, err, _box = self._drive(["status.py"], dict(answers))
+    _ANSWERS = {"--version": (0, "openclaw 10.10", ""), "senpi.listRuntimes": _LISTED,
+                "senpi.getHealthStatus": TIMED_OUT}
+
+    def test_a_timed_out_health_read_is_unknown_and_exits_0(self):
+        code, out, err, _box = self._drive(["status.py"], dict(self._ANSWERS))
         text = out + err
-        self.assertEqual(code, _cli.STATUS_INVENTORY_UNREAD, text)
+        self.assertEqual(code, 0, text)
         self.assertNotIn("✅", text)
         self.assertRegex(text, r"❔ unknown\s+spider-main")
-        self.assertIn("senpi.getHealthStatus", text)          # the cause, for oom_wait to follow
+        self.assertIn("senpi.getHealthStatus", text)          # the cause is printed
         self.assertNotIn("stop here", text)                   # a timeout is not the kill stop
-        code, out, _err, _box = self._drive(["status.py", "--json"], dict(answers))
+        code, out, _err, _box = self._drive(["status.py", "--json"], dict(self._ANSWERS))
         doc = json.loads(out)
-        self.assertEqual(code, _cli.STATUS_INVENTORY_UNREAD)
+        self.assertEqual(code, 0)
         self.assertEqual(doc["strategies"][0]["health"], "unknown")
         self.assertIn("senpi.getHealthStatus", doc["health_read_error"])
+
+    def test_an_unread_health_is_not_a_scanner_verdict_and_names_no_per_row_command(self):
+        # The rows are unknown because health was not READ, not because a scanner is unproven; and
+        # every per-row `openclaw senpi ... -r` loads the full CLI on a box that may be short of memory.
+        code, out, err, _box = self._drive(["status.py"], dict(self._ANSWERS))
+        text = out + err
+        self.assertNotIn("scanner not yet proven by a tick", text)
+        for cmd in ("openclaw senpi scanner -r", "openclaw senpi status -r", "deploy.py status"):
+            self.assertNotIn(cmd, text)
+        self.assertIn("1 running runtime(s) unknown: runtime health couldn't be read (see the health "
+                      "line above).", text)
+
+    def test_the_health_failure_line_bounds_the_re_run(self):
+        code, out, err, _box = self._drive(["status.py"], dict(self._ANSWERS))
+        self.assertIn("Re-run status.py once; if health still can't be read, tell the user and stop. "
+                      "Don't keep re-running.", out + err)
 
     def test_a_read_health_still_exits_0(self):
         answers = {"--version": (0, "openclaw 10.10", ""), "senpi.listRuntimes": _LISTED,

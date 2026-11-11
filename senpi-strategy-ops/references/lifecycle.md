@@ -479,7 +479,7 @@ the fix → re-check → deploy loop.
 own 0/3/1/9 above): `0` live · `2` refused · `3` failed · `4`
 installed-unobserved · `5` interrupted · `6` pending (a wallet still funding, or the job still running) ·
 `1` internal/transport error · `9` out of memory (a call was SIGKILLed): stop, don't retry or poll now;
-safe again when `status.py` exits `0` (it does only once it has read the runtime list and runtime health). `2` is **any gate saying no with nothing created past it**: the verb's
+safe again when `status.py` exits `0` (it does only once it has read the runtime list). `2` is **any gate saying no with nothing created past it**: the verb's
 refusals, and the wrapper's own structural preflight failing on `create`/`runtime` — the same
 check `validate` runs, deterministic, so a bare retry refuses identically. `1` is also the fallback
 for a status the wrapper does not recognise, so a new
