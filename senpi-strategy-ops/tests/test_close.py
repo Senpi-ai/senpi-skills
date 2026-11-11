@@ -800,28 +800,6 @@ class MainPackagePollReportsClosed(unittest.TestCase):
         self.assertEqual(self.closed, ["s1"])                  # the instance close went out
         self.assertIsNone(_journal.read("omega")["resolved"])
 
-    def _close_instance_main(self):
-        _cli.gateway_call = lambda method, *a, **k: {"kind": "ok", "payload": {}, "message": "", "rc": 0,
-                                                      "elapsed": 0}
-        gone = iter([[{"name": "omega-main", "wallet": "0xabc"}], []])   # listed, then gone
-        _cli.list_runtimes_or_none = lambda *a, **k: next(gone, [])
-        return self._run("omega", "--instance", "main")
-
-    def test_an_instance_close_polls_by_strategy_id_never_by_the_package(self):
-        # `close.py omega` would close every instance; `close.py omega --instance main` can only refuse
-        # once its runtime is deleted. The strategy id polls the one closed target, runtime or not.
-        self.rows = [self._ACTIVE_ROW]
-        out, code = self._close_instance_main()
-        self.assertEqual(code, 0, out)
-        self.assertIn("Poll until closed by re-running: close.py --strategy-id s1", out)
-        self.assertNotIn("re-running: close.py omega", out)
-
-    def test_a_package_close_still_polls_by_the_package(self):
-        self.rows = [self._ACTIVE_ROW]
-        out, code = self._run("omega")
-        self.assertEqual(code, 0, out)
-        self.assertIn("Poll until closed by re-running: close.py omega ", out)
-
     def test_poll_after_a_completed_close_reports_closed(self):
         """THE defect: this is the terminal poll and it must say `closed`, not the all-clear."""
         self.rows = [self._CLOSED_ROW]
