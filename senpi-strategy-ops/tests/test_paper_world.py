@@ -207,13 +207,82 @@ class CloseOneWorld(_CloseHarness):
         self.runtimes = [{"name": "omega-main", "wallet": LIVE_WALLET, "status": "running"},
                          {"name": "omega-main-paper", "wallet": PAPER_WALLET, "status": "running"}]
 
-    def test_close_by_name_closes_only_the_live_strategy(self):
+    def test_close_by_name_closes_only_the_live_strategy_when_it_has_no_simulation(self):
+        self.mcp.live = [_live_row()]
+        self.runtimes = [{"name": "omega-main", "wallet": LIVE_WALLET, "status": "running"}]
+        out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.mcp.closed, [{"strategyId": "live-1"}])
+        self.assertEqual(self.deleted, ["omega-main"])
+        self.assertNotIn("simulation", out)
+
+    def test_close_by_name_with_live_closes_only_the_live_strategy(self):
         self._both()
-        _out, code = self._run("omega")
+        _out, code = self._run("omega", "--live")
         self.assertEqual(code, 0)
         self.assertEqual(self.mcp.closed, [{"strategyId": "live-1"}])
         self.assertEqual(self.deleted, ["omega-main"])
         self.assertTrue(all("paper" not in c for c in self.mcp.lists))
+
+    def test_close_by_name_refuses_when_the_package_also_has_a_simulation(self):
+        self._both()
+        out, code = self._run("omega")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(self.mcp.closed, [])
+        self.assertEqual(self.deleted, [])
+        self.assertIn("live-1", out)
+        self.assertIn(PAPER_ID[:8], out)
+        self.assertIn("close.py omega --live", out)
+        self.assertIn("close.py omega --paper", out)
+
+    def test_the_refusal_keeps_the_instance_in_both_commands(self):
+        self._both()
+        out, code = self._run("omega", "--instance", "main")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(self.mcp.closed, [])
+        self.assertIn("close.py omega --instance main --live", out)
+        self.assertIn("close.py omega --instance main --paper", out)
+
+    def test_a_closed_simulation_does_not_block_a_plain_close(self):
+        self._both()
+        self.mcp.paper = [_paper_row(status_="CLOSED")]
+        _out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.mcp.closed, [{"strategyId": "live-1"}])
+
+    def test_plain_close_is_unchanged_when_the_mcp_has_no_paper_router(self):
+        self._both()
+        self.mcp.router = False
+        out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.mcp.closed, [{"strategyId": "live-1"}])
+        self.assertNotIn("simulation", out)
+        self.assertNotIn("--live", out)
+
+    def test_plain_close_refuses_when_the_simulation_read_is_unknown(self):
+        self._both()
+        self.mcp.unavailable = True
+        out, code = self._run("omega")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(self.mcp.closed, [])
+        self.assertEqual(self.deleted, [])
+        self.assertIn("PAPER_UNAVAILABLE", out)
+        self.assertIn("close.py omega --live", out)
+
+    def test_live_with_paper_is_an_argument_error(self):
+        _out, code = self._run("omega", "--live", "--paper")
+        self.assertEqual(code, 2)
+        self.assertEqual(self.mcp.closed, [])
+
+    def test_close_all_and_a_direct_live_id_are_not_gated(self):
+        self._both()
+        _out, code = self._run("--all")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.mcp.closed, [{"strategyId": "live-1"}])
+        self.mcp.closed.clear()
+        _out, code = self._run("--strategy-id", "live-1")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.mcp.closed, [{"strategyId": "live-1"}])
 
     def test_close_by_name_with_paper_closes_only_the_simulation(self):
         self._both()
