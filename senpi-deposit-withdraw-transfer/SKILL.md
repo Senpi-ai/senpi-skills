@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.6.2"
+  version: "1.6.3"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -155,9 +155,16 @@ buying simply happens in the card's own checkout. Point at it warmly and specifi
 
 ## On-platform moves — between the user's OWN wallets (these DO use tools)
 
+- **The source is the wallet the user named.** "Unallocated / free / spare / idle funds" with no wallet
+  named means the funding wallet's free perps USDC only — money inside a strategy wallet is allocated
+  to that strategy, and a flat strategy waiting for its signal is still allocated. Pulling from a
+  strategy the user did not name widens the source: name each strategy and amount and get a yes to that
+  plan before the first withdrawal. A "go" given before the plan was shown is not a yes to it.
 - **`strategy_withdraw_funds`** — ACTIVE strategy sub-wallet → funding wallet (synchronous Hyperliquid
-  `usdSend`). Amount > 1 USDC; if it drains the strategy to $0 the strategy **auto-closes** — do NOT then
-  call `strategy_close` (`SERR045`). **PAUSED** strategies can't be withdrawn from — they must be closed.
+  `usdSend`). Amount > 1 USDC, floored to cents — so withdrawing "everything" almost always leaves sub-cent dust and
+  the strategy stays **ACTIVE**. Only a returned `CLOSING_POSITIONS` means it is closing (do NOT then call
+  `strategy_close` — `SERR045`). Report the status the tool returned — never predict a close.
+  **PAUSED** strategies can't be withdrawn from — they must be closed.
   - **Short by cents → retry once with the tool's number.** `SERR037` on a withdrawal carries
     `details.available`: retry ONCE with exactly that figure. Never ask the user for a new number.
   - **"Withdraw everything / all of it / move all my funds" means the exact available figure from the
@@ -300,6 +307,8 @@ the money parked in **Spot**. Four rules, in this order:
   It's the funding card's **Buy USDC** tab. Never name or invent a buy/onramp tool.
 - Never offer to bridge Hyperliquid → EVM yourself; no such tool exists. That move is app-only.
 - Never invent or default an amount; never move "the whole balance" unless the user explicitly says so.
+- Never withdraw from a strategy the user did not name — "unallocated" is the funding wallet; any
+  strategy source is named, with its amount, and confirmed first.
 - Never use `strategy_close` as a stealth withdraw — explicit, confirmed close intent only.
 - Never re-submit a FAILED top-up on your own, never more than once per strategy, never while PENDING —
   and never say "still in your funding wallet" without naming **perps** or **Spot**.

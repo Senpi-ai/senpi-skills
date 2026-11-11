@@ -118,6 +118,29 @@ def test_withdraw_everything_is_the_exact_available_figure():
              "keeps scanning — offer to close it")
 
 
+def test_unallocated_means_the_funding_wallet_and_a_strategy_source_needs_a_yes():
+    """"Move my unallocated funds into X" was read as "drain every flat strategy too": two
+    ACTIVE strategies the user never named were emptied on a "go" given before the plan existed."""
+    text = " ".join(_skill().split())
+    for needle in ("**The source is the wallet the user named.**",
+             "means the funding wallet's free perps USDC only",
+             "a flat strategy waiting for its signal is still allocated",
+             "name each strategy and amount and get a yes to that plan",
+             "Never withdraw from a strategy the user did not name"):
+        assert needle in text, needle
+
+
+def test_withdrawal_reports_the_returned_status_never_a_predicted_close():
+    """Withdrawals floor to cents, so "everything" leaves dust and the strategy stays ACTIVE; the
+    agent announced an auto-close the tool never returned."""
+    text = " ".join(_skill().split())
+    assert "if it drains the strategy to $0 the strategy **auto-closes**" not in text
+    for needle in ("leaves sub-cent dust and the strategy stays **ACTIVE**",
+             "Only a returned `CLOSING_POSITIONS` means it is closing",
+             "Report the status the tool returned — never predict a close."):
+        assert needle in text, needle
+
+
 def test_creation_fee_is_stated_before_money_moves():
     _needles("Creating a strategy reserves a creation fee — about $1, budgeted as $1.50 per wallet",
              "quote the design's minimum, not the floor",
