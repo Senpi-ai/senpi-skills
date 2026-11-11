@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.6.3"
+  version: "1.6.4"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -307,8 +307,8 @@ the money parked in **Spot**. Four rules, in this order:
   It's the funding card's **Buy USDC** tab. Never name or invent a buy/onramp tool.
 - Never offer to bridge Hyperliquid → EVM yourself; no such tool exists. That move is app-only.
 - Never invent or default an amount; never move "the whole balance" unless the user explicitly says so.
-- Never withdraw from a strategy the user did not name — "unallocated" is the funding wallet; any
-  strategy source is named, with its amount, and confirmed first.
+- Never withdraw from a strategy the user did not name without a confirmed plan — "unallocated" is the
+  funding wallet; any strategy source is named, with its amount, and confirmed first.
 - Never use `strategy_close` as a stealth withdraw — explicit, confirmed close intent only.
 - Never re-submit a FAILED top-up on your own, never more than once per strategy, never while PENDING —
   and never say "still in your funding wallet" without naming **perps** or **Spot**.
