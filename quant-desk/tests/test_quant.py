@@ -1532,15 +1532,14 @@ def test_senpis_trader_score_consistency_is_not_confused_with_the_desks_own():
     assert "· consistency score {lab['tcs']}" not in src
 
 
-def test_the_hire_my_quant_handoff_leads_with_both_routes_and_the_leaks():
-    """Arriving from the desk is not the same as opening discover cold: the reader has just been
-    shown their edge AND their leaks. Opening on templates alone reads as the only option, and
-    drops the half that makes the handoff worth anything — what the strategy has to FIX."""
+def test_the_hire_my_quant_handoff_builds_their_strategy_from_the_edge_and_the_leaks():
+    """The reader has just been shown their edge AND their leaks: the handoff builds their own strategy
+    from both, and names no template — what the strategy has to FIX is the half worth carrying."""
     skill = " ".join(_P(HERE, "..", "SKILL.md").read_text().split())
     assert "Handing off on *hire my quant*" in skill
     for phrase in ("maps to your trading style, while improving some of your leaks",
-                   "fork a template to build quickly, or code something from scratch",
-                   "Name the leak the template closes"):
+                   "Let's code your best setup into",
+                   "Name the leak each rule closes"):
         assert phrase in skill, phrase
 
 
