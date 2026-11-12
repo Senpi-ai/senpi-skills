@@ -22,7 +22,7 @@ FIDELITY NOTES vs orca-producer.py v4.0.1:
   - v2 MARGIN_PCT was the FRACTION 0.18 (margin_usd = account_value * 0.18). This port
     emits `marginPct` = 18 (PERCENT) at the top level; the runtime sizes
     (marginPct/100)*withdrawable. Same dollar size for the same account. The dire/koala
-    defensive "<=1.0 means a pasted v2 fraction -> x100" guard is included.
+    defensive "<1.0 means a pasted v2 fraction -> x100" guard is included.
   - v2 leverage is FIXED 7 (MIN_LEVERAGE==MAX_LEVERAGE==DEFAULT_LEVERAGE==7), then run
     through get_safe_leverage(wallet, asset, 7) = min(7, venue_max). Preserved verbatim:
     the scan reads strategy_get_asset_trading_limits and clamps the fixed 7 to the venue
@@ -49,6 +49,7 @@ from datetime import datetime, timezone
 import scoring
 
 # v2 producer constants (defaults; overridable via inputs)
+_DEFAULT_MIN_LEVERAGE = 0    # 0 = accept any venue cap (warn only); raise to the ladder's leverage
 _DEFAULT_MIN_SCORE = scoring.STRIKER_MIN_SCORE        # 9
 _DEFAULT_MARGIN_PCT = scoring.MARGIN_PCT              # 18 PERCENT (v2 0.18 fraction)
 _DEFAULT_LEVERAGE = scoring.DEFAULT_LEVERAGE          # fixed 7
@@ -249,10 +250,66 @@ def _safe_leverage(ctx, asset, dex, requested):
     return requested
 
 
+def _pick_leverable(ctx, candidates, min_leverage, requested_for, strict=False):
+    """Walk the ranking and take the first name the venue will actually lever.
+
+    WHY THIS EXISTS. Every DSL threshold is ROE, and the engine converts ROE to a price floor by
+    DIVIDING BY LEVERAGE (senpi-strategy-author/references/dsl-configuration.md). So a ladder
+    authored at Nx silently stretches every exit distance in PRICE by N/actual when the venue caps
+    an asset below N. A 10x ladder on a 5x-capped name arms its first rung at twice the intended
+    price move and may put its later rungs out of reach entirely — the position rides a ladder that
+    was never calibrated for it, and nothing in the config says so.
+
+    `minLeverage: 0` (the default) keeps the previous behaviour exactly — the first candidate always
+    clears it — and only adds the warning. Raise it to the leverage the ladder was authored for to
+    make the scanner prefer a lower-scoring name the ladder actually fits.
+
+    `strict` decides what happens when NOTHING clears the floor. Default False falls back to the
+    top candidate with a warning, because a scanner that goes silent on every clamped tick stops
+    being the strategy the user deployed. True emits nothing instead — correct for a package whose
+    ladder is calibrated for one leverage band and would be materially wrong outside it.
+
+    Returns (candidate, venue_clamped_leverage), or (None, None) when strict and nothing clears.
+    """
+    fallback = None
+    for rank, cand in enumerate(candidates):
+        want = requested_for(cand)
+        lev = _safe_leverage(ctx, cand['token'], cand.get("dex"), want)
+        if fallback is None:
+            fallback = (cand, lev, want)
+        if lev >= min_leverage:
+            if rank:
+                print(f"[orca.scan] LEVERAGE_SKIP passed over {rank} higher-scoring name(s) the venue "
+                      f"caps below minLeverage={min_leverage}x", file=sys.stderr)
+            if lev < want:
+                print(f"[orca.scan] LEVERAGE_CLAMP {cand['token']} {lev}x vs {want}x authored — "
+                      f"every ROE threshold is {want / lev:.1f}x its intended price move "
+                      f"(ladder calibrated for {want}x)", file=sys.stderr)
+            return cand, lev
+    if strict:
+        cand, lev, want = fallback
+        print(f"[orca.scan] LEVERAGE_FLOOR_UNMET_STRICT no candidate reaches minLeverage="
+              f"{min_leverage}x (best was {cand['token']} at {lev}x) — emitting nothing rather than "
+              f"running a ladder calibrated for {want}x on it", file=sys.stderr)
+        return None, None
+    cand, lev, want = fallback
+    print(f"[orca.scan] LEVERAGE_FLOOR_UNMET no candidate reaches minLeverage={min_leverage}x; taking "
+          f"{cand['token']} at {lev}x vs {want}x authored — every ROE threshold is "
+          f"{want / lev:.1f}x its intended price move", file=sys.stderr)
+    return cand, lev
+
+
 def scan(inputs, ctx):
     now = time.time()
     hour_utc = datetime.now(timezone.utc).hour
+    min_leverage = float(inputs.get("minLeverage", _DEFAULT_MIN_LEVERAGE))
+    min_leverage_strict = bool(inputs.get("minLeverageStrict", False))
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
+    # None = gate off. Set `maxPreMovePct` to reject entries whose price has already moved that far
+    # in the signal's own direction over the last hour (quant desk 2026-10-02: late entries ran
+    # PF 0.3 vs 3.3). Direction-aware inside scoring.score_market.
+    _pre = inputs.get("maxPreMovePct")
+    max_pre_move_pct = float(_pre) if _pre not in (None, "") else None
     max_positions = int(inputs.get("maxPositions", _DEFAULT_MAX_POSITIONS))
     top_n = int(inputs.get("topN", _DEFAULT_TOP_N))
     leaderboard_limit = int(inputs.get("leaderboardLimit", _DEFAULT_LEADERBOARD_LIMIT))
@@ -262,11 +319,11 @@ def scan(inputs, ctx):
     per_asset_cooldown = float(inputs.get("perAssetCooldownSeconds", _DEFAULT_PER_ASSET_COOLDOWN))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
 
-    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value <= 1 (an
+    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value < 1 (an
     # operator who pasted the v2 FRACTION 0.18) into a PERCENT so it never silently sizes
     # ~100x small (resolve-margin sizes (marginPct/100)*withdrawable).
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         print(f"[orca.scan] marginPct={margin_pct} looks like a v2 fraction; "
               f"converting to PERCENT ({margin_pct * 100})", file=sys.stderr)
         margin_pct = margin_pct * 100.0
@@ -276,6 +333,7 @@ def scan(inputs, ctx):
     scan_history = list(last.get("scan_history") or [])     # [ [ {token,dex,rank,contribution}... ] ... ]
     emit_cooldowns = dict(last.get("emit_cooldowns") or {})  # {ASSET: ts} — per-asset suppression
     recent = dict(last.get("recent") or {})                  # {ASSET: ts} — signal-dedup
+    history_ts = float(last.get("history_ts") or 0)          # when scan_history[-1] was recorded
 
     def _persist(extra=None):
         if ctx.state is None:
@@ -283,6 +341,7 @@ def scan(inputs, ctx):
         rec = {
             "ts": now,
             "scan_history": scan_history[-_SCAN_HISTORY_MAX:],
+            "history_ts": history_ts,
             "emit_cooldowns": emit_cooldowns,
             "recent": recent,
         }
@@ -321,8 +380,16 @@ def scan(inputs, ctx):
     # Build this scan's snapshot; need a prior scan to measure rank-jumps (v2:
     # detect_signals returns [] when history is empty — still record this scan).
     current_snapshot = _snapshot_of(markets)
+    # Rank jumps are only measured between CONSECUTIVE scans. The early returns above (max
+    # positions, no account, no markets) record no snapshot, so after a held position
+    # scan_history[-1] can be an hour old and a slow climb reads as an IMMEDIATE_MOVER.
+    # More than one missed tick = the history is stale: drop it and re-seed.
+    interval = float(getattr(ctx, "interval_seconds", 0) or 0)
+    if interval and now - history_ts > 2.5 * interval:
+        scan_history = []
     if not scan_history:
         scan_history.append(current_snapshot)
+        history_ts = now
         print(f"[orca.scan] WAITING — seeding scan history (scanned={len(markets)}); "
               "need a prior scan to measure rank-jumps", file=sys.stderr)
         _persist({"result": {"emitted": False, "gate": "history_seed", "scanned": len(markets)}})
@@ -352,7 +419,8 @@ def scan(inputs, ctx):
         recent_contribs.append(market["contribution"])
 
         res = scoring.score_market(market, prev_market, old_market,
-                                   prev_top50_tokens, recent_contribs, hour_utc)
+                                   prev_top50_tokens, recent_contribs, hour_utc,
+                                   max_pre_move_pct=max_pre_move_pct)
         if res is None:
             continue
         score, reasons, meta = res
@@ -396,6 +464,7 @@ def scan(inputs, ctx):
 
     # always record this scan into the rolling history (v2 always appended).
     scan_history.append(current_snapshot)
+    history_ts = now
     scan_history = scan_history[-_SCAN_HISTORY_MAX:]
 
     if not candidates:
@@ -406,12 +475,16 @@ def scan(inputs, ctx):
                              "held": sorted(held_set)}})
         return []
 
-    # ── pick the single strongest candidate (v2 sorted by score desc, emits best) ──
+    # ── pick the single strongest candidate the venue will actually lever ──
+    # Every DSL threshold is ROE and the engine divides by leverage to get a price floor, so a
+    # ladder authored at Nx stretches in PRICE on any name the venue caps below N. Walk the ranking
+    # and take the first that clears minLeverage; fall back to the top name with a warning.
     candidates.sort(key=lambda c: c["score"], reverse=True)
-    best = candidates[0]
+    best, leverage = _pick_leverable(ctx, candidates, min_leverage,
+                                     lambda _c: leverage_default, strict=min_leverage_strict)
 
-    # fixed 7x, clamped to the venue max (v2 get_safe_leverage on DEFAULT_LEVERAGE).
-    leverage = _safe_leverage(ctx, best["token"], best.get("dex"), leverage_default)
+    if best is None:
+        return []
 
     out = [{
         "asset": best["token"],

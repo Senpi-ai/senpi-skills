@@ -6,6 +6,7 @@ import bisect
 import collections
 import statistics
 
+import metrics
 import timing as timing_mod
 
 H = 3_600_000.0
@@ -59,7 +60,9 @@ def protect(r, candles):
         lock_arm = mark + sgn * (2 * atr)
         out.append(dict(coin=p["coin"], side=p["side"], mark=mark, hard_stop=hard, hard_stop_pct=100 * abs(mark - hard) / mark, atr_pct=(100 * measured / mark) if measured else None,
                         liq_px=liq, lock_arms_at=lock_arm, lock_share=0.5, risk_now=risk_now, risk_after=risk_after,
-                        covered_now=p["stop_covered_share"], note=("already covered" if p["stop_covered_share"] >= 0.9 else ("extend to full size" if p["stop_covered_share"] > 0 else "no stop today"))))
+                        covered_now=p["stop_covered_share"], note=(metrics.unread_note(p["coin"]) if metrics.protection_of(p) is None
+                              else "stop isn't reduce-only — no cover" if metrics.protection_of(p) == metrics.NONE and p.get("non_reduce_only_stops")
+                              else {metrics.FULL: "already covered", metrics.PARTIAL: "extend to full size"}.get(metrics.protection_of(p), "no stop today"))))
     return dict(rows=out, total_risk_now=sum(x["risk_now"] for x in out), total_risk_after=sum(x["risk_after"] for x in out))
 
 
@@ -137,8 +140,9 @@ def regime(r):
 def watch(r):
     book = r["book"]
     items = []
-    if book["naked"] or book["partial"]:
-        items.append(f"Risk guard: a stop missing or a position within 5% of liquidation ({', '.join(book['naked'] + book['partial'])} today)")
+    flagged = book["naked"] + book["partial"] + [f"{c} (orders unread)" for c in metrics.unread_coins(book)]
+    if flagged:
+        items.append(f"Risk guard: a stop missing or a position within 5% of liquidation ({', '.join(flagged)} today)")
     items.append("Smart money: the proven cohort flipping against a coin you hold, or building a coin you don't")
     items.append("Market regime: the day turning risk-off while your book is net long — or funding turning against you")
     items.append("Leak finder: weekly — fees, funding and hold time with the dollar figure")

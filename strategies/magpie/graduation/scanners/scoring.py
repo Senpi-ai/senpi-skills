@@ -8,10 +8,13 @@ does the numbers. Math/gates reproduced VERBATIM for fidelity; v2 quirks kept an
 flagged `# v2-quirk`.
 
 The thesis: classify every live xyz instrument IPOP-vs-STANDARD each tick by the
-funding signature, compare against the prior-tick classification to detect the
-IPOP->STANDARD CONVERSION flip (funding jumps ~100x, leverage cap lifts, throttle
-off), stamp it into a conversion-eligibility window, and within that window ride
-the explosive post-conversion price-discovery momentum — the SpaceX day-1 pattern."""
+VENUE'S LEVERAGE CAP plus a volume floor (the v2 funding band is opt-in and off,
+see the signature block below), compare each name's cap against the prior-tick
+cache to detect the CONVERSION (the cap lifts above the IPOP cap on a name trading
+over the floor — the throttle comes off), stamp it into a conversion-eligibility
+window, and within that window ride the explosive post-conversion price-discovery
+momentum — the SpaceX day-1 pattern. The predicate is no longer the v2 producer's
+verbatim port (1.2.0)."""
 
 
 def _f(c, primary, alt=None, default=0.0):
@@ -26,25 +29,105 @@ def _f(c, primary, alt=None, default=0.0):
         return default
 
 
-# ── conversion detection (ported verbatim) ──
+HOUR_SECONDS = 3600
 
-def classify_instrument(funding_abs, max_leverage, ipop_funding_max, ipop_lev_cap):
-    """IPOP = |funding| <= ipop_funding_max AND max_leverage <= ipop_lev_cap;
-    else STANDARD. The SAME funding signature the pre-listing book discovers on."""
+
+def _t(c):
+    """Candle open, epoch ms, or -1 when unreadable."""
+    return _f(c, "t", default=-1.0) if isinstance(c, dict) else -1.0
+
+
+def closed_candles(candles, candle_seconds, now):
+    """Only the candles that have CLOSED, oldest first (the Moose/Vulture idiom).
+
+    `t` is the candle OPEN in epoch milliseconds, so a candle has closed once
+    t/1000 + candle_seconds <= now. The feed's last row is the bar in progress: a momentum read
+    off it is the live price against a six-bar-old close, so it changes every tick and a thesis
+    could appear and vanish inside one bar. Rows with no readable `t` are dropped; nothing here
+    assumes fixed spacing."""
+    out = []
+    for c in candles or []:
+        t = _t(c)
+        if t < 0:
+            continue
+        if t / 1000.0 + candle_seconds <= now:
+            out.append(c)
+    out.sort(key=_t)
+    return out
+
+
+# ── THE IPOP SIGNATURE (shared VERBATIM by both books; tests pin the two copies equal) ──
+#
+# A pre-IPO perpetual is identified by the VENUE'S LEVERAGE CAP: trade.xyz lists one at or under
+# ipopMaxLeverageCap (5x) and lifts the cap when it graduates to a standard equity perp. A volume
+# floor goes with it — a cap-5 market with no volume is a market that has not traded, not a
+# listing. The FUNDING BAND the v2 producer used (|funding| <= ~1e-7, read as the throttled
+# pre-listing multiplier) is OPT-IN and off by default: live pre-IPO perps fund at the same ~1e-5
+# magnitude as ordinary xyz equities, so a near-zero funding read marks a market that has not
+# traded. Measured on the live xyz board, 2026-10-12 (114 names): one name at cap <= 5, one at
+# |funding| <= 1e-7, none at both; median |funding| 8.3e-6 — the band-AND-cap predicate matched
+# nothing, so neither book could ever see an IPOP. Kept behind ipopFundingBandEnabled for an
+# operator who wants it as an extra check.
+
+
+def ipop_capped(max_leverage, funding_abs, config):
+    """The cap half of the signature: listed at or under ipopMaxLeverageCap and, only when
+    ipopFundingBandEnabled, |funding| <= ipopFundingBandAbs. Unreadable inputs -> False."""
     try:
-        f = abs(float(funding_abs))
         lev = int(max_leverage)
     except (TypeError, ValueError):
-        return "STANDARD"
-    if f <= ipop_funding_max and lev <= ipop_lev_cap:
-        return "IPOP"
-    return "STANDARD"
+        return False
+    if lev > int(config.get("ipopMaxLeverageCap", 5)):
+        return False
+    if config.get("ipopFundingBandEnabled", False):
+        try:
+            if abs(float(funding_abs)) > float(config.get("ipopFundingBandAbs", 1e-7)):
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
 
 
-def detect_conversion(prev_class, curr_class):
-    """A conversion = an IPOP that became STANDARD since last tick (known prior).
-    The first time an instrument is seen prev_class is None -> never a false flip."""
-    return prev_class == "IPOP" and curr_class == "STANDARD"
+def is_ipop(max_leverage, vol_usd, funding_abs, config):
+    """The IPOP signature: ipop_capped AND dayNtlVlm >= ipopMinDayVolumeUsd (a dead zero-volume
+    market is not a listing). Unreadable inputs -> False."""
+    if not ipop_capped(max_leverage, funding_abs, config):
+        return False
+    try:
+        return float(vol_usd) >= float(config.get("ipopMinDayVolumeUsd", 25000))
+    except (TypeError, ValueError):
+        return False
+
+
+def classify_instrument(max_leverage, vol_usd, funding_abs, config):
+    """IPOP if the name carries the signature, else STANDARD."""
+    return "IPOP" if is_ipop(max_leverage, vol_usd, funding_abs, config) else "STANDARD"
+
+
+def detect_conversion(prev, curr_max_leverage, curr_vol_usd, config):
+    """A conversion = the venue lifting a pre-IPO name's cap ABOVE ipopMaxLeverageCap: the prior
+    tick saw the name at or under the cap (and inside the funding band, when that is on) and
+    this tick sees it above the cap, trading at least ipopMinDayVolumeUsd a day. `prev` is the
+    cached prior record — {class, max_leverage, funding} from 1.2.0 on, or the bare class string
+    an older state file carries (a string is read as its class). The prior test is the CAP, not
+    the class: a pre-IPO name can sit under the volume floor the tick before it lists (xyz:OURA
+    traded $22k/day at cap 5 on 2026-10-12, under the $25k floor) and must still flip when the
+    cap lifts. Unknown prior -> never a flip; a quiet day under the floor is not a flip; funding
+    moving on its own is not a flip."""
+    if isinstance(prev, dict) and prev.get("max_leverage") is not None:
+        prev_capped = ipop_capped(prev.get("max_leverage"), prev.get("funding"), config)
+    elif isinstance(prev, dict):
+        prev_capped = prev.get("class") == "IPOP"
+    else:
+        prev_capped = prev == "IPOP"
+    if not prev_capped:
+        return False
+    try:
+        lifted = int(curr_max_leverage) > int(config.get("ipopMaxLeverageCap", 5))
+        live = float(curr_vol_usd) >= float(config.get("ipopMinDayVolumeUsd", 25000))
+    except (TypeError, ValueError):
+        return False
+    return lifted and live
 
 
 # ── momentum helpers (ported verbatim) ──

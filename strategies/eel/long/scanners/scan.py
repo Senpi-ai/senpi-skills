@@ -36,7 +36,7 @@ FIDELITY NOTES vs eel-producer.py v1.0.0:
   - v2 marginPct was a FRACTION (long 0.18, short 0.15) used as account_value*marginPct.
     This port takes marginPct as a PERCENT (18 / 15) and emits a top-level marginPct =
     base_pct × sizing_weight; the runtime sizes (marginPct/100)*withdrawable. A defensive
-    <=1.0 -> ×100 guard catches a pasted v2 fraction. The per-group sizing WEIGHTS and the
+    <1.0 -> ×100 guard catches a pasted v2 fraction. The per-group sizing WEIGHTS and the
     [0.1,3.0] clamp are verbatim.
   - v2 push_signal() emitted score min(score/9.0, 1.0) on the wire; the 3.0 scaffold owns the
     wire envelope, so the raw integer score rides on data{} (NORM_DIV kept in scoring for
@@ -204,11 +204,11 @@ def _build_universe(whitelist, meta_map, vol_floor_pct, min_universe_for_gate):
 
 
 def _norm_pct(p):
-    """Defensive marginPct guard (dire/koala): a value <=1.0 is a pasted v2 FRACTION
+    """Defensive marginPct guard (dire/koala): a value <1.0 is a pasted v2 FRACTION
     (0.18) — multiply by 100 to recover the PERCENT (18). A value already in (1,100] is
     treated as a percent as-is."""
     p = float(p)
-    return p * 100.0 if 0 < p <= 1.0 else p
+    return p * 100.0 if 0 < p < 1.0 else p
 
 
 def scan(inputs, ctx):

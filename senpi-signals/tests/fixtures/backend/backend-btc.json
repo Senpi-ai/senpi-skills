@@ -1,0 +1,268 @@
+{
+ "asset": "BTC",
+ "coin": "BTC",
+ "dex": "",
+ "as_of": "2026-10-06T18:58:40Z",
+ "stale": false,
+ "engine": "signals/1 skills@04ce9e33 profile=backend",
+ "in_universe": true,
+ "signals": [],
+ "positioning": {
+  "source": "proven_cohort",
+  "side": "long",
+  "share_pct": 62.5,
+  "share_kind": "cohort_pct",
+  "n_long": 5,
+  "n_short": 2,
+  "cohort_n": 8,
+  "small_sample": true
+ },
+ "hot_4h": {
+  "side": "long",
+  "share_pct": 30.5,
+  "traders": 120
+ },
+ "market": {
+  "price": 85000,
+  "change_24h_pct": 1.19,
+  "funding_apr_pct": 10.95,
+  "funding_pctile": 20,
+  "oi": 40000,
+  "vol_24h": 1800000000
+ },
+ "coverage": {
+  "board_4h": "ok",
+  "cohort": "ok",
+  "cross_asset": "ok",
+  "momentum": "failed",
+  "universe": "ok"
+ },
+ "not_measured": [
+  "momentum events"
+ ],
+ "context": {
+  "smart_money": {
+   "tiers": [
+    {
+     "tier": "proven",
+     "min_realized_usd": 1000000,
+     "weight": 1,
+     "cohort_n": 8,
+     "holders": 7,
+     "n_long": 5,
+     "n_short": 2,
+     "long_usd": 510000,
+     "short_usd": 85000,
+     "net_usd": 425000,
+     "gross_usd": 595000,
+     "long_share_by_count": 0.714,
+     "long_share_by_notional": 0.857
+    }
+   ],
+   "largest": [
+    {
+     "wallet": "0x5555…5555",
+     "address": "0x5555555555555555555555555555555555555555",
+     "tier": "proven",
+     "side": "long",
+     "notional_usd": 119000,
+     "entry_px": 84000,
+     "age_s": 259200,
+     "leverage": null,
+     "liq_px": null,
+     "liq_distance_pct": null
+    },
+    {
+     "wallet": "0x4444…4444",
+     "address": "0x4444444444444444444444444444444444444444",
+     "tier": "proven",
+     "side": "long",
+     "notional_usd": 110500,
+     "entry_px": 84000,
+     "age_s": 259200,
+     "leverage": null,
+     "liq_px": null,
+     "liq_distance_pct": null
+    },
+    {
+     "wallet": "0x3333…3333",
+     "address": "0x3333333333333333333333333333333333333333",
+     "tier": "proven",
+     "side": "long",
+     "notional_usd": 102000,
+     "entry_px": 84000,
+     "age_s": 259200,
+     "leverage": null,
+     "liq_px": null,
+     "liq_distance_pct": null
+    },
+    {
+     "wallet": "0x2222…2222",
+     "address": "0x2222222222222222222222222222222222222222",
+     "tier": "proven",
+     "side": "long",
+     "notional_usd": 93500,
+     "entry_px": 84000,
+     "age_s": 259200,
+     "leverage": null,
+     "liq_px": null,
+     "liq_distance_pct": null
+    },
+    {
+     "wallet": "0x1111…1111",
+     "address": "0x1111111111111111111111111111111111111111",
+     "tier": "proven",
+     "side": "long",
+     "notional_usd": 85000,
+     "entry_px": 84000,
+     "age_s": 259200,
+     "leverage": null,
+     "liq_px": null,
+     "liq_distance_pct": null
+    }
+   ],
+   "recent_opens": []
+  },
+  "positioning_change": {
+   "now": {
+    "as_of": "2026-10-06T18:58:40Z",
+    "net_usd": 425000,
+    "n_long": 5,
+    "n_short": 2
+   },
+   "h1": null,
+   "h4": null,
+   "h24": null,
+   "available_from": {
+    "h1": "2026-10-06T19:43:40Z",
+    "h24": "2026-10-07T12:58:40Z",
+    "h4": "2026-10-06T21:58:40Z"
+   }
+  },
+  "market": {
+   "price": 85000,
+   "change_4h_pct": 0.4,
+   "change_24h_pct": 1.19,
+   "oi": 40000,
+   "oi_usd": 3400000000,
+   "oi_change_1h_pct": null,
+   "oi_change_24h_pct": null,
+   "funding_apr_pct": 10.95,
+   "funding_30d": null,
+   "vol_24h": 1800000000,
+   "vol_rank": 1,
+   "universe_n": 6,
+   "board_rank": 1,
+   "board_traders": 120,
+   "board_side": "long",
+   "change_15m_pct": null,
+   "change_1h_pct": null,
+   "board_gain_share_pct": 30.5,
+   "board_gain_share_change_1h": null,
+   "funding_payer": "longs"
+  },
+  "liquidations": {
+   "price": 85000,
+   "positions": 0,
+   "notional_usd": 0,
+   "beyond_pct": 50,
+   "beyond_notional_usd": 0,
+   "below": [
+    {
+     "from_pct": 0,
+     "to_pct": 3,
+     "price_from": 85000,
+     "price_to": 82450,
+     "notional_usd": 0,
+     "positions": 0
+    },
+    {
+     "from_pct": 3,
+     "to_pct": 7,
+     "price_from": 82450,
+     "price_to": 79050,
+     "notional_usd": 0,
+     "positions": 0
+    },
+    {
+     "from_pct": 7,
+     "to_pct": 15,
+     "price_from": 79050,
+     "price_to": 72250,
+     "notional_usd": 0,
+     "positions": 0
+    },
+    {
+     "from_pct": 15,
+     "to_pct": 30,
+     "price_from": 72250,
+     "price_to": 59500,
+     "notional_usd": 0,
+     "positions": 0
+    },
+    {
+     "from_pct": 30,
+     "to_pct": 50,
+     "price_from": 59500,
+     "price_to": 42500,
+     "notional_usd": 0,
+     "positions": 0
+    }
+   ],
+   "above": [
+    {
+     "from_pct": 0,
+     "to_pct": 3,
+     "price_from": 85000,
+     "price_to": 87550,
+     "notional_usd": 0,
+     "positions": 0
+    },
+    {
+     "from_pct": 3,
+     "to_pct": 7,
+     "price_from": 87550,
+     "price_to": 90950,
+     "notional_usd": 0,
+     "positions": 0
+    },
+    {
+     "from_pct": 7,
+     "to_pct": 15,
+     "price_from": 90950,
+     "price_to": 97750,
+     "notional_usd": 0,
+     "positions": 0
+    },
+    {
+     "from_pct": 15,
+     "to_pct": 30,
+     "price_from": 97750,
+     "price_to": 110500,
+     "notional_usd": 0,
+     "positions": 0
+    },
+    {
+     "from_pct": 30,
+     "to_pct": 50,
+     "price_from": 110500,
+     "price_to": 127500,
+     "notional_usd": 0,
+     "positions": 0
+    }
+   ]
+  }
+ },
+ "summary": {
+  "state": "quiet",
+  "headline": "Crowded long",
+  "side": null,
+  "story": "Everyone is already long.",
+  "why": [
+   "The most profitable wallets are heavily long.",
+   "Recent winners are long too. When top traders and the crowd agree, the move is often already priced in.",
+   "Funding and open interest are normal. No squeeze is building."
+  ],
+  "watch": "Top wallets starting to sell."
+ }
+}

@@ -25,7 +25,7 @@ FIDELITY NOTES vs octopus-producer.py v1.0.0:
     marginPct, then emitted the absolute USD. Runtime 3.0 sizes from a PERCENT intent, so
     this port carries marginPct=20 (PERCENT) in runtime.yaml and emits a top-level
     `marginPct`; the runtime sizes (marginPct/100)*withdrawable. A defensive guard converts
-    a value <= 1.0 (an operator who pasted the v2 fraction 0.20) to a PERCENT (*100). FLAGGED.
+    a value < 1.0 (an operator who pasted the v2 fraction 0.20) to a PERCENT (*100). FLAGGED.
   - v2's per-tick `affordable` cap (never emit more entries than free margin can FUND) is
     preserved verbatim — an open slot with no free margin would otherwise re-emit an
     un-fillable order every tick (insufficient-funds spam).
@@ -204,11 +204,11 @@ def scan(inputs, ctx):
     direction = "LONG" if leg == "long" else "SHORT"
     min_score = int(inputs.get("minScore", 5))
 
-    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value <= 1.0 (an
+    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value < 1.0 (an
     # operator who pasted the v2 FRACTION 0.20) into a PERCENT so it never silently sizes
     # ~100x small (resolve-margin sizes (marginPct/100)*withdrawable).
     margin_pct = float(inputs.get("marginPct", 20))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         print(f"[octopus.scan] marginPct={margin_pct} looks like a v2 fraction; "
               f"converting to PERCENT ({margin_pct * 100})", file=sys.stderr)
         margin_pct = margin_pct * 100.0

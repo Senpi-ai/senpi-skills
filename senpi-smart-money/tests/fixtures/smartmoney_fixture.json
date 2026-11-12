@@ -27,8 +27,8 @@
       {"openPositions": [{"coin": "HYPE", "szi": 70, "positionValue": 3500, "entryPx": 62}]}
     ]
   },
-  "leaderboard_get_status": {"window": "4h", "updated_at": "2026-06-23T15:00:00Z"},
-  "leaderboard_get_markets": {"concentration": [{"asset": "HYPE", "direction": "short", "pct_of_gains": 19}]},
-  "leaderboard_get_top": {"traders": [{"wallet": "0xhot", "delta_pnl": 80000}]},
-  "leaderboard_get_momentum_events": {"events": [{"asset": "HYPE", "type": "scale_in", "direction": "short"}]}
+  "leaderboard_get_status": {"status": {"window": "4h", "base_snapshot_timestamp": 1782212400000, "last_update_timestamp": 1782226800000, "total_leaderboard_traders": 4821, "prices": {"BTC": 62000, "HYPE": 61.5}}},
+  "leaderboard_get_markets": {"markets": {"markets": [{"token": "HYPE", "dex": "", "direction": "short", "max_leverage": 10, "pct_of_top_traders_gain": 19.2, "contribution_pct_change_15m": 0.4, "contribution_pct_change_1h": 1.1, "contribution_pct_change_4h": 3.0, "token_price_change_pct_15m": -0.3, "token_price_change_pct_1h": -1.2, "token_price_change_pct_4h": -4.1, "day_notional_volume": 812000000, "trader_count": 228, "is_dominant_direction": true}], "source_trader_count": 100, "window": "4h", "timestamp": 1782226800000}},
+  "leaderboard_get_top": {"leaderboard": {"data": [{"rank": 1, "trader_id": "0xhot", "unrealized_pnl": 80000, "pnl_percentage": 12.5, "ath_delta": null, "top_markets": ["HYPE"], "trader_tags": null}], "window": "4h", "timestamp": 1782226800000, "total_traders": 4821}, "count": 1},
+  "leaderboard_get_momentum_events": {"events": {"events": [{"trader_id": "0xhot", "tier": 1, "tier_label": "Tier 1 (Exceptional, $2+)", "delta_pnl": 2100000, "decision": "blocked", "blocked_reason": "concentration_too_low", "blocked_details": "Concentration 62.3% < 70%", "concentration": null, "top_positions": null, "trader_tags": null, "detected_at": "2026-06-23T14:55:00Z"}], "query": {"from": "2026-06-23T11:00:00Z", "to": "2026-06-23T15:00:00Z", "limit": 200, "tier": null, "asset": null}, "total_count": 1}}
 }

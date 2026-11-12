@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.13.0"
+  version: "3.15.4"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -122,18 +122,18 @@ of an import-stage run. The gate is stage 9, and it takes no `--stage` flag.
 
 ### Funding heads-up — first tool call, never a gate
 
-Before the template offer / Decision 1, read the user's accessible balance ONCE:
-`account_get_portfolio` → `data.portfolio.total_in_hyperliquid` (fall back to
-`total_withdrawable`). Deploy needs a little **over $10 USDC per wallet (~$11.50, to cover
-the ~$1.50 creation fee)** — `deploy.py create` reserves the fee first, so a wallet funded
-to exactly $10 still refuses with `[E_FUNDS_BELOW_FLOOR]`. That floor is also how a strategy is **tested**: there is no paper-trading mode, and a scan re-run on a timer is a model call per tick, not a simulation — [`references/shadow-testing.md`](references/shadow-testing.md).
+Before the template offer / Decision 1, read the **deployable** balance ONCE: `account_get_portfolio` → `total_in_hyperliquid` + `total_spot_usd_in_hyperliquid` + EVM stables in `token_balances[]`.
+Never `total_withdrawable`, never `total_balance_usd` — committed capital. **0 is a fact, not a missing read**: no `or` chain.
+Never say "$total free": say what is free, and that freeing the rest means withdrawing from a strategy — their call. [`references/deployable-balance.md`](references/deployable-balance.md). **~$11.50/wallet opens a wallet** (`deploy.py create` reserves the
+~$1.50 fee first; exactly $10 refuses with `[E_FUNDS_BELOW_FLOOR]`) — **not what the strategy needs to trade**: under the design's own minimum it installs, scans and never opens.
+No design exists yet, so check the floor here; Handoff step 1 quotes the minimum. That floor is also how a strategy is **tested**: there is no paper-trading mode, and a scan re-run on a timer is a model call per tick, not a simulation; an offline backtest follows the rules in [`references/shadow-testing.md`](references/shadow-testing.md).
 
 - **Balance ≥ ~$11.50/wallet, or unreadable** → say nothing about funding and move on. Unreadable
   means move on too — no retry loop, no blocking; funding is re-checked at deploy anyway.
 - **Balance < ~$11.50/wallet** → tell the user NOW, in one line, then keep building:
-  > "Heads-up before we design: deploying needs a little over $10 USDC per wallet (a small
-  > creation fee sits on top of the $10 minimum), and your accessible balance is $<X>. We
-  > can build the whole strategy now and deploy the moment you've topped up — want me to
+  > "Heads-up before we design: a wallet needs a little over $10 USDC just to open, and your
+  > accessible balance is $<X> — what it needs to trade depends on the design; I'll quote it before
+  > deploy. We can build the whole strategy now and deploy the moment you've topped up — want me to
   > pull up your deposit info when we're done?"
   (deposit flow = the `senpi-deposit-withdraw-transfer` skill)
 - One heads-up total. NEVER hold the interview hostage on funding, never re-ask
@@ -180,9 +180,9 @@ For each: ask the question, offer the options as plain choices, then map the ans
    (`leaderboard_*`) · smart-money (`discovery_*`) · cross-asset flow. → the `call_tool`s in `scan()`.
    **A smart-money thesis reads the proven cohort, never the 4h board as its source of "who is smart":**
    the 4h gain leaderboard is a consequence of the move (whoever was on the winning side is at the top),
-   so following it is circular. Use `discovery_get_top_traders` (ALL_TIME) + `discovery_get_trader_state`
-   — headcount and tick-over-tick change, the `senpi-smart-money` method — and name the template that
-   already does it (the Starling / WhaleHunter / Stingray family) as the fork option before writing a new one.
+   so following it is circular. Use `discovery_get_top_traders` (ALL_TIME; 20 rows unless you pass `limit`, page with `offset`)
+   + `discovery_get_trader_state` — headcount and tick-over-tick change, the `senpi-smart-money` method — and name the
+   template that already does it (the Starling / WhaleHunter / Stingray family) as the fork option before writing a new one.
 3. **Edge — "What's the actual signal?"**
    trend-follow · mean-revert · breakout · relative-strength · copy/follow · **cohort-divergence**
    (smart money vs the crowd) · event/new-listing · macro-thesis. → the math in `scoring.py`.
@@ -200,7 +200,7 @@ For each: ask the question, offer the options as plain choices, then map the ans
    involved a cohort, leaderboard, or "rotate/refresh."
 7. **Exit & Risk — "How should it exit, and what's the risk appetite?"** Offer the DSL presets:
    `let_winners_run` (wide; rides to +100%, protect both sides) · `balanced` (default) ·
-   `mean_reversion` (tight, locks early — for faders) · `scalp` (HFT) · `parabolic_runner` (scalpel).
+   `mean_reversion` (tight, locks early — for faders) · `scalp` (HFT) · `parabolic_runner` (scalpel). Pick by horizon, not the default: `references/time-cuts-by-horizon.md`.
    Then set guard rails (`drawdown_halt_pct`, `daily_loss_limit_pct`) sized to the style, and cadence
    (`interval_seconds`). **Never hand-roll stops — copy a preset from
    `senpi-strategy-author/references/dsl-presets.yaml`** (full path — it lives in THIS skill, not the
@@ -313,10 +313,10 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
    - **FAIL** (exit 1) — every finding carries `what` / `why` / `fix`, computed against your actual
      package. Apply the fix, re-run. Don't go silent while you debug — narrate the fix and re-run.
 
-   **Quote the three stage lines back verbatim** — `✓ static`, `✓ import`, `✓ live` — plus the
-   verdict. If `live` is not in what you are about to paste, you did not run the gate and you have
-   nothing to report. This is the one claim in the whole flow that must carry its own evidence,
-   because nothing downstream re-checks it.
+   **Quote the stage lines (`✓ static`, `✓ import`, `✓ live`), every `⚠` line and the verdict
+   verbatim and unfiltered** (no `| grep`); if `live` is missing, you did not run the gate. **A PASS
+   with `⚠ W_VALIDATE_NO_SIGNALS_EMITTED` on a new scanner is not done:** call each tool it reads once
+   and check every key path the code reads is in that response; a missing key reads 0 on every row.
 
    **Fix → re-run is a loop, and it has a stop.** Re-running is not optional after an edit: the
    proof a PASS writes is tied to the exact bytes it validated, so any change invalidates it.
@@ -370,7 +370,7 @@ makes one new wallet per instance). Authoring just designs the package; **concur
   pass. Returning `[]` is fine; returning `[]` *without having read* proves nothing about the scanner.
 - **Emit a `marginPct` *intent*, not dollars** — top-level, not inside `data{}`. The runtime sizes the
   dollars off the live account; don't read the clearinghouse to size.
-- **Pure thesis math in `scoring.py`** (no I/O, no MCP, no clock) so it unit-tests. Put the computed **score into the emitted `data`** — it is the signal's audit trail; the runtime's log line prints `score 0` for every emit fleet-wide, so never verify it from there.
+- **Pure thesis math in `scoring.py`** (no I/O, no MCP, no clock) so it unit-tests. Put the computed **score into the emitted `data`** — it is the signal's audit trail; the runtime's log line prints `score 0` for every emit fleet-wide, so never verify it from there. **`data{}` records, it never instructs**: a `stop_price` emitted there does NOT bind — the floor is the instance's `exit.dsl_preset`, so express the intended stop as a preset ([signal-data-does-not-bind.md](references/signal-data-does-not-bind.md)).
 - **Memory = `ctx.state`** (`.last()/.recent()/.append()`); set `state_history_max_count` > 0. Cohort
   rotation, dedup, and first-seen ledgers all live here. **Editing a LIVE scanner is an instant, unvalidated production change** (the scaffold re-reads it each tick) and **the universe must be bounded by the thesis**, never by a scoring condition: [creating-a-strategy.md](references/creating-a-strategy.md#bound-the-universe-to-the-thesis).
 - **Exits = a named DSL preset**, copied from `references/dsl-presets.yaml`, change ≤1 field.
@@ -392,6 +392,9 @@ consequence in the user's own numbers ("this limit tripped three times in the la
 the worst day would have run to the drawdown halt") and an explicit yes before you touch the file. Never
 "done". The same applies to deploying below the design budget: say the design number, say what degrades
 (fewer slots, smaller sizes, a strategy that cannot express its thesis), take the yes.
+**A value you asked for and did not get is still open.** A reply without it ("So?", "go on", "?") is not a
+choice: ask again with one recommended value and its basis ("I'd use $X because Y. OK?") and edit
+nothing until they answer.
 
 Same references; usually no rebuild: tune `runtime.yaml` `inputs` (universe/thresholds/sizing), swap
 the `dsl_preset`, adjust `risk.guard_rails`, or change the `scoring.py` math. Re-validate, then
@@ -426,6 +429,8 @@ loop every time:
 
 1. **Confirm with the user** — budget + "ready to deploy?" Funding a wallet is real money and one-way, so
    this is an explicit yes, not an assumption. This is the first and only time the budget is asked.
+   **Quote the design's minimum before asking** — per wallet `max($10, $12 / (smallest marginPct/100 × lowest
+   leverage) + $1.50)` (`min_budget.py`). Funded under it, it installs and never opens a position — if their balance is under it, say so.
 2. **Preflight** — you proved it runs at stage 9 (`senpi validate` → PASS). Nothing downstream
    re-establishes that a tick actually runs, so stage 9 is what stands between a broken scanner and a
    funded wallet. `deploy.py validate <path-to-package>` is the structural half — every fix in **one

@@ -61,7 +61,7 @@ class RunShDeployOutcomes(unittest.TestCase):
         proc = self._run(6)
         self.assertEqual(proc.returncode, 0)
         self.assertIn("still running", proc.stdout.lower())
-        self.assertIn("openclaw senpi deploy status", proc.stdout)   # how to watch it
+        self.assertIn("python3 deploy.py status", proc.stdout)   # how to watch it
         self.assertNotIn("error", proc.stderr.lower())
 
     def test_a_refused_or_failed_deploy_aborts_with_its_own_code(self):

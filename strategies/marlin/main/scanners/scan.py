@@ -17,7 +17,7 @@ daemon, no push_signal, no create_position.
 FIDELITY NOTES vs the v2 producer (marlin-producer.py v1.0.1 / SKILL.md v1.0.0):
   - v2 fixed margin: marginPct=0.15 (a FRACTION) * account_value -> marginUsd. This
     port uses marginPct=15 (a PERCENT) and emits `marginPct`; the runtime sizes
-    (marginPct/100)*withdrawable. The <=1.0 guard converts a pasted fraction defensively.
+    (marginPct/100)*withdrawable. The <1.0 guard converts a pasted fraction defensively.
   - v2 leverage: min(int(leverage), MAX_LEVERAGE=5). Preserved: clamp to [1, 5].
   - v2 emitted exactly one signal (best, highest score). Preserved: scan() emits <=1/tick.
   - v2 recent-signals JSON cache (RECENT_SIGNAL_TTL_SEC=240, 4x-TTL prune) -> ctx.state
@@ -226,7 +226,7 @@ def scan(inputs, ctx):
 
     # margin PERCENT in (0,100]. Defensive fraction->percent guard (v2 stored 0.15).
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:   # a value <=1.0 is a pasted FRACTION (e.g. 0.15) -> x100
+    if margin_pct < 1.0:   # a value <1.0 is a pasted FRACTION (e.g. 0.15) -> x100
         margin_pct *= 100
 
     leverage = int(inputs.get("leverage", _DEFAULT_LEVERAGE))

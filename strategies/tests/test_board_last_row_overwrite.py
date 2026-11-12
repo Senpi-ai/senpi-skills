@@ -97,29 +97,39 @@ class _FakeCtx:
         self.state = _FakeState()
 
 
-# ── condor: follows the dominant side, crypto only ──
+# ── condor: the board is PRICE DATA ONLY as of 2026-10-12 ──
+#
+# condor no longer takes direction from this board (it was circular — when a coin falls,
+# every wallet short it is mechanically at the top of the 4h gain board). `fetch_sm_map`
+# became `fetch_price_changes`, which keeps no direction, no dominance and no trader
+# count. Two invariants survive the change and are still worth guarding: one row per
+# token so a later row cannot overwrite an earlier one, and the xyz ban by dex.
 
-def test_condor_keeps_the_dominant_side_whichever_row_comes_last():
+def test_condor_keeps_one_row_per_token_so_a_later_row_cannot_overwrite_it():
     scan = _load("condor")
-    sm_map = scan.fetch_sm_map(_FakeCtx({"leaderboard_get_markets": _board()}), {})
+    pm = scan.fetch_price_changes(_FakeCtx({"leaderboard_get_markets": _board()}), {})
 
-    # minor SHORT row listed after the dominant LONG row
-    assert sm_map["BTC"]["direction"] == "LONG"
-    assert sm_map["BTC"]["traders"] == 112
-    # dominant SHORT row listed after the minor LONG row
-    assert sm_map["ETH"]["direction"] == "SHORT"
-    assert sm_map["ETH"]["traders"] == 114
+    # BTC and ETH each appear twice (a LONG row and a SHORT row). The price fields are a
+    # property of the token, not the side, so the first row wins and the second is ignored.
+    btc_rows = [m for m in _board()["data"]["markets"] if m.get("token") == "BTC"]
+    assert len(btc_rows) >= 2, "fixture no longer carries two BTC rows; this guard is moot"
+    assert pm["BTC"]["p4h"] == btc_rows[0]["token_price_change_pct_4h"]
+    eth_rows = [m for m in _board()["data"]["markets"] if m.get("token") == "ETH"]
+    assert pm["ETH"]["p4h"] == eth_rows[0]["token_price_change_pct_4h"]
+    for row in pm.values():
+        assert "direction" not in row and "traders" not in row, (
+            "the board must supply price data only — direction comes from the proven cohort")
 
 
 def test_condor_bans_xyz_rows_by_dex_so_a_main_dex_name_keeps_its_own_row():
     scan = _load("condor")
     board = _board(first=[_MAIN_GOLD_TWIN])   # xyz GOLD rows follow the main-dex row
-    sm_map = scan.fetch_sm_map(_FakeCtx({"leaderboard_get_markets": board}), {})
+    pm = scan.fetch_price_changes(_FakeCtx({"leaderboard_get_markets": board}), {})
 
-    assert "NVDA" not in sm_map, "an xyz row (bare token + dex='xyz') leaked into the crypto map"
-    assert (sm_map["GOLD"]["direction"], sm_map["GOLD"]["traders"]) == ("LONG", 22), \
+    assert "NVDA" not in pm, "an xyz row (bare token + dex='xyz') leaked into the crypto map"
+    assert pm["GOLD"]["p4h"] == _MAIN_GOLD_TWIN["token_price_change_pct_4h"], \
         "the xyz GOLD rows overwrote the main-dex GOLD row"
-    assert "DOGE" in sm_map, "a single-sided token must survive the dominant-side filter"
+    assert "DOGE" in pm, "a single-sided token must still be present"
 
 
 # ── kestrel: follows the dominant side, xyz only ──

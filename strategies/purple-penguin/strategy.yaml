@@ -1,0 +1,45 @@
+# Purple Penguin — penguin with the score floor at 8 instead of 9.
+#
+# One setting differs from penguin: `minScore: 8`. Same detector, hard gates, sizing, clock, ladder
+# and guard rails. 48% of penguin emits land on exactly 9, so the floor is its most binding
+# constraint, and the score is a sum of +1/+2/+3 buckets rather than a continuum — one bucket below
+# it may still be tradeable, and there was no data either way because the floor was hardcoded
+# inside score_market and discarded a near-miss without a record.
+# Listed in the catalog and in discover. Compare it against the parent it varies, not on its
+# own P&L — see senpi-strategy-discover/references/variant-families.md.
+schema_version: 1
+
+id: purple-penguin
+version: "1.2.0"
+
+catalog:
+  varies: penguin          # a VARIANT of this template — never outrank it
+  name: "Purple Penguin — Striker at score 8"
+  emoji: "🟣"
+  tagline: "Penguin with the conviction bar one notch lower: the same rank-jump detector, the same hard gates, the same whole-book commitment at 10x — but it will take a score of 8 where Penguin insists on 9. An experiment in whether that floor is set too high, and the only thing in this package that differs."
+  belief_plain: "This is Penguin with one number changed. Penguin only acts when its signal scores 9 or better out of a possible 12, and almost half of everything it trades sits at exactly 9 — right on the line. The score is built from a handful of all-or-nothing bonuses, so an 8 is not a weak signal so much as one that missed a single bonus, and there was no record of how those traded because the old code discarded them without keeping one. Purple Penguin keeps every structural filter Penguin has: the coin must still have jumped at least 15 places from a deep starting rank, the 4-hour trend must still agree with the direction, and the volume spike must still confirm. It loosens only how much conviction it asks for on top of those. Everything about the risk is Penguin's, which means one stop-out is about 13.5% of the account before fees, and there is no second position to offset it."
+  thesis: "One input differs from Penguin: minScore 8 rather than 9. Everything else — scoring.py itself, the four hard gates (current rank above 10, 4h alignment, prev-rank at least 25, rank-jump at least 15), the 1.5x volume confirmation, the 4-reason floor, one slot at 90% margin and 10x, the eight-rung DSL ladder, the 15% ROE stop, the guard rails — is Penguin's, unchanged. The experiment is worth running because the floor is the binding constraint on the whole strategy and its calibration has never been tested: 48% of live penguin emits score exactly 9, and the score is a sum of 3/2/2/2/1/1/1 buckets, so a 15-place jump and a 90-place jump score identically whenever they trip the same flags. Because IMMEDIATE_MOVER's 2 points are always earned and four reasons are still required, an 8 is a signal that cleared every structural filter and missed exactly one bonus: first-jump plus one 2-pointer plus one 1-pointer, or both 2-pointers plus both 1-pointers. That loosens conviction, never a filter. Judge it against Penguin over the same window using the per-candidate CAND telemetry both packages now emit, which records the continuous components behind each integer score, rather than on its own P&L in isolation."
+  group: momentum
+  archetype: breakout_momentum
+  sub_style: rank_jump
+  asset_classes: [universe_crypto]
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: intraday
+  leverage_max: 10
+  max_slots: 1
+  assets: []                # derived universe — coins come from the top-50 rows of the 4h leaderboard each tick, not a fixed list
+  tags: [leader-momentum, momentum, breakout, rank-jump, first-jump, striker, universe-scanner, concentrated, single-slot, high-leverage, hyperfeed, high-risk-high-reward, aggressive, experiment, score-floor-8]
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: PURPLE_PENGUIN_WALLET
+    funding_share: 1.0

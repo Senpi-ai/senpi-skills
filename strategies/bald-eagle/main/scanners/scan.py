@@ -30,7 +30,7 @@ FIDELITY NOTES vs eagle-producer.py v5.0.1 (thesis verbatim from v4.1):
   - MARGIN: v2 MARGIN_PCT=0.40 (FRACTION) * account_value -> marginUsd. Runtime 3.0
     sizes from a PERCENT in (0,100], so this emits marginPct=40 and the runtime sizes
     (marginPct/100)*withdrawable. The 40% value is preserved verbatim. (See the
-    "<=1.0 -> pasted fraction, x100" guard in scan() for the input override.)
+    "<1.0 -> pasted fraction, x100" guard in scan() for the input override.)
   - DROPPED (now owned by the runtime/scaffold, NOT thesis):
       * has_resting_orders()/cancel_order 600s stale-purge — that auto-CANCELS orders,
         a MUTATION; scan() is read-only (mutations raise PermissionError). The runtime's
@@ -272,10 +272,10 @@ def scan(inputs, ctx):
     tiers = inputs.get("leverageTiers", scoring.DEFAULT_LEVERAGE_TIERS)
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
 
-    # margin PERCENT in (0,100]; defensive guard: a <=1.0 input is a pasted FRACTION
+    # margin PERCENT in (0,100]; defensive guard: a <1.0 input is a pasted FRACTION
     # (v2 stored 0.40) -> x100 (-> 40). (dire/koala pattern.)
     base_margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if base_margin_pct <= 1.0:
+    if base_margin_pct < 1.0:
         base_margin_pct *= 100
 
     account_value, held_tokens = _get_account(ctx, ctx.wallet)

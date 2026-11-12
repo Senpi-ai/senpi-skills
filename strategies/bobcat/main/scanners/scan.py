@@ -27,7 +27,7 @@ FIDELITY NOTES vs the v2 producer (bobcat-producer.py v1.0.1):
   - v2 stored margin as a FRACTION (config marginPct 0.20) and computed
     marginUsd = account_value * 0.20. In Runtime 3.0 the runtime sizes from a
     PERCENT in (0,100], so this port emits `marginPct` (20). A defensive guard
-    converts any pasted FRACTION (<=1.0) to a PERCENT (*100), matching dire/koala.
+    converts any pasted FRACTION (<1.0) to a PERCENT (*100), matching dire/koala.
   - v2 emitted exactly one signal (best). Preserved: scan() emits <= 1 signal/tick.
   - v2 recent-signals JSON cache -> ctx.state dedup map (same TTL semantics, TTL 240s).
   - v2 leverage = min(config.leverage, MAX_LEVERAGE 5); preserved (clamped to 5).
@@ -246,9 +246,9 @@ def scan(inputs, ctx):
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
 
     # marginPct: PERCENT in (0,100]. Defensive fraction guard (dire/koala pattern):
-    # a value <= 1.0 is a pasted v2 FRACTION (e.g. 0.20) -> *100 -> 20.
+    # a value < 1.0 is a pasted v2 FRACTION (e.g. 0.20) -> *100 -> 20.
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         margin_pct = margin_pct * 100
 
     account_value, positions = _get_account(ctx)

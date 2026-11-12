@@ -1,0 +1,240 @@
+# ── WILD CONDOR · CONDOR at a higher score floor and a higher margin ──
+#
+# Differs from CONDOR in three settings. The first two are meant to move together:
+#   minScore  15 instead of 12  — condor's own top scoring tier
+#   margin    one flat 90% row instead of 20/28/32% by score tier
+# and the third exists so the experiment can produce a sample:
+#   max_entries_per_day  OFF instead of 1 — the loss budget caps entries now, not a trade count
+#
+# The DSL ladder is penguin's. Both packages run 10x, so each ROE trigger is the same price move
+# in both and the ladder needs no rescaling. Everything else — detector, universe, clock, score
+# components, guard rails and time cuts — is condor's, unchanged.
+#
+# Sizing arithmetic: 90% margin at 10x is 9x the account in one position, and the -12% ROE stop is
+# 10.8% of equity per stop-out. The guard rails below halt ENTRIES; none of them closes an open
+# position, so the stop and the ladder are what bound a single trade.
+#
+# Not in the catalog (catalog.status: blocked). Deploy by explicit path:
+#   python3 senpi-strategy-ops/scripts/deploy.py create strategies/wild-condor --budget <amount>
+#
+# ── inherited from CONDOR, unchanged ──
+name: wild-condor-main
+group: wild-condor
+version: 1.4.0
+description: >
+  WILD CONDOR — CONDOR at conviction size, DSL-only. Multi-asset trend-continuation apex sniper ("One Amazing Trade per Day").
+  Scans the top 50 HL crypto assets by 24h notional volume and fires ONLY when 4h +
+  1h + 15m momentum are perfectly aligned, the 4h leaders' dominant side (leaderboard_get_markets
+  — a momentum read, not a proven cohort) points the same way and holds a meaningful share of
+  their gains, OI >= $1M and trader depth >= 50, and the move isn't a runaway counter-trend
+  (MACRO_TREND_GATE). A single 90% margin tier at a 10x cap, gated to score 15+ (condor's own top tier);
+  one position at a time; a wide DSL lets apex setups breathe. Faithful port of the v2
+  producer thesis (XYZ + stablecoins banned). NOTE: XYZ is filtered by the 'XYZ:' name
+  prefix (the live combined instruments response has no dex field — see scan.py).
+
+strategy:
+  wallet: "${WILD_CONDOR_WALLET}"
+  slots: 1                                # one amazing trade per day — single position
+  default_leverage: 10                    # fallback; scan emits per-score 10x (auto-clamped to venue max)
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: condor_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 180                  # v2 producer cadence (3 min)
+    timeout_seconds: 120                   # v2 tick_timeout; 3 universe-level MCP reads/tick
+    default_signal_validity_seconds: 300   # under two 180s ticks. Was 1800: 48 of 110 opens fired 00:00-00:59 UTC when the
+                                           # daily entry cap reset, 69% on a setup first blocked ~2.6h earlier (36% win vs 56%)
+    state_history_max_count: 100           # dedup map + per-tick scan-results history (~5h @180s)
+    inputs:
+      universeSize: 50                     # top N HL crypto by 24h notional volume
+      minOiUsd: 1000000                    # OI >= $1M hard floor
+      smLimit: 100                         # leaderboard_get_markets aggregation depth
+      # 15, not condor's 12. Set with the margin below rather than on its own: the floor and the
+      # size are one setting in two places.
+      #
+      # Derived from the score scale. Condor's maximum is 19 (4h 4 + 1h 2 + 15m 2 + 3TF 3 + SM 4 +
+      # depth 1 + funding 1 + BTC 1 + session 1); its shipped floor of 12 is 63% of that. Penguin,
+      # the reference for a one-slot whole-book position, sits at 9 of 12 = 75%. 75% of 19 is
+      # 14.25, and 15 is both the next integer and condor's own top tier.
+      #
+      # The rate at which condor scores 15+ has not been measured. If it is too low to keep the
+      # single slot occupied, the next step down is 13 (condor's middle tier, 68%).
+      # 0 = accept whatever the venue will lever and only WARN when it is below the leverage this
+      # ladder was authored for. Every DSL threshold is ROE and the engine divides by leverage to
+      # get a price floor, so on a name the venue caps at half this package's leverage every exit
+      # distance DOUBLES in price and the upper rungs can fall out of reach. Raise this to the
+      # package's leverage to make the scanner prefer a lower-scoring name the ladder actually fits;
+      # it falls back to the top candidate with a warning rather than skipping the tick.
+      minLeverage: 0
+      minScore: 15
+      # 90 flat — see the header for the arithmetic.
+      marginPct: 90
+      maxPositions: 1                      # "one amazing trade per day"
+      # SM gates. `minSmConsensusPct: 70` used to live here and gated
+      # `pct_of_top_traders_gain` — a share of TOTAL top-trader gain spread across the
+      # whole leaderboard (sums to ~100 board-wide), never a per-market "% of traders".
+      # No market could reach 70, so it blocked 100% of signals. Directional agreement
+      # now comes from `is_dominant_direction`; the gain share is a separate
+      # concentration filter on its own scale. Thresholds derived from one live
+      # snapshot — NOT backtested, tune before relying on them.
+      # ── proven cohort: replaced the 4h gain board's directional read (2026-10-12) ──
+      # The board is circular — when a coin falls, every wallet short it is mechanically
+      # at the top of the 4h gain board. Direction now comes from the 3TF price action and
+      # is confirmed by HEADCOUNT among the wallets with >= $1M LIFETIME realized PnL,
+      # which senpi-signals treats as the definition of smart money. Price cannot change a
+      # headcount. The old gain-share thresholds were never backtested — they came from a
+      # single live snapshot (2026-08-13) and the scorer said so.
+      cohortPool: 200                      # rows pulled from discovery_get_top_traders
+      cohortCap: 150                       # cap the cohort at N wallets
+      cohortMinRealizedUsd: 1000000        # the >= $1M floor
+      cohortCacheTtlSeconds: 900           # refresh every ~15 min
+      minPositionedCount: 10               # minimum proven wallets positioned in a coin
+      minCohortConvictionPct: 60.0         # dominant side must hold >= 60% of them
+      stronglyTiltedConvictionPct: 80.0    # conviction tier for +4
+      convergentConvictionPct: 70.0        # conviction tier for +3
+      deepConsensusCount: 50               # cohort depth for +1
+      min4hMagnitude: 1.0                  # 3TF alignment floors
+      min1hMagnitude: 0.3
+      min15mVelocity: 0.1
+      macroGateThresholdPct: 10.0          # MACRO_TREND_GATE (no counter-trend >10%)
+      recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC race-window dedup
+      # leverageTiers: per-score [min_score, leverage, marginPct(PERCENT)]; omit -> scoring defaults
+      # One row: the floor above is the top tier, so there is no band left to scale margin across.
+      # The 13 and 11 rows are removed rather than left unreachable. Restore them together with a
+      # lower minScore if the floor is ever moved down.
+      leverageTiers: [[15, 10, 90]]
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      priceChange4hPct: { type: number, required: false }
+      priceChange1hPct: { type: number, required: false }
+      contribChange15m: { type: number, required: false }
+      cohortConvictionPct: { type: number, required: false }
+      cohortPositioned: { type: number, required: false }
+      oiUsd: { type: number, required: false }
+      funding: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: condor_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every hard gate + score floor
+    scanners: [condor_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # trend-continuation cannot miss the entry — taker fallback
+        execution_timeout_seconds: 30      # v2 entry timeout
+    context:
+      - type: signal
+        scanner: condor_main_signals
+
+# EXIT — DSL, ported VERBATIM from v2 v4.0.1. Wide so apex setups breathe through
+# normal wicks: Phase 1 max_loss 20% (retrace 12), Phase 2 6-tier ladder (Kodiak SOL
+# empirical). weak_peak_cut DISABLED (apex thesis needs 4-8h). FEE_OPTIMIZED_LIMIT
+# close with taker fallback. First phase2 lock REACHABLE at +8% (lock 30%).
+exit:
+  engine: dsl
+  interval_seconds: 60                     # v2 v4.0.1: 30 -> 60 (REDUCE_ONLY spam mitigation)
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # exit closes MUST happen
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      # OFF. "One trade per day" is an ENTRY cadence (max_entries_per_day below enforces it); it was
+      # never a reason to close a working position on the clock. A timer reads elapsed time and
+      # nothing about the trade. Value kept so re-enabling is one line.
+      enabled: false
+      interval_in_minutes: 1440
+    weak_peak_cut:
+      # The only time cut. Five hours to show +5% ROE (a 0.5% price move at 10x) or the slot is
+      # freed. Raised from 120m / 3.0.
+      #
+      # It fires only while peak ROE has not reached min_value, and entering phase 2 implies peak
+      # ROE >= the first tier's trigger_pct. With min_value 5 below that trigger, it can only fire
+      # in phase 1 (see senpi-strategy-author/references/dsl-configuration.md) — a position that
+      # reaches +5% is no longer eligible for it. That bounds positions that never moved, rather
+      # than slow ones. Five hours also sits inside the 4-8h window this file gives for an apex
+      # thesis to develop, which the 60-minute dead_weight_cut did not.
+      enabled: true
+      interval_in_minutes: 300
+      min_value: 5.0
+    dead_weight_cut:
+      # OFF. It cut at 60 minutes while weak_peak_cut directly above is disabled on the grounds that
+      # "Apex thesis needs 4-8h to develop" — the two settings contradicted each other, and the
+      # 60-minute one was winning. Value kept so re-enabling is one line.
+      enabled: false
+      interval_in_minutes: 60
+    phase1:
+      # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a small favourable
+      # move it can still sit BELOW entry and close a WINNER at a loss — churning fees.
+      # The ratchet must only ever lock a GAIN, or the position rides to the stop.
+      # max_loss_pct := the old retrace (12.0% ROE), which is what the trail was already
+      # enforcing, so the per-trade risk cap is UNCHANGED. retrace_threshold is now inert.
+      enabled: false
+      max_loss_pct: 15.0   # 1.50% of price at 10x — condor 3.4.0 parity. Was 12.0 (= 1.20% of
+                           # price), INSIDE the measured 1.38% p75 adverse bounce on this
+                           # universe, so ordinary noise was taking the stop out.
+      retrace_threshold: 12                # v2: raised 8 -> 12 (don't pre-exit the one amazing trade)
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                                      # PENGUIN's ladder verbatim. Both packages are 10x,
+                                                  # so every ROE trigger is the same PRICE move here
+                                                  # that it is there and the port needs no rescaling.
+                                                  # See strategies/penguin/main/runtime.yaml for how
+                                                  # each rung was sized (1m-bar replay over 92 closes
+                                                  # on 41 assets) and do not re-tune it here.
+                                                  #
+                                                  # What it replaces: CONDOR's first rung armed at
+                                                  # +8% ROE, a 0.80% price move, against a measured
+                                                  # MEDIAN peak of 0.84% — so it armed on about half
+                                                  # of all positions and the rest reached the stop
+                                                  # with no profit floor ever set. Its later rungs
+                                                  # also locked far tighter (70/85/90/94), leaving a
+                                                  # 0.75% leash at rung 2 against a median 10x-asset
+                                                  # p75 bounce of 1.58% — under half the noise band.
+        - { trigger_pct: 6,   lock_hw_pct: 30 }   # 0.6% of price — LOSS REDUCER
+        - { trigger_pct: 20,  lock_hw_pct: 40 }   # 2.0% of price
+        - { trigger_pct: 25,  lock_hw_pct: 50 }   # 2.5% of price
+        - { trigger_pct: 30,  lock_hw_pct: 60 }   # 3.0% of price
+        - { trigger_pct: 40,  lock_hw_pct: 65 }   # 4.0% of price
+        - { trigger_pct: 50,  lock_hw_pct: 70 }   # 5.0% of price
+        - { trigger_pct: 70,  lock_hw_pct: 75 }   # 7.0% of price
+        - { trigger_pct: 100, lock_hw_pct: 85 }   # 10% of price
+
+risk:
+  # KEPT, unlike PENGUIN which runs with all four off. Given the history in the header this package
+  # must not inherit penguin's risk posture along with its ladder. Note the limit though: every one
+  # of these halts ENTRIES; none closes an open position.
+  guard_rails:
+    daily_loss_limit_pct: 15
+    # OFF (condor ships 1). "One amazing trade per day" is condor's product identity; it is not
+    # this package's. An experiment needs a sample, and at one entry per day a few dozen trades
+    # takes a couple of months — long enough that the config would change underneath the data.
+    #
+    # Removing it does NOT make entries unbounded. daily_loss_limit_pct 15 still halts entries for
+    # the day, and at 90% margin / 10x one stop-out costs 10.8% of equity, so two losing trades
+    # trip it. max_consecutive_losses 3 with a 2h freeze and the 25% drawdown halt are unchanged,
+    # as is the 2h per-asset cooldown that stops it re-entering the same name. The effective cap is
+    # now the loss budget rather than a trade count, which is the right shape for a test.
+    max_entries_per_day: 999
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 7200                  # v2 cooldown_minutes 120 (2h post-loss freeze)
+    drawdown_halt_pct: 25                   # HARD STOP circuit breaker
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 7200        # v2 per_asset_cooldown_minutes 120 (2h)

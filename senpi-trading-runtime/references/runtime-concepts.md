@@ -91,7 +91,7 @@ tracking) and closes (to clean up). Without this scanner the DSL never learns ab
 ## Actions: how signals become trades and exits
 
 An action consumes signals from one or more scanners and reacts. `decision_mode` is `rule`, `llm`, or
-`no_decision`.
+`none` (an `OPEN_POSITION` opens nothing; leaving the field out means `none`).
 
 - **`OPEN_POSITION`** consumes the signals your `external_scanner` returns and opens a position via
   `FEE_OPTIMIZED_LIMIT`. In `rule` mode it opens on every accepted signal; in `llm` mode a decision
@@ -123,6 +123,15 @@ The DSL (Dynamic Stop-Loss) engine is an **autonomous, rule-based trailing stop-
 starts tracking a position when `ON_POSITION_OPENED` fires, then evaluates exit conditions every
 `interval_seconds` (integer, 5–3600). When a condition is met it closes the position and records the
 close reason. No LLM is involved — every decision is deterministic from the configured parameters.
+
+**Every exit is a FULL close — there are no partial exits.** Phase-1 floors, phase-2 tiers and all
+three time cuts close 100% of the position (`closePosition(coin, reason, …)` takes no size). A tier's
+`lock_hw_pct: 60` does **not** sell 60% — it moves the floor to 60% of high-water ROE and still exits
+everything. Nothing else reduces either: the `CLOSE_POSITION` action closes by coin (no size), and
+`edit_position` — the MCP's only reduce — is blocked to scanners (`scan-contract.md` → Read-only MCP
+boundary), so a scanner that tries raises `PermissionError` every tick while its log reads as if the
+rule fired. "Take 25% off at +10% ROE" cannot be authored in a runtime package; design exits around
+a full close.
 
 ### How a tick works
 
@@ -163,7 +172,7 @@ floor_roe   = high_water_roe × (lock_hw_pct / 100)
 floor_price = entry_price + floor_roe converted to price
 ```
 
-The floor **only ratchets up**. In Phase 2 all exits are **exchange-driven**: the runtime places and
+Within a tier the floor only moves up. Keep `lock_hw_pct` the same or higher across tiers: a lower lock at a higher tier never tightens the stop, and can loosen it. In Phase 2 all exits are **exchange-driven**: the runtime places and
 continuously updates a stop-loss order at the current floor; when price hits it the exchange executes
 and the position closes with reason `exchange_sl_hit`. There is **no breach counting and no retrace
 knob in Phase 2** — tier `retrace`/`breaches` and `phase2.retrace_threshold` /
@@ -290,7 +299,7 @@ Telegram notification (if dsl_lifecycle enabled)
 | `consecutive_breaches_required` | Consecutive ticks below the Phase 1 floor before exit. |
 | `max_loss_pct` | Hard absolute floor — never lose more than this ROE% from entry. Positive number. |
 | `trigger_pct` (tier) | ROE% that activates this tier and enters Phase 2. Strictly ascending across tiers. |
-| `lock_hw_pct` (tier) | % of peak high-water ROE to protect as the Phase 2 trailing floor. Higher = tighter. |
+| `lock_hw_pct` (tier) | % of peak high-water ROE to protect as the Phase 2 trailing floor. Higher = tighter. Keep the same or higher across tiers. |
 | `hard_timeout` | Max minutes since open before the position is closed, whatever its phase. |
 | `weak_peak_cut` | Exits faded positions whose peak never reached `min_value` ROE. |
 | `dead_weight_cut` | Exits positions held continuously non-positive past the interval. |

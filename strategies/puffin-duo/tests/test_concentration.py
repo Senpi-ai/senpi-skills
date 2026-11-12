@@ -1,0 +1,282 @@
+"""What PUFFIN changes about SIGNALS-HUNTER, pinned: the ring, the margin cap, and the card.
+
+Three things here have already been shipped wrong somewhere in this tree, which is why each one is
+a test rather than a comment:
+
+  1. **The ring.** score.py picks both diff baselines by wall-clock AGE. A count-tailed ring
+     therefore ties what the detectors can SEE to the tick interval, and shortening the tick from
+     an hour to 15 minutes silently hands the "12h" trend arm a 6h baseline — which it does not
+     refuse, it just reports as a trend. Fail-open, invisible, and the exact shape of the dead
+     volume gate (strategies/tests/test_no_phantom_asset_context_keys.py).
+  2. **The margin cap.** `maxTotalMarginPct` defaults to 80 in the module SIGNALS-HUNTER ships. At
+     a 90% tier that rejects every signal on an EMPTY book, forever, while every tick reports
+     itself healthy. A concentrated fork that forgets to raise it never opens a position.
+  3. **The card.** `belief_plain` quotes a per-stop-out cost and a gross exposure. Those are
+     arithmetic on max_loss_pct, marginPct and leverage, so they can go stale in a retune — the
+     athena-x failure that strategies/tests/test_card_self_consistency.py exists for.
+
+Run: python3 -m pytest strategies/puffin/tests -q
+"""
+import datetime
+import os
+import sys
+
+import pytest
+import yaml
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "main", "scanners"))
+
+import scan  # noqa: E402
+import score  # noqa: E402
+
+RT = yaml.safe_load(open(os.path.join(HERE, "..", "main", "runtime.yaml"), encoding="utf-8"))
+CARD = yaml.safe_load(open(os.path.join(HERE, "..", "strategy.yaml"), encoding="utf-8"))
+SCANNER = next(s for s in RT["scanners"] if s["name"] == "puffin_scan")
+IN = SCANNER["inputs"]
+DSL = RT["exit"]["dsl_preset"]
+LEV = IN["leverage"]
+
+
+def _ring(interval_seconds, hours, now):
+    """A ring as this scanner would actually build one: one snapshot per tick, oldest first."""
+    step = interval_seconds / 60.0
+    n = int(hours * 60 / step)
+    return [{"ts": (now - datetime.timedelta(minutes=step * (n - i))).isoformat(),
+             "asset_metrics": {"A": {"smart_share": 50.0, "smart_source": "proven_cohort"}}}
+            for i in range(n)]
+
+
+def _arms(ring, now):
+    """(fast baseline age, slow baseline age) in minutes, as score.py would resolve them."""
+    fast = score._pick_baseline(ring, now)
+    ts = score._parse_ts((fast or {}).get("ts"))
+    fast_age = (now - ts).total_seconds() / 60.0 if ts else None
+    _, slow_age = score.make_slow_lookup(ring, now)("A", "proven_cohort")
+    return fast_age, slow_age
+
+
+# ── 1. the ring ──
+
+def test_the_shipped_clock_still_feeds_both_detector_arms():
+    """The regression this package exists around. At the interval runtime.yaml actually ships,
+    the stratified ring must give the fast arm a ~60min partner and the slow arm one near 12h and
+    comfortably above the refusal floor — otherwise the trend detector is dead on arrival."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    ring = _ring(SCANNER["interval_seconds"], 30, now)
+    kept = scan._stratify_ring(ring, now, IN["ringMax"], IN["ringDenseMinutes"],
+                               IN["ringSparseStepMinutes"])
+    fast_age, slow_age = _arms(kept, now)
+    assert len(kept) <= IN["ringMax"], f"stratified ring overran its own cap: {len(kept)}"
+    assert fast_age is not None and abs(fast_age - score.DIFF_TARGET_MIN) <= 30, (
+        f"fast arm baseline is {fast_age}min, wanted ~{score.DIFF_TARGET_MIN}min")
+    assert slow_age is not None, (
+        "the ~12h trend arm has NO baseline at the shipped interval — it will never fire")
+    assert slow_age >= score.TREND_MIN_AGE_MIN, (
+        f"slow baseline {slow_age}min is under score.TREND_MIN_AGE_MIN "
+        f"({score.TREND_MIN_AGE_MIN}) — make_slow_lookup discards it")
+    assert abs(slow_age - score.TREND_LOOKBACK_MIN) <= 120, (
+        f"slow baseline {slow_age}min is far from the intended {score.TREND_LOOKBACK_MIN}min arm")
+
+
+def test_the_inherited_tail_keep_would_break_that():
+    """Guard the guard. If a plain `ring[-ringMax:]` also passed the test above, _stratify_ring
+    would be decoration and someone would rightly delete it.
+
+    It does not. At 24 snapshots x 15min the tail spans exactly 6h, so the slow arm lands on
+    precisely TREND_MIN_AGE_MIN — the boundary make_slow_lookup compares with `age <`, so it is
+    ACCEPTED rather than refused. That is the worst of the three outcomes: the trend detector does
+    not go dark and does not error, it reports a 6h baseline as the ~12h arm. Half the lookback,
+    same name, nothing in the logs."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    ring = _ring(SCANNER["interval_seconds"], 30, now)
+    _, tail_slow = _arms(ring[-IN["ringMax"]:], now)
+    _, kept_slow = _arms(scan._stratify_ring(ring, now, IN["ringMax"], IN["ringDenseMinutes"],
+                                             IN["ringSparseStepMinutes"]), now)
+    assert tail_slow is None or tail_slow <= score.TREND_MIN_AGE_MIN, (
+        f"a count-tailed ring gave the slow arm {tail_slow}min — if that is now adequate, "
+        f"_stratify_ring is no longer earning its place")
+    assert kept_slow is not None and kept_slow > (tail_slow or 0), (
+        f"stratifying did not improve the slow arm: tail={tail_slow} stratified={kept_slow}")
+
+
+def test_an_hourly_clock_is_still_served():
+    """The stratification must not be tuned so tightly to 15 minutes that it breaks the cadence it
+    was forked from — that would make the function un-reusable and the comparison above dishonest."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    kept = scan._stratify_ring(_ring(3600, 30, now), now, IN["ringMax"], IN["ringDenseMinutes"],
+                               IN["ringSparseStepMinutes"])
+    fast_age, slow_age = _arms(kept, now)
+    assert fast_age is not None and abs(fast_age - score.DIFF_TARGET_MIN) <= 30, fast_age
+    assert slow_age is not None and slow_age >= score.TREND_MIN_AGE_MIN, slow_age
+
+
+def test_a_starved_ring_says_so_instead_of_going_quiet(capsys):
+    """The dense tier is taken first, so a dense window that fills the cap on its own leaves no
+    room for the sparse one and the trend arm dies. Reachable by lowering interval_seconds or
+    raising ringDenseMinutes. It must be loud, because every other detector keeps working."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    kept = scan._stratify_ring(_ring(300, 30, now), now, 24, 120, 120)   # 5-min tick: 24 dense
+    _, slow_age = _arms(kept, now)
+    assert slow_age is None, "this fixture no longer starves the ring — re-pick it"
+    err = capsys.readouterr().err
+    assert "WARNING" in err and "TREND_MIN_AGE_MIN" in err and "ringDenseMinutes" in err, err
+
+
+def test_unparseable_snapshots_are_dropped_not_carried():
+    now = datetime.datetime.now(datetime.timezone.utc)
+    ring = _ring(900, 8, now) + [{"ts": "not-a-timestamp", "asset_metrics": {"A": {}}}]
+    kept = scan._stratify_ring(ring, now, IN["ringMax"], IN["ringDenseMinutes"],
+                               IN["ringSparseStepMinutes"])
+    assert all(score._parse_ts(s["ts"]) is not None for s in kept)
+
+
+def test_the_ring_is_returned_oldest_first():
+    """`scan()` appends the new snapshot with `ring.append`, so the rest of the file assumes that
+    order. Reversing it would not raise — it would just quietly change which snapshot the cap drops."""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    kept = scan._stratify_ring(_ring(900, 30, now), now, IN["ringMax"], IN["ringDenseMinutes"],
+                               IN["ringSparseStepMinutes"])
+    ages = [(now - score._parse_ts(s["ts"])).total_seconds() for s in kept]
+    assert ages == sorted(ages, reverse=True), "ring came back newest-first"
+
+
+# ── 2. the margin cap ──
+
+def test_the_cap_admits_the_top_tier_or_nothing_ever_opens():
+    assert IN["maxTotalMarginPct"] > IN["highMarginPct"], (
+        f"maxTotalMarginPct {IN['maxTotalMarginPct']} <= highMarginPct {IN['highMarginPct']}: the "
+        f"emit guard rejects every signal on an empty book and the strategy never trades")
+    assert scan.DEFAULT_MAX_TOTAL_MARGIN_PCT > scan.DEFAULT_HIGH_MARGIN_PCT
+
+
+def test_the_cap_admits_exactly_two_positions_and_no_third():
+    """INVERTED from puffin, and this is the package.
+
+    puffin asserts the cap BLOCKS a second position — one slot is its thesis. puffin-duo's thesis is
+    two, so the same cap has to admit the second and still refuse a third. Both halves matter: a cap
+    that blocked the second would leave this package silently identical to puffin while claiming to
+    be the experiment, and one that admitted a third would quietly be a different strategy again."""
+    assert 2 * IN["marginPct"] <= IN["maxTotalMarginPct"], (
+        f'two base-tier positions ({2 * IN["marginPct"]}%) do not fit under maxTotalMarginPct '
+        f'({IN["maxTotalMarginPct"]}%) — the second slot can never open and this package would be '
+        f'puffin with extra steps')
+    assert 3 * IN["marginPct"] > IN["maxTotalMarginPct"], (
+        f'a THIRD position fits under the cap — puffin-duo is two slots, not three')
+
+
+def test_the_high_tier_cannot_starve_the_second_slot():
+    """The forced third change, pinned so nobody "restores" puffin's 75/90 tier here.
+
+    The emit guard rejects when committed + want > maxTotalMarginPct. With two slots, any high tier
+    above half the cap makes the second slot unopenable the moment the first fires high — which
+    reads as "quiet", not as a blocked slot. puffin's 90 high tier and a second slot cannot coexist
+    under a 92 cap."""
+    assert 2 * IN["highMarginPct"] <= IN["maxTotalMarginPct"], (
+        f'two HIGH-tier positions ({2 * IN["highMarginPct"]}%) exceed the cap '
+        f'({IN["maxTotalMarginPct"]}%), so a high-conviction first entry silently blocks the second '
+        f'slot for the life of the trade')
+    assert RT["strategy"]["slots"] == 2, "puffin-duo runs two slots; that is the package"
+
+
+@pytest.mark.parametrize("key,mod", [("minScore", "DEFAULT_MIN_SCORE"),
+                                     ("highScoreThreshold", "DEFAULT_HIGH_SCORE"),
+                                     ("marginPct", "DEFAULT_MARGIN_PCT"),
+                                     ("highMarginPct", "DEFAULT_HIGH_MARGIN_PCT"),
+                                     ("leverage", "DEFAULT_LEVERAGE"),
+                                     ("familyCap", "DEFAULT_FAMILY_CAP"),
+                                     ("maxTotalMarginPct", "DEFAULT_MAX_TOTAL_MARGIN_PCT")])
+def test_module_defaults_mirror_the_shipped_inputs(key, mod):
+    """Per-signal sizing outranks the strategy block, so `inputs:` is what ships — and a fork whose
+    module defaults still hold the ancestor's numbers trades as the ancestor the moment that block
+    goes missing. Nothing in the runtime warns; the two just have to agree."""
+    assert float(getattr(scan, mod)) == float(IN[key]), (
+        f"scan.{mod} and runtime.yaml inputs.{key} disagree")
+
+
+def test_the_strategy_block_mirrors_the_signal_sizing_too():
+    assert RT["strategy"]["margin_pct"] == IN["marginPct"]
+    assert RT["strategy"]["default_leverage"] == IN["leverage"]
+
+
+# ── 3. the clock ──
+
+def test_the_scan_is_faster_than_the_package_it_forked():
+    sh = yaml.safe_load(open(os.path.join(HERE, "..", "..", "signals-hunter", "main",
+                                          "runtime.yaml"), encoding="utf-8"))
+    parent = next(s for s in sh["scanners"] if s["type"] == "external_scanner")
+    assert SCANNER["interval_seconds"] < parent["interval_seconds"]
+    assert SCANNER["timeout_seconds"] < SCANNER["interval_seconds"], "timeout must fit the tick"
+    assert SCANNER["default_signal_validity_seconds"] <= 2 * SCANNER["interval_seconds"], (
+        "a signal outliving two ticks can fire long after the reading that produced it")
+
+
+# ── 4. the card is arithmetic ──
+
+def test_the_card_quotes_the_stop_cost_the_config_actually_implies():
+    """belief_plain: 'about 11% per position, 23% if both stop out'.
+
+    Halving the margin halves what ONE wrong call costs — which is the point of the package — but
+    there are two of them now, so the card has to quote both numbers or it understates the risk by
+    exactly a factor of two."""
+    stop = DSL["phase1"]["max_loss_pct"] / 100.0
+    per = stop * IN["marginPct"]
+    both = stop * IN["marginPct"] * RT["strategy"]["slots"]
+    assert 10.5 <= per <= 12.0, f"one stop-out costs {per:.1f}% of the account; the card says ~11%"
+    assert 21.0 <= both <= 24.0, (
+        f"both slots stopping out costs {both:.1f}%; the card says ~23%")
+
+
+def test_the_card_quotes_the_gross_exposure_the_config_actually_implies():
+    """tagline/thesis: 'up to 9x gross exposure'. test_card_self_consistency allows exactly one
+    such figure per card, so this pins that figure to the config rather than to a memory of it."""
+    # Unchanged from puffin, and worth stating: halving the margin and doubling the slots leaves
+    # GROSS exposure identical at 9x. This package moves concentration, not leverage.
+    assert IN["highMarginPct"] / 100.0 * LEV * RT["strategy"]["slots"] == 9.0
+    assert CARD["catalog"]["leverage_max"] == LEV
+    assert CARD["catalog"]["max_slots"] == RT["strategy"]["slots"]
+
+
+def test_every_dsl_threshold_is_stated_in_roe_at_this_leverage():
+    """SIGNALS-HUNTER's ladder is tuned for 5x and its own comment warns that carrying those ROE
+    numbers onto a different leverage rescales every exit in price. This package is 10x, so the
+    ladder must rise monotonically and every rung must exit at a profit.
+
+    v1.1.0 DROPPED the old `trig[0] >= max_loss_pct` assertion. It encoded the belief that a tier
+    arming inside the stop distance "locks in before risk is off" — which is true, and is now the
+    POINT. Rung 1 (10/20) is a loss reducer ported from PENGUIN, where a full 1m-bar replay of 12
+    closed positions scored it +$2,740 against the ladder without it and positive under every
+    leave-one-out deletion. It arms at +10% ROE against a -25% stop precisely so a position that
+    went green cannot round-trip through entry to the stop. What still must hold is that no rung
+    can exit at a LOSS, which is the assertion below."""
+    tiers = DSL["phase2"]["tiers"]
+    trig = [t["trigger_pct"] for t in tiers]
+    lock = [t["lock_hw_pct"] for t in tiers]
+    assert trig == sorted(trig) and len(set(trig)) == len(trig), trig
+    assert lock == sorted(lock) and len(set(lock)) == len(lock), lock
+    assert all(l > 0 for l in lock), (
+        f"lock_hw_pct: 0 is banned fleet-wide — a 0% floor exits flat but still pays the round "
+        f"trip, so it is a guaranteed fee loss, not a scratch. Got {lock}")
+    assert all(t * l / 100.0 > 0 for t, l in zip(trig, lock)), (
+        "every rung's floor (trigger x lock) must sit above entry — a rung that can fire below "
+        "entry is a stop wearing a profit tier's name")
+    assert DSL["phase1"]["enabled"] is False and DSL["phase1"]["max_loss_pct"] > 0, (
+        "phase1 trailing is off here, so max_loss_pct is the ONLY floor and must be set")
+
+
+def test_nothing_closes_this_position_on_a_clock():
+    """v1.1.0: DSL ONLY. This package follows smart-money positioning, funding dislocation and OI
+    surges — a rotation thesis that plays out over hours. A timer reads elapsed time and nothing
+    about the position, so it cannot tell a thesis that is WRONG from one that has NOT HAPPENED
+    YET, and every time cut here was closing the second case along with the first. The fleet
+    measurement behind the call is in the exit block of runtime.yaml.
+
+    This is the test that keeps a future retune from quietly reintroducing a clock. If you are
+    turning one of these back on, delete this test in the same commit and say why."""
+    for cut in ("hard_timeout", "weak_peak_cut", "dead_weight_cut"):
+        assert DSL[cut]["enabled"] is False, (
+            f"{cut} is enabled — this package exits on the DSL floor only. A clock cannot read "
+            f"the position, and a rotation thesis routinely needs longer than any of these allow.")
+    actions = {a["action_type"] for a in RT["actions"]}
+    assert "CLOSE_POSITION" not in actions, (
+        "a CLOSE_POSITION action would put a second, scanner-driven exit path beside the DSL")

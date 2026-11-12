@@ -1,9 +1,9 @@
 """HYDRA DIP — supervised scanner (Runtime 3.0 port of v2 hydra-producer.py single_main,
 LEG=dip). Single-asset, LONG-only. Reads the thesis coin's 1h/4h/1d candles + funding,
-scores via the pure `scoring.score_dip`, and emits ONE signal when a pullback inside a
-confirmed 1d+4h uptrend clears minScore. Read-only + single-pass — emits a `marginPct`
-intent plus a per-signal `leverage`; the runtime sizes the dollars, owns the cooldowns/
-risk gates, and trails the DSL exit. No daemon.
+scores via the pure `scoring.score_dip` (closed candles only), and emits ONE signal when a
+pullback inside a confirmed 1d+4h uptrend clears minScore. Read-only + single-pass — emits
+a `marginPct` intent plus a per-signal `leverage` (one value, inputs.leverage); the runtime
+sizes the dollars, owns the cooldowns/risk gates, and trails the DSL exit. No daemon.
 
 PER-COIN PARAMETERIZATION: the thesis coin is inputs.coin (mirrors v2 HYDRA_COIN env).
 """
@@ -66,7 +66,7 @@ def scan(inputs, ctx):
     coin = str(inputs.get("coin", "ETH"))
     dex = _dex_for(coin, inputs)
     min_score = float(inputs.get("minScore", 4))
-    margin_pct = float(inputs.get("marginPct", 18))     # PERCENT of withdrawable (0,100]
+    margin_pct = float(inputs.get("marginPct", 30))     # PERCENT of withdrawable (0,100]
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
     min_notional_pct = float(inputs.get("minNotionalPctOfEquity", 0.01))
     venue_min_notional = float(inputs.get("venueMinNotionalUsd", 10))
@@ -109,7 +109,7 @@ def scan(inputs, ctx):
     d = md.get("data", md) if isinstance(md, dict) else {}
     candles = d.get("candles", {}) or {}
 
-    th = scoring.score_dip(candles.get("1h", []), candles.get("4h", []), candles.get("1d", []), inputs)
+    th = scoring.score_dip(candles.get("1h", []), candles.get("4h", []), candles.get("1d", []), inputs, now)
     if not th or th["score"] < min_score:
         result = {"ts": now, "coin": coin, "emitted": False, "gate": "blocked",
                   "score": (th["score"] if th else None), "note": "no pullback in an uptrend"}

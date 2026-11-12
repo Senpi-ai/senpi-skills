@@ -67,25 +67,10 @@ def _vol(c):
 def roundtrip_fee_pct(inputs, maker_entry=True):
     """Cost of one full round trip, as a PERCENT OF PRICE (not of margin).
 
-    Defaults are conservative placeholders, NOT verified venue rates — the exact
-    per-wallet schedule is on HL's Info API (`userFees`) and varies with volume tier
-    and Senpi points. Operators should set these from a real read; they are inputs so
-    nobody has to edit code to correct them.
-    """
-    taker = _f(inputs.get("takerFeeBps"), 4.5) / 100.0     # bps -> percent
-    maker = _f(inputs.get("makerFeeBps"), 1.5) / 100.0
-    entry = maker if maker_entry else taker
-
-
-# ── THE FEE GATE — the reason this template exists ──
-
-def roundtrip_fee_pct(inputs, maker_entry=True):
-    """Cost of one full round trip, as a PERCENT OF PRICE (not of margin).
-
-    Defaults are conservative placeholders, NOT verified venue rates — the exact
-    per-wallet schedule is on HL's Info API (`userFees`) and varies with volume tier
-    and Senpi points. Operators should set these from a real read; they are inputs so
-    nobody has to edit code to correct them.
+    The defaults are the venue's base rates (4.5 bps taker, 1.5 bps maker per side), the same
+    numbers runtime.yaml ships: 0.06% maker-in/taker-out, 0.09% taker/taker. Senpi adds no fee
+    on a paid plan, and the account's HL volume tier (Info API `userFees`) only lowers them;
+    they are inputs so nobody has to edit code to correct them.
     """
     taker = _f(inputs.get("takerFeeBps"), 4.5) / 100.0     # bps -> percent
     maker = _f(inputs.get("makerFeeBps"), 1.5) / 100.0
@@ -118,7 +103,7 @@ def expected_capture_pct(candles, inputs):
     number and is what the fee gate is measured against.
     """
     return atr_pct(candles, int(_f(inputs.get("atrPeriod"), 14))) * \
-        _f(inputs.get("atrCaptureFraction"), 0.5)
+        _f(inputs.get("atrCaptureFraction"), 0.6)
 
 
 def clears_fees(candles, inputs, maker_entry=True):
@@ -129,7 +114,7 @@ def clears_fees(candles, inputs, maker_entry=True):
     """
     cap = expected_capture_pct(candles, inputs)
     fee = roundtrip_fee_pct(inputs, maker_entry)
-    need = fee * _f(inputs.get("feeCoverMultiple"), 3.0)
+    need = fee * _f(inputs.get("feeCoverMultiple"), 2.5)
     return cap >= need, {"expected_capture_pct": round(cap, 4),
                          "roundtrip_fee_pct": round(fee, 4),
                          "required_pct": round(need, 4)}
@@ -291,10 +276,12 @@ def band_for(score, inputs):
 
 def sizing_for(band, inputs, venue_max=None):
     """(leverage, marginPct). marginPct is a PERCENT in (0,100] — never a fraction."""
-    lev = _f((inputs.get("leverageTiers") or {}).get(band), 3)
-    mgn = _f((inputs.get("marginPctTiers") or {}).get(band), 8)
-    lev = min(lev, _f(inputs.get("maxLeverage"), 5))
+    # Fallbacks mirror runtime.yaml (1.1.0: 4x and 20% on every band) so a stripped input
+    # cannot silently size a slot the card does not describe.
+    lev = _f((inputs.get("leverageTiers") or {}).get(band), 4)
+    mgn = _f((inputs.get("marginPctTiers") or {}).get(band), 20)
+    lev = min(lev, _f(inputs.get("maxLeverage"), 4))
     if venue_max:
         lev = min(lev, _f(venue_max, lev))
-    mgn = min(mgn, _f(inputs.get("maxMarginPct"), 22))
+    mgn = min(mgn, _f(inputs.get("maxMarginPct"), 20))
     return int(max(1, lev)), round(max(0.1, mgn), 4)

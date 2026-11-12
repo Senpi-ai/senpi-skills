@@ -1,0 +1,297 @@
+# ── IBIS CONCENTRATED · single instance — one regime-matched trade at a time ───
+# Forked from ibis v1.2.0. The regime engine is UNCHANGED and byte-identical
+# (scoring.py, pinned by tests/test_engine_parity.py) — concentration is a sizing and
+# risk question, not a thesis question. Three things change, and the second is the one
+# that matters:
+#
+#   1. ONE slot instead of three, and a higher score floor, so the capital goes to the
+#      single best regime-matched setup rather than the best three.
+#   2. THE STOP MOVES OUT OF THE NOISE BAND. The parent's 8% ROE at 4x is a 2.00% price
+#      stop. Measured over 45 days of 4h candles on the parent's own universe, the
+#      MEDIAN bar range is 1.65% and on SUI/ADA/AVAX the median bar is WIDER than 2.00%
+#      (2.61 / 2.25 / 2.01). The parent survives that because 10-15% margin makes a
+#      noise stop-out cost ~1% of the wallet. Concentrating that geometry unchanged
+#      would just buy the same noise at five times the size. max_loss_pct is therefore
+#      16% ROE, which is a 4.00% price stop at 4x — outside the 90th-percentile bar on
+#      10 of the 12 names measured.
+#   3. LEVERAGE AND MARGIN ARE SET PER REGIME, because they are independent dials:
+#
+#          risk per stop   = marginPct x max_loss_pct        <- margin only
+#          price distance  = max_loss_pct / leverage         <- leverage only
+#
+#      So leverage places the stop where each regime's thesis actually dies, and margin
+#      prices what it costs to be wrong:
+#
+#        TREND  4x -> 4.00% price stop. A continuation entered on a <=4% pullback needs
+#               room to breathe; 4.00% clears the p90 bar. Margin base 35 -> 43.75% at
+#               score 7, 52.5% at score >=8.  Worst stop: 52.5 x 16% = 8.4% of wallet.
+#        RANGE  5x -> 3.20% price stop. A fade's thesis dies when price LEAVES the band,
+#               and the band must be >=3.0% wide to be faded at all — so ~3.2% IS the
+#               invalidation level, not an arbitrary number. Margin base 18 -> 22.5% /
+#               27%.  Worst stop: 27 x 16% = 4.3% of wallet.
+#
+#      Note the fade gets MORE leverage and LESS money. That is not a contradiction: the
+#      leverage buys a tighter stop, the lower margin buys a smaller loss. The fade is
+#      the lower-conviction leg and it costs about half what the trend leg costs.
+#
+# THE RISK, STATED. One trend stop costs ~8.4% of the wallet, so the 25% drawdown halt
+# absorbs two and starts the third. With ONE slot a position that drifts without
+# resolving holds the whole strategy — which is exactly why this fork adds the
+# regime-flip close scanner below. The DSL still owns every PRICE exit; that scanner
+# closes a position only for being WRONG, never for being down.
+name: ibis-concentrated-main
+group: ibis-concentrated
+version: 1.0.0
+description: >
+  IBIS CONCENTRATED — one regime-matched trade at a time. Primary timeframe 4h. The
+  parent's regime engine verbatim: classify the 4h regime by the Kaufman efficiency
+  ratio plus structure, then apply THAT regime's entry rule — an OI-confirmed
+  continuation when trending, a funding-gated band-edge fade when ranging, nothing in
+  the no-trade band between them. What changes is the money and the exit geometry: ONE
+  position instead of three, a score floor of 7 instead of 6, a stop widened to 16% ROE
+  so it sits outside a normal 4h bar rather than inside one, and leverage/margin set per
+  regime (trend 4x at 35% base, range 5x at 18% base) so the stop lands where each
+  thesis dies and the fade costs about half what the trend costs. A third scanner closes
+  a position when the regime that justified it flips. DSL-only price exits, no clocks.
+
+strategy:
+  wallet: "${IBIS_CONCENTRATED_WALLET}"
+  slots: 1
+  margin_pct: 35                          # baseline %; scan emits the per-regime tier per signal
+  default_leverage: 4                     # fallback; scan emits per-regime leverage (trend 4x / range 5x)
+  trading_risk: aggressive                # one position, 43-52% of the wallet behind it
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: ibis_cc_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 1800                 # 30m on a 4h primary timeframe — the parent's clock.
+                                           # The regime is a slow variable; a faster tick on a
+                                           # rotating universe pays the edge to fees, and also
+                                           # shortens the OI-velocity baseline it measures against.
+    timeout_seconds: 240                   # instruments + one 4h candle read per universe name
+    default_signal_validity_seconds: 3600  # 2x tick
+    state_history_max_count: 120           # OI snapshot (velocity baseline) + per-tick results
+    inputs:
+      universeVolFloorUsd: 25000000        # $25M+ 24h notional — deep enough to size into
+      maxUniverseNames: 18
+      includeXyz: false                    # crypto majors by default; true also scans xyz: names
+      excludeAssets: ["USDC", "USDT"]
+      minScore: 7                          # was 6. One slot should not be spent on a 6/9 setup.
+                                           # The reachable margin tiers are therefore x1.25 (score
+                                           # 7) and x1.5 (score >=8) — the x1.0 rung in
+                                           # scoring.margin_tier_pct is unreachable by design.
+      marginPctBase: 35                    # parent-compatible fallback for the two keys below
+      marginPctBaseTrend: 35               # -> 43.75% at score 7, 52.5% at score >=8
+      marginPctBaseRange: 18               # -> 22.5% / 27%
+      maxSlots: 1
+      leverageTrend: 4                     # 16% ROE / 4x = 4.00% price stop
+      leverageRange: 5                     # 16% ROE / 5x = 3.20% price stop
+      leverageMin: 2
+      leverageMax: 5
+      # ── regime classification ──
+      erLookback: 20                       # 20 x 4h = ~3.3 days of path
+      # 0.45, NOT the parent's 0.36, and this is the one classification value that differs.
+      # Replayed over 200 days of 4h candles on this universe (3,424 signals, net of HL taker
+      # fees), the trend leg's expectancy by ER band was:
+      #     0.36-0.40  n=444  win 48.2%  -0.75% ROE      0.55-0.62  n=212  win 61.3%  +2.64%
+      #     0.40-0.45  n=434  win 49.3%  -0.76% ROE      0.62-0.70  n=158  win 60.1%  +1.98%
+      #     0.45-0.50  n=340  win 52.1%  +0.25% ROE      0.70+      n=132  win 75.8%  +7.34%
+      #     0.50-0.55  n=259  win 56.4%  +1.35% ROE
+      # The parent's gate admits the two negative bands, which were ~58% of its trend entries
+      # and stayed net-negative at every de-overlap spacing (-0.26 / -0.33 / -0.38% ROE at 6,
+      # 12 and 24 bars apart). ER is also the only trend factor that SURVIVES de-overlapping
+      # (z=+2.57 / +2.51; the pullback term's sign flips at 24-bar spacing), which is why the
+      # fix is the gate rather than a re-weighting.
+      #
+      # It is nearly free HERE because one slot — not signal supply — is the binding
+      # constraint: simulating a single wallet over the same 200 days, max 2 entries/day,
+      #     gate 0.36 -> 115 entries, net -0.09% ROE/entry   (a coin flip that loses to fees)
+      #     gate 0.45 -> 109 entries, net +1.64% ROE/entry
+      # Six fewer entries, and the leg stops being a tax. 0.45 rather than the slightly better
+      # 0.50 (+1.71%) on purpose: the gain is inside the noise and 0.45 fits the threshold less.
+      #
+      # NOT changed in the parent, where 3 slots and 10-15% margin make the same band cost
+      # about 1% of a wallet a time. That is a live-user retune and a separate decision.
+      trendErThreshold: 0.45               # >= this AND confirming structure -> TREND
+      rangeErThreshold: 0.20               # <= this -> RANGE. Between the two -> NO TRADE.
+      strongErThreshold: 0.55              # the +2 ER rung; the gate above now sits under it
+      # ── trend rule (OI-confirmed continuation) ──
+      minOiVelocityPct: 0.35               # OI must be RISING tick-over-tick: new money, not covering
+      strongOiVelocityPct: 1.5
+      idealPullbackPct: 1.2                # prefer a shallow retrace over buying the extreme
+      maxPullbackPct: 4.0                  # deeper than this is a reversal, not a continuation
+      # ── range rule (funding-gated fade) ──
+      rangeBars: 24                        # 24 x 4h = 4 days of range
+      rangeBuyBelowPct: 0.22               # long in the bottom 22% of the range
+      rangeSellAbovePct: 0.78              # short in the top 22%
+      minRangeWidthPct: 3.0                # a narrower range cannot clear fees on the round trip
+      extremeFundingApr: 35.0              # |APR| >= this -> SKIP the fade entirely
+      calmFundingApr: 12.0
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      regime: { type: string }
+      er: { type: number, required: false }
+      reasons: { type: array, required: false }
+      structure: { type: string, required: false }
+      oiVelocityPct: { type: number, required: false }
+      pullbackPct: { type: number, required: false }
+      rangePos: { type: number, required: false }
+      fundingApr: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+  - name: ibis_cc_regime_flip
+    type: external_scanner
+    path: ./scanners
+    entrypoint: close_regime_flip.py
+    interval_seconds: 1800                 # the same 4h-derived clock as the entry scanner: the
+                                           # regime cannot flip faster than the bars it is
+                                           # measured on, so a faster poll would only add reads.
+    timeout_seconds: 120                   # clearinghouse + candles/instruments for held names
+    default_signal_validity_seconds: 3600
+    state_history_max_count: 60            # per-coin contradiction streaks
+    inputs:
+      flipConfirmTicks: 2                  # 2 consecutive contradicting scans (~1h) before closing.
+                                           # One tick is not a flip: an ER oscillating across
+                                           # trendErThreshold would otherwise churn the position
+                                           # and pay a round trip of fees each time.
+      # The regime vocabulary is kept explicit rather than inherited, so a retune of one is
+      # visibly a retune of both.
+      #
+      # trendErThreshold stays at the PARENT's 0.36 while the entry gate is 0.45, and the
+      # asymmetry is deliberate — the two thresholds answer different questions. Entry asks
+      # "is this a trend worth backing", which the data puts at 0.45. Invalidation asks "is
+      # this still a trend at all", and a LOWER threshold makes the detector MORE alert: a
+      # position opened at ER 0.60 whose ER decays to 0.40 while structure flips against it is
+      # read as TREND-with-flipped-structure and closed. Raise this to 0.45 and the same
+      # position reads UNCLEAR, which is "no verdict" — the detector goes blind to a flip on a
+      # position its own strategy opened. So this value must be <= the entry gate, never above
+      # it; the test asserts that direction rather than equality.
+      erLookback: 20
+      trendErThreshold: 0.36
+      rangeErThreshold: 0.20
+      rangeBars: 24
+      rangeBuyBelowPct: 0.22
+      rangeSellAbovePct: 0.78
+      extremeFundingApr: 35.0
+    signal_data_schema:
+      roe: { type: number }
+      confirmations: { type: number }
+      reason: { type: string }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: ibis_cc_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already classified the regime and gated the entry
+    scanners: [ibis_cc_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # maker-only rests and misses the fill on the move that
+                                           # triggered the signal (CREATE_ORDER_RESTING)
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: ibis_cc_main_signals
+  - name: ibis_cc_regime_flip_close
+    action_type: CLOSE_POSITION
+    decision_mode: rule                    # the scanner already confirmed the flip over N ticks
+    scanners: [ibis_cc_regime_flip]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # a dead thesis is exited now, not rested
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: ibis_cc_regime_flip
+
+# ── EXIT (DSL — the parent's ladder, with the floor moved out of the noise band) ─────
+# The four profit tiers are the parent's, UNCHANGED, and they are ROE-based — so what they
+# mean in price depends on the leverage the scanner emitted:
+#
+#   trend 4x (parent's leverage, so parent's price distances EXACTLY):
+#     tier1 +14% ROE = +3.5% price · tier2 +24% = +6.0% · tier3 +38% = +9.5% · tier4 +58% = +14.5%
+#   range 5x (tighter in price than the parent's 3x, which is CORRECT for a fade — a fade's
+#   target is the middle of the band, so it should lock sooner, not later):
+#     tier1 +14% ROE = +2.8% price · tier2 +24% = +4.8% · tier3 +38% = +7.6% · tier4 +58% = +11.6%
+#
+# No time cuts, at any horizon: 110 of 142 clock closes measured across the fleet were in
+# PROFIT. The cost of that choice, stated: with no hard_timeout and one slot, the floor and
+# the regime-flip scanner are the only two ways out that are not a price tier.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: false
+      interval_in_minutes: 480
+    weak_peak_cut:
+      # DISABLED. It closes at MARKET with no floor, so on a multi-day book it realises a small
+      # LOSS on a position that simply had not moved yet (observed live on xyz:PLTR in cougar).
+      # weak_peak is a CHOP tool: it belongs where the strategy already intends to be out within
+      # hours. Here, thesis death is detected by the regime-flip scanner instead — which exits on
+      # a REASON rather than on a stopwatch.
+      enabled: false
+      interval_in_minutes: 120
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 60
+    phase1:
+      # Trailing stays OFF fleet-wide: the phase-1 floor trails HIGH-WATER, so after a small
+      # favourable move it can sit BELOW entry and close a winner at a loss (live: a ZEC short
+      # reached +8.5% ROE, bounced 2.8%, and closed at -5.9%). With it off, `max_loss_pct` is the
+      # SOLE floor beneath entry, and the runtime rests it on the exchange as a real stop-loss, so
+      # a wick between polls is still caught (`exchange_sl_hit`). retrace_threshold is inert.
+      #
+      # 16, not the parent's 8, and the reason is measured rather than preferred — see the header.
+      # At 4x this is a 4.00% price stop against a 1.65% median 4h bar.
+      enabled: false
+      max_loss_pct: 16
+      retrace_threshold: 16
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 14, lock_hw_pct: 28 }
+        - { trigger_pct: 24, lock_hw_pct: 48 }
+        - { trigger_pct: 38, lock_hw_pct: 62 }
+        - { trigger_pct: 58, lock_hw_pct: 76 }
+
+# ── RISK guard rails ──
+risk:
+  data_retention_seconds: 259200           # 72h
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 2                  # one slot on a 4h timeframe: two entries is already a
+                                            # busy day, and it caps a bad day at two stops.
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 2               # tighter than the parent's 3 — at 8.4% a stop, three
+                                            # in a row is a quarter of the wallet.
+    cooldown_seconds: 3600
+    drawdown_halt_pct: 25                   # absorbs two worst-case trend stops (8.4% each) and
+                                            # starts the third. Raised from the parent's 20
+                                            # BECAUSE the per-trade loss is larger — at 20 it
+                                            # would halt on the second stop.
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 14400       # 4h — one entry per name per primary-timeframe bar
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

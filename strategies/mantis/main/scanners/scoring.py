@@ -158,7 +158,7 @@ def build_strike(candidate, inputs):
     # margin_pct, convert to PERCENT so it never silently sizes ~100x small
     # (runtime sizes (marginPct/100)*withdrawable). Tier defaults are already
     # PERCENTs (75/50/25) so this is a defensive no-op for the shipped config.
-    if 0 < margin_pct <= 1.0:
+    if 0 < margin_pct < 1.0:
         margin_pct = margin_pct * 100.0
     leverage = min(int(_f(tier.get("leverage"))), max_lev)
 

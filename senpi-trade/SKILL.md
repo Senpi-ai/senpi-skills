@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.8.0"
+  version: "1.10.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -166,6 +166,16 @@ Never pick the coins yourself and open them here.
    ladder** via `ratchet_stop_add` (tiered locks that trail up as you gain — **profit-lock only; NO downside
    floor without a runtime**; it replaces (b) if one exists — say so). Explain the
    difference in one line; let them pick.
+   **A `price` you send must be on the correct side of the live mark — check before the call.** A long's
+   stop sits BELOW the mark and a short's ABOVE; a take-profit is the mirror. The venue refuses the wrong
+   side (`SL trigger price 56.695 >= current price 56.180 for LONG position - would execute immediately`),
+   and on `edit_position` **the size change commits first**, so a refused stop leaves the position open and
+   UNPROTECTED — the error says so in its own last line. Read the mark price from
+   `strategy_get_asset_trading_limits` (wallet + coin) at the moment you build the call, never from entry, a
+   percentage you applied in your head, or a price quoted earlier in the conversation.
+   Re-sending the same price is the one thing that cannot work; recompute it from the mark. `percentage`
+   picks the side but is measured from ENTRY, so once the mark is already past that level it is refused
+   too — say so, and let the user choose between closing and a stop on the right side of the mark.
 
 Then **replay the full spec, get an explicit "yes"**, and place.
 
@@ -173,8 +183,10 @@ Then **replay the full spec, get an explicit "yes"**, and place.
 - **Open:** `strategy_create_custom_strategy` (fresh wallet + position [+ static SL/TP]) or `create_position`
   (into an existing un-managed wallet) — and **always pass `skillName` + `skillVersion`** (real params on both;
   `strategy_create_custom_strategy` creates a wallet outside `deploy.py`, so without them the position is
-  **orphaned** / unattributed per CLAUDE.md). Async — poll `strategy_list` to ACTIVE; **report the real returned
-  status**, never assume success.
+  **orphaned** / unattributed per CLAUDE.md). Async — **report the real returned status**, never assume success.
+  Poll `strategy_list` to ACTIVE only when a next step needs the new wallet live: you will `create_position`
+  into it, protect or read back the position it opened (below), or the user asked to wait. Never poll just to
+  confirm the create.
 - **Protect (if chosen):** `ratchet_stop_add` on the open position (asset + tier config; it auto-reads the live position).
 - **Read back the leverage:** the position's `leverage.value` from `strategy_get_clearinghouse_state` is
   the one that applies — quote it, not the request; when the venue clipped it, say so and fix any name or
@@ -277,10 +289,12 @@ barely trades.
 ### Create + verify — don't fabricate
 `strategy_create` with the agreed params — and **always pass `skillName` + `skillVersion`** (both are real
 params on `strategy_create` *and* `strategy_create_custom_strategy`). This skill creates the wallet directly,
-outside `deploy.py`, so without them every mirror it opens is **orphaned** (unattributed) per CLAUDE.md. Poll
-`strategy_list` to ACTIVE, then read
-`strategy_get_clearinghouse_state` and confirm positions actually opened. If the wallet is idle past a short
-window, **tell the user** and adjust target / budget / multiplier — **do not** close+recreate (see below).
+outside `deploy.py`, so without them every mirror it opens is **orphaned** (unattributed) per CLAUDE.md.
+**Report the status the call returned**; never say a position opened that no read showed. Poll `strategy_list`
+to ACTIVE and read `strategy_get_clearinghouse_state` only when a next step needs the opened positions: the
+ladder below, or the user asked to wait or to see what opened. Never poll just to confirm the create. If that
+read shows the wallet idle past a short window, **tell the user** and adjust target / budget / multiplier —
+**do not** close+recreate (see below).
 
 ### DSL on the mirror
 `ratchet_stop_add` per opened position adds the **profit-lock ladder** (no runtime) — but that's
@@ -328,6 +342,14 @@ never a run-on sentence with `1.` `2.` buried inline. Bold the action verb; one 
 ---
 
 ## Handoff & boundaries
+- **A request to act on one of the user's SAVED wallets** (close, open, set a stop, cancel — on a
+  wallet in `user_get_me`'s `external_wallets`, the ones they added in Your wallets) → answer by quoting
+  its `access` line, and make **no write-tool attempt**: "Read-only. Senpi can analyze this wallet. It
+  cannot place, change or cancel orders on it." Reading `user_get_me` to recognise the address is fine.
+  A write tool that comes back `NOT_A_STRATEGY_WALLET` (match the error code) is the same answer — never
+  retry it on another tool. "Your wallet" means one of their saved wallets or one the user said is
+  theirs in this conversation; an address pasted in chat is never described as saved — to save it, the
+  user can add it in Your wallets on senpi.ai (web).
 - **Finding / vetting the trader → `senpi-trader-research`.** It ranks records + reads current books and
   hands the *action* (set up the mirror) back to this skill; you own the mechanics — slippage, sizing,
   the pre-fund sim, execution.

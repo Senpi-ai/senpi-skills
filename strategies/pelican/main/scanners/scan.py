@@ -26,7 +26,7 @@ FIDELITY NOTES vs orca-producer.py v4.0.1:
     `strategy.margin_pct`, so the scanner inputs — not the strategy block — are what size
     the trade. The module defaults below mirror the shipped values so a missing `inputs:`
     cannot silently revert this template to Orca's sizing. marginPct is a PERCENT; the
-    dire/koala defensive "<=1.0 means a pasted v2 fraction -> x100" guard is included.
+    dire/koala defensive "<1.0 means a pasted v2 fraction -> x100" guard is included.
   - Leverage is still run through get_safe_leverage(wallet, asset, N) = min(N, venue_max)
     against strategy_get_asset_trading_limits (read-guarded; degrades to the default on a
     read failure, exactly as v2 did) — at N=10 rather than v2's 7. NOTE: with a single
@@ -48,6 +48,7 @@ FIDELITY NOTES vs orca-producer.py v4.0.1:
     report.)
 """
 
+import json
 import sys
 import time
 from datetime import datetime, timezone
@@ -55,6 +56,7 @@ from datetime import datetime, timezone
 import scoring
 
 # v2 producer constants (defaults; overridable via inputs)
+_DEFAULT_MIN_LEVERAGE = 0    # 0 = accept any venue cap (warn only); raise to the ladder's leverage
 _DEFAULT_MIN_SCORE = scoring.STRIKER_MIN_SCORE        # 9
 _DEFAULT_MARGIN_PCT = 90.0                            # PERCENT — mirrors runtime.yaml (Orca: 18)
 _DEFAULT_LEVERAGE = 10                                # mirrors runtime.yaml (Orca: fixed 7)
@@ -260,11 +262,66 @@ def _safe_leverage(ctx, asset, dex, requested):
         return requested
     return requested
 
+def _pick_leverable(ctx, candidates, min_leverage, requested_for, strict=False):
+    """Walk the ranking and take the first name the venue will actually lever.
+
+    WHY THIS EXISTS. Every DSL threshold is ROE, and the engine converts ROE to a price floor by
+    DIVIDING BY LEVERAGE (senpi-strategy-author/references/dsl-configuration.md). So a ladder
+    authored at Nx silently stretches every exit distance in PRICE by N/actual when the venue caps
+    an asset below N. A 10x ladder on a 5x-capped name arms its first rung at twice the intended
+    price move and may put its later rungs out of reach entirely — the position rides a ladder that
+    was never calibrated for it, and nothing in the config says so.
+
+    `minLeverage: 0` (the default) keeps the previous behaviour exactly — the first candidate always
+    clears it — and only adds the warning. Raise it to the leverage the ladder was authored for to
+    make the scanner prefer a lower-scoring name the ladder actually fits.
+
+    `strict` decides what happens when NOTHING clears the floor. Default False falls back to the
+    top candidate with a warning, because a scanner that goes silent on every clamped tick stops
+    being the strategy the user deployed. True emits nothing instead — correct for a package whose
+    ladder is calibrated for one leverage band and would be materially wrong outside it.
+
+    Returns (candidate, venue_clamped_leverage), or (None, None) when strict and nothing clears.
+    """
+    fallback = None
+    for rank, cand in enumerate(candidates):
+        want = requested_for(cand)
+        lev = _safe_leverage(ctx, cand['token'], cand.get("dex"), want)
+        if fallback is None:
+            fallback = (cand, lev, want)
+        if lev >= min_leverage:
+            if rank:
+                print(f"[pelican.scan] LEVERAGE_SKIP passed over {rank} higher-scoring name(s) the venue "
+                      f"caps below minLeverage={min_leverage}x", file=sys.stderr)
+            if lev < want:
+                print(f"[pelican.scan] LEVERAGE_CLAMP {cand['token']} {lev}x vs {want}x authored — "
+                      f"every ROE threshold is {want / lev:.1f}x its intended price move "
+                      f"(ladder calibrated for {want}x)", file=sys.stderr)
+            return cand, lev
+    if strict:
+        cand, lev, want = fallback
+        print(f"[pelican.scan] LEVERAGE_FLOOR_UNMET_STRICT no candidate reaches minLeverage="
+              f"{min_leverage}x (best was {cand['token']} at {lev}x) — emitting nothing rather than "
+              f"running a ladder calibrated for {want}x on it", file=sys.stderr)
+        return None, None
+    cand, lev, want = fallback
+    print(f"[pelican.scan] LEVERAGE_FLOOR_UNMET no candidate reaches minLeverage={min_leverage}x; taking "
+          f"{cand['token']} at {lev}x vs {want}x authored — every ROE threshold is "
+          f"{want / lev:.1f}x its intended price move", file=sys.stderr)
+    return cand, lev
+
 
 def scan(inputs, ctx):
     now = time.time()
     hour_utc = datetime.now(timezone.utc).hour
+    min_leverage = float(inputs.get("minLeverage", _DEFAULT_MIN_LEVERAGE))
+    min_leverage_strict = bool(inputs.get("minLeverageStrict", False))
     min_score = float(inputs.get("minScore", _DEFAULT_MIN_SCORE))
+    # None = gate off. Set `maxPreMovePct` to reject entries whose price has already moved that far
+    # in the signal's own direction over the last hour (quant desk 2026-10-02: late entries ran
+    # PF 0.3 vs 3.3). Direction-aware inside scoring.score_market.
+    _pre = inputs.get("maxPreMovePct")
+    max_pre_move_pct = float(_pre) if _pre not in (None, "") else None
     max_positions = int(inputs.get("maxPositions", _DEFAULT_MAX_POSITIONS))
     top_n = int(inputs.get("topN", _DEFAULT_TOP_N))
     leaderboard_limit = int(inputs.get("leaderboardLimit", _DEFAULT_LEADERBOARD_LIMIT))
@@ -274,11 +331,11 @@ def scan(inputs, ctx):
     per_asset_cooldown = float(inputs.get("perAssetCooldownSeconds", _DEFAULT_PER_ASSET_COOLDOWN))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
 
-    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value <= 1 (an
+    # marginPct is a PERCENT in (0,100]. FLAGGED: defensively convert a value < 1 (an
     # operator who pasted the v2 FRACTION 0.18) into a PERCENT so it never silently sizes
     # ~100x small (resolve-margin sizes (marginPct/100)*withdrawable).
     margin_pct = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         print(f"[pelican.scan] marginPct={margin_pct} looks like a v2 fraction; "
               f"converting to PERCENT ({margin_pct * 100})", file=sys.stderr)
         margin_pct = margin_pct * 100.0
@@ -288,6 +345,7 @@ def scan(inputs, ctx):
     scan_history = list(last.get("scan_history") or [])     # [ [ {token,dex,rank,contribution}... ] ... ]
     emit_cooldowns = dict(last.get("emit_cooldowns") or {})  # {ASSET: ts} — per-asset suppression
     recent = dict(last.get("recent") or {})                  # {ASSET: ts} — signal-dedup
+    history_ts = float(last.get("history_ts") or 0)          # when scan_history[-1] was recorded
 
     def _persist(extra=None):
         if ctx.state is None:
@@ -295,6 +353,7 @@ def scan(inputs, ctx):
         rec = {
             "ts": now,
             "scan_history": scan_history[-_SCAN_HISTORY_MAX:],
+            "history_ts": history_ts,
             "emit_cooldowns": emit_cooldowns,
             "recent": recent,
         }
@@ -333,8 +392,16 @@ def scan(inputs, ctx):
     # Build this scan's snapshot; need a prior scan to measure rank-jumps (v2:
     # detect_signals returns [] when history is empty — still record this scan).
     current_snapshot = _snapshot_of(markets)
+    # Rank jumps are only measured between CONSECUTIVE scans. The early returns above (max
+    # positions, no account, no markets) record no snapshot, so after a held position
+    # scan_history[-1] can be an hour old and a slow climb reads as an IMMEDIATE_MOVER.
+    # More than one missed tick = the history is stale: drop it and re-seed.
+    interval = float(getattr(ctx, "interval_seconds", 0) or 0)
+    if interval and now - history_ts > 2.5 * interval:
+        scan_history = []
     if not scan_history:
         scan_history.append(current_snapshot)
+        history_ts = now
         print(f"[pelican.scan] WAITING — seeding scan history (scanned={len(markets)}); "
               "need a prior scan to measure rank-jumps", file=sys.stderr)
         _persist({"result": {"emitted": False, "gate": "history_seed", "scanned": len(markets)}})
@@ -348,6 +415,7 @@ def scan(inputs, ctx):
     # ── score every eligible market (held / cooldown / dedup filtered as in v2 main) ──
     candidates = []
     scored = 0
+    near_miss = 0
     for market in markets:
         token = market["token"]
         dex = market.get("dex", "")
@@ -363,14 +431,51 @@ def scan(inputs, ctx):
                 recent_contribs.append(m["contribution"])
         recent_contribs.append(market["contribution"])
 
+        # floor=False returns candidates that cleared the HARD gates even when they miss the
+        # score/reason floor, so the near-miss band can be logged. The floor itself is enforced
+        # below, unchanged — meta["passedFloor"] is the identical condition, precomputed.
         res = scoring.score_market(market, prev_market, old_market,
-                                   prev_top50_tokens, recent_contribs, hour_utc)
+                                   prev_top50_tokens, recent_contribs, hour_utc,
+                                   floor=False, max_pre_move_pct=max_pre_move_pct)
         if res is None:
             continue
         score, reasons, meta = res
-        scored += 1
-        if score < min_score:
+
+        # ── CAND: one structured line per candidate that cleared the HARD gates ──
+        # The score/reason floor used to live INSIDE score_market and return None, so a
+        # near-miss left no trace anywhere but the `scored=N` count on the WAITING line. The
+        # fleet therefore has no data at all on the 7-8 band: 11 sub-9 emits in 14 days, all
+        # from one wallet running a lowered floor. That makes three questions undecidable
+        # without risking capital — is the 7-8 band worth trading, does a finer score separate
+        # 9.45 from 9.01, and should the 4h alignment window be 1h or 2h. All three are
+        # answerable offline from this line plus the forward price tape.
+        #
+        # Cheap because the hard gates run first: jump >= 15, prev_rank >= 25 and the 4h
+        # alignment kill nearly everything, so this is ~1-3 lines per 90s tick, not 50.
+        #
+        # NOTE volRatio is absent by construction — the volume MCP read runs AFTER the floor
+        # and only for passers, so any study of the sub-floor band is pre-volume-confirmation.
+        print(f"[pelican.scan] CAND " + json.dumps({
+            "token": token, "dex": dex or None, "direction": market["direction"],
+            "score": score, "scoreFine": meta["scoreFine"], "passed": meta["passedFloor"],
+            "rankJump": meta["rankJump"], "prevRank": meta["prevRank"],
+            "currentRank": meta["currentRank"], "contribRatio": meta["contribRatio"],
+            "contribVelocity": meta["contribVelocity"], "totalClimb": meta["totalClimb"],
+            "priceChg1h": meta["priceChg1h"], "priceChg4h": meta["priceChg4h"],
+            "traders": meta["traders"], "reasons": reasons,
+        }, separators=(",", ":")), file=sys.stderr)
+
+        # THE FLOOR. `minScore` from runtime.yaml is now authoritative: it used to be shadowed
+        # by the identical hardcoded 9 inside score_market, so setting it lower had no effect at
+        # all. It defaults to scoring.STRIKER_MIN_SCORE, and the templates ship 9, so every wallet
+        # on the shipped config is unaffected — but a package that wants a different floor can now
+        # actually have one (see purple-penguin). The reasons floor is still the module's.
+        # `scored` keeps its old meaning — candidates PAST the floor — so the WAITING line stays
+        # comparable with every tick already in the tape.
+        if score < min_score or len(reasons) < scoring.STRIKER_MIN_REASONS:
+            near_miss += 1
             continue
+        scored += 1
 
         # 15m velocity freshness gate (v2: `if cc_15m <= 0: continue`).
         if scoring.safe_float(market.get("cc_15m", 0)) <= 0:
@@ -408,23 +513,30 @@ def scan(inputs, ctx):
 
     # always record this scan into the rolling history (v2 always appended).
     scan_history.append(current_snapshot)
+    history_ts = now
     scan_history = scan_history[-_SCAN_HISTORY_MAX:]
 
     if not candidates:
         print(f"[pelican.scan] WAITING — no Striker signal (min score {min_score:.0f}); "
-              f"scanned={len(markets)} scored={scored} held={sorted(held_set)}", file=sys.stderr)
+              f"scanned={len(markets)} scored={scored} near_miss={near_miss} "
+              f"held={sorted(held_set)}", file=sys.stderr)
         _persist({"result": {"emitted": False, "gate": "no_candidate",
-                             "scanned": len(markets), "scored": scored,
+                             "scanned": len(markets), "scored": scored, "nearMiss": near_miss,
                              "held": sorted(held_set)}})
         return []
 
     # ── pick the single strongest candidate that the venue will actually lever ──
     # With one slot the leverage clamp decides the whole trade: a top-scoring name the venue caps
-    # at 2x turns a 10x thesis into a different strategy. Walk the ranking and take the first that
-    # clears the floor; fall back to the top name with a warning rather than skipping the tick.
+    # at 2x turns a 10x thesis into a different strategy. Walks the ranking and takes the first that
+    # clears minLeverage; falls back to the top name with a warning rather than skipping the tick.
+    # (Until 2026-10-01 this comment described a walk the code did not do — it took candidates[0]
+    # and clamped it silently. _pick_leverable now implements it.)
     candidates.sort(key=lambda c: c["score"], reverse=True)
-    best = candidates[0]
-    leverage = _safe_leverage(ctx, best["token"], best.get("dex"), leverage_default)
+    best, leverage = _pick_leverable(ctx, candidates, min_leverage,
+                                     lambda _c: leverage_default, strict=min_leverage_strict)
+
+    if best is None:
+        return []
 
     out = [{
         "asset": best["token"],

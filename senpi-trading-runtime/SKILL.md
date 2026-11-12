@@ -6,14 +6,15 @@ description: >-
   exports scan(inputs, ctx), which the runtime supervises and calls each interval, then
   owns execution, risk guard_rails, and two-phase DSL trailing-stop exits. Use when
   working with runtime.yaml, the scan(inputs, ctx) contract, external_scanner, ctx, or
-  the DSL exit engine — including verifying open positions are protected by DSL (have a
+  the DSL exit engine (the Ratchet Stop / tier ladder) or the risk guard rails (a latched
+  daily-loss or drawdown halt) — including verifying open positions are protected by DSL (have a
   working stop-loss). The shared runtime contract the lifecycle skills reference. NOT
   for building, installing, or picking a strategy (→ senpi-strategy-author /
   senpi-strategy-ops / senpi-strategy-discover).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "4.1.5"
+  version: "4.1.16"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -42,6 +43,11 @@ division of labor is fixed:
   signals you return, **sizing & order execution** (`FEE_OPTIMIZED_LIMIT`), slot accounting,
   `risk.guard_rails`, the two-phase **DSL** trailing-stop exits, and **crash-safe position reconcile**
   on restart.
+- **What it does NOT own: partial exits.** Every exit the runtime can make (DSL, `CLOSE_POSITION`)
+  closes the WHOLE position, and `edit_position` — the only reduce — is blocked to scanners. A rule
+  like "take 25% off at +10% ROE and let the rest run" cannot be authored in a runtime package at
+  all; a scanner that tries raises `PermissionError` every tick while the log reads as if the rule
+  is working. Details: `references/runtime-concepts.md` → DSL Exit Engine.
 
 ## How your code talks to the runtime
 
@@ -72,7 +78,7 @@ The plugin registers a `senpi` command group on the gateway. Deploying a strateg
 openclaw plugins install @senpi-ai/runtime
 openclaw senpi validate <dir-with-runtime.yaml>        # THE GATE, pre-money: one real tick, no wallet; a PASS records the proof deploy requires
 openclaw senpi deploy -p <package-dir> --budget <usd>  # ONE verb, detached: funds preflight → wallet create+fund → install → one observed tick
-openclaw senpi deploy status                           # poll until terminal; the verified report (read-only)
+openclaw senpi deploy status                           # the job's verified report (read-only); poll it with deploy.py status, below
 openclaw senpi runtime list                            # id, source, status ("running — NO ENTRY SCANNERS" = scanners never wired)
 ```
 
@@ -80,7 +86,9 @@ openclaw senpi runtime list                            # id, source, status ("ru
 resolves the package, runs the structural preflight and drives that same verb. The verb owns the
 gates — the live-universe check (`[E_UNIVERSE_NOT_LIVE]`, pre-money), the funds preflight, the
 `skillName`/`skillVersion` attribution and the verified tick. **`runtime create` is internal**: it
-installs a runtime and skips every one of those, so it is not the deploy path.
+installs a runtime and skips every one of those, so it is not the deploy path. Then run
+**`python3 deploy.py status`** until the job is terminal (it calls the gateway directly, ~1 s per read)
+and relay its report; do NOT re-run `create` to check on a deploy.
 
 **`senpi validate` is the gate every deploy runs through** — it loads the scanners and runs one
 real tick with no wallet and no funding, and a full unscoped PASS at live depth is what writes the
@@ -99,7 +107,8 @@ openclaw senpi update ./pkg --apply               # commit (needs the same proof
 openclaw senpi update ./pkg --apply --code-only   # assert only scan.py changed; refuses if not
 ```
 
-It plans by default; `--apply` is the only way to commit. **`dsl_preset` changes are forward-only** — new
+It plans by default; `--apply` is the only way to commit. `phase2.tiers` is what users call the **ratchet**;
+with no open position, the edit plus `--apply` is the whole change. **`dsl_preset` changes are forward-only** — new
 entries only, while every open position keeps a snapshot of the preset it was opened under (other `exit:`
 fields, e.g. `order_type`, are read live and DO reach open positions). Refused outright, changing
 nothing: a different `strategy.wallet` (that is a new deployment, and the old wallet's positions
@@ -130,13 +139,30 @@ discards one: `references/scan-contract.md`.
 
 Beyond `validate`, `deploy`/`deploy status`, `update` and `runtime list/delete`, the CLI exposes the runtime's live state — `senpi dsl
 positions|inspect|closes` (the exit engine), `senpi action list|inspect|history|decisions` (the
-decision layer), `senpi risk` (am I allowed to trade, and why not), `senpi audit` (backend trade
+decision layer), `senpi risk` (am I allowed to trade, and why not — the daily loss and drawdown halts
+**latch**: they stay CLOSED after PnL recovers and survive restarts; a latched halt is the user's call, never
+clear it or resume entries without their explicit approval → `senpi-strategy-author/references/risk-gates.md`), `senpi audit` (backend trade
 trail with AI reasoning), `senpi scanner` (per-scanner health, liveness, and a `(no signals yet)` flag for scanners that run but produce nothing),
 `senpi events`/`senpi explain <asset>` (the local domain-event log — the trade narrative, and one
 asset's stitched lifecycle), `senpi status`/`senpi state` (health — fail-closed: an external scanner
 never proven by a tick reads `unknown`, not `healthy`; non-healthy scanners get their own line with
 restart count and cause), and `senpi guide …` (in-shell reference). Full surface with every option →
 `references/runtime-cli.md`.
+
+**Trade approvals (OpenClaw 10.x).** `status` can also begin with one box-level line, `WARNING trade
+approvals: this box cannot tell chat turns from scheduled runs, so every run is asked, scheduled ones
+included. Reason: <reason>.` It appears whatever the runtimes say, and only on an OpenClaw 10.x box
+whose config needs a fix (the reason names the setting). Relay it to the user as a box setup problem
+for Senpi support; nothing on the strategy side changes it. On OpenClaw 5.x there is no such line:
+every run is asked there by design. `--json` carries the same fact as `approvals.turnClassification`
+(`available` / `unavailable`, with `reason`, and `hostLimit: true` on 5.x). The `WARNING trade
+approvals` line is about the box, not a runtime: it does not mean a runtime is unhealthy, and its
+absence on 5.x is normal. When the box can classify runs, a trade tool that needs approval asks the
+user only from a direct chat turn. From a cron or heartbeat run, or another background run, the call
+is refused before it runs: `The trade was not executed: <tool> needs the user's approval, and this
+scheduled run (cron) has no way to ask for it. …`. Nothing was executed. Do what the refusal says:
+tell the user what you were about to do and that they can ask for it in chat, and do not retry it from
+that run through another tool or script. A trade the user set to "Always allow" runs in any run kind.
 
 **To confirm open positions are actually stop-loss protected** (a position with no DSL shows up as an
 *absence* in `dsl positions`, so it's easy to miss) → the verdict procedure in

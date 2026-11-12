@@ -662,7 +662,8 @@ def test_step_timing_slice_standalone():
     sp = os.path.join(tempfile.mkdtemp(), "s.json")
     out = _with_env(lambda: review.step_timing(_fresh_client(), window_days=WINDOW_DAYS,
                                                want_market=True, state_path=sp, now_ms=NOW_MS))
-    assert set(out) == {"window", "trades", "timing_summary", "meta"}   # ONLY the timing slice
+    # ONLY the timing slice — saved wallets' closed trades are collected here, so their read rides it
+    assert set(out) == {"window", "trades", "timing_summary", "external_wallets", "meta"}
     assert out["timing_summary"]["trade_count"] == 3
     assert out["timing_summary"]["exits_ahead"] == 1
     # exit_reason is the placeholder here — telemetry/ratchet has not run on the fast path
@@ -684,7 +685,7 @@ def test_step_strategies_slice_reads_state():
         return review.step_strategies(_fresh_client(), window_days=WINDOW_DAYS, want_market=True,
                                       state_path=sp, now_ms=NOW_MS)
     out = _with_env(_seq)
-    assert set(out) == {"strategies", "closed_strategies", "pnl_summary", "dsl_close_reason_mix", "meta"}
+    assert set(out) == {"book", "strategies", "closed_strategies", "pnl_summary", "dsl_close_reason_mix", "meta"}
     strat = {s["label"]: s for s in out["strategies"]}["kodiak"]
     assert strat["dsl"]["hard_stop_roe_pct"] == -15.0    # mandate/DSL from the registry
     assert strat["realized_pnl"] == 340.0
@@ -948,8 +949,8 @@ def test_event_timeout_fails_open_without_a_breaker():
     old_ev = os.environ.pop("SENPI_EVENTS_FIXTURE", None)   # force the subprocess path, not the fixture
     def _raise_timeout(*a, **k):
         raise _sp.TimeoutExpired(cmd="openclaw", timeout=review.EVENTS_CALL_TIMEOUT_S)
-    real_run = review.subprocess.run
-    review.subprocess.run = _raise_timeout
+    real_run = review._run_grouped
+    review._run_grouped = _raise_timeout
     try:
         meta = {}
         assert review._fetch_events("rt-1", NOW_MS, meta) == []            # fail-open for this strategy
@@ -957,9 +958,110 @@ def test_event_timeout_fails_open_without_a_breaker():
         assert "_telemetry_dead" not in meta                               # ONE timeout is not terminal
         assert not hasattr(review, "EVENTS_TIMEOUT_BUDGET")                # the dead breaker constant is gone
     finally:
-        review.subprocess.run = real_run
+        review._run_grouped = real_run
         if old_ev is not None:
             os.environ["SENPI_EVENTS_FIXTURE"] = old_ev
+
+
+def test_events_are_a_direct_gateway_call_reading_the_raw_answer():
+    """`senpi.getEvents` with the numeric limit (10.x drops a string one) and the raw `{entries}` answer."""
+    import subprocess as _sp
+    seen = {}
+
+    def _answer(cmd, timeout):
+        seen.update(cmd=cmd, timeout=timeout)
+        return _sp.CompletedProcess(cmd, 0, json.dumps({"entries": [{"name": "dsl.closed"}, "junk"], "address": "0x1"}), "")
+    real_run = review._run_grouped
+    review._run_grouped = _answer
+    try:
+        entries = review._fetch_events("rt-1", NOW_MS, {})
+    finally:
+        review._run_grouped = real_run
+    assert entries == [{"name": "dsl.closed"}]
+    assert seen["cmd"][:4] == ["openclaw", "gateway", "call", "senpi.getEvents"]
+    assert seen["cmd"][seen["cmd"].index("--timeout") + 1] == str(review.EVENTS_RPC_MS)
+    params = json.loads(seen["cmd"][-1])
+    assert params["runtimeId"] == "rt-1" and params["limit"] == review.EVENTS_PULL and "since" in params
+
+
+def test_a_10x_unknown_method_on_stdout_stops_further_event_calls():
+    import subprocess as _sp
+    env = json.dumps({"ok": False, "error": {"type": "gateway_request_error", "message": "unknown method: senpi.getEvents"}})
+    real_run = review._run_grouped
+    review._run_grouped = lambda cmd, timeout: _sp.CompletedProcess(cmd, 1, env, "")
+    meta = {}
+    try:
+        assert review._fetch_events("rt-1", NOW_MS, meta) == []
+    finally:
+        review._run_grouped = real_run
+    assert meta.get("_telemetry_dead") is True
+
+
+def test_an_event_read_timeout_kills_the_calls_whole_process_group(tmp_path):
+    """On OpenClaw 10.x a timed-out `openclaw` left its worker running (it respawns detached). The
+    event read runs the call in its own session and kills the whole group on timeout, so a child the
+    call started does not outlive the read. Real processes: a sleeper that starts its own sleeper."""
+    import subprocess as _sp
+    import sys as _sys
+    import time as _time
+    pidf = tmp_path / "grandchild.pid"
+    script = (f"import subprocess,time;p=subprocess.Popen(['sleep','60']);"
+              f"open({str(pidf)!r},'w').write(str(p.pid));time.sleep(60)")
+    t0 = _time.time()
+    try:
+        review._run_grouped([_sys.executable, "-c", script], 1.5)
+        raise AssertionError("expected TimeoutExpired")
+    except _sp.TimeoutExpired:
+        pass
+    assert _time.time() - t0 < 10
+    gpid = int(pidf.read_text())
+    deadline = _time.time() + 5
+    def gone():
+        st = _sp.run(["ps", "-o", "stat=", "-p", str(gpid)], capture_output=True, text=True).stdout.strip()
+        return st == "" or st.startswith("Z")
+    while not gone() and _time.time() < deadline:
+        _time.sleep(0.1)
+    assert gone(), "the event call's own child outlived the timeout"
+
+
+def test_an_event_read_timeout_kills_a_sigterm_ignoring_member_when_the_leader_exits(tmp_path):
+    """The leader exits on SIGTERM; its child ignores SIGTERM. The group SIGKILL must still follow."""
+    import os as _os
+    import subprocess as _sp
+    import sys as _sys
+    import time as _time
+    pidf = tmp_path / "member.pid"
+    leader = ("import subprocess,sys,time\n"
+              "m=subprocess.Popen([sys.executable,'-c',"
+              "'import signal,time;signal.signal(signal.SIGTERM,signal.SIG_IGN);time.sleep(60)'])\n"
+              "open(sys.argv[1],'w').write(str(m.pid))\n"
+              "time.sleep(60)\n")
+    t0 = _time.time()
+    try:
+        review._run_grouped([_sys.executable, "-c", leader, str(pidf)], 1.5)
+        raise AssertionError("expected TimeoutExpired")
+    except _sp.TimeoutExpired:
+        pass
+    assert _time.time() - t0 < 6
+    mpid = int(pidf.read_text())
+    def gone():
+        st = _sp.run(["ps", "-o", "stat=", "-p", str(mpid)], capture_output=True, text=True).stdout.strip()
+        return st == "" or st.startswith("Z")
+    deadline = _time.time() + 3
+    while not gone() and _time.time() < deadline:
+        _time.sleep(0.1)
+    alive = not gone()
+    if alive:
+        _os.kill(mpid, 9)
+    assert not alive, "a SIGTERM-ignoring group member outlived the event-read timeout"
+
+
+def test_the_event_read_runs_one_process_with_stdin_closed():
+    import sys as _sys
+    p = review._run_grouped([_sys.executable, "-c",
+                             "import os,sys;print(os.environ.get('OPENCLAW_NO_RESPAWN'),"
+                             "os.getsid(0)==os.getpid(),sys.stdin.read()=='')"], 10)
+    assert p.stdout.strip() == "1 True True"
 
 
 # ─────────────────────── stdout context-cost slimming (the samurai-pro timeout fix) ───────────────
@@ -1075,10 +1177,15 @@ def _two_sleeve_fixture():
     # long sleeve closes SOL+ETH, short sleeve closes BTC → both buckets non-empty, different terminals
     fx[f"discovery_get_trader_history::{COUGAR_LONG.lower()}"] = {"closedPositions": hist[:2]}
     fx[f"discovery_get_trader_history::{COUGAR_SHORT.lower()}"] = {"closedPositions": hist[2:]}
-    fx[f"ratchet_stop_list::{COUGAR_LONG.lower()}"] = {"configs": [
-        {"asset": "SOL", "status": "SL_TRIGGERED", "currentTierIndex": 2, "highWaterRoe": 41.0}]}
-    fx[f"ratchet_stop_list::{COUGAR_SHORT.lower()}"] = {"configs": [
-        {"asset": "BTC", "status": "SL_TRIGGERED", "currentTierIndex": 0, "highWaterRoe": 5.0}]}
+    # the MCP's real envelope; each row's life spans its own trade (created after the open, updated at the close)
+    sol = dict(base["ratchet_stop_list::0xkodiak00000000000000000000000000000kdk"]["data"]["positions"][0],
+               strategyId="strat-cougar-long", strategyWalletAddress=COUGAR_LONG.lower())
+    btc = dict(sol, id="dsl-cougar-btc", strategyId="strat-cougar-short", strategyWalletAddress=COUGAR_SHORT.lower(),
+               asset="BTC", direction="SHORT", entryPrice=104000.0, size=0.05, leverage=3, currentTierIndex=0,
+               highWaterRoe=5.0, activeSLOrderId="910000000003", createdAt="2026-06-28T12:34:20.000000Z",
+               updatedAt="2026-06-30T06:13:22.000000Z", lastEvaluatedAt="2026-06-30T06:13:22.000000Z")
+    fx[f"ratchet_stop_list::{COUGAR_LONG.lower()}"] = {"success": True, "data": {"positions": [sol], "count": 1}}
+    fx[f"ratchet_stop_list::{COUGAR_SHORT.lower()}"] = {"success": True, "data": {"positions": [btc], "count": 1}}
     fx[f"strategy_get_clearinghouse_state::{COUGAR_LONG.lower()}"] = ch
     fx[f"strategy_get_clearinghouse_state::{COUGAR_SHORT.lower()}"] = ch
     return fx
@@ -1165,3 +1272,167 @@ if __name__ == "__main__":
         fn()
         print(f"  ok {fn.__name__}")
     print(f"\n{len(fns)}/{len(fns)} passed")
+
+
+# ── fees: the agent reported +$410.14 on a trade that netted +$310.23 ─────────────────────────────
+# Three separate defects produced that, and only the third is the one that actually fired:
+#   1. pnl_summary had no net at all, so the narrator had only a gross figure to lead with.
+#   2. the on-chain path counted only the CLOSING fill's fee, dropping the open leg.
+#   3. the PRIMARY (discovery) path carried no fee field whatsoever — and that is the path a
+#      CURRENT strategy runs on, so the headline stayed gross no matter what else was fixed.
+# NOT a defect: `fee` vs `builderFee`. HL's `fee` already INCLUDES the builder leg. Shown across two
+# wallets on different builder legs, where subtracting the builder leg leaves the same exchange rate
+# (4.32/1.44 bps) both times. Summing them overstates by the builder leg. Never a constant: read it
+# from the fill.
+
+def test_fee_is_inclusive_of_builder_and_counts_BOTH_legs():
+    """`builderFee` is a breakdown of `fee`, never an addition — and a round trip pays on both legs."""
+    fills = [{"coin": "AVAX", "dir": "Open Long", "px": "10.0", "sz": "100", "closedPnl": "0.0",
+              "time": 1_000_000, "fee": "7.40", "builderFee": "3.50", "oid": 1},
+             {"coin": "AVAX", "dir": "Close Long", "px": "11.0", "sz": "100", "closedPnl": "100.0",
+              "time": 2_000_000, "fee": "7.40", "builderFee": "3.50", "oid": 2}]
+    rows = review._reconstruct_closed_from_fills(fills, None, None, 50)
+    fees = [r["fee"] for r in rows if r.get("fee") is not None]
+    assert fees, "no trade row carried a fee"
+    assert abs(fees[0] - 14.80) < 1e-6, (
+        f"expected 7.40 open + 7.40 close = 14.80, got {fees[0]}. "
+        "21.80 means builderFee was added (it is already inside fee); "
+        "7.40 means the open leg was dropped.")
+
+
+def test_the_PRIMARY_discovery_path_carries_fees():
+    """The bug that actually fired. onmyoji-penguin is a CURRENT strategy, so the review ran on
+    discovery — which had no fee field, so realized_net stayed None and the headline stayed gross."""
+    class _C:
+        def mcp_call(self, name, **kw):
+            assert name == "discovery_get_trader_history"
+            return {"closedPositions": [{
+                "coin": "AVAX", "side": "long", "szi": 4713.68,
+                "entryPx": 11.33099, "exitPx": 11.41791,
+                "realizedPnl": 410.14, "totalFees": 99.92,
+                "openTime": 1_790_706_133_000, "closeTime": 1_790_713_518_000,
+                "leverage": {"value": 10}, "closedOrderId": "x1"}]}
+    meta = {}
+    trades = review.fetch_closed_trades(_C(), "0xaa9f", None, None, 50, meta)
+    assert trades, "discovery returned no trades"
+    t = trades[0]
+    assert t["source"] == "discovery"
+    assert t.get("fee") == 99.92, f"discovery row must carry totalFees, got {t.get('fee')!r}"
+    # and it must reach the headline
+    summ = review._pnl_summary(t["realized_pnl"], [{"realized_pnl": t["realized_pnl"],
+                                                    "unrealized_pnl": 0.0}], t["fee"])
+    assert summ["realized_net"] == 310.22, f"expected 410.14-99.92, got {summ['realized_net']}"
+    assert "GROSS" in summ["note"]
+    # and with no fee computed the net must be None, never gross silently passed off as net
+    bare = review._pnl_summary(410.14, [{"realized_pnl": 410.14, "unrealized_pnl": 0.0}])
+    assert bare["fees"] is None and bare["realized_net"] is None
+    assert bare["total"] == 410.14, "gross total must still be present"
+
+
+# ── guardrail 6b: the skill must TEACH how to tell whether the DSL closed a position ─────────────
+# A live review answered "Exit mechanism: undetermined" because one telemetry path timed out, while the
+# answer sat on chain in the fill shape. The engine's only fallback is ratchet_stop_list, which reads
+# MCP-created ratchet stops — a runtime DSL ladder (penguin/pelican) may produce no such record, so the
+# skill, not the engine, has to carry the procedure.
+
+def test_skill_names_the_runtime_commands_that_ANSWER_why_it_closed():
+    """The agent must be told to READ the runtime's close record, not deduce a mechanism.
+    `senpi dsl closes` is purpose-built ("archived closes with reason and ROE") and an earlier
+    version of this guardrail never mentioned it — it sent the agent down an inference ladder
+    that ended in guessing from fill shapes."""
+    raw = open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read()
+    skill = " ".join(raw.split())          # prose wraps; assert on meaning, not on line breaks
+    assert "6b." in skill, "the exit-attribution guardrail is gone"
+    for cmd in ("senpi dsl closes", "senpi dsl inspect", "senpi dsl positions"):
+        assert cmd in skill, f"the skill no longer names `{cmd}`"
+    # the fields that carry the answer
+    for fld in ("closeReason", "currentTierIndex", "lockedProfitPct", "floorPrice", "highWaterRoe"):
+        assert fld in skill, f"`{fld}` is not named — the agent has to compute what it could read"
+    # every close reason must be translated, not left as an enum: the rule and the names stay in SKILL.md,
+    # the translations live in references/exit-records.md (the file the Router sends exit questions to)
+    assert "Translate `closeReason`, never paste the enum" in skill
+    records = " ".join(open(os.path.join(HERE, "..", "references", "exit-records.md"), encoding="utf-8").read().split())
+    for reason in ("exchange_sl_hit", "dsl_breach", "hard_timeout", "weak_peak_cut", "dead_weight_cut"):
+        assert reason in skill, f"closeReason `{reason}` is not named"
+        assert f"**`{reason}`** —" in records, f"closeReason `{reason}` is not explained in exit-records.md"
+    assert "A **death** cut, not a profit cut" in records and "OFF on penguin / pelican" in records
+    # the time cuts are timers — a review read `weak_peak_cut` correctly then invented a mechanism
+    # for it ("detected the position rolling over"), on a position held 5.03h against a 300m timer
+    assert "TIMERS" in skill or "timers" in skill, "the time cuts are not identified as timers"
+    assert "interval" in skill and "actual hold" in skill, \
+        "the skill must require stating the configured interval AND the elapsed hold"
+    # inference is corroboration only, and CLOSED_OFF_LADDER is not an answer
+    assert "corroborate" in skill and "never substitute" in skill, \
+        "inference is no longer scoped as corroboration-only"
+    assert "not who placed it" in skill, "the maker tell is overstated"
+    k = skill.find("`CLOSED_OFF_LADDER` is not an answer")
+    assert k > 0 and "UNKNOWN" in skill[k:k + 300], "CLOSED_OFF_LADDER must be treated as UNKNOWN"
+    # an unreadable record is said, not papered over with a guess — the rule in SKILL.md, the dead-gateway
+    # exit-code detail in exit-records.md
+    assert "**If the record cannot be read, say so.**" in skill
+    assert "openclaw gateway run" in records and "**Say that.**" in records, \
+        "the reference must say what to do when the gateway is down"
+    # the field-level reads moved to the reference; SKILL.md still names the fields that carry the answer
+    for fld in ("`closeReason`", "`currentROE`", "`lockedProfitPct`", "`distanceToNextTierPct`",
+                "`slOrderId`", "`elapsedMinutes`"):
+        assert fld in records, f"exit-records.md no longer documents {fld}"
+
+
+def test_skill_forbids_taking_leverage_from_the_config():
+    """A review called PONS "10x" (the config's default_leverage) when the venue capped it at 3x, and
+    then stated both "~15% ROE" and "~49% of margin" in one answer. ROE is price move x ACTUAL leverage."""
+    raw = open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read()
+    skill = " ".join(raw.split())
+    assert "0b." in skill, "the leverage rule is gone"
+    assert "DslState.leverage" in skill or "strategy_get_asset_trading_limits" in skill, \
+        "the skill must name where the REAL leverage is read from"
+    assert "default_leverage" in skill, "it must name the config field NOT to use"
+    i = skill.find("0b.")
+    block = skill[i:i + 1400]
+    assert "ACTUAL" in block.upper(), "the rule must say to use the actual leverage"
+    assert "silently" in block or "DOES NOT ERROR" in block, \
+        "the rule must explain that the venue clips without erroring"
+
+
+def test_skill_states_no_builder_fee_on_a_paid_plan_and_no_nonzero_rate():
+    """From 2026-10-26 Senpi charges no builder fee on a paid plan, and the skill quotes no nonzero
+    Senpi rate anywhere. A fill keeps the fee it was signed with, so a review still meets older fills
+    with a builder leg — read from the fill, never from memory. The skill must name where to read the
+    user's own rate."""
+    skill = " ".join(open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read().split())
+    assert "user_get_senpi_points" in skill, "the skill must name where to read the user's own fee"
+    assert "not a constant" in skill.lower(), "the skill must say the rate is not a constant"
+    assert "**no builder fee on a paid plan**" in skill, "the plan rule is not stated"
+    for rate in ("0.025%", "0.03%", "0.05%", "0.047% Silver"):
+        assert rate not in skill, f"a nonzero Senpi rate is quoted: {rate}"
+    assert "A fill keeps the fee it was signed with" in skill, "older fills with a builder leg go unexplained"
+
+
+def test_the_raw_mcp_rule_does_not_contradict_the_6b_reads():
+    """Guardrail 6b asks for targeted reads; line ~71 bars 'raw MCP'. The bar must be scoped or the
+    skill tells the agent to do something it also forbids."""
+    skill = " ".join(open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8").read().split())
+    i = skill.find("Use this skill FIRST")
+    assert i > 0, "the raw-MCP rule moved"
+    window = skill[i:i + 600]
+    assert "6b" in window, "the raw-MCP rule does not carve out the 6b reads — contradiction"
+
+
+def test_a_ratchet_sourced_exit_never_attributes_the_close_to_the_user():
+    """2026-09-25: a user was told he had hand-closed nine positions his runtime closed. The DSL status
+    `MANUALLY_CLOSED` is a LADDER status — it says the ladder ended for a reason that was not its own
+    stop, and cannot distinguish the runtime, the agent, or the user. Mapping it to `MANUAL_CLOSE` made
+    that ambiguity read as a statement about the trader. 173 runs / 20 users in the 7 days before."""
+    import review
+    assert review._TERMINAL_MAP["MANUALLY_CLOSED"] == "CLOSED_OFF_LADDER"
+    # nothing on the ratchet path may imply the trader acted
+    for value in review._TERMINAL_MAP.values():
+        assert "MANUAL" not in value.upper(), f"{value} reads as an act by the user"
+    # the contract and the skill must both carry the caveat, or the narrator re-invents the claim
+    from pathlib import Path as _P
+    root = _P(__file__).resolve().parents[2]
+    shape = (root / "senpi-improve-trades/references/output-shape.md").read_text(encoding="utf-8")
+    skill = (root / "senpi-improve-trades/SKILL.md").read_text(encoding="utf-8")
+    assert "does NOT mean the user closed it" in shape
+    assert "never closed by its stop" in skill or "not closed by its stop" in skill
+    assert "CLOSED_OFF_LADDER" in shape and "CLOSED_OFF_LADDER" in skill

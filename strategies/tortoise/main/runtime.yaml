@@ -1,33 +1,33 @@
-# ── TORTOISE · single instance — DCA scheduler (Runtime 3.0 port of v2 TORTOISE v1.0.0) ──
-# Time-triggered dollar-cost averaging on a small basket (BTC/ETH/SOL). NO price
-# prediction, NO scoring, NO market data read — the "scanner" is purely a clock.
-# Each tick: read account + held positions, read the per-asset DCA-history cache
-# (ctx.state), pick the most-overdue eligible asset past the interval, emit ONE
-# LONG signal sized at marginPct of withdrawable. Never-DCA'd assets always win.
-# DSL is the ONLY exit — let-winners-run preset, 30d hard_timeout so accumulation
-# compounds. Faithful port of the v2 producer thesis — see scanners/scoring.py
-# (cadence math reproduced verbatim, v2-quirks flagged).
+# ── TORTOISE · single instance — scheduled buyer, one position per asset (2.0.0) ──
+# A clock, not a chart. Small basket (BTC/ETH/SOL), NO price prediction, NO
+# scoring, NO market-data read. Each tick: read account + held positions, note
+# any name that was held at the last good read and is flat now (it EXITED — the
+# time is recorded in ctx.state), pick the most-overdue eligible name whose
+# clock has run a full interval since its last buy OR last exit (never-bought
+# names are always due), emit ONE LONG signal at marginPct. A held name is
+# never added to. DSL is the ONLY exit — no clock cut of any kind. The cadence
+# math is the v2 producer's, verbatim — see scanners/scoring.py.
 name: tortoise-main
 group: tortoise
 version: 3.0.0
 description: >
-  TORTOISE — DCA scheduler. "Slow and steady wins the race." Buys a fixed % of
-  budget on a strict time cadence (every intervalHours) on a small basket — BTC
-  alone or BTC/ETH/SOL. No price prediction, no scoring, no timing; the
-  oldest-overdue asset past the interval wins each tick, everything else is
-  silent. A never-DCA'd asset is always due (fresh setup starts buying
-  immediately, then cadence takes over). Always LONG (DCA = accumulate).
-  Sizing is fixed: marginPct of withdrawable per buy (default 8%), leverage 2x
-  (clamped to 3x max). DSL is the ONLY exit — let-winners-run preset with a 30d
-  hard_timeout so accumulation compounds; Phase-2 ladder locks gains gradually.
-  THE most beginner-accessible trade in crypto. Onboarding tier. Faithful port of
-  the v2 Tortoise v1.0.0 thesis (cadence/selection/sizing verbatim).
+  TORTOISE — scheduled buyer. "Slow and steady wins the race." Holds ONE long
+  position per asset on a small basket (BTC/ETH/SOL): a name is bought on the
+  schedule whenever it is flat — on deploy, and again a full interval (24h by
+  default) after its position has exited. It never adds to an open position
+  (the runtime has no supported way to), so this is not dollar-cost averaging.
+  The re-buy clock is keyed to the EXIT, not the buy, so a stop-out is not bought
+  straight back. No prediction, no scoring, no timing; the most-overdue eligible
+  name wins each tick, everything else is silent. Sizing is fixed: 3 slots x 25%
+  of the wallet at 2x (the package cap). DSL is the ONLY exit — a wide 30% ROE
+  stop (15% of price at 2x), a ratchet that only locks gains, no hard_timeout.
+  THE most beginner-accessible trade in crypto. Onboarding tier.
 
 strategy:
   wallet: "${TORTOISE_WALLET}"
-  slots: 3                                # v2 slots: 3 — accumulates across 3 assets over time
-  margin_pct: 8                           # baseline %; scan emits the per-signal marginPct (fixed, no tiers)
-  default_leverage: 2                     # v2 DEFAULT_LEVERAGE; scan clamps to [1,3] (MAX_LEVERAGE=3)
+  slots: 3                                # one position per asset: BTC, ETH, SOL
+  margin_pct: 25                          # PERCENT of the wallet per position; 3 x 25% = 75%
+  default_leverage: 2                     # the package cap; scan.py clamps to 2x (_MAX_LEVERAGE)
   trading_risk: conservative
   enabled: true
 
@@ -39,21 +39,22 @@ scanners:
     type: external_scanner
     path: ./scanners
     entrypoint: scan.py
-    interval_seconds: 1800                 # v2 producer cadence (30min) — DCA is slow by design; cadence is the signal
+    interval_seconds: 1800                 # v2 producer cadence (30min) — a slow clock by design
     timeout_seconds: 120                   # v2 tick_timeout=120; one clearinghouse read per tick (no market data)
-    default_signal_validity_seconds: 3600  # 2x tick; rule action, a fresh cadence re-check arrives next tick
-    state_history_max_count: 100           # DCA-history cache + race-window dedup + per-tick scan-results history
+    default_signal_validity_seconds: 3600  # 2x tick; rule action, a fresh schedule re-check arrives next tick
+    state_history_max_count: 100           # buy/exit history + last-good held set + race-window dedup + per-tick results
     inputs:
       assets: ["BTC", "ETH", "SOL"]        # v2 DEFAULT_ASSETS (validated live on HL main DEX 2026-06-29)
-      intervalHours: 24                    # v2 DEFAULT_INTERVAL_HOURS — one DCA per asset per day
-      marginPct: 8                         # PERCENT of withdrawable (0,100] — v2 marginPct 0.08 (FRACTION) x100
-      leverage: 2                          # v2 DEFAULT_LEVERAGE; clamped to MAX_LEVERAGE=3 in scan.py
+      intervalHours: 24                    # a name is re-bought no sooner than this after its last buy or exit
+      marginPct: 25                        # PERCENT of the wallet (0,100] per position; must equal strategy.margin_pct
+      leverage: 2                          # the package cap; clamped to _MAX_LEVERAGE=2 in scan.py
       recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup; ALO fill window + next-tick refresh)
     signal_data_schema:
       score: { type: number }
       leverage: { type: number }
       direction: { type: string }
       reasons: { type: array, required: false }
+      anchor: { type: string, required: false }     # never_bought | last_exit | last_buy — which event the clock ran from
       intervalSec: { type: number, required: false }
       elapsedSec: { type: number, required: false }
       heldAssets: { type: array, required: false }
@@ -76,12 +77,11 @@ actions:
       - type: signal
         scanner: tortoise_main_signals
 
-# ── EXIT (DSL — let-winners-run preset, preserved VERBATIM from v2 v1.0.0) ──
-# DCA accumulates over time. Wide ladder + VERY long hard_timeout (30d) so
-# accumulation can compound; Phase-2 lock tiers bank gains gradually so a deep
-# drawdown doesn't wipe accumulated entries, but a winner is never cut just for
-# being old. No weak_peak_cut — flat-but-not-failing accumulation should not be
-# churned. FIRST Phase-2 lock is at +10% ROE (reachable; NOT +40-80%) — no flag.
+# ── EXIT (DSL — the ONLY exit; no clock cut of any kind) ──
+# A buyer that predicts nothing must be able to hold through an ordinary dip:
+# the stop is 30% ROE = 15% of price at 2x. The ratchet (phase2) only ever locks
+# a GAIN, first at +25% ROE; a position is never cut for being old, flat or
+# slow — hard_timeout, weak_peak_cut and dead_weight_cut are all off.
 exit:
   engine: dsl
   interval_seconds: 60
@@ -91,8 +91,8 @@ exit:
     execution_timeout_seconds: 60
   dsl_preset:
     hard_timeout:
-      enabled: true
-      interval_in_minutes: 43200           # 30d — DCA is meant to compound
+      enabled: false                       # no clock: the DSL decides every exit
+      interval_in_minutes: 43200
     weak_peak_cut:
       enabled: false
       interval_in_minutes: 360
@@ -104,10 +104,8 @@ exit:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a small favourable
       # move it can still sit BELOW entry and close a WINNER at a loss — churning fees.
       # The ratchet must only ever lock a GAIN, or the position rides to the stop.
-      # max_loss_pct := the old retrace (10.0% ROE), which is what the trail was already
-      # enforcing, so the per-trade risk cap is UNCHANGED. retrace_threshold is now inert.
       enabled: false
-      max_loss_pct: 10.0   # was 15.0 — set to the old retrace so the risk cap is unchanged
+      max_loss_pct: 30.0   # 30% ROE = 15% of price at 2x — wide enough to hold an ordinary dip
       retrace_threshold: 10
       consecutive_breaches_required: 1
     phase2:
@@ -120,14 +118,15 @@ exit:
 
 # ── RISK guard rails (from v2 runtime.yaml; minutes -> seconds) ──
 risk:
-  data_retention_seconds: 604800       # clamped to 3.0 max (7d); v2 intent 30d exceeds cap
+  data_retention_seconds: 604800       # the 3.0 maximum (7d); v2 asked for a longer retention than the cap allows
   guard_rails:
     daily_loss_limit_pct: 10
-    max_entries_per_day: 6                  # v2: 3 assets x ~2 DCA cycles allowed/day at default cadence
+    max_entries_per_day: 6                  # above the 3 slots: a day with three exits and three re-buys is not capped
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 5
     cooldown_seconds: 1800                  # v2 cooldown_minutes: 30
-    drawdown_halt_pct: 18                   # v2 drawdown_halt_pct
+    drawdown_halt_pct: 25                   # above one correlated stop-out of all three (3 x 25% x 30% ROE = 22.5%);
+                                            # with no day-rollover reset an 18% halt latched for good on the first crash
     drawdown_reset_on_day_rollover: false
     per_asset_cooldown_seconds: 3600        # v2 per_asset_cooldown_minutes: 60
 

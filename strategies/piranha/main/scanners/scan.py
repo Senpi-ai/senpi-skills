@@ -29,7 +29,7 @@ FIDELITY NOTES vs the v2 producer (piranha-producer.py v1.0.1):
   - v2 sized marginUsd = account_value * marginPct (marginPct=0.15, a FRACTION).
     This port emits `marginPct` as a PERCENT in (0,100]; the runtime sizes
     (marginPct/100)*withdrawable. The v2 fraction 0.15 -> 15 (PERCENT). A defensive
-    "<=1.0 means a pasted fraction, x100" guard is applied (dire/koala pattern).
+    "<1.0 means a pasted fraction, x100" guard is applied (dire/koala pattern).
   - v2 emitted exactly one signal (best). Preserved: scan() emits <= 1 signal/tick.
   - v2 recent-signals JSON cache -> ctx.state dedup map (same TTL semantics).
   - DROPPED (read-only scan cannot mutate): none — the v2 producer had no
@@ -237,7 +237,7 @@ def scan(inputs, ctx):
     min_traders = int(inputs.get("minTraderCount", 10))   # 4h-board headcount floor
     margin_pct = float(inputs.get("marginPct", 15))   # PERCENT in (0,100]
     # defensive: a pasted FRACTION (e.g. 0.15) means percent — convert x100 (dire/koala guard)
-    if margin_pct <= 1.0:
+    if margin_pct < 1.0:
         margin_pct *= 100
     leverage = min(int(inputs.get("leverage", _DEFAULT_LEVERAGE)), _MAX_LEVERAGE)
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))

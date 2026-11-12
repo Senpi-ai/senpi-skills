@@ -36,8 +36,10 @@ _SIZING_PARENTS = {"strategy", "inputs"}
 
 
 def margin_fraction_offenders(doc, path="", parent=None):
-    """Slot-size keys whose value is a fraction (0,1] where a PERCENT (0,100] is required
+    """Slot-size keys whose value is a fraction (0,1) where a PERCENT (0,100] is required
     (`marginPct: 0.10` meant 10 — 100× too small, so every order lands under the min notional).
+    Exactly 1 passes: it is a legal 1%, and "fixing" it to 100 sizes the slot at all of withdrawable
+    (the runtime's `findMarginPctFraction` lets 1 through for the same reason).
     Scoped to `_SIZING_KEYS` under `_SIZING_PARENTS`; an emitted per-signal value is checked at the
     live stage instead, where the real number is visible rather than inferred. Mirrors
     senpi-strategy-author validate_strategy so author-green == deploy-green. [(key, value), ...]."""
@@ -46,13 +48,46 @@ def margin_fraction_offenders(doc, path="", parent=None):
         for k, v in doc.items():
             kp = f"{path}.{k}" if path else str(k)
             if parent in _SIZING_PARENTS and str(k).lower() in _SIZING_KEYS \
-                    and isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v <= 1:
+                    and isinstance(v, (int, float)) and not isinstance(v, bool) and 0 < v < 1:
                 out.append((kp, v))
             else:
                 out.extend(margin_fraction_offenders(v, kp, str(k).lower()))
     elif isinstance(doc, list):
         for i, v in enumerate(doc):
             out.extend(margin_fraction_offenders(v, f"{path}[{i}]", parent))
+    return out
+
+
+_WATCH_ONLY_FIX = "for watch-only (no new entries, DSL keeps managing open positions) set `decision_mode: none` on each OPEN_POSITION action"
+
+
+def inert_entry_stop_offenders(doc):
+    """runtime.yaml keys that look like a way to stop new entries but stop nothing, each as a ready error message.
+    The runtime never reads `enabled` on an action (the action schema passes unknown keys through) or
+    `strategy.enabled`, and it turns `strategy.slots: 0` into 1, so each of these deploys clean and keeps
+    trading. A negative `slots` is not turned into 1, so it gets its own message: an invalid count.
+    Kept identical to senpi-strategy-author `validate_strategy.inert_entry_stop_offenders`, so author-green == deploy-green."""
+    out = []
+    if not isinstance(doc, dict):
+        return out
+    actions = doc.get("actions")
+    for a in actions if isinstance(actions, list) else []:
+        if isinstance(a, dict) and "enabled" in a:
+            out.append(f"action {a.get('name')!r} has `enabled`, which the runtime does not read on an "
+                       f"action, so this action would keep trading. Remove it; {_WATCH_ONLY_FIX}")
+    strat = doc.get("strategy")
+    if isinstance(strat, dict):
+        if strat.get("enabled") is False:
+            out.append(f"`strategy.enabled: false` is not read by the runtime and stops no entries. "
+                       f"Set it to `true`; {_WATCH_ONLY_FIX}")
+        slots = strat.get("slots")
+        if isinstance(slots, (int, float)) and not isinstance(slots, bool):
+            if slots == 0:
+                out.append(f"`strategy.slots: {slots}` stops no entries (the runtime turns 0 into 1). "
+                           f"Set it to 1 or more; {_WATCH_ONLY_FIX}")
+            elif slots < 0:
+                out.append(f"`strategy.slots: {slots}` is not a valid slot count. "
+                           f"Set it to 1 or more; {_WATCH_ONLY_FIX}")
     return out
 
 
@@ -348,10 +383,12 @@ def validate(pkg: Package) -> list:
         expect_name = f"{pkg.id}-{inst.name}"
         if inst.runtime_name != expect_name:
             errs.append(f"{tag}: set runtime `name: {expect_name}` (found {inst.runtime_name!r})")
-        # marginPct is a PERCENT in (0,100]; a value <= 1 is the fraction slip (0.10 meant 10, 100x too
+        # marginPct is a PERCENT in (0,100]; a value below 1 is the fraction slip (0.10 meant 10, 100x too
         # small). Refuse to fund it (author's validate_strategy flags it too; ops re-checks fetched packages).
         for kp, val in margin_fraction_offenders(inst.runtime_doc):
             errs.append(f"{tag}: `{kp}` must be a PERCENT in (0,100] — set {val * 100:g} (not {val})")
+        for msg in inert_entry_stop_offenders(inst.runtime_doc):
+            errs.append(f"{tag}: {msg}")
         # wallet binding — asked of the PARSED `strategy.wallet`, not of the file's text. A text
         # search passes on a recipe that pins an address while parking the token in some field
         # nothing reads, and deploy would then fund a fresh wallet and install the strategy, exit

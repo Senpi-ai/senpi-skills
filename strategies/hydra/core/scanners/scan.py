@@ -1,9 +1,10 @@
 """HYDRA CORE — supervised scanner (Runtime 3.0 port of v2 hydra-producer.py single_main,
 LEG=core). Single-asset. Reads the thesis coin's 1h/4h/1d candles + funding, scores via
-the pure `scoring.score_core`, and emits ONE conviction-tiered signal (LONG the uptrend /
-SHORT the downtrend) when the composite clears minScore. Read-only + single-pass — emits a
-`marginPct` intent plus a per-signal `leverage` (std/apex); the runtime sizes the dollars,
-owns the cooldowns/risk gates, and trails the catastrophic-only DSL exit. No daemon.
+the pure `scoring.score_core` (closed candles only), and emits ONE signal — LONG the
+confirmed uptrend; a SHORT only when inputs.allowShort is true — when the composite clears
+minScore. Read-only + single-pass — emits a `marginPct` intent plus a per-signal `leverage`
+(one value, inputs.leverage); the runtime sizes the dollars, owns the cooldowns/risk gates,
+and trails the DSL exit (the stop + the ratchet, no clock cuts). No daemon.
 
 PER-COIN PARAMETERIZATION: the thesis coin is inputs.coin (mirrors v2 HYDRA_COIN env).
 """
@@ -69,7 +70,7 @@ def scan(inputs, ctx):
     coin = str(inputs.get("coin", "ETH"))
     dex = _dex_for(coin, inputs)
     min_score = float(inputs.get("minScore", 5))
-    margin_pct = float(inputs.get("marginPct", 20))     # PERCENT of withdrawable (0,100]
+    margin_pct = float(inputs.get("marginPct", 40))     # PERCENT of withdrawable (0,100]
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
     min_notional_pct = float(inputs.get("minNotionalPctOfEquity", 0.01))
     venue_min_notional = float(inputs.get("venueMinNotionalUsd", 10))
@@ -116,7 +117,7 @@ def scan(inputs, ctx):
     ctx_block = d.get("asset_context", {}) or {}
 
     th = scoring.score_core(candles.get("1h", []), candles.get("4h", []), candles.get("1d", []),
-                            ctx_block, inputs)
+                            ctx_block, inputs, now)
     if not th or th["score"] < min_score:
         result = {"ts": now, "coin": coin, "emitted": False, "gate": "blocked",
                   "score": (th["score"] if th else None), "note": "no confirmed trend"}
@@ -148,7 +149,7 @@ def scan(inputs, ctx):
         "asset": coin,
         "direction": th["direction"],
         "marginPct": margin_pct,            # SIZING INTENT — runtime sizes the dollars
-        "leverage": th["leverage"],         # conviction-tiered (std/apex); runtime clamps to venue max
+        "leverage": th["leverage"],         # one value (inputs.leverage); runtime clamps to venue max
         "data": {
             "score": th["score"], "leverage": th["leverage"], "direction": th["direction"],
             "trend4h": th["trend4h"], "trend1h": th["trend1h"], "rsi": round(th.get("rsi", 0), 1),

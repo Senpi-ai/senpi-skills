@@ -17,9 +17,35 @@ import mcp_client  # noqa: E402
 FIXTURE = os.path.join(HERE, "fixtures", "status_fixture.json")
 
 
-def _result():
+def _recorded():
     with open(FIXTURE) as f:
-        return status.run(status._FixtureClient(json.load(f)))
+        return json.load(f)
+
+
+def _result():
+    return status.run(status._FixtureClient(_recorded()))
+
+
+class _Recording:
+    """A fixture client that remembers which tools the engine asked for."""
+
+    def __init__(self, recorded):
+        self._inner = status._FixtureClient(recorded)
+        self.tools = []
+
+    def mcp_call(self, tool, timeout=12, **kw):
+        self.tools.append(tool)
+        return self._inner.mcp_call(tool, timeout=timeout, **kw)
+
+
+def _with_fee_fields(**fields):
+    """The fixture user with its points payload's fee fields replaced by `fields`."""
+    recorded = _recorded()
+    points = recorded["user_get_senpi_points::0xme"]["data"]
+    for name in ("loyaltyTierFee", "feeBps", "builderFeeBps", "builderFeePercent"):
+        points.pop(name, None)
+    points.update(fields)
+    return status.run(status._FixtureClient(recorded))
 
 
 def test_identity_and_points():
@@ -30,19 +56,40 @@ def test_identity_and_points():
     assert r["points"]["base"] == 2000 and r["points"]["perp"] == 13000
 
 
-def test_loyalty_fee_and_milestone():
-    loy = _result()["loyalty"]
-    assert loy["tier"] == "SILVER"
-    assert loy["fee_bps"] == 47.0                      # loyaltyTierFee, not feeBps
-    assert loy["fee_pct"] == "0.047%"
-    assert loy["fee_discount_pct"] == 6.0              # enriched from get_loyalty_tiers
-    assert loy["next_tier"] == "GOLD" and loy["points_to_next"] == 5000.0
+def test_the_output_is_points_fee_and_referral_and_nothing_about_tiers():
+    # the recorded points payload still carries loyaltyTier, isDemoted, nextTier and the rest;
+    # none of it may reach the agent
+    assert _result() == {
+        "as_of": "live",
+        "identity": {"senpi_user_id": "u123", "wallet": "0xme"},
+        "points": {"total": 15000.0, "base": 2000.0, "perp": 13000.0, "multiplier": 1.5,
+                   "rank": 42.0, "rank_change": 3.0, "found": True},
+        "fee": {"bps": 30.0, "pct": "0.03%"},
+        "referral": {"balance_usdc": 12.5, "wallet": "0xme"},
+        "meta": {"warnings": []},
+    }
 
 
-def test_loyalty_demotion():
-    loy = _result()["loyalty"]
-    assert loy["demoted"] is True and loy["previous_tier"] == "APEX"
-    assert loy["maintenance_deadline"] == "2026-08-23T13:25:02.760Z"
+def test_a_paid_account_reports_a_zero_fee_not_a_missing_one():
+    paid = _with_fee_fields(loyaltyTierFee=0, builderFeePercent="0%")
+    assert paid["fee"] == {"bps": 0.0, "pct": "0%"}
+
+
+def test_the_fee_bps_is_read_from_whichever_field_the_payload_carries():
+    for field in ("loyaltyTierFee", "feeBps", "builderFeeBps"):
+        assert _with_fee_fields(**{field: 12})["fee"]["bps"] == 12.0, field
+
+
+def test_a_payload_without_fee_fields_reports_none_not_a_guess():
+    assert _with_fee_fields()["fee"] == {"bps": None, "pct": None}
+
+
+def test_the_engine_never_asks_for_the_tier_table():
+    client = _Recording(_recorded())
+    status.run(client)
+    status._dry(client)
+    assert sorted(set(client.tools)) == [
+        "user_get_me", "user_get_referral_rewards", "user_get_senpi_points"]
 
 
 def test_arena_retired():

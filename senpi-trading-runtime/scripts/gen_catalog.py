@@ -243,6 +243,10 @@ def build(updated, branch):
             "id": sid,
             "name": c.get("name"),
             "emoji": c.get("emoji"),
+            # The template this one is a VARIANT of, when it is one. discover.py ranks a variant
+            # below its parent on a tie and surfaces the name, so an agent can say "this is X with
+            # one change" instead of offering two near-identical cards side by side.
+            "varies": c.get("varies"),
             "tagline": c.get("tagline"),
             "belief_plain": c.get("belief_plain"),
             "version": m.get("version"),

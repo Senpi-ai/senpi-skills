@@ -1,0 +1,2062 @@
+{
+  "schema": "senpi.protection-fixture/v1",
+  "version": 1,
+  "cases": [
+    {
+      "id": "long-stop-market-fixed-full",
+      "description": "Long BTC with one armed reduce-only Stop Market (sell) sized exactly to the position.",
+      "source": "live read 2026-10-03 (api.hyperliquid.xyz/info frontendOpenOrders + clearinghouseState, public accounts; field set, key order, triggerCondition/orderType strings verbatim; coins, sizes, prices, oids synthetic)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "BTC",
+              "szi": "0.00017",
+              "leverage": {
+                "type": "cross",
+                "value": 20
+              },
+              "entryPx": "83375.0",
+              "positionValue": "14.17375",
+              "unrealizedPnl": "0.0",
+              "returnOnEquity": "0.0",
+              "liquidationPx": "56324.2412509307",
+              "marginUsed": "0.708687",
+              "maxLeverage": 40,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "BTC",
+              "side": "A",
+              "limitPx": "72000.0",
+              "sz": "0.00017",
+              "oid": 563694723394,
+              "timestamp": 1791031423394,
+              "triggerCondition": "Price below 80000",
+              "isTrigger": true,
+              "triggerPx": "80000.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "0.00017",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "BTC",
+            "dex": "",
+            "side": "LONG",
+            "size": "0.00017",
+            "coveredSize": "0.00017",
+            "protection": "FULL",
+            "stopOrders": [
+              {
+                "oid": "563694723394",
+                "kind": "STOP_MARKET",
+                "status": "ARMED",
+                "isPositionTpsl": false,
+                "size": "0.00017"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "long-stop-market-zero-trigger-not-armed-none",
+      "description": "Fail-safe: a non-trailing Stop Market whose triggerPx reads \"0.0\" (a shape HL has not been seen to send) is never ARMED; it is listed as WAITING_TO_ACTIVATE and covers nothing.",
+      "source": "synthetic, derived from long-stop-market-fixed-full (live read 2026-10-03); pins the fail-safe zero-trigger rule (C2 rule 2)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "BTC",
+              "szi": "0.00017",
+              "leverage": {
+                "type": "cross",
+                "value": 20
+              },
+              "entryPx": "83375.0",
+              "positionValue": "14.17375",
+              "unrealizedPnl": "0.0",
+              "returnOnEquity": "0.0",
+              "liquidationPx": "56324.2412509307",
+              "marginUsed": "0.708687",
+              "maxLeverage": 40,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "BTC",
+              "side": "A",
+              "limitPx": "72000.0",
+              "sz": "0.00017",
+              "oid": 563694723395,
+              "timestamp": 1791031423394,
+              "triggerCondition": "Price below 80000",
+              "isTrigger": true,
+              "triggerPx": "0.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "0.00017",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "BTC",
+            "dex": "",
+            "side": "LONG",
+            "size": "0.00017",
+            "coveredSize": "0",
+            "protection": "NONE",
+            "stopOrders": [
+              {
+                "oid": "563694723395",
+                "kind": "STOP_MARKET",
+                "status": "WAITING_TO_ACTIVATE",
+                "isPositionTpsl": false,
+                "size": "0.00017"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "long-trailing-waiting-only-none",
+      "description": "Long BTC whose only stop is a trailing stop still waiting for its activation price (triggerPx \"0.0\", condition ends \"best waiting\"): listed, WAITING_TO_ACTIVATE, covers nothing.",
+      "source": "spikes/external-wallet-dsl/evidence/activation-long-state.json (order wait1, oid 560388062421) (triggerCondition, triggerPx, sz, side verbatim) + 2026-09-25-hl-native-trailing-stop.md (full order field set of a resting trailing stop: limitPx, isTrigger true, children [], tif null); 2026-09-30-hl-trailing-stop-lifecycle-probes.md (waiting stop also reads isTrigger true)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "BTC",
+              "szi": "0.00018",
+              "leverage": {
+                "type": "cross",
+                "value": 20
+              },
+              "entryPx": "83110.0",
+              "positionValue": "14.9607",
+              "unrealizedPnl": "0.0009",
+              "returnOnEquity": "0.0012031",
+              "liquidationPx": "56598.0123456789",
+              "marginUsed": "0.748035",
+              "maxLeverage": 40,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "BTC",
+              "side": "A",
+              "limitPx": "74803.5",
+              "sz": "0.00018",
+              "oid": 560388062421,
+              "timestamp": 1790716806052,
+              "triggerCondition": "Activation above 83131, retracement 5%, best waiting",
+              "isTrigger": true,
+              "triggerPx": "0.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Trailing Stop Market",
+              "origSz": "0.00018",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "BTC",
+            "dex": "",
+            "side": "LONG",
+            "size": "0.00018",
+            "coveredSize": "0",
+            "protection": "NONE",
+            "stopOrders": [
+              {
+                "oid": "560388062421",
+                "kind": "TRAILING",
+                "status": "WAITING_TO_ACTIVATE",
+                "isPositionTpsl": false,
+                "size": "0.00018"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "long-trailing-active-full",
+      "description": "Long BTC with an activated trailing stop (live triggerPx, condition carries a numeric best): ARMED, covers its size.",
+      "source": "spikes/external-wallet-dsl/evidence/activation-long-state.json (order past, oid 560388035739) (triggerCondition, triggerPx, sz, side verbatim) + 2026-09-25-hl-native-trailing-stop.md (full order field set of a resting trailing stop: limitPx, isTrigger true, children [], tif null); 2026-09-30-hl-trailing-stop-lifecycle-probes.md (waiting stop also reads isTrigger true)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "BTC",
+              "szi": "0.00018",
+              "leverage": {
+                "type": "cross",
+                "value": 20
+              },
+              "entryPx": "83110.0",
+              "positionValue": "14.9607",
+              "unrealizedPnl": "0.0009",
+              "returnOnEquity": "0.0012031",
+              "liquidationPx": "56598.0123456789",
+              "marginUsed": "0.748035",
+              "maxLeverage": 40,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "BTC",
+              "side": "A",
+              "limitPx": "74803.5",
+              "sz": "0.00018",
+              "oid": 560388035739,
+              "timestamp": 1790716803552,
+              "triggerCondition": "Activation above 83031, retracement 5%, best 83114.6",
+              "isTrigger": true,
+              "triggerPx": "78958.9",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Trailing Stop Market",
+              "origSz": "0.00018",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "BTC",
+            "dex": "",
+            "side": "LONG",
+            "size": "0.00018",
+            "coveredSize": "0.00018",
+            "protection": "FULL",
+            "stopOrders": [
+              {
+                "oid": "560388035739",
+                "kind": "TRAILING",
+                "status": "ARMED",
+                "isPositionTpsl": false,
+                "size": "0.00018"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "short-trailing-active-full",
+      "description": "Short BTC with an immediately-activated trailing stop (buy side \"B\"): ARMED, covers its size.",
+      "source": "spikes/external-wallet-dsl/evidence/activation-short-state.json (order imm, oid 561476592994) (triggerCondition, triggerPx, sz, side verbatim) + 2026-09-25-hl-native-trailing-stop.md (full order field set of a resting trailing stop: limitPx, isTrigger true, children [], tif null); 2026-09-30-hl-trailing-stop-lifecycle-probes.md (waiting stop also reads isTrigger true)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "BTC",
+              "szi": "-0.00017",
+              "leverage": {
+                "type": "cross",
+                "value": 20
+              },
+              "entryPx": "84270.0",
+              "positionValue": "14.32845",
+              "unrealizedPnl": "-0.00255",
+              "returnOnEquity": "-0.0035601",
+              "liquidationPx": "110955.137254902",
+              "marginUsed": "0.716422",
+              "maxLeverage": 40,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "BTC",
+              "side": "B",
+              "limitPx": "92713.5",
+              "sz": "0.00017",
+              "oid": 561476592994,
+              "timestamp": 1790786574174,
+              "triggerCondition": "Activation immediate, retracement 5%, best 84285",
+              "isTrigger": true,
+              "triggerPx": "88499.3",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Trailing Stop Market",
+              "origSz": "0.00017",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "BTC",
+            "dex": "",
+            "side": "SHORT",
+            "size": "0.00017",
+            "coveredSize": "0.00017",
+            "protection": "FULL",
+            "stopOrders": [
+              {
+                "oid": "561476592994",
+                "kind": "TRAILING",
+                "status": "ARMED",
+                "isPositionTpsl": false,
+                "size": "0.00017"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "long-position-tpsl-stop-market-full",
+      "description": "Long BTC with a position-wide TP/SL stop (isPositionTpsl true, sz \"0.0\"): covers the whole position; coveredSize equals size; the stop's size is HL's sz verbatim.",
+      "source": "live read 2026-10-03 (api.hyperliquid.xyz/info frontendOpenOrders + clearinghouseState, public accounts; field set, key order, triggerCondition/orderType strings verbatim; coins, sizes, prices, oids synthetic); sz \"0.0\" on a positionTpsl also in spikes/external-wallet-dsl/evidence/builder-fill-state.json",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "BTC",
+              "szi": "0.00017",
+              "leverage": {
+                "type": "cross",
+                "value": 20
+              },
+              "entryPx": "83375.0",
+              "positionValue": "14.17375",
+              "unrealizedPnl": "0.0",
+              "returnOnEquity": "0.0",
+              "liquidationPx": "56324.2412509307",
+              "marginUsed": "0.708687",
+              "maxLeverage": 40,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "BTC",
+              "side": "A",
+              "limitPx": "72000.0",
+              "sz": "0.0",
+              "oid": 564213649294,
+              "timestamp": 1791031449294,
+              "triggerCondition": "Price below 80000",
+              "isTrigger": true,
+              "triggerPx": "80000.0",
+              "children": [],
+              "isPositionTpsl": true,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "0.0",
+              "tif": null,
+              "cloid": "0x0000000000000000000000000000a001"
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "BTC",
+            "dex": "",
+            "side": "LONG",
+            "size": "0.00017",
+            "coveredSize": "0.00017",
+            "protection": "FULL",
+            "stopOrders": [
+              {
+                "oid": "564213649294",
+                "kind": "STOP_MARKET",
+                "status": "ARMED",
+                "isPositionTpsl": true,
+                "size": "0.0"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "long-two-fixed-stops-partial",
+      "description": "Long ETH 2.5 with two armed fixed stops 1.0 + 0.5: covered 1.5 < 2.5.",
+      "source": "live read 2026-10-03 (api.hyperliquid.xyz/info frontendOpenOrders + clearinghouseState, public accounts; field set, key order, triggerCondition/orderType strings verbatim; coins, sizes, prices, oids synthetic)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "ETH",
+              "szi": "2.5",
+              "leverage": {
+                "type": "isolated",
+                "value": 15,
+                "rawUsd": "-6235.734"
+              },
+              "entryPx": "2692.8",
+              "positionValue": "6646.0",
+              "unrealizedPnl": "-86.0",
+              "returnOnEquity": "-0.0767245",
+              "liquidationPx": "2566.3533860942",
+              "marginUsed": "443.066667",
+              "maxLeverage": 25,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "ETH",
+              "side": "A",
+              "limitPx": "2340.0",
+              "sz": "1.0",
+              "oid": 563694720001,
+              "timestamp": 1791031420001,
+              "triggerCondition": "Price below 2600",
+              "isTrigger": true,
+              "triggerPx": "2600.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "1.0",
+              "tif": null,
+              "cloid": null
+            },
+            {
+              "coin": "ETH",
+              "side": "A",
+              "limitPx": "2295.0",
+              "sz": "0.5",
+              "oid": 563694720002,
+              "timestamp": 1791031420002,
+              "triggerCondition": "Price below 2550",
+              "isTrigger": true,
+              "triggerPx": "2550.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "0.5",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "ETH",
+            "dex": "",
+            "side": "LONG",
+            "size": "2.5",
+            "coveredSize": "1.5",
+            "protection": "PARTIAL",
+            "stopOrders": [
+              {
+                "oid": "563694720001",
+                "kind": "STOP_MARKET",
+                "status": "ARMED",
+                "isPositionTpsl": false,
+                "size": "1.0"
+              },
+              {
+                "oid": "563694720002",
+                "kind": "STOP_MARKET",
+                "status": "ARMED",
+                "isPositionTpsl": false,
+                "size": "0.5"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "long-fixed-stops-oversized-full",
+      "description": "Long ETH 2.5 with fixed stops 2.0 + 1.0: coveredSize 3.0 is not capped and exceeds size, FULL.",
+      "source": "live read 2026-10-03 (api.hyperliquid.xyz/info frontendOpenOrders + clearinghouseState, public accounts; field set, key order, triggerCondition/orderType strings verbatim; coins, sizes, prices, oids synthetic)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "ETH",
+              "szi": "2.5",
+              "leverage": {
+                "type": "isolated",
+                "value": 15,
+                "rawUsd": "-6235.734"
+              },
+              "entryPx": "2692.8",
+              "positionValue": "6646.0",
+              "unrealizedPnl": "-86.0",
+              "returnOnEquity": "-0.0767245",
+              "liquidationPx": "2566.3533860942",
+              "marginUsed": "443.066667",
+              "maxLeverage": 25,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "ETH",
+              "side": "A",
+              "limitPx": "2340.0",
+              "sz": "2.0",
+              "oid": 563694720011,
+              "timestamp": 1791031420011,
+              "triggerCondition": "Price below 2600",
+              "isTrigger": true,
+              "triggerPx": "2600.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "2.0",
+              "tif": null,
+              "cloid": null
+            },
+            {
+              "coin": "ETH",
+              "side": "A",
+              "limitPx": "2295.0",
+              "sz": "1.0",
+              "oid": 563694720012,
+              "timestamp": 1791031420012,
+              "triggerCondition": "Price below 2550",
+              "isTrigger": true,
+              "triggerPx": "2550.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "1.0",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "ETH",
+            "dex": "",
+            "side": "LONG",
+            "size": "2.5",
+            "coveredSize": "3.0",
+            "protection": "FULL",
+            "stopOrders": [
+              {
+                "oid": "563694720011",
+                "kind": "STOP_MARKET",
+                "status": "ARMED",
+                "isPositionTpsl": false,
+                "size": "2.0"
+              },
+              {
+                "oid": "563694720012",
+                "kind": "STOP_MARKET",
+                "status": "ARMED",
+                "isPositionTpsl": false,
+                "size": "1.0"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "long-take-profit-market-only-none",
+      "description": "Long ETH with only a reduce-only Take Profit Market (sell, \"Price above\") sized to the position: not a stop.",
+      "source": "live read 2026-10-03 (api.hyperliquid.xyz/info frontendOpenOrders + clearinghouseState, public accounts; field set, key order, triggerCondition/orderType strings verbatim; coins, sizes, prices, oids synthetic)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "ETH",
+              "szi": "2.5",
+              "leverage": {
+                "type": "isolated",
+                "value": 15,
+                "rawUsd": "-6235.734"
+              },
+              "entryPx": "2692.8",
+              "positionValue": "6646.0",
+              "unrealizedPnl": "-86.0",
+              "returnOnEquity": "-0.0767245",
+              "liquidationPx": "2566.3533860942",
+              "marginUsed": "443.066667",
+              "maxLeverage": 25,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "ETH",
+              "side": "A",
+              "limitPx": "2520.9",
+              "sz": "2.5",
+              "oid": 563694723395,
+              "timestamp": 1791031423395,
+              "triggerCondition": "Price above 2801",
+              "isTrigger": true,
+              "triggerPx": "2801.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Take Profit Market",
+              "origSz": "2.5",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "ETH",
+            "dex": "",
+            "side": "LONG",
+            "size": "2.5",
+            "coveredSize": "0",
+            "protection": "NONE",
+            "stopOrders": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "long-tp-plus-partial-stop-partial",
+      "description": "Long ETH 2.5 with a full-size Take Profit Market and a 1.0 Stop Market: the TP adds nothing, covered 1.0, PARTIAL.",
+      "source": "live read 2026-10-03 (api.hyperliquid.xyz/info frontendOpenOrders + clearinghouseState, public accounts; field set, key order, triggerCondition/orderType strings verbatim; coins, sizes, prices, oids synthetic)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "ETH",
+              "szi": "2.5",
+              "leverage": {
+                "type": "isolated",
+                "value": 15,
+                "rawUsd": "-6235.734"
+              },
+              "entryPx": "2692.8",
+              "positionValue": "6646.0",
+              "unrealizedPnl": "-86.0",
+              "returnOnEquity": "-0.0767245",
+              "liquidationPx": "2566.3533860942",
+              "marginUsed": "443.066667",
+              "maxLeverage": 25,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "ETH",
+              "side": "A",
+              "limitPx": "2520.9",
+              "sz": "2.5",
+              "oid": 563694720021,
+              "timestamp": 1791031420021,
+              "triggerCondition": "Price above 2801",
+              "isTrigger": true,
+              "triggerPx": "2801.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Take Profit Market",
+              "origSz": "2.5",
+              "tif": null,
+              "cloid": null
+            },
+            {
+              "coin": "ETH",
+              "side": "A",
+              "limitPx": "2340.0",
+              "sz": "1.0",
+              "oid": 563694720022,
+              "timestamp": 1791031420022,
+              "triggerCondition": "Price below 2600",
+              "isTrigger": true,
+              "triggerPx": "2600.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "1.0",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "ETH",
+            "dex": "",
+            "side": "LONG",
+            "size": "2.5",
+            "coveredSize": "1.0",
+            "protection": "PARTIAL",
+            "stopOrders": [
+              {
+                "oid": "563694720022",
+                "kind": "STOP_MARKET",
+                "status": "ARMED",
+                "isPositionTpsl": false,
+                "size": "1.0"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "long-entry-side-stop-ignored-none",
+      "description": "Long ETH with a buy-side (\"B\", \"Price above\") Stop Market flagged reduceOnly: wrong side for a long, not a stop. reduceOnly is true only to isolate the side check; HL would not rest it.",
+      "source": "synthetic, derived from live read 2026-10-03 (api.hyperliquid.xyz/info frontendOpenOrders + clearinghouseState, public accounts; field set, key order, triggerCondition/orderType strings verbatim; coins, sizes, prices, oids synthetic)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "ETH",
+              "szi": "2.5",
+              "leverage": {
+                "type": "isolated",
+                "value": 15,
+                "rawUsd": "-6235.734"
+              },
+              "entryPx": "2692.8",
+              "positionValue": "6646.0",
+              "unrealizedPnl": "-86.0",
+              "returnOnEquity": "-0.0767245",
+              "liquidationPx": "2566.3533860942",
+              "marginUsed": "443.066667",
+              "maxLeverage": 25,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "ETH",
+              "side": "B",
+              "limitPx": "3190.0",
+              "sz": "2.5",
+              "oid": 563789789872,
+              "timestamp": 1791031489872,
+              "triggerCondition": "Price above 2900",
+              "isTrigger": true,
+              "triggerPx": "2900.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "2.5",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "ETH",
+            "dex": "",
+            "side": "LONG",
+            "size": "2.5",
+            "coveredSize": "0",
+            "protection": "NONE",
+            "stopOrders": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "long-non-reduce-only-stop-ignored-none",
+      "description": "Long ETH with an exit-side (sell) Stop Market that is not reduceOnly: not a stop.",
+      "source": "live read 2026-10-03 (api.hyperliquid.xyz/info frontendOpenOrders + clearinghouseState, public accounts; field set, key order, triggerCondition/orderType strings verbatim; coins, sizes, prices, oids synthetic) (non-reduce-only Stop Market shape seen live)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "ETH",
+              "szi": "2.5",
+              "leverage": {
+                "type": "isolated",
+                "value": 15,
+                "rawUsd": "-6235.734"
+              },
+              "entryPx": "2692.8",
+              "positionValue": "6646.0",
+              "unrealizedPnl": "-86.0",
+              "returnOnEquity": "-0.0767245",
+              "liquidationPx": "2566.3533860942",
+              "marginUsed": "443.066667",
+              "maxLeverage": 25,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "ETH",
+              "side": "A",
+              "limitPx": "2340.0",
+              "sz": "2.5",
+              "oid": 563789789873,
+              "timestamp": 1791031489873,
+              "triggerCondition": "Price below 2600",
+              "isTrigger": true,
+              "triggerPx": "2600.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": false,
+              "orderType": "Stop Market",
+              "origSz": "2.5",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "ETH",
+            "dex": "",
+            "side": "LONG",
+            "size": "2.5",
+            "coveredSize": "0",
+            "protection": "NONE",
+            "stopOrders": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "short-buy-stop-full",
+      "description": "Short XRP -413.0 with a reduce-only buy Stop Market (\"Price above\") of 413.0: FULL; size is |szi|.",
+      "source": "live read 2026-10-03 (api.hyperliquid.xyz/info frontendOpenOrders + clearinghouseState, public accounts; field set, key order, triggerCondition/orderType strings verbatim; coins, sizes, prices, oids synthetic)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "XRP",
+              "szi": "-413.0",
+              "leverage": {
+                "type": "cross",
+                "value": 20
+              },
+              "entryPx": "1.482506",
+              "positionValue": "612.5616",
+              "unrealizedPnl": "-0.2864",
+              "returnOnEquity": "-0.0093552703",
+              "liquidationPx": "1.691576257",
+              "marginUsed": "30.62808",
+              "maxLeverage": 20,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "XRP",
+              "side": "B",
+              "limitPx": "1.661",
+              "sz": "413.0",
+              "oid": 563916609103,
+              "timestamp": 1791031409103,
+              "triggerCondition": "Price above 1.51",
+              "isTrigger": true,
+              "triggerPx": "1.51",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "413.0",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "XRP",
+            "dex": "",
+            "side": "SHORT",
+            "size": "413.0",
+            "coveredSize": "413.0",
+            "protection": "FULL",
+            "stopOrders": [
+              {
+                "oid": "563916609103",
+                "kind": "STOP_MARKET",
+                "status": "ARMED",
+                "isPositionTpsl": false,
+                "size": "413.0"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "xyz-stop-in-xyz-book-full",
+      "description": "Long xyz:XYZ100 (HIP-3 dex \"xyz\") with its reduce-only sell Stop Market in the \"xyz\" frontendOpenOrders list: dex \"xyz\", FULL.",
+      "source": "live read 2026-10-03 (api.hyperliquid.xyz/info frontendOpenOrders + clearinghouseState, public accounts; field set, key order, triggerCondition/orderType strings verbatim; coins, sizes, prices, oids synthetic) (xyz Stop Market shape seen live on dex \"xyz\"; coin carries the \"xyz:\" prefix in both clearinghouseState and frontendOpenOrders)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "xyz:XYZ100",
+              "szi": "0.0004",
+              "leverage": {
+                "type": "isolated",
+                "value": 10,
+                "rawUsd": "-11.0088"
+              },
+              "entryPx": "30580.0",
+              "positionValue": "12.232",
+              "unrealizedPnl": "0.0",
+              "returnOnEquity": "0.0",
+              "liquidationPx": "27841.0",
+              "marginUsed": "1.2232",
+              "maxLeverage": 25,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [],
+          "xyz": [
+            {
+              "coin": "xyz:XYZ100",
+              "side": "A",
+              "limitPx": "26683.0",
+              "sz": "0.0004",
+              "oid": 554780993997,
+              "timestamp": 1791031493997,
+              "triggerCondition": "Price below 29648",
+              "isTrigger": true,
+              "triggerPx": "29648.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "0.0004",
+              "tif": null,
+              "cloid": null
+            }
+          ]
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "xyz:XYZ100",
+            "dex": "xyz",
+            "side": "LONG",
+            "size": "0.0004",
+            "coveredSize": "0.0004",
+            "protection": "FULL",
+            "stopOrders": [
+              {
+                "oid": "554780993997",
+                "kind": "STOP_MARKET",
+                "status": "ARMED",
+                "isPositionTpsl": false,
+                "size": "0.0004"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "xyz-stop-only-in-main-book-none",
+      "description": "The same xyz:XYZ100 position and stop, but the stop sits only in the main (\"\") list: a stop must come from the position's own dex list, so NONE. HL never returns an xyz order on the main list; this pins dex-keyed matching.",
+      "source": "synthetic, derived from live read 2026-10-03 (api.hyperliquid.xyz/info frontendOpenOrders + clearinghouseState, public accounts; field set, key order, triggerCondition/orderType strings verbatim; coins, sizes, prices, oids synthetic)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "xyz:XYZ100",
+              "szi": "0.0004",
+              "leverage": {
+                "type": "isolated",
+                "value": 10,
+                "rawUsd": "-11.0088"
+              },
+              "entryPx": "30580.0",
+              "positionValue": "12.232",
+              "unrealizedPnl": "0.0",
+              "returnOnEquity": "0.0",
+              "liquidationPx": "27841.0",
+              "marginUsed": "1.2232",
+              "maxLeverage": 25,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "xyz:XYZ100",
+              "side": "A",
+              "limitPx": "26683.0",
+              "sz": "0.0004",
+              "oid": 554780993997,
+              "timestamp": 1791031493997,
+              "triggerCondition": "Price below 29648",
+              "isTrigger": true,
+              "triggerPx": "29648.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "0.0004",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "xyz:XYZ100",
+            "dex": "xyz",
+            "side": "LONG",
+            "size": "0.0004",
+            "coveredSize": "0",
+            "protection": "NONE",
+            "stopOrders": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "long-stop-limit-full",
+      "description": "Long SOL 0.3 with an armed reduce-only Stop Limit of 0.3: FULL, kind STOP_LIMIT.",
+      "source": "synthetic, derived from live read 2026-10-03 (api.hyperliquid.xyz/info frontendOpenOrders + clearinghouseState, public accounts; field set, key order, triggerCondition/orderType strings verbatim; coins, sizes, prices, oids synthetic) (no live Stop Limit found; shape copied from a live Take Profit Limit)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "SOL",
+              "szi": "0.3",
+              "leverage": {
+                "type": "cross",
+                "value": 10
+              },
+              "entryPx": "118.4",
+              "positionValue": "35.4",
+              "unrealizedPnl": "-0.12",
+              "returnOnEquity": "-0.0337838",
+              "liquidationPx": "107.0981421053",
+              "marginUsed": "3.54",
+              "maxLeverage": 20,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "SOL",
+              "side": "A",
+              "limitPx": "111.5",
+              "sz": "0.3",
+              "oid": 564230732601,
+              "timestamp": 1791031432601,
+              "triggerCondition": "Price below 112",
+              "isTrigger": true,
+              "triggerPx": "112.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Limit",
+              "origSz": "0.3",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "SOL",
+            "dex": "",
+            "side": "LONG",
+            "size": "0.3",
+            "coveredSize": "0.3",
+            "protection": "FULL",
+            "stopOrders": [
+              {
+                "oid": "564230732601",
+                "kind": "STOP_LIMIT",
+                "status": "ARMED",
+                "isPositionTpsl": false,
+                "size": "0.3"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "long-stop-limit-partial",
+      "description": "Long SOL 0.3 with an armed reduce-only Stop Limit of 0.1: PARTIAL.",
+      "source": "synthetic, derived from live read 2026-10-03 (api.hyperliquid.xyz/info frontendOpenOrders + clearinghouseState, public accounts; field set, key order, triggerCondition/orderType strings verbatim; coins, sizes, prices, oids synthetic) (no live Stop Limit found; shape copied from a live Take Profit Limit)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "SOL",
+              "szi": "0.3",
+              "leverage": {
+                "type": "cross",
+                "value": 10
+              },
+              "entryPx": "118.4",
+              "positionValue": "35.4",
+              "unrealizedPnl": "-0.12",
+              "returnOnEquity": "-0.0337838",
+              "liquidationPx": "107.0981421053",
+              "marginUsed": "3.54",
+              "maxLeverage": 20,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "SOL",
+              "side": "A",
+              "limitPx": "111.5",
+              "sz": "0.1",
+              "oid": 564230732602,
+              "timestamp": 1791031432602,
+              "triggerCondition": "Price below 112",
+              "isTrigger": true,
+              "triggerPx": "112.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Limit",
+              "origSz": "0.1",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "SOL",
+            "dex": "",
+            "side": "LONG",
+            "size": "0.3",
+            "coveredSize": "0.1",
+            "protection": "PARTIAL",
+            "stopOrders": [
+              {
+                "oid": "564230732602",
+                "kind": "STOP_LIMIT",
+                "status": "ARMED",
+                "isPositionTpsl": false,
+                "size": "0.1"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "flat-account-resting-trailing-no-positions",
+      "description": "Flat account (no assetPositions) with a reduce-only waiting trailing stop resting on xyz:XYZ100: no position, so expect.positions is empty; the order is not attached anywhere.",
+      "source": "spikes/external-wallet-dsl/evidence/xyz-probe.json (resting oid 561476317653 on a flat account) (triggerCondition, triggerPx, sz, side verbatim) + 2026-09-25-hl-native-trailing-stop.md (full order field set of a resting trailing stop: limitPx, isTrigger true, children [], tif null); 2026-09-30-hl-trailing-stop-lifecycle-probes.md (waiting stop also reads isTrigger true)",
+      "input": {
+        "assetPositions": [],
+        "frontendOpenOrders": {
+          "": [],
+          "xyz": [
+            {
+              "coin": "xyz:XYZ100",
+              "side": "A",
+              "limitPx": "27522.0",
+              "sz": "0.0004",
+              "oid": 561476317653,
+              "timestamp": 1790786552327,
+              "triggerCondition": "Activation above 36696, retracement 5%, best waiting",
+              "isTrigger": true,
+              "triggerPx": "0.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Trailing Stop Market",
+              "origSz": "0.0004",
+              "tif": null,
+              "cloid": null
+            }
+          ]
+        }
+      },
+      "expect": {
+        "positions": []
+      }
+    },
+    {
+      "id": "long-stop-for-other-coin-only-none",
+      "description": "Long BTC; the only armed stop is a reduce-only sell Stop Market on ETH (no ETH position): not on the position's coin, NONE.",
+      "source": "synthetic, derived from live read 2026-10-03 (api.hyperliquid.xyz/info frontendOpenOrders + clearinghouseState, public accounts; field set, key order, triggerCondition/orderType strings verbatim; coins, sizes, prices, oids synthetic)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "BTC",
+              "szi": "0.00017",
+              "leverage": {
+                "type": "cross",
+                "value": 20
+              },
+              "entryPx": "83375.0",
+              "positionValue": "14.17375",
+              "unrealizedPnl": "0.0",
+              "returnOnEquity": "0.0",
+              "liquidationPx": "56324.2412509307",
+              "marginUsed": "0.708687",
+              "maxLeverage": 40,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "ETH",
+              "side": "A",
+              "limitPx": "2340.0",
+              "sz": "2.5",
+              "oid": 563694720031,
+              "timestamp": 1791031420031,
+              "triggerCondition": "Price below 2600",
+              "isTrigger": true,
+              "triggerPx": "2600.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "2.5",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "BTC",
+            "dex": "",
+            "side": "LONG",
+            "size": "0.00017",
+            "coveredSize": "0",
+            "protection": "NONE",
+            "stopOrders": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "decimal-tiny-sizes-full",
+      "description": "Long BTC 0.00026 with two armed stops 0.00013 + 0.00013: exact decimal sum 0.00026, FULL.",
+      "source": "synthetic, derived from live read 2026-10-03 (api.hyperliquid.xyz/info frontendOpenOrders + clearinghouseState, public accounts; field set, key order, triggerCondition/orderType strings verbatim; coins, sizes, prices, oids synthetic)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "BTC",
+              "szi": "0.00026",
+              "leverage": {
+                "type": "cross",
+                "value": 20
+              },
+              "entryPx": "83375.0",
+              "positionValue": "14.17375",
+              "unrealizedPnl": "0.0",
+              "returnOnEquity": "0.0",
+              "liquidationPx": "56324.2412509307",
+              "marginUsed": "0.708687",
+              "maxLeverage": 40,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "BTC",
+              "side": "A",
+              "limitPx": "72000.0",
+              "sz": "0.00013",
+              "oid": 563694720041,
+              "timestamp": 1791031420041,
+              "triggerCondition": "Price below 80000",
+              "isTrigger": true,
+              "triggerPx": "80000.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "0.00013",
+              "tif": null,
+              "cloid": null
+            },
+            {
+              "coin": "BTC",
+              "side": "A",
+              "limitPx": "71100.0",
+              "sz": "0.00013",
+              "oid": 563694720042,
+              "timestamp": 1791031420042,
+              "triggerCondition": "Price below 79000",
+              "isTrigger": true,
+              "triggerPx": "79000.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "0.00013",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "BTC",
+            "dex": "",
+            "side": "LONG",
+            "size": "0.00026",
+            "coveredSize": "0.00026",
+            "protection": "FULL",
+            "stopOrders": [
+              {
+                "oid": "563694720041",
+                "kind": "STOP_MARKET",
+                "status": "ARMED",
+                "isPositionTpsl": false,
+                "size": "0.00013"
+              },
+              {
+                "oid": "563694720042",
+                "kind": "STOP_MARKET",
+                "status": "ARMED",
+                "isPositionTpsl": false,
+                "size": "0.00013"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "decimal-point-one-plus-point-two-full",
+      "description": "Long SOL 0.3 with stops 0.1 + 0.2: coveredSize must be exactly 0.3 (binary floats give 0.30000000000000004), FULL.",
+      "source": "synthetic, derived from live read 2026-10-03 (api.hyperliquid.xyz/info frontendOpenOrders + clearinghouseState, public accounts; field set, key order, triggerCondition/orderType strings verbatim; coins, sizes, prices, oids synthetic)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "SOL",
+              "szi": "0.3",
+              "leverage": {
+                "type": "cross",
+                "value": 10
+              },
+              "entryPx": "118.4",
+              "positionValue": "35.4",
+              "unrealizedPnl": "-0.12",
+              "returnOnEquity": "-0.0337838",
+              "liquidationPx": "107.0981421053",
+              "marginUsed": "3.54",
+              "maxLeverage": 20,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "SOL",
+              "side": "A",
+              "limitPx": "100.8",
+              "sz": "0.1",
+              "oid": 564230732611,
+              "timestamp": 1791031432611,
+              "triggerCondition": "Price below 112",
+              "isTrigger": true,
+              "triggerPx": "112.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "0.1",
+              "tif": null,
+              "cloid": null
+            },
+            {
+              "coin": "SOL",
+              "side": "A",
+              "limitPx": "99.0",
+              "sz": "0.2",
+              "oid": 564230732612,
+              "timestamp": 1791031432612,
+              "triggerCondition": "Price below 110",
+              "isTrigger": true,
+              "triggerPx": "110.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "0.2",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "SOL",
+            "dex": "",
+            "side": "LONG",
+            "size": "0.3",
+            "coveredSize": "0.3",
+            "protection": "FULL",
+            "stopOrders": [
+              {
+                "oid": "564230732611",
+                "kind": "STOP_MARKET",
+                "status": "ARMED",
+                "isPositionTpsl": false,
+                "size": "0.1"
+              },
+              {
+                "oid": "564230732612",
+                "kind": "STOP_MARKET",
+                "status": "ARMED",
+                "isPositionTpsl": false,
+                "size": "0.2"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "decimal-float-sum-below-size-full",
+      "description": "Long SOL 0.8 with stops 0.7 + 0.1: exact sum 0.8 is FULL; binary floats give 0.7999999999999999 and would wrongly say PARTIAL.",
+      "source": "synthetic, derived from live read 2026-10-03 (api.hyperliquid.xyz/info frontendOpenOrders + clearinghouseState, public accounts; field set, key order, triggerCondition/orderType strings verbatim; coins, sizes, prices, oids synthetic)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "SOL",
+              "szi": "0.8",
+              "leverage": {
+                "type": "cross",
+                "value": 10
+              },
+              "entryPx": "118.4",
+              "positionValue": "35.4",
+              "unrealizedPnl": "-0.12",
+              "returnOnEquity": "-0.0337838",
+              "liquidationPx": "107.0981421053",
+              "marginUsed": "3.54",
+              "maxLeverage": 20,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "SOL",
+              "side": "A",
+              "limitPx": "100.8",
+              "sz": "0.7",
+              "oid": 564230732621,
+              "timestamp": 1791031432621,
+              "triggerCondition": "Price below 112",
+              "isTrigger": true,
+              "triggerPx": "112.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "0.7",
+              "tif": null,
+              "cloid": null
+            },
+            {
+              "coin": "SOL",
+              "side": "A",
+              "limitPx": "99.0",
+              "sz": "0.1",
+              "oid": 564230732622,
+              "timestamp": 1791031432622,
+              "triggerCondition": "Price below 110",
+              "isTrigger": true,
+              "triggerPx": "110.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "0.1",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "SOL",
+            "dex": "",
+            "side": "LONG",
+            "size": "0.8",
+            "coveredSize": "0.8",
+            "protection": "FULL",
+            "stopOrders": [
+              {
+                "oid": "564230732621",
+                "kind": "STOP_MARKET",
+                "status": "ARMED",
+                "isPositionTpsl": false,
+                "size": "0.7"
+              },
+              {
+                "oid": "564230732622",
+                "kind": "STOP_MARKET",
+                "status": "ARMED",
+                "isPositionTpsl": false,
+                "size": "0.1"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "long-position-tpsl-plus-fixed-stop-full",
+      "description": "Long ETH 2.5 with a positionTpsl Stop Market (sz \"0.0\") and a fixed 1.0 Stop Market: coveredSize is the position size (2.5), not size + 1.0.",
+      "source": "live read 2026-10-03 (api.hyperliquid.xyz/info frontendOpenOrders + clearinghouseState, public accounts; field set, key order, triggerCondition/orderType strings verbatim; coins, sizes, prices, oids synthetic)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "ETH",
+              "szi": "2.5",
+              "leverage": {
+                "type": "isolated",
+                "value": 15,
+                "rawUsd": "-6235.734"
+              },
+              "entryPx": "2692.8",
+              "positionValue": "6646.0",
+              "unrealizedPnl": "-86.0",
+              "returnOnEquity": "-0.0767245",
+              "liquidationPx": "2566.3533860942",
+              "marginUsed": "443.066667",
+              "maxLeverage": 25,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "ETH",
+              "side": "A",
+              "limitPx": "2340.0",
+              "sz": "0.0",
+              "oid": 563694720051,
+              "timestamp": 1791031420051,
+              "triggerCondition": "Price below 2600",
+              "isTrigger": true,
+              "triggerPx": "2600.0",
+              "children": [],
+              "isPositionTpsl": true,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "0.0",
+              "tif": null,
+              "cloid": null
+            },
+            {
+              "coin": "ETH",
+              "side": "A",
+              "limitPx": "2295.0",
+              "sz": "1.0",
+              "oid": 563694720052,
+              "timestamp": 1791031420052,
+              "triggerCondition": "Price below 2550",
+              "isTrigger": true,
+              "triggerPx": "2550.0",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "1.0",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "ETH",
+            "dex": "",
+            "side": "LONG",
+            "size": "2.5",
+            "coveredSize": "2.5",
+            "protection": "FULL",
+            "stopOrders": [
+              {
+                "oid": "563694720051",
+                "kind": "STOP_MARKET",
+                "status": "ARMED",
+                "isPositionTpsl": true,
+                "size": "0.0"
+              },
+              {
+                "oid": "563694720052",
+                "kind": "STOP_MARKET",
+                "status": "ARMED",
+                "isPositionTpsl": false,
+                "size": "1.0"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "long-child-stop-of-unfilled-entry-ignored-none",
+      "description": "Long BTC; a resting buy Limit entry carries a Stop Market in its `children` (normalTpsl, not live until the parent fills). Only top-level list entries are considered, so NONE.",
+      "source": "live read 2026-10-03 (api.hyperliquid.xyz/info frontendOpenOrders + clearinghouseState, public accounts; field set, key order, triggerCondition/orderType strings verbatim; coins, sizes, prices, oids synthetic) (Limit with a child trigger order seen live)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "BTC",
+              "szi": "0.00017",
+              "leverage": {
+                "type": "cross",
+                "value": 20
+              },
+              "entryPx": "83375.0",
+              "positionValue": "14.17375",
+              "unrealizedPnl": "0.0",
+              "returnOnEquity": "0.0",
+              "liquidationPx": "56324.2412509307",
+              "marginUsed": "0.708687",
+              "maxLeverage": 40,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "BTC",
+              "side": "B",
+              "limitPx": "82000.0",
+              "sz": "0.00017",
+              "oid": 563503869295,
+              "timestamp": 1790948989746,
+              "triggerCondition": "N/A",
+              "isTrigger": false,
+              "triggerPx": "0.0",
+              "children": [
+                {
+                  "coin": "BTC",
+                  "side": "A",
+                  "limitPx": "72000.0",
+                  "sz": "0.00017",
+                  "oid": 563503869296,
+                  "timestamp": 1790948989746,
+                  "triggerCondition": "Price below 80000",
+                  "isTrigger": true,
+                  "triggerPx": "80000.0",
+                  "children": [],
+                  "isPositionTpsl": false,
+                  "reduceOnly": true,
+                  "orderType": "Stop Market",
+                  "origSz": "0.00017",
+                  "tif": null,
+                  "cloid": null
+                }
+              ],
+              "isPositionTpsl": false,
+              "reduceOnly": false,
+              "orderType": "Limit",
+              "origSz": "0.00017",
+              "tif": "Gtc",
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "BTC",
+            "dex": "",
+            "side": "LONG",
+            "size": "0.00017",
+            "coveredSize": "0",
+            "protection": "NONE",
+            "stopOrders": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "two-positions-independent",
+      "description": "Long BTC fully stopped (positionTpsl) and short XRP unprotected (its only order is a Take Profit Market) on the same account: each position is judged on its own.",
+      "source": "live read 2026-10-03 (api.hyperliquid.xyz/info frontendOpenOrders + clearinghouseState, public accounts; field set, key order, triggerCondition/orderType strings verbatim; coins, sizes, prices, oids synthetic)",
+      "input": {
+        "assetPositions": [
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "BTC",
+              "szi": "0.00017",
+              "leverage": {
+                "type": "cross",
+                "value": 20
+              },
+              "entryPx": "83375.0",
+              "positionValue": "14.17375",
+              "unrealizedPnl": "0.0",
+              "returnOnEquity": "0.0",
+              "liquidationPx": "56324.2412509307",
+              "marginUsed": "0.708687",
+              "maxLeverage": 40,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          },
+          {
+            "type": "oneWay",
+            "position": {
+              "coin": "XRP",
+              "szi": "-413.0",
+              "leverage": {
+                "type": "cross",
+                "value": 20
+              },
+              "entryPx": "1.482506",
+              "positionValue": "612.5616",
+              "unrealizedPnl": "-0.2864",
+              "returnOnEquity": "-0.0093552703",
+              "liquidationPx": "1.691576257",
+              "marginUsed": "30.62808",
+              "maxLeverage": 20,
+              "cumFunding": {
+                "allTime": "0.0",
+                "sinceOpen": "0.0",
+                "sinceChange": "0.0"
+              }
+            }
+          }
+        ],
+        "frontendOpenOrders": {
+          "": [
+            {
+              "coin": "BTC",
+              "side": "A",
+              "limitPx": "72000.0",
+              "sz": "0.0",
+              "oid": 564213649295,
+              "timestamp": 1791031449295,
+              "triggerCondition": "Price below 80000",
+              "isTrigger": true,
+              "triggerPx": "80000.0",
+              "children": [],
+              "isPositionTpsl": true,
+              "reduceOnly": true,
+              "orderType": "Stop Market",
+              "origSz": "0.0",
+              "tif": null,
+              "cloid": null
+            },
+            {
+              "coin": "XRP",
+              "side": "B",
+              "limitPx": "1.54",
+              "sz": "413.0",
+              "oid": 564276551972,
+              "timestamp": 1791031451972,
+              "triggerCondition": "Price below 1.4",
+              "isTrigger": true,
+              "triggerPx": "1.4",
+              "children": [],
+              "isPositionTpsl": false,
+              "reduceOnly": true,
+              "orderType": "Take Profit Market",
+              "origSz": "413.0",
+              "tif": null,
+              "cloid": null
+            }
+          ],
+          "xyz": []
+        }
+      },
+      "expect": {
+        "positions": [
+          {
+            "coin": "BTC",
+            "dex": "",
+            "side": "LONG",
+            "size": "0.00017",
+            "coveredSize": "0.00017",
+            "protection": "FULL",
+            "stopOrders": [
+              {
+                "oid": "564213649295",
+                "kind": "STOP_MARKET",
+                "status": "ARMED",
+                "isPositionTpsl": true,
+                "size": "0.0"
+              }
+            ]
+          },
+          {
+            "coin": "XRP",
+            "dex": "",
+            "side": "SHORT",
+            "size": "413.0",
+            "coveredSize": "0",
+            "protection": "NONE",
+            "stopOrders": []
+          }
+        ]
+      }
+    }
+  ]
+}

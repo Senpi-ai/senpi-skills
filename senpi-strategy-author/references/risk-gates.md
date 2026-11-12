@@ -4,7 +4,7 @@ Strategy-level entry gates evaluated **before every open**. Closes are not gated
 
 ## Evaluation flow
 
-Every signal that reaches `open-position` triggers a real-time gate check via MCP — no background polling, no cached verdicts. Each `checkGate()` call fetches fresh data, evaluates the configured gates, and returns one of:
+Every signal that reaches `open-position` triggers a real-time gate check via MCP — no background polling, no cached verdicts. Each `checkGate()` call fetches fresh data, evaluates the configured gates, applies the halt latch (below), and returns one of:
 
 - `OPEN` — proceed with the entry
 - `COOLDOWN` — skip this entry (per-asset or consecutive-loss pause)
@@ -16,15 +16,26 @@ Every signal that reaches `open-position` triggers a real-time gate check via MC
 
 | # | Gate | Verdict | Trigger | Reset |
 |---|------|---------|---------|-------|
-| 1 | **Daily Loss Halt** | `CLOSED` | `today_snapshot.pnl.delta_since_open` breaches `daily_loss_limit_usd` **or** `daily_loss_limit_pct` (OR logic) | UTC midnight |
-| 2 | **Drawdown Halt** | `CLOSED` | PnL drawdown from peak ≥ `drawdown_halt_pct`. PnL-based — immune to deposits/withdrawals | Configurable via `drawdown_reset_on_day_rollover` (default `false` = ~24h carry) |
-| 3 | **Consecutive Loss Cooldown** | `COOLDOWN` | Last `max_consecutive_losses` closed trades all have negative `realizedPnl` and the cooldown window has not expired | `cooldown_minutes` after the most recent loss close |
-| 4 | **Per-Asset Cooldown** | `COOLDOWN` | The candidate asset was closed within `per_asset_cooldown_minutes` of now | Time-based — expires naturally |
+| 1 | **Daily Loss Halt** | `CLOSED` | `today_snapshot.pnl.delta_since_open` breaches `daily_loss_limit_usd` **or** `daily_loss_limit_pct` (OR logic) | Latched until UTC midnight |
+| 2 | **Drawdown Halt** | `CLOSED` | PnL drawdown from peak ≥ `drawdown_halt_pct`. PnL-based — immune to deposits/withdrawals | Latched. `drawdown_reset_on_day_rollover: true` releases it at UTC midnight; `false` (default) never auto-resets — the user decides |
+| 3 | **Consecutive Loss Cooldown** | `COOLDOWN` | Last `max_consecutive_losses` closed trades all have negative `realizedPnl` and the cooldown window has not expired | `cooldown_seconds` after the most recent loss close |
+| 4 | **Per-Asset Cooldown** | `COOLDOWN` | The candidate asset was closed within `per_asset_cooldown_seconds` of now | Time-based — expires naturally |
 | 5 | **Max Entries/Day** | `CLOSED` | `entries_today >= max_entries_per_day` (unless bypass + profit, see below) | UTC midnight |
 
-**Opt-in fields:** Omitting a threshold disables the gate. Gate 3 requires **both** `max_consecutive_losses` and `cooldown_minutes`. The entire `risk:` block is optional — without it, all gates are `OPEN` (no-op stub).
+**Opt-in fields:** Omitting a threshold disables the gate. Gate 3 requires **both** `max_consecutive_losses` and `cooldown_seconds`. The entire `risk:` block is optional — without it, all gates are `OPEN` (no-op stub).
 
 **Default booleans (when `guard_rails` exists):** `bypass_max_entries_per_day_on_profit` and `drawdown_reset_on_day_rollover` default to `false`.
+
+## Halt latch (gates 1 and 2)
+
+`delta_since_open` and `from_peak_pct` are mark-to-market: they move with unrealized PnL, so a strategy near its limit reads breached / not-breached on every price bounce. Gates 1 and 2 therefore **latch**: once a check sees a genuine breach (not a fail-closed read), the gate stays `CLOSED` on every later check, even when the live number is back under the limit.
+
+- **Release:** the daily loss halt releases on the first successful check whose `today_snapshot.meta.utc_day_start_iso` is a later UTC day. The drawdown halt releases the same way only when `drawdown_reset_on_day_rollover: true`; with `false` it never auto-resets. Editing a threshold does not release a latch.
+- **Persistence:** the latch is saved per strategy in the runtime state dir (`<stateDir>/{address}/risk-halt-latch.json`) and survives gateway restarts and updates; the release rules above are unchanged. Restarting the gateway or re-running `update` does not clear it.
+- **A latched halt is the user's call.** Report it (name the gate, quote its `reason`) and wait for the user's decision. Do not try to clear the halt or resume entries on their behalf without their explicit approval. The levers, each a recipe edit plus `openclaw senpi update <pkg> --apply` and each only on the user's explicit yes: set `drawdown_reset_on_day_rollover: true` (the drawdown latch then releases at the next UTC day), or remove the rail (`drawdown_halt_pct` / `daily_loss_limit_pct`), which drops its latch — the strategy then trades with no such halt at all. Never redeploy to a fresh wallet to escape a halt.
+- **Status:** while latched, the gate reports `CLOSED` with `evaluationOk: true` and a reason starting `<Gate> latched …` that quotes the breach that tripped it. `metrics` keeps the live inputs (`pnlDelta` / `drawdownFromPeakPct`) and adds `latched`, `latchedAt`, `latchedUtcDay`, `latchReleasesAt` (null = no auto-release) and `latchTrippedReason`.
+- **Events:** one `runtime.paused` when the latch is set; `runtime.resumed` only when it releases (or when its rail is removed from the YAML, which drops the latch).
+- Gate 5 (max entries/day) is not latched.
 
 ## Recommended default envelope
 
@@ -37,14 +48,14 @@ risk:
     daily_loss_limit_pct: 15          # halt new entries after a -15% day
     drawdown_halt_pct: 25             # circuit breaker on a -25% PnL drawdown from peak
     drawdown_reset_on_day_rollover: false
-    max_consecutive_losses: 3         # + cooldown_minutes → pause after a losing streak
-    cooldown_minutes: 60
-    per_asset_cooldown_minutes: 240   # 4h between attempts on the same asset (anti-whipsaw)
+    max_consecutive_losses: 3         # + cooldown_seconds → pause after a losing streak
+    cooldown_seconds: 3600
+    per_asset_cooldown_seconds: 14400 # 4h between attempts on the same asset (anti-whipsaw)
     max_entries_per_day: 5            # caps fee-bleed / runaway over-trading
     bypass_max_entries_per_day_on_profit: false
 ```
 
-Tune per strategy class: faders/scalpers want a **lower** `per_asset_cooldown_minutes` and **higher** `max_entries_per_day`; conviction holders want the opposite. The fail-safe below means an over-tight envelope only ever *suspends* trading — it never forces a bad entry.
+Tune per strategy class: faders/scalpers want a **lower** `per_asset_cooldown_seconds` and **higher** `max_entries_per_day`; conviction holders want the opposite. The fail-safe below means an over-tight envelope only ever *suspends* trading — it never forces a bad entry.
 
 **Fail-safe:** any risk MCP call that errors (network/timeout/missing snapshot) returns `CLOSED` for halt-class gates and `COOLDOWN` for asset checks — trading is suspended whenever risk state is unknown. There is no permissive fallback.
 

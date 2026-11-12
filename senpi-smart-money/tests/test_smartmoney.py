@@ -5,6 +5,8 @@
     python3 -m pytest senpi-smart-money/tests/   # or: python3 tests/test_smartmoney.py
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import contextlib
+import io
 import json
 import os
 import sys
@@ -61,7 +63,127 @@ def test_divergence_opposite_sides():
 def test_near_term_present_when_healthy():
     res = _result()
     assert res["meta"]["near_term_available"] is True
-    assert res["near_term"]["concentration"]["concentration"][0]["asset"] == "HYPE"
+    near = res["near_term"]
+    assert near["status"] == {"window": "4h", "last_update_timestamp": 1782226800000,
+                              "total_leaderboard_traders": 4821}                    # never `prices`
+    hype = near["concentration"]["rows"][0]
+    assert (hype["token"], hype["direction"], hype["contribution_pct_change_15m"]) == ("HYPE", "short", 0.4)
+    assert near["hot_traders"]["rows"][0]["trader_id"] == "0xhot"
+    # a blocked, positionless event is still a tier crossing: kept, without inventing positions
+    assert near["momentum_events"]["rows"] == [{
+        "trader_id": "0xhot", "tier_label": "Tier 1 (Exceptional, $2+)", "delta_pnl": 2100000,
+        "decision": "blocked", "blocked_reason": "concentration_too_low", "detected_at": "2026-06-23T14:55:00Z"}]
+
+
+# Shapes per senpi-hyperliquid-mcp src/types/leaderboard.types.ts + src/tools/leaderboard.tools.ts: each
+# handler wraps its client payload under one more key (data.markets.markets[], data.events.events[], …).
+def _live_sized_responses():
+    """Sized like the live reads of 2026-10-09 (near_term printed 227,529 chars): a status with a price
+    for every market, the 200-row market board, 100 top traders, and 200 momentum events."""
+    pos = [{"market": m, "delta_pnl": 2e6, "direction": "short", "leverage": 5} for m in ("ETH", "BTC", "SOL", "HYPE")]
+    events = [{"trader_id": f"0x{i % 12:040x}", "tier": 1, "tier_label": "Tier 1 (Exceptional, $2+)",
+               "delta_pnl": 5_016_915.63417801 - i, "decision": "sent" if i in (7, 30) else "blocked",
+               "blocked_reason": None if i in (7, 30) else "trader_cooldown_active",
+               "blocked_details": None if i in (7, 30) else f"Trader 0x{i % 12:040x} cooldown active, Tier1 not > Tier1",
+               "concentration": 0.7 if i in (7, 30) else None, "top_positions": pos if i in (7, 30) else None,
+               "trader_tags": None, "detected_at": f"2026-10-09T20:{42 - i // 10:02d}:{59 - i % 60:02d}.470Z"}
+              for i in range(200)]
+    return {
+        "leaderboard_get_status": {"success": True, "data": {"status": {
+            "window": "4h", "base_snapshot_timestamp": 1, "last_update_timestamp": 2,
+            "total_leaderboard_traders": 5000, "prices": {f"xyz:ASSET{i}": 1.0 + i for i in range(800)}}}},
+        "leaderboard_get_markets": {"success": True, "data": {"markets": {"markets": [
+            {"token": f"A{i}", "dex": "xyz" if i % 3 else "", "direction": "long", "max_leverage": 20,
+             "pct_of_top_traders_gain": 50 - i / 10, "contribution_pct_change_15m": 0.1234567,
+             "contribution_pct_change_1h": 0.2345678, "contribution_pct_change_4h": 0.3456789,
+             "token_price_change_pct_15m": 0.1, "token_price_change_pct_1h": 0.5,
+             "token_price_change_pct_4h": 1.5123456, "day_notional_volume": 1e8, "trader_count": 40,
+             "is_dominant_direction": True} for i in range(200)],
+            "source_trader_count": 100, "window": "4h", "timestamp": 3}}},
+        "leaderboard_get_top": {"success": True, "data": {"leaderboard": {"data": [
+            {"rank": i + 1, "trader_id": f"0x{i:040x}", "unrealized_pnl": 1e6 - i, "pnl_percentage": 12.5,
+             "ath_delta": -100.0, "top_markets": ["BTC", "ETH", "HYPE"],
+             "trader_tags": {"tas": "Active", "tcs": "Elite", "trp_score": 80, "trp_label": "High"}}
+            for i in range(100)], "window": "4h", "timestamp": 3, "total_traders": 5000}, "count": 100}},
+        "leaderboard_get_momentum_events": {"success": True, "data": {"events": {"events": events, "query": {},
+                                                                              "total_count": 1835}}},
+    }
+
+
+class _Client:
+    def __init__(self, responses):
+        self.responses, self.calls = responses, {}
+
+    def mcp_call(self, tool, timeout=12, **kw):
+        self.calls[tool] = kw
+        return self.responses.get(tool)
+
+
+def test_near_term_is_bounded_on_live_sized_reads():
+    """OpenClaw truncates at ~16k chars: near_term must print complete, projected JSON within its budget."""
+    client, meta = _Client(_live_sized_responses()), {"warnings": []}
+    near = smartmoney.fetch_near_term(client, meta)
+    assert meta["warnings"] == []
+    assert len(json.dumps(near, ensure_ascii=False)) <= smartmoney.NEAR_BUDGET_CHARS
+    assert client.calls["leaderboard_get_momentum_events"] == {"limit": 200}
+    assert "prices" not in near["status"]
+    c, h, m = near["concentration"], near["hot_traders"], near["momentum_events"]
+    assert (c["total_count"], c["source_trader_count"], h["total_count"], h["total_traders"], m["total_count"]) == \
+        (200, 100, 100, 5000, 1835)
+    assert 1 <= len(c["rows"]) <= smartmoney.NEAR_MARKET_LIMIT and c["rows"][0]["token"] == "A0"
+    assert "day_notional_volume" not in c["rows"][0]
+    assert len(h["rows"]) == smartmoney.NEAR_TRADER_LIMIT and "trader_tags" not in h["rows"][0]
+    # one row per trader, the two with a sent event first, newest first after that; the budget trims from
+    # the tail of the largest layer, so the order survives whatever it cuts
+    rows = m["rows"]
+    assert 3 <= len(rows) <= smartmoney.NEAR_EVENT_LIMIT
+    assert [(r["trader_id"][-2:], r["decision"]) for r in rows[:2]] == [("07", "sent"), ("06", "sent")]
+    assert [r["trader_id"][-2:] for r in rows[2:]] == ["00", "01", "02", "03", "04", "05"][:len(rows) - 2]
+    assert len(rows[0]["top_positions"]) == 3 and "top_positions" not in rows[2]
+    assert all("blocked_details" not in r for r in rows)
+
+
+def test_near_term_is_untouched_by_the_budget_when_it_fits():
+    """Prod's shape on 2026-10-09 (3 traders re-firing, every event blocked and positionless) fits whole:
+    the budget only bites on outliers."""
+    responses = _live_sized_responses()
+    for i, e in enumerate(responses["leaderboard_get_momentum_events"]["data"]["events"]["events"]):
+        e.update(trader_id=f"0x{i % 3:040x}", decision="blocked", blocked_reason="concentration_too_low",
+                 top_positions=None)
+    near = smartmoney.fetch_near_term(_Client(responses), {"warnings": []})
+    assert [len(near[k]["rows"]) for k in ("concentration", "hot_traders", "momentum_events")] == [
+        smartmoney.NEAR_MARKET_LIMIT, smartmoney.NEAR_TRADER_LIMIT, 3]
+
+
+def test_near_term_budget_trims_rows_never_below_one():
+    responses = _live_sized_responses()
+    for t in responses["leaderboard_get_top"]["data"]["leaderboard"]["data"]:
+        t["top_markets"] = [f"xyz:MARKET{j}" for j in range(80)]            # an oversized row
+    near = smartmoney.fetch_near_term(_Client(responses), {"warnings": []})
+    assert len(json.dumps(near, ensure_ascii=False)) <= smartmoney.NEAR_BUDGET_CHARS
+    assert len(near["hot_traders"]["rows"]) == 1 and near["hot_traders"]["rows"][0]["rank"] == 1
+    assert near["hot_traders"]["total_count"] == 100              # the source count still says how many
+
+    # nothing fits: one row per layer, never zero
+    for r in responses["leaderboard_get_markets"]["data"]["markets"]["markets"]:
+        r["token"] = "x" * 3000
+    for e in responses["leaderboard_get_momentum_events"]["data"]["events"]["events"]:
+        e["tier_label"] = "x" * 3000
+    near = smartmoney.fetch_near_term(_Client(responses), {"warnings": []})
+    assert [len(near[k]["rows"]) for k in ("concentration", "hot_traders", "momentum_events")] == [1, 1, 1]
+
+
+def test_a_renamed_envelope_is_unavailable_not_empty():
+    """Schema drift must read as a null layer plus a warning — empty rows would narrate as "nothing hot"."""
+    responses = _live_sized_responses()
+    responses["leaderboard_get_markets"] = {"success": True, "data": {"markets": {"data": []}}}
+    responses["leaderboard_get_status"] = {"success": True, "data": {"window": "4h"}}
+    meta = {"warnings": []}
+    near = smartmoney.fetch_near_term(_Client(responses), meta)
+    assert near["concentration"] is None and near["status"] is None
+    assert near["hot_traders"]["rows"] and near["momentum_events"]["rows"]
+    assert any(w.startswith("leaderboard_get_markets failed") and "markets.markets" in w for w in meta["warnings"])
+    assert any("leaderboard_get_status" in w for w in meta["warnings"])
 
 
 def test_cohorts_unavailable_flag_on_empty():
@@ -111,7 +233,7 @@ def test_step_near_term_emits_its_slice():
     """`near_term` step layers the 4h flow onto the (self-healed) cohort headline, offline."""
     res = smartmoney.step_near_term(_client(), want_near=True, state_path=_tmp_state())
     assert "near_term" in res and res["meta"]["near_term_available"] is True
-    assert res["near_term"]["concentration"]["concentration"][0]["asset"] == "HYPE"
+    assert res["near_term"]["concentration"]["rows"][0]["token"] == "HYPE"
 
 
 def test_cohorts_then_near_term_reproduces_all():
@@ -154,6 +276,186 @@ def test_step_cohorts_unavailable_flag_offline():
     assert ec["smart_leaning"] == [] and ec["divergences"] == []
     en = smartmoney.step_near_term(smartmoney._FixtureClient({}), want_near=True, state_path=statep)
     assert en["meta"].get("cohorts_unavailable")   # propagated through the shared state
+
+
+# ──────────────────────────────────────────────────────────── flow step (what the cohorts did)
+ALL_KEYS = {"as_of", "cohorts", "smart_leaning", "divergences", "near_term", "meta"}
+
+
+def _intents(**usd):
+    names = ("NEW", "PRESSING", "AVERAGING_DOWN", "TAKING_PROFIT", "CUTTING_LOSS", "LIQUIDATED", "UNKNOWN")
+    return {n: {"count": 1 if usd.get(n) else 0, "usd": usd.get(n, 0)} for n in names}
+
+
+def _flow_row(asset, cohort, net, adding, cutting, **intent_usd):
+    return {"asset": asset, "cohort": cohort, "net_usd": net, "long_added_usd": max(net, 0),
+            "long_cut_usd": 0, "short_added_usd": 0, "short_cut_usd": max(-net, 0) + 0.4,
+            "changes_adding": adding, "changes_cutting": cutting, "opens": 1, "closes": 1, "flips": 0,
+            "likely_liquidated": 0, "intents": _intents(**intent_usd),
+            "wallets_adding": adding, "wallets_cutting": cutting}
+
+
+def _flow_body(rows):
+    """The MCP envelope smart_money_flow returns: {success, data: {flow}}, flow per the worker's /flow."""
+    return {"success": True, "data": {"flow": {
+        "as_of_ts": 1793408222, "age_s": 652,
+        "window": {"name": "1h", "from_ts": 1793404622, "to_ts": 1793408222, "snapshots": 5,
+                   "max_gap_s": 713, "gaps": []},
+        "cohorts": {"proven": {"size": 370}, "crowd": {"size": 7560}, "apex": {"size": 210},
+                    "whale": {"size": 740}, "as_of_ts": 1793405000},
+        "assets": rows,
+        "divergences": [{"asset": "ETH", "proven_net_usd": 14000000, "crowd_net_usd": -3000000}],
+        "quality": {"markets_skipped": 0, "snapshots_skipped": 0}}}}
+
+
+def _flow_responses():
+    proven = [_flow_row(f"P{i}", "proven", 1000 * (12 - i), 6, 2, PRESSING=5000.4, CUTTING_LOSS=1200)
+              for i in range(12)]
+    proven.insert(1, _flow_row("P0", "all", 99, 50, 50))           # other-cohort rows are dropped
+    crowd = [_flow_row("ETH", "crowd", -3000000, 40, 90, CUTTING_LOSS=2500000)]
+    apex = [_flow_row("BTC", "apex", 5000000, 14, 20, PRESSING=4000000)]
+    whale = [_flow_row("BTC", "whale", -4800000, 14, 21, CUTTING_LOSS=5200000)]
+    return {"smart_money_flow::proven": _flow_body(proven),
+            "smart_money_flow::crowd": _flow_body(crowd),
+            "smart_money_flow::apex": _flow_body(apex),
+            "smart_money_flow::whale": _flow_body(whale)}
+
+
+class _RecordingClient(smartmoney._FixtureClient):
+    """The fixture client, recording every call; a recorded Exception is raised."""
+    def __init__(self, responses):
+        super().__init__(responses)
+        self.calls = []
+
+    def mcp_call(self, tool, timeout=12, **kw):
+        self.calls.append((tool, kw))
+        r = super().mcp_call(tool, timeout, **kw)
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+
+def _main_out(argv):
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = smartmoney.main(argv)
+    return rc, buf.getvalue()
+
+
+def test_flow_happy_path_slice_shape():
+    res = smartmoney.step_flow(_RecordingClient(_flow_responses()))
+    assert set(res) == {"flow"}
+    f = res["flow"]
+    assert set(f) == {"as_of_ts", "age_s", "window", "cohort_sizes", "proven", "crowd", "apex", "whale",
+                      "divergences", "quality", "warnings"}
+    assert (f["as_of_ts"], f["age_s"]) == (1793408222, 652)
+    assert f["window"] == {"name": "1h", "from_ts": 1793404622, "to_ts": 1793408222,
+                           "snapshots": 5, "max_gap_s": 713}
+    assert f["cohort_sizes"] == {"proven": 370, "crowd": 7560, "apex": 210, "whale": 740}
+    assert f["apex"] == [{"asset": "BTC", "net_usd": 5000000, "wallets_adding": 14, "wallets_cutting": 20,
+                          "long_added_usd": 5000000, "long_cut_usd": 0, "short_added_usd": 0,
+                          "short_cut_usd": 0, "intent_usd": {"PRESSING": 4000000}}]
+    assert [r["net_usd"] for r in f["whale"]] == [-4800000]
+    assert len(f["proven"]) == smartmoney.FLOW_ASSET_LIMIT
+    assert [r["asset"] for r in f["proven"][:2]] == ["P0", "P1"]
+    assert f["proven"][0] == {"asset": "P0", "net_usd": 12000, "wallets_adding": 6, "wallets_cutting": 2,
+                              "long_added_usd": 12000, "long_cut_usd": 0, "short_added_usd": 0,
+                              "short_cut_usd": 0, "intent_usd": {"PRESSING": 5000, "CUTTING_LOSS": 1200}}
+    assert f["crowd"] == [{"asset": "ETH", "net_usd": -3000000, "wallets_adding": 40, "wallets_cutting": 90,
+                           "long_added_usd": 0, "long_cut_usd": 0, "short_added_usd": 0,
+                           "short_cut_usd": 3000000, "intent_usd": {"CUTTING_LOSS": 2500000}}]
+    assert f["divergences"] == [{"asset": "ETH", "proven_net_usd": 14000000, "crowd_net_usd": -3000000}]
+    assert f["quality"] == {"markets_skipped": 0, "snapshots_skipped": 0}
+    assert f["warnings"] == []
+
+
+def test_flow_tool_unavailable_is_null_and_exit_0():
+    """Tool missing (JSON-RPC error) or UNAVAILABLE (success: false) → flow null with the reason, exit 0."""
+    for failure in (RuntimeError("JSON-RPC error -32602: Unknown tool: smart_money_flow"),
+                    {"success": False, "error": {"code": "UNAVAILABLE"}}):
+        res = smartmoney.step_flow(_RecordingClient({"smart_money_flow": failure}))
+        assert res["flow"] is None and res["flow_unavailable"].startswith("smart_money_flow failed")
+        assert set(res) == {"flow", "flow_unavailable"}
+    fixture = os.path.join(tempfile.mkdtemp(), "empty.json")
+    with open(fixture, "w") as fh:
+        json.dump({}, fh)
+    rc, out = _main_out(["flow", "--fixture", fixture])
+    assert rc == 0
+    assert json.loads(out) == {"flow": None,
+                               "flow_unavailable": "smart_money_flow failed: response has no `flow.assets` list"}
+
+
+def test_flow_unavailable_quotes_the_tool_error_message():
+    unavailable = {"success": False, "error": {
+        "code": "UNAVAILABLE", "message": "Smart money flow data unavailable: Flow API error ECONNREFUSED."}}
+    res = smartmoney.step_flow(_RecordingClient({"smart_money_flow": unavailable}))
+    assert res == {"flow": None, "flow_unavailable":
+                   "smart_money_flow failed: Smart money flow data unavailable: Flow API error ECONNREFUSED."}
+    res = smartmoney.step_flow(_RecordingClient({"smart_money_flow": {"success": False, "error": {"code": "UNAVAILABLE"}}}))
+    assert res["flow_unavailable"] == "smart_money_flow failed: UNAVAILABLE"
+
+
+def test_flow_proven_call_failure_keeps_the_other_cohorts():
+    responses = _flow_responses()
+    responses["smart_money_flow::proven"] = {"success": False, "error": {"message": "proven read failed"}}
+    f = smartmoney.step_flow(_RecordingClient(responses))["flow"]
+    assert f["proven"] is None and f["crowd"] and f["apex"] and f["whale"]
+    assert f["age_s"] == 652
+    assert f["warnings"] == ["smart_money_flow (proven) failed: proven read failed"]
+
+
+def test_flow_crowd_call_failure_keeps_proven():
+    responses = _flow_responses()
+    responses["smart_money_flow::crowd"] = TimeoutError("timed out")
+    f = smartmoney.step_flow(_RecordingClient(responses))["flow"]
+    assert f["proven"] and f["crowd"] is None
+    assert f["warnings"] == ["smart_money_flow (crowd) failed: timed out"]
+
+
+def test_flow_passes_window_and_asset_through():
+    client = _RecordingClient(_flow_responses())
+    smartmoney.step_flow(client, window="4h", asset="ETH")
+    limit = smartmoney.FLOW_ASSET_LIMIT
+    assert client.calls == [
+        ("smart_money_flow", {"window": "4h", "cohort": "proven", "limit": limit, "asset": "ETH"}),
+        ("smart_money_flow", {"window": "4h", "cohort": "crowd", "limit": limit, "asset": "ETH"}),
+        ("smart_money_flow", {"window": "4h", "cohort": "apex", "limit": limit, "asset": "ETH"}),
+        ("smart_money_flow", {"window": "4h", "cohort": "whale", "limit": limit, "asset": "ETH"}),
+    ]
+    # the CLI flags reach the call; no --asset sends no asset, and the window defaults to 1h
+    fixture = os.path.join(tempfile.mkdtemp(), "flow.json")
+    with open(fixture, "w") as fh:
+        json.dump(_flow_responses(), fh)
+    seen = []
+    real = smartmoney._FixtureClient.mcp_call
+
+    def spy(self, tool, timeout=12, **kw):
+        seen.append(kw)
+        return real(self, tool, timeout, **kw)
+
+    smartmoney._FixtureClient.mcp_call = spy
+    try:
+        rc, out = _main_out(["flow", "--window", "24h", "--asset", "xyz:TSLA", "--fixture", fixture])
+        assert rc == 0 and json.loads(out)["flow"]["proven"]
+        assert _main_out(["flow", "--fixture", fixture])[0] == 0
+    finally:
+        smartmoney._FixtureClient.mcp_call = real
+    assert [(k["window"], k.get("asset")) for k in seen] == [("24h", "xyz:TSLA")] * 4 + [("1h", None)] * 4
+
+
+def test_all_output_unchanged_by_flow():
+    """`all` keeps its keys and never calls smart_money_flow, even when the tool is there."""
+    with open(FIXTURE) as fh:
+        responses = json.load(fh)
+    responses.update(_flow_responses())
+    client = _RecordingClient(responses)
+    res = smartmoney._all_and_persist(client, True, _tmp_state())
+    assert set(res) == ALL_KEYS
+    assert "smart_money_flow" not in {t for t, _ in client.calls}
+    assert _canon(res) == _canon(_result())
+    for argv in (["--fixture", FIXTURE], ["all", "--fixture", FIXTURE]):
+        rc, out = _main_out(argv + ["--state", _tmp_state()])
+        assert rc == 0 and set(json.loads(out)) == ALL_KEYS
 
 
 if __name__ == "__main__":

@@ -1,0 +1,309 @@
+# ── PENGUINS-DUO · Penguin's signal across TWO slots instead of one ──
+#
+# TWO inputs differ from penguin and they move together: `slots`/`maxPositions` 1 -> 2 and
+# `marginPct` 90 -> 45. Combined margin is unchanged at 90%, so gross exposure when both slots are
+# filled is identical to penguin's; what changes is how many names carry it.
+#
+# The question it exists to answer: is one strike at 90% better or worse than two at 45%? Penguin
+# commits the whole book to the single best candidate; this takes the top two. Same detector, same
+# universe, same score floor, same pre-move gate, same ladder, same stop.
+#
+# HOW TO READ IT — not on account value. With ONE slot filled this package carries HALF penguin's
+# exposure per dollar, so on any trade they share it books half the result by construction. Measured
+# 2026-10-02 on a MORPHO long both held: normalised per $1,000 funded, penguin +$116, the duo +$58 —
+# exactly 0.50x, and nothing to do with which design is better. Judge it on SLOT-2 OCCUPANCY (what
+# fraction of the time the second slot is filled), trades/day, win rate, median ROE per trade, and
+# the tier-arming distribution. Those are size-independent; account value is not.
+#
+# Ported from the `two-penguins` instance running live on 2026-10-02, which is penguin 3.4.0 with
+# exactly this slots/margin split and no other change.
+name: penguins-duo-chase-150bp-main
+group: penguins-duo-chase-150bp
+version: 1.0.0
+description: >
+  PENGUIN — Concentrated Striker. Universe rank-jump sniper on Orca's entry model: scans the
+  top-50 rows of the 4h leaderboard (leaderboard_get_markets — a momentum read of who is
+  winning right now, not a proven cohort) every tick and fires only on a fresh FIRST_JUMP /
+  IMMEDIATE_MOVER explosion (rank-jump >= 15 off a prev-rank >= 25, 4h-aligned, 15m-fresh,
+  volume >=1.5x) that clears the base Striker score 9 with a 4-reason floor. Commits the book
+  to ONE position at 10x on 90% margin — roughly 9x equity exposure, against Orca's 1.26x.
+  XYZ banned. The detector and the universe are Orca's, unfiltered. DSL is the ONLY
+  exit: a 15% ROE floor and an eight-rung ladder whose first floor arrives at +10% ROE, set just
+  clear of round-trip fees — a loss reducer, not a profit lock. No time cap on a winner. Guard
+  rails are OFF by design — the stop is the only brake.
+strategy:
+  wallet: "${PENGUINS_DUO_WALLET}"
+  slots: 2                                 # TWO strikes at a time — the book splits across the top two
+  margin_pct: 45                           # 45% per trade; 2 slots x 45% = the same 90% committed
+  default_leverage: 10                     # 10x
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: penguin_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 90                    # v2 producer_daemon interval_seconds=90
+    timeout_seconds: 75                     # < interval_seconds: a tick that reaches its timeout wedges
+                                            # the MCP session. Orca measures 16.9% of a 120s budget
+                                            # (~20s/tick) and Penguin's tick does the same work; 75s
+                                            # is ~3.7x the measured average.
+    default_signal_validity_seconds: 180    # 2x tick; a fresh re-score arrives next tick (rule action)
+    state_history_max_count: 100            # rank-history window (5 scans) + emit-cooldown/dedup maps
+    inputs:
+      # 0 = accept whatever the venue will lever and only WARN when it is below the leverage this
+      # ladder was authored for. Every DSL threshold is ROE and the engine divides by leverage to
+      # get a price floor, so on a name the venue caps at half this package's leverage every exit
+      # distance DOUBLES in price and the upper rungs can fall out of reach. Raise this to the
+      # package's leverage to make the scanner prefer a lower-scoring name the ladder actually fits;
+      # it falls back to the top candidate with a warning rather than skipping the tick.
+      minLeverage: 0
+      minScore: 9                           # v2 STRIKER_MIN_SCORE
+      # THE VARIABLE UNDER TEST. This package exists to measure one number: how much of a move may
+      # already have happened, in the signal's own direction, before the entry is still worth taking.
+      # Direction-aware — a dip-buy or a rally-sell still passes, because there the pre-move is in
+      # the trade's favour rather than spent. Only chasing is rejected.
+      #
+      # Arm of a 6-package experiment: penguin and penguins-duo, each at 1.5 / 2.0 / 3.0. Everything
+      # else is the parent's, byte-for-byte, or the arms are not comparable.
+      #
+      # Measured on 7 days of CAND telemetry to 2026-10-06, replaying the real selection rule (the
+      # top-scoring passing candidate per scan, which is what penguin actually enters), 44 entries:
+      #     cap 1.5 -> rejects 8/44 = 18.2%      cap 2.0 -> rejects 4/44 = 9.1%
+      #     cap 3.0 -> rejects 3/44 = 6.8%       p50 +0.73%, p90 +1.89%, max +4.33%
+      # So 1.5 is clearly separated, while 2.0 and 3.0 differ by ONE trade in 44 and will take a
+      # long time to tell apart. Read this arm against its siblings, never on its own P&L.
+      maxPreMovePct: 1.5
+      maxPositions: 2                       # mirrors slots:2
+      topN: 50                              # v2 TOP_N — score only the top-50 SM markets
+      leaderboardLimit: 100                 # v2 fetch_markets limit=100
+      leverageDefault: 10                   # 10x — clamped per name to the venue cap in scan.py
+      marginPct: 45                         # PERCENT of withdrawable (0,100]. The runtime resolves a
+                                            # per-signal marginPct BEFORE strategy.margin_pct, so this
+                                            # line — not margin_pct below — is what sizes the trade.
+      minVolRatio: 1.5                      # v2 STRIKER_MIN_VOL_RATIO — 24h notional volume vs the
+                                            # prior 24h. LIVE AS OF 2026-09-24: the gate read a
+                                            # field HL does not return, so it passed everything
+                                            # from launch until now. Threshold left at v2's 1.5.
+      xyzBanned: true                       # v2 XYZ_BANNED — drop dex==xyz / xyz: markets
+      minTraderCount: 10                    # skip a board side thinner than this many traders at the read — a thin side never enters the rank order
+      # ── cooldowns (v2 assetCooldownMinutes=120; runtime per-asset gate is primary) ──
+      perAssetCooldownSeconds: 7200         # v2 assetCooldownMinutes=120 -> 7200s (emit-time analogue)
+      recentSignalTtlSeconds: 7200          # signal-dedup TTL (mirrors per-asset cooldown)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      mode: { type: string, required: false }
+      currentRank: { type: number, required: false }
+      rankJump: { type: number, required: false }
+      isFirstJump: { type: boolean, required: false }
+      isContribExplosion: { type: boolean, required: false }
+      contribVelocity: { type: number, required: false }
+      volRatio: { type: number, required: false }
+      contribution: { type: number, required: false }
+      traders: { type: number, required: false }
+      priceChg4h: { type: number, required: false }
+      reasons: { type: string, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: penguin_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                     # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [penguin_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT       # v2 entry order_type
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true     # v2: a fresh-jump strike must fill — taker fallback at 60s
+        execution_timeout_seconds: 60       # v2 execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: penguin_main_signals
+
+# ── EXIT (DSL) ───────────────────────────────────────────────────────────────
+# An eight-rung ladder. Rung 1 is a LOSS REDUCER, not a profit lock: at +10% ROE the floor
+# moves to +2% and rises with high-water to +4% by the time rung 2 takes over. That is what
+# turns a round-tripper into a scratch instead of a -15% stop. Rungs 2 onward are Orca's
+# "let winners run" shape, held verbatim. What Penguin changes vs Orca: hard_timeout OFF (see
+# below), EVERY time cut OFF as of 2026-10-05 (weak_peak_cut was the last one — see its note),
+# phase-1 max_loss 8% -> 15% ROE. Nothing on this template closes on a clock: the ladder and
+# the stop decide every exit.
+# order_type FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST happen).
+exit:
+  engine: dsl
+  interval_seconds: 30                      # v2 exit interval_seconds=30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      # OFF as of 2026-09-26. It closed the position on the clock regardless of PnL, and measured
+      # across the fleet it was cutting WINNERS: of 142 hard_timeout closes in 7 days, 110 (77.5%)
+      # were in profit and 93 (65.5%) kept moving the right way for the next hour. One FIL close on
+      # this template exited 13 seconds past the 4h mark and ~5 minutes before a +1.3% move, leaving
+      # ~$275 on a $225 trade. Nothing below is time-capped now: the ladder and the stop decide.
+      enabled: false
+      interval_in_minutes: 240
+    weak_peak_cut:
+      # OFF as of 2026-10-05. The DSL manages every exit on this family now — nothing here closes on
+      # a clock. This was the last time-based close: 5h to show a peak of 0.50% of price or the slot
+      # was freed. It was defensible as a DEATH cut rather than a profit cut, because its timer
+      # RESETS every time ROE clears min_value (runtime: DslState.weakPeakCutStartedAt) and its bar
+      # sat just under rung 0's arm at 0.60% of price, so it could only ever fire on a position that
+      # never worked. But it still decided an exit on elapsed time, and the measurement that killed
+      # hard_timeout is a verdict on the instrument and not just on that one setting: of 142 clock
+      # closes in 7 days, 110 (77.5%) were in profit and 93 (65.5%) kept moving the right way for
+      # the next hour.
+      #
+      # WHAT HOLDS A DEAD POSITION NOW: the phase-1 floor at 1.50% of price, and nothing else. There
+      # is no CLOSE_POSITION scanner on this family, so a flatliner keeps its slot until the stop
+      # fires or it finally moves. That is the accepted trade — a slow winner is worth more than a
+      # freed slot — and it is the same call puffin has run under since 2026-09-30. The interval and
+      # min_value below are kept for the record; both are inert while disabled.
+      enabled: false
+      interval_in_minutes: 300
+      min_value: 5.0
+    dead_weight_cut:
+      enabled: false                        # a 15-minute cut fights a multi-hour hold
+      interval_in_minutes: 15
+    phase1:
+      # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
+      # could sit BELOW entry and close a winner at a loss. max_loss_pct carries the whole
+      # per-trade risk cap instead. retrace_threshold below is inert while enabled: false.
+      enabled: false
+      max_loss_pct: 15.0  # 15% ROE — at 10x that is a 1.5% price move, outside ordinary noise
+      retrace_threshold: 8                   # inert while phase1.enabled is false
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                                 # ROE triggers; the price move each is at 10x in brackets.
+                                             # Eight rungs, last retuned 2026-09-30 (see RUNG 1 below) off the WLD
+                                             # short on this template: 118,414 WLD, $6,290 margin, peak
+                                             # +29.1% ROE / $1,830 unrealised, realised +$545 gross. The
+                                             # old tier 1 locked 35% of high-water, so the stop trailed
+                                             # 1.89% behind a 2.91% move and could only ever keep a third
+                                             # of it. Of the $1,426 given back, $1,189 was this line —
+                                             # not fees ($142) or stop slippage ($95).
+                                             #
+                                             # Two faults in the old shape. (a) Rungs sat at 2/3/5/7.5/10%
+                                             # of price while the trades live at 2-3%: of 506 fleet
+                                             # positions that armed rung 1 in 7 days, 117 reached rung 2,
+                                             # 27 rung 3, 8 rung 4 and ONE rung 5 — four of five rungs
+                                             # were decoration. (b) Inside a rung the lock is fixed while
+                                             # high-water grows, so the leash was LOOSEST when the position
+                                             # was most proven (1.30% at arm, 1.89% by the peak). Backwards.
+                                             #
+                                             # Leash = (1 - lock) x trigger / leverage, i.e. how far price
+                                             # may retrace off high-water before the floor fires. Measured
+                                             # noise band, WLD 24h of 1m bars, largest bounce off a running
+                                             # high-water per 30m window: p50 1.18%, p75 1.90%, p90 3.16%.
+                                             # Every PROFIT rung below is >= 1.20%, so none sits under the
+                                             # median bounce; the old 1.00%-equivalent settings did. RUNG 1
+                                             # is deliberately tighter — 0.42% at arm at 10x, rising to
+                                             # 1.40% by trigger 20 — and is the one leash here that sits
+                                             # UNDER the p50 bounce. That is the trade it exists to make:
+                                             # firing costs a scratch at +1.8% ROE, not a capped winner, so
+                                             # a hair trigger is cheap. At 5x the same rung is 0.84% at arm,
+                                             # so the tightness is a 10x effect. The replay that sized it
+                                             # (+$2,740) already has this leash in force; LINK (+787 -> -212)
+                                             # is what it costs when it fires on a runner.
+                                             #
+                                             # 1.20% is where runner-rescue SATURATES. Widening rung 1 from
+                                             # 1.00% to 1.20% rescues 13 of 60 stopped positions and they go
+                                             # on to a median peak of 30.6% ROE instead of the 22.2% where
+                                             # the tighter leash cut them. 1.30% and 1.40% rescue the same
+                                             # 13 to the same peak — no further gain. At 1.60% the rescued
+                                             # count rises to 24 but their median peak DROPS to 24.5%: past
+                                             # 1.20% you stop saving runners and start holding losers.
+                                             #
+                                             # RUNG 1 (6/30), retuned 2026-09-30. SUPERSEDES the 10/20 tuning below it,
+                                             # which was measured on 12 positions from ONE wallet. This is 92 ladder-driven
+                                             # closes (exchange_sl_hit) across 41 assets and ~30 wallets over 7 days, replayed
+                                             # on 1m bars with the same engine.
+                                             #
+                                             # Why it moved: under 10/20, 55% of floor-exits NEVER ARMED A SINGLE RUNG — they
+                                             # went from entry straight to the -15% stop. Another 25% armed rung 1 and no more.
+                                             # Median peak ROE across the sample was 8.4%, i.e. BELOW the old trigger of 10. The
+                                             # ladder was tuning a mechanism four fifths of positions never reached.
+                                             #
+                                             # At 6/30 vs 10/20, stop unchanged: arms on 64% of positions instead of 48%, win
+                                             # rate 42% -> 51%, median outcome -2.3 -> +0.1 ROE points, total +121 ROE points.
+                                             # Bootstrap (4000 resamples) 90% CI [+17, +230], P(>0) = 99%, and positive under
+                                             # every leave-one-out deletion.
+                                             #
+                                             # Still a LOSS REDUCER, not a profit banker: floor is HW x 0.30, so +1.8% ROE at
+                                             # arm rising to +6.0% by trigger 20. It cannot bank a winner; it stops one that
+                                             # went green from coming back through entry. +1.8 clears the ~15bps round trip
+                                             # (1.5 ROE pts at 10x) — a scratch, not a fee loss. lock_hw_pct: 0 stays BANNED
+                                             # fleet-wide (CI): a 0% floor exits flat and still pays the round trip.
+                                             #
+                                             # TESTED AND REJECTED in the same study: scaling the leash by each asset's own
+                                             # volatility. The mis-sizing is real — the leash is (1-lock) x trigger / leverage
+                                             # and the venue leverage clamp has nothing to do with volatility, so it runs from
+                                             # 0.4x a p75 bounce (PUMP, 10x) to 2.8x (XMR, 5x), and by clamp: 3x assets get
+                                             # 1.9x their p75, 10x assets 0.8x. But it only binds on the 20% of positions that
+                                             # reach rung 2+, where the best variant was worth +1.1 ROE pts/position — about
+                                             # +0.2 fleet-wide. Not worth the complexity. Do not rebuild it without new evidence.
+                                             #
+                                             # A SECOND rung in the band is worse than this one alone (10/20+15/30 was -$237
+                                             # against 10/20 on the older sample); with lock 30 the floor rises continuously
+                                             # across HW 6-20, so there is no flat band for one to fill. And the exact LOCK is
+                                             # still not resolvable to a point estimate — do not re-tune it on a handful of
+                                             # trades.
+                                             # the next dozen trades.
+                                             #
+                                             # 1-win-pays-3-losses: floor must reach 3 x (max_loss + fee)
+                                             # + fee = 3 x (15 + 2.26) + 2.26 = +54.0% ROE, which this
+                                             # ladder hits at a 7.2% price move. (Independent of
+                                             # margin_pct — it cancels.) Fleet P(reach 7.2%) is ~1.5-4%, so
+                                             # the tail tier is table stakes; the 2-3% band, which is 77%
+                                             # of armed positions, is what actually pays for the losers.
+                                             #
+                                             # Replayed on the WLD tape this exits 20:56 at 0.52348 for
+                                             # +$915 gross / +$773 net vs the +$404 actually realised, and
+                                             # is identical under both intra-bar orderings (not sitting on
+                                             # a whipsaw knife edge). E[% of account] per armed position
+                                             # across the fleet peak distribution: 12.70 vs 8.98 for the
+                                             # old ladder. The noise band and the 1.20% saturation point above
+                                             # come from ONE asset over 24h (n=60, rescue cohort 13). The
+                                             # wider study that caveat asked for has since run — 92 closes
+                                             # on 41 assets — and it moved RUNG 1 rather than widening it;
+                                             # see that note. Leash per rung, at arm -> at the next trigger:
+                                             # 0.42->1.40, 1.20->1.50, 1.25->1.50, 1.20->1.60, 1.40->1.75,
+                                             # 1.50->2.10, 1.75->2.50, 1.50->unbounded.
+        - { trigger_pct: 6,   lock_hw_pct: 30 }   # 0.6% of price — LOSS REDUCER (see note above)
+        - { trigger_pct: 20,  lock_hw_pct: 40 }   # 2.0% of price
+        - { trigger_pct: 25,  lock_hw_pct: 50 }   # 2.5% of price
+        - { trigger_pct: 30,  lock_hw_pct: 60 }   # 3.0% of price
+        - { trigger_pct: 40,  lock_hw_pct: 65 }   # 4.0% of price
+        - { trigger_pct: 50,  lock_hw_pct: 70 }   # 5.0% of price
+        - { trigger_pct: 70,  lock_hw_pct: 75 }   # 7.0% of price
+        - { trigger_pct: 100, lock_hw_pct: 85 }   # 10% of price
+
+# ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 259200            # v2 data_retention_hours 72 -> 259200s (within [3600, 604800])
+  guard_rails:
+    daily_loss_limit_pct: 100               # OFF
+    max_entries_per_day: 999                # OFF
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 999             # OFF
+    cooldown_seconds: 1800                  # v2 cooldown_minutes:30 -> 1800s (post-loss cooldown)
+    drawdown_halt_pct: 100                  # OFF
+    drawdown_reset_on_day_rollover: false   # v2: avoid the next-day reset leak
+    per_asset_cooldown_seconds: 7200        # v2 per_asset_cooldown_minutes:120 -> 7200s (2h)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

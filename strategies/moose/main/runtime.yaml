@@ -1,0 +1,156 @@
+# ── MOOSE · single instance — EMA crossover trend follower on BTC/ETH/SOL ─────────────────
+# The textbook trend rule, supervised: on CLOSED 4h candles a 20-period EMA crossing a 50-period
+# EMA opens a trade in the direction of the daily trend (the close against its 50-day SMA) — long
+# on the cross up, short on the cross down. A Donchian-channel breakout is the alternate trigger
+# (`entryDetector: donchian`). One position per coin, three slots. Leverage is chosen per coin
+# from its own volatility (ATR(14) on the 4h), 2-5x, so the fixed ROE stop lands at least two ATRs
+# from entry in price wherever that range allows. DSL is the ONLY exit: no clock cuts. Every number
+# a user might ask about is an input below; none is hardcoded in the scanner.
+name: moose-main
+group: moose
+version: 1.0.0
+description: >
+  MOOSE — EMA crossover trend follower on BTC/ETH/SOL. On closed 4h candles a 20 EMA
+  crossing a 50 EMA is the entry trigger (Donchian 20-bar breakout as the alternate),
+  taken only with the daily trend: long above the 50-day SMA, short below it. The signal
+  must be at most two bars old, so a cross that happened days ago is not chased. One
+  position per coin, 30% margin per slot, leverage 2-5x set per coin from its 4h ATR so the
+  10% ROE stop sits at least two ATRs from entry in price. DSL is the ONLY exit — no
+  hard_timeout, no weak_peak_cut, no dead_weight_cut — a ratchet that locks a rising share
+  of the gain from +12% ROE and never a loss.
+
+strategy:
+  wallet: "${MOOSE_WALLET}"
+  slots: 3                                # one position per coin across BTC/ETH/SOL
+  margin_pct: 30                          # baseline %; scan emits marginPct per signal (same number)
+  default_leverage: 5                     # fallback; scan emits 2-5x per signal from the coin's ATR
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: moose_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # a 4h bar closes every 4h; 5 min bounds how late an entry can be
+    timeout_seconds: 120                   # one account read + one candle read per coin (3) — well inside
+    default_signal_validity_seconds: 600   # 2x tick; rule action, a fresh re-score arrives next tick
+    state_history_max_count: 50            # per-bar dedup map + per-tick scan results (~4h @300s)
+    inputs:
+      allowedAssets: ["BTC", "ETH", "SOL"] # liquid majors; any live main-DEX perp works (xyz: needs the prefix)
+      entryDetector: ema_cross             # ema_cross | donchian
+      emaFast: 20                          # fast EMA period on closed 4h candles
+      emaSlow: 50                          # slow EMA period on closed 4h candles
+      donchianLookback: 20                 # channel length in 4h bars (alternate detector)
+      maxBarsSinceSignal: 2                # a trigger older than this many closed bars is not chased
+      regimeSmaPeriod: 50                  # daily SMA the signal close must be above (long) / below (short);
+                                           # the feed returns 90 daily candles, so a 200-day filter cannot be
+                                           # computed — 50 is the longest textbook filter the data allows
+      atrPeriod: 14                        # ATR period on the 4h candles
+      atrStopMultiple: 2.0                 # the stop must sit >= this many ATRs from entry in price (sets leverage)
+      stopRoePct: 10                       # MUST equal exit.dsl_preset.phase1.max_loss_pct (tests pin it)
+      leverageMin: 2                       # floor — a wild coin is sized here even if the ATR asks for less
+      leverageMax: 5                       # cap — a calm coin is sized here (catalog leverage_max)
+      marginPct: 30                        # PERCENT of withdrawable (0,100] per slot; 3 slots x 30% = 90%
+      maxSlots: 3
+      minScore: 2                          # 2 = any trigger with the daily trend behind it; 3-4 = also demand
+                                           # the trigger bar itself / a spread wider than minSpreadPct
+      minSpreadPct: 0.10                   # EMA spread (or breakout distance) as % of price that earns the +1
+      recentSignalTtlSeconds: 14400        # one 4h bar — a coin is never signalled twice inside a bar
+      minNotionalUsd: 12                   # the venue's bumped minimum; the free-margin gate stops emitting below it
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      detector: { type: string }
+      signalBarTime: { type: number }
+      barsSinceSignal: { type: number }
+      emaFast: { type: number, required: false }
+      emaSlow: { type: number, required: false }
+      emaSpreadPct: { type: number, required: false }
+      channelHigh: { type: number, required: false }
+      channelLow: { type: number, required: false }
+      breakoutPct: { type: number, required: false }
+      dailySma: { type: number }
+      dailyRegime: { type: string }
+      atrPct: { type: number }
+      stopPricePct: { type: number }
+      leverage: { type: number }
+      reasons: { type: array, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: moose_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter (trigger + trend + freshness)
+    scanners: [moose_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # a trend entry must fill — maker window first, taker fallback
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: moose_main_signals
+
+# ── EXIT (DSL only) ───────────────────────────────────────────────────────────────────────
+# Every threshold below is ROE (% of margin); its distance in PRICE is ROE / leverage, and the
+# scanner picks the leverage (2-5x) from each coin's ATR — so one ladder lands at the right
+# price distance on the calm coin and the wild one. At 5x (a calm coin, ATR at or under 1% of
+# price): stop 2.0% of price; rungs arm at 2.4% / 4% / 6% / 9% / 15% and lock 30 / 45 / 60 / 70 /
+# 85% of the best ROE. At 2x (a wild coin) every distance is 2.5x wider: stop 5%, rungs at
+# 6% / 10% / 15% / 22.5% / 37.5%. Clock cuts are OFF: of 142 clock-driven closes measured in one fleet
+# week, 110 were in profit when the clock fired; a timer reads nothing about the trade.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout: { enabled: false, interval_in_minutes: 4320 }
+    weak_peak_cut: { enabled: false, interval_in_minutes: 360, min_value: 3.0 }
+    dead_weight_cut: { enabled: false, interval_in_minutes: 60 }
+    phase1:
+      # Trailing DISABLED fleet-wide: the phase-1 floor trails HIGH-WATER, so after a small favourable
+      # move it can still sit BELOW entry and close a WINNER at a loss. max_loss_pct is the hard
+      # stop; retrace_threshold is inert while enabled is false.
+      enabled: false
+      max_loss_pct: 10.0   # 2.0% of price at 5x, 5.0% at 2x — mirrored by inputs.stopRoePct
+      retrace_threshold: 10
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # trigger / lock, ROE; price at 5x (2x) in the comment
+        - { trigger_pct: 12, lock_hw_pct: 30 }   # +2.4% of price (6%)   -> floor +0.7% (1.8%)
+        - { trigger_pct: 20, lock_hw_pct: 45 }   # +4.0% (10%)           -> floor +1.8% (4.5%)
+        - { trigger_pct: 30, lock_hw_pct: 60 }   # +6.0% (15%)           -> floor +3.6% (9%)
+        - { trigger_pct: 45, lock_hw_pct: 70 }   # +9.0% (22.5%)         -> floor +6.3% (15.8%)
+        - { trigger_pct: 75, lock_hw_pct: 85 }   # +15% (37.5%)          -> floor +12.8% (31.9%)
+
+# ── RISK guard rails (a starter book: few trades, wide stops, no self-resetting breaker) ──
+risk:
+  data_retention_seconds: 259200           # 72h
+  guard_rails:
+    daily_loss_limit_pct: 10               # halt new entries after a -10% day
+    max_entries_per_day: 4                  # above the 3 slots, so a re-entry after a stop-out is not
+                                           # blocked until midnight; a 4h cross system rarely nears it
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 14400                # 4h — one bar — after three losses in a row
+    drawdown_halt_pct: 25                  # the wallet-wide hard stop: a -25% PnL drawdown from peak halts
+                                           # new entries; open positions stay under their own 10% ROE stops
+    drawdown_reset_on_day_rollover: false  # clearing it is a deliberate act (redeploy), not midnight
+    per_asset_cooldown_seconds: 14400      # 4h — one bar — between attempts on the same coin
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

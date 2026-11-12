@@ -14,7 +14,10 @@ import re
 import pytest
 
 _ROOT = pathlib.Path(__file__).resolve().parents[2]
-_SKILL = (_ROOT / "senpi-portfolio" / "SKILL.md").read_text(encoding="utf-8")
+# SKILL.md plus its references: a prescription that moved to a reference (1.35.0) is still a prescription.
+_SKILL = "\n".join(p.read_text(encoding="utf-8") for p in
+                    [_ROOT / "senpi-portfolio" / "SKILL.md",
+                     *sorted((_ROOT / "senpi-portfolio" / "references").glob("*.md"))])
 _ENGINE = (_ROOT / "senpi-portfolio" / "scripts" / "portfolio.py").read_text(encoding="utf-8")
 
 # `<skill>/scripts/<name>.py` or a bare `<name>.py` next to a skill name.

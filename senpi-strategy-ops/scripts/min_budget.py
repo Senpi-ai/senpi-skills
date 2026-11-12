@@ -105,7 +105,14 @@ def _lev_values(tiers):
         out = []
         for row in tiers:
             if isinstance(row, (list, tuple)) and row:
-                out.append(_f(row[-1]))
+                # LEVERAGE IS ELEMENT 1, always. `row[-1]` was correct only for the 2-element
+                # `[min_score, leverage]` shape; on the 3-element `[min_score, leverage, marginPct]`
+                # shape that condor/cheetah/wolverine use it silently read the MARGIN PERCENT as a
+                # leverage. Read as 18-80x instead of 5-10x, the notional check passed on a wallet
+                # that cannot actually open the position: cheetah computed a $10 minimum where the
+                # smallest tier needs $15 (18% margin x 5x on $10 = $9 notional, under the $12
+                # bumped minimum). The others happened to floor at WALLET_FLOOR and so were masked.
+                out.append(_f(row[1]) if len(row) >= 2 else _f(row[0]))
             elif _f(row):
                 out.append(_f(row))
         return [x for x in out if x and x > 0]

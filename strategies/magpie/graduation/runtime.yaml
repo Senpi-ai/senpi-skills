@@ -1,23 +1,45 @@
 # ── MAGPIE · GRADUATION book — ride the IPOP->equity conversion momentum ──
+#
+# 1.2.0 (2026-10-12), from the template audit: three slots at 25% margin (was 15%) and 3x (was 5x),
+# so a full book is 75% of the wallet; the stop is 12% ROE = 4.0% of price at 3x — it was 9% ROE
+# at 5x = 1.8% of price, SMALLER than the 3% hourly move the book requires before it enters; every
+# clock cut is off — the ladder and the stop are the only exits; the drawdown breaker no longer
+# re-arms at midnight; the entry cap stays above the slot count. The scan now reads the wallet
+# before it emits (a held name used to be emitted again every tick the 12-minute dedup allowed),
+# and reads its momentum off CLOSED hourly candles — the bar in progress used to be the latest
+# close, so the thesis changed with every tick inside the hour. The IPOP signature is now the
+# venue's leverage cap plus a volume floor and the conversion is the cap lifting; the v2 funding
+# band is opt-in and off (it matched nothing on the live board, so the book had nothing to flip).
 name: magpie-graduation
 group: magpie
 version: 3.0.0
 description: >
   MAGPIE GRADUATION — IPOP->equity conversion momentum (Runtime 3.0 port of the
   v2 Magpie GRADUATION leg). One of two books. DYNAMIC UNIVERSE + STATE: each
-  tick it classifies every LIVE xyz instrument IPOP-vs-STANDARD by funding
-  signature, compares to the prior-tick class cache (held in ctx.state) to detect
-  the IPOP->STANDARD CONVERSION flip (funding jumps ~100x, the leverage cap lifts,
-  the trade.xyz price throttle comes off — opening free price discovery), stamps
-  it into a conversion-eligibility window, and rides the explosive post-conversion
-  momentum in its direction — the SpaceX $1.4B-day-1 pattern. BOTH directions.
-  Pairs with the PRE-LISTING book on a separate wallet. Price discovery can trend
-  hard -> WIDE let-winners-run DSL.
+  tick it classifies every LIVE xyz instrument IPOP-vs-STANDARD by the venue's
+  leverage cap (max_leverage <= 5 = pre-IPO) plus a daily-volume floor — the v2
+  funding band is optional and off (see inputs) — compares each name's cap to the
+  prior-tick cache (held in ctx.state) and flips a CONVERSION when the cap lifts
+  above the IPOP cap on a name trading over the floor (the trade.xyz price throttle
+  comes off — opening free price discovery), stamps it into a conversion-eligibility
+  window, and rides the post-conversion momentum
+  in its direction — the SpaceX $1.4B-day-1 pattern. Direction is the sign of the
+  move over the last six CLOSED hourly candles (3% or more; the bar in progress is
+  excluded); 4h leader momentum and rising volume add conviction. BOTH directions.
+  The first tick only seeds the class cache: a conversion is a transition between
+  two ticks, and the live board carries nothing that dates one, so a name already
+  converted when the book starts is not traded. A name the wallet already holds is
+  never re-emitted (the wallet is read on every tick with a name in the window;
+  unreadable -> no opens that tick). Pairs with the PRE-LISTING book on a separate
+  wallet. Price discovery can trend hard -> WIDE let-winners-run DSL: three slots at
+  25% margin and 3x, a 12% ROE stop (4.0% of price), a ratchet that locks 40% of the
+  gain from +12% ROE, no clock cut.
 
 strategy:
   wallet: "${MAGPIE_GRADUATION_WALLET}"
   slots: 3
-  default_leverage: 5                       # post-conversion the venue cap lifts; scan clamps per-instrument
+  margin_pct: 25                            # per-slot margin %; 3 x 25% = 75% of the book
+  default_leverage: 3                       # 1.2.0: was 5; scan clamps per-instrument to the venue cap
   trading_risk: moderate
   enabled: true
 
@@ -30,23 +52,32 @@ scanners:
     path: ./scanners
     entrypoint: scan.py
     interval_seconds: 600                    # v2 graduation tick cadence (10 min)
-    timeout_seconds: 240
+    timeout_seconds: 240                     # the instrument read, one wallet read, then a candle + board read per name in the window
     default_signal_validity_seconds: 1800
     state_history_max_count: 12              # holds class_state + conversion-window + dedup map
     inputs:
       minScore: 5
-      marginPct: 15                          # PERCENT of withdrawable (0,100], not a fraction
-      maxLeverage: 5                          # post-conversion cap; clamped to venue max
-      ipopFundingMaxAbs: 1.0e-7              # IPOP classification funding ceiling
-      ipopMaxLeverageCap: 5                  # IPOP classification leverage ceiling
-      momentumLookbackBars: 6
-      minMomentumPct: 3.0
+      marginPct: 25                          # PERCENT of withdrawable (0,100], not a fraction; == strategy.margin_pct
+      maxLeverage: 3                         # 1.2.0: was 5; clamped to venue max; == catalog leverage_max
+      # THE IPOP SIGNATURE is the venue's leverage cap: trade.xyz lists a pre-IPO perpetual at <= 5x and
+      # lifts the cap when it graduates. A volume floor goes with it — a cap-5 market with no volume is a
+      # market that has not traded, not a listing. The funding band the v2 producer used is OFF by
+      # default: live pre-IPO perps fund at the same ~1e-5 magnitude as ordinary xyz equities, so
+      # |funding| <= 1e-7 marks dead markets, not listings. Measured on the live xyz board, 2026-10-12
+      # (114 names): one name at cap <= 5, one at |funding| <= 1e-7, none at both; median |funding|
+      # 8.3e-6 — with the band on, neither book could ever see an IPOP. Shared with the other book.
+      ipopMaxLeverageCap: 5                  # the IPOP leverage-cap ceiling (the SIGNATURE, not the trading leverage); a conversion = the cap lifting above it
+      ipopMinDayVolumeUsd: 25000             # the signature's daily-volume floor (context.dayNtlVlm); a conversion must trade over it
+      ipopFundingBandEnabled: false          # opt-in: ALSO require |funding| <= ipopFundingBandAbs for a name to count as an IPOP
+      ipopFundingBandAbs: 1.0e-7             # the band, when enabled (the v2 "throttled funding" marker)
+      momentumLookbackBars: 6                # closed hourly bars
+      minMomentumPct: 3.0                    # the move the book requires to enter; the 4.0%-of-price stop sits outside it
       strongMomentumPct: 8.0
       conversionWindowHours: 72              # stay eligible for days post-flip, not just the flip tick
       smTiltMinPct: 55
       smStrongTiltPct: 70
       minTraderCount: 10                     # 4h-board headcount floor — a side with fewer top traders never sets the lean
-      recentSignalTtlSeconds: 720
+      recentSignalTtlSeconds: 720            # in-flight dedup only; a HELD name is skipped off the wallet read
     signal_data_schema:
       score: { type: number }
       direction: { type: string }
@@ -73,9 +104,12 @@ actions:
       - type: signal
         scanner: magpie_graduation_signals
 
-# EXIT — WIDE let-the-discovery-run DSL (ported from v2 runtime-graduation.yaml).
-# Post-conversion price discovery can trend hard for days (throttle off), so ride it.
-# First lock tier is REACHABLE (+12% -> lock 40%) — new listings are volatile, keep stops sane.
+# EXIT — DSL only, WIDE so the discovery can run. Every threshold is ROE; price distance is
+# ROE / leverage, and leverage is 3x, so: stop 4.0% of price; rungs arm at +4.0% / 9.3% / 18% /
+# 33% / 53% of price and lock 40 / 50 / 65 / 80 / 90% of the best ROE. The first lock is
+# REACHABLE (+12% ROE -> lock 40%). Clock cuts are OFF (1.2.0): a clock reads nothing about the
+# trade, so the ladder and the stop are the only exits — a flat position holds its slot until
+# the stop.
 exit:
   engine: dsl
   interval_seconds: 60
@@ -84,31 +118,40 @@ exit:
     ensure_execution_as_taker: true
     execution_timeout_seconds: 45
   dsl_preset:
+    hard_timeout:
+      enabled: false                         # 1.2.0: no clock — the DSL decides every exit
+      interval_in_minutes: 10080
+    weak_peak_cut:
+      enabled: false                         # 1.2.0: no clock
+      interval_in_minutes: 180
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: false                         # 1.2.0: no clock
+      interval_in_minutes: 90
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
-      # could sit BELOW entry and close a winner at a loss. max_loss_pct is set to the old
-      # retrace (9% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
-      # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
+      # could sit BELOW entry and close a winner at a loss. max_loss_pct is the hard stop;
+      # retrace_threshold below is inert while enabled: false.
       enabled: false
-      max_loss_pct: 9
-      retrace_threshold: 9
+      max_loss_pct: 12.0   # 12% ROE = 4.0% of price at 3x (1.2.0: was 9 at 5x = 1.8% of price, inside the 3% entry move)
+      retrace_threshold: 12
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 12, lock_hw_pct: 40 }   # first lock reachable (v2 was 12->0, never armed)
-        - { trigger_pct: 28, lock_hw_pct: 50 }
-        - { trigger_pct: 55, lock_hw_pct: 65 }
-        - { trigger_pct: 100, lock_hw_pct: 80 }
-        - { trigger_pct: 160, lock_hw_pct: 90 }
+        - { trigger_pct: 12, lock_hw_pct: 40 }   # +4.0% of price -> floor +1.6% (first lock reachable; v2 was 12->0, never armed)
+        - { trigger_pct: 28, lock_hw_pct: 50 }   # +9.3%          -> floor +4.7%
+        - { trigger_pct: 55, lock_hw_pct: 65 }   # +18%           -> floor +12%
+        - { trigger_pct: 100, lock_hw_pct: 80 }  # +33%           -> floor +27%
+        - { trigger_pct: 160, lock_hw_pct: 90 }  # +53%           -> floor +48%
 
 risk:
   guard_rails:
     daily_loss_limit_pct: 12
-    max_entries_per_day: 4                    # conversions are rare events
+    max_entries_per_day: 4                    # above the 3 slots: a re-entry after a stop-out is not blocked until midnight
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 4
     cooldown_seconds: 5400                    # 90 min
-    drawdown_halt_pct: 20
-    drawdown_reset_on_day_rollover: true
+    drawdown_halt_pct: 20                     # the wallet-wide hard stop; never re-arms at midnight
+    drawdown_reset_on_day_rollover: false     # 1.2.0: was true
     per_asset_cooldown_seconds: 21600         # 360 min

@@ -2,8 +2,75 @@
 
 The shape of the JSON `scripts/review.py` prints. The runtime JSON you get back is largely self-describing — read this only when a field's meaning or a guardrail-relevant nuance is unclear.
 
+## Reading order
+
+The engine prints one JSON dict. **Open with `book`** (the one list, then `book.total.line`); within the
+Senpi detail, **lead with `pnl_summary.total`** (realized+unrealized); the PROCESS counts are in `timing_summary`; per-strategy verdicts in `strategies[]` (CURRENT book only); the telemetry streams (`dsl_close_reason_mix` / `blocked_summary` / `leaks` / `execution_quality`) are real only when `telemetry_availability.streams_computed` is true; `trades[]` is a curated outlier sample (counts from the aggregates, never `len(trades)`). **Full field-by-field catalog + the `exit_reason.terminal` enum: below.**
+
+## Which output answers each quick action
+
+The step(s) to run per intent are in the `SKILL.md` Router; the lever is in its Quick actions table.
+
+| Intent (what the user asks) | Data (engine output) |
+|---|---|
+| *"Did I sell too early / late? / improve my last 10"* | `timing_summary` (exit_ahead/held_higher/flat) + per-trade `if_held_delta_usd`, `exit_vs_hold`; `dsl_close_reason_mix` for how each exit fired |
+| *"Master my week" / "analyze my strategies and trades" / "suggest improvements"* | `timing_summary` + `strategies[]` (per-mandate) + `book_vs_market` + the telemetry streams |
+| *"What did I miss this week? / compare to market"* | `book_vs_market.gaps` (unheld movers) + `missed_signals` (telemetry-blocked) |
+| *"How could I make more gains?"* | `strategies[]` mandate reads + `dsl_close_reason_mix` + `blocked_summary` |
+| *"Compare me to the whales / the market"* | `book_vs_market` (`smart_money_pct` per mover) |
+| **1.** *"Am I getting shaken out too early? / how are my exits firing?"* | `dsl_close_reason_mix` — terminal mix overall + by asset_class + by strategy, plus the **premature** bucket (`trailing_floor`/`weak_peak`/`max_retrace`, or a low tier locked on a small ROE) |
+| **2.** *"What did my own limits block? / what couldn't I take?"* | `blocked_summary` / `missed_signals` — tallied by `reason_code` (`no_slots`/`no_margin`/`risk_gate_*`/`asset_banned`/…) |
+| **3.** *"Where am I leaking? / fees"* | `leaks` — `order.failed` (order rejected), `dsl.sl_sync_failed`/`dsl.handoff_failed` (protection gaps → a naked leg), `runtime.paused` (risk halts) — **plus** premature exits (from `dsl_close_reason_mix`) + fee drag (from `execution_quality`) |
+| **4.** *"Walk me through / explain my [asset] trade"* | Run **`openclaw senpi explain <ASSET> --runtime <id> --json`** directly — the native opened→dsl→close+reason lifecycle for that asset (oldest-first, threaded by position id) |
+| **5.** *"What am I paying in fees — maker vs taker?"* | `execution_quality` — maker/taker fill tally + `maker_ratio` from `order.filled` |
+| **6.** *"Why is [strategy] losing?"* | That strategy's slice: `dsl_close_reason_mix.by_strategy[label]` + `blocked_summary.by_strategy[label]` + `strategies[label]` realized PnL + mandate |
+
+## Field catalog
+
 ```
 window        { from, to, label, window_days, last_n }   # the review window
+
+book          ONE list of every wallet — PRESENT FIRST, then the detail (the `strategies` step and `all`):
+  rows[]      the Senpi main wallet, one per Senpi STRATEGY (all its wallets) and one per saved wallet, sorted
+              value desc; ties by label then address; value unknown LAST. Never re-section by origin — kind
+              is a column. The main wallet row: origin: main_wallet, label "Senpi main wallet", kind managed,
+              holds: cash, value_usd = its idle cash (account_get_portfolio forceFetch — senpi-portfolio's
+              idle_in_embedded; None = couldn't load, named in excludes), trade columns None,
+              not_applicable [trades, open_positions, protection]; never compared, never in deep_dive:
+    label (a packaged strategy: its package id), display_label (label + short address — or "N wallets" for a
+    strategy of several — when two rows share a label), kind: managed | read_only,
+    wallet (None on a strategy of several wallets), status (managed only; MIXED when its wallets differ),
+    value_usd (None = couldn't load, never 0),
+    strategy_group, wallet_count, wallets_loaded, wallets_couldnt_load,   # managed: the strategy's wallets
+    strategy_wallets[] { label, wallet, status, value_usd, open_position_count, closed_trade_count,
+                         realized_pnl, fees, trades_capped }   # managed: one per instance — strategies[] has its review
+    value_read: ok | partial | unavailable | error,   # partial = only some of a strategy's wallets loaded
+                                              # managed: clearinghouse accountValue (main+xyz, shared idle once)
+                                              # read_only: state.totalValueUsd verbatim (unified-account aware)
+    no_hl_activity (read_only: role MISSING → a real 0), closed_trade_count, realized_pnl, fees (GROSS PnL),
+    trades_unknown (true → None counts, never 0), trades_capped (HL's 2000-fill ceiling → "at least"),
+    open_position_count (None = couldn't read), unpriced_coins (read_only), access (read_only, verbatim),
+    protection { kind: runtime_exit }                         # managed — the runtime's DSL exit
+             | { kind: live_stops, FULL, PARTIAL, NONE }      # read_only — counts of positions; None = unread
+    timing { measurable_closes, exits_ahead, exits_ahead_share }   # this wallet's own timing — comparison input
+  total       ONE book total, subtotals beside it — quote `line` verbatim; never sum yourself, no "Combined" row:
+    value_usd, realized_pnl, fees,            # sums of the KNOWN subtotals (fees None unless both known)
+    managed   { wallet_count, wallets_loaded, value_usd, couldnt_load[], realized_pnl (= pnl_summary.realized),
+                fees (= pnl_summary.fees), realized_pnl_closed_strategies, state: ok | unreadable }
+    read_only { wallet_count, wallets_loaded, value_usd, couldnt_load[], realized_pnl, fees, unpriced_coins[],
+                trades_unknown[], trades_capped[], state: ok | unavailable }   # NEVER deployable
+    excludes  { couldnt_load[], unpriced_coins[], unreadable[] },
+    line, note    # line: "Book value $X: managed by Senpi $A (n wallets) · read-only $B (…) …" — not Senpi performance;
+                  # "(1 of 2 wallets)" when only some loaded; no read-only clause when no saved wallets
+  comparison  { line (None → say nothing comparative), reason, metric, min_closes (= MIN_COMPARE_CLOSES, 8),
+                wallets[] { label, kind, measurable_closes, exits_ahead, exits_ahead_share, trades_capped },
+                not_compared[] { label, why } }   # 2+ wallets with 8+ measurable closes, else no line
+  deep_dive   { question, order[] } | None   # >1 wallet with something to review (a value, a position, trades,
+                                             # or unknown): "Which wallet do you want me to go deeper on: …?" —
+                                             # asked once, at the END of the whole answer
+  note
+  # managed rows are the CURRENT strategies (closed ones are history — closed_strategies[]); the Senpi
+  # aggregates below stay Senpi-only and unchanged — the managed subtotal quotes them.
 
 trades[]      per CLOSED trade (from strategies of ALL statuses — a churned book's history is complete):
   asset, strategy_label, strategy_status, direction, leverage, entry_px, exit_px, open_time, close_time,
@@ -11,8 +78,16 @@ trades[]      per CLOSED trade (from strategies of ALL statuses — a churned bo
   price_now, price_since_exit_pct,        # subsequent action (current price only, v1)
   if_held_delta_usd,                      # counterfactual — CONTEXT, not verdict (short-sign adjusted)
   exit_vs_hold: exit_ahead | held_higher | flat | unknown,   # NEUTRAL context (exit_ahead=got out ahead), NOT a grade
-  exit_reason: { terminal, tier_index/tier_reached, high_water_roe, source },   # which DSL lever fired
-  source: "telemetry" | "reconstructed"   # telemetry = exit_reason came from the event log; else discovery+ratchet
+  exit_reason: { terminal, tier_index/tier_reached, tier_number, high_water_roe, source },   # which DSL lever fired
+  source: "telemetry" | "reconstructed" | "external_wallet"   # telemetry = exit_reason from the event log; else discovery+ratchet
+  wallet_kind: "external"                # only on a saved wallet's row (absent on Senpi strategy rows)
+
+external_wallets[]   per SAVED wallet (read-only, traded by hand) — its own read, never in the Senpi aggregates
+                      (null = the saved wallets couldn't be loaded — never "none"):
+  label, address, access (quote verbatim), closed_trades_unknown (true → couldn't read: counts/PnL None, never 0),
+  fills_capped (true → HL's 2000-fill ceiling: "at least"), closed_trade_count, realized_pnl, fees,
+  timing_summary (same shape as below, this wallet only), state_read: ok | error | unavailable, read_error,
+  open_positions   # state.positions VERBATIM (camelCase: protection FULL|PARTIAL|NONE, stopOrders[], coveredSize); None = couldn't load
 
 pnl_summary      TOTAL LEDGER — LEAD WITH THIS (realized closed + unrealized open):
   realized, unrealized (None = UNKNOWN read, not 0), total (None when unrealized UNKNOWN),
@@ -87,6 +162,14 @@ meta          { warnings[], sources[], window, degraded,
 `exit_reason.terminal` — **when telemetry enriched it** (`source: "telemetry"`) it's the native
 `close_reason`: `tier_breach`, `max_retrace`, `trailing_floor`, `weak_peak`, `dead_weight`, `hard_timeout`,
 `manual`, `sl_hit`. **When it fell back to the ratchet record** (`source: "ratchet"`) it's `SL_TRIGGERED`,
-`MANUAL_CLOSE`, `LIQUIDATED`, `ADL`. Neither available → `UNKNOWN` (`source: "unknown"`) — say "exit mechanism
-not recorded on this build," never guess. `tier_index`/`tier_reached` = the tier that locked; `high_water_roe`
-= the peak ROE — together they tell you *which lever* to tune.
+`CLOSED_OFF_LADDER`, `LIQUIDATED`, `ADL`. **`CLOSED_OFF_LADDER` does NOT mean the user closed it** — the DSL
+ladder ended for a reason that was not its own stop: the runtime closing on signal invalidation or a time cut,
+the agent calling `close_position`, and the user closing on the venue are indistinguishable in this record.
+Say "not closed by its stop"; never attribute it to the trader. A saved wallet's trade is always `MANUAL_TRADE`
+(`source: "external_wallet"`) — the user's own exit, never a DSL tier and never the same thing as a Senpi
+strategy's `manual` or `CLOSED_OFF_LADDER` exit. Neither available → `UNKNOWN` (`source: "unknown"`) — say
+"exit mechanism not recorded on this build," never guess. `tier_number` = the tier that locked, 1-based: say "Tier
+{tier_number}"; null on a stop exit = it never armed (the hard stop fired). `tier_index`/`tier_reached` are the
+raw 0-based index (-1 before Tier 1): never print them as the tier. `high_water_roe` = the peak ROE — with the
+tier, *which lever* to tune. A ratchet-sourced exit is the trade's own record (the stop order that filled, else
+the row alive during the trade); no such row → `UNKNOWN`, never a neighbouring trade's record.

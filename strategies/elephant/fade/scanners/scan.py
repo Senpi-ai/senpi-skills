@@ -23,7 +23,7 @@ FIDELITY NOTES vs elephant-producer.py v1.0.0 (ELEPHANT_LEG=fade):
     clamp, and the 180s recent-signals race-dedup TTL are all preserved EXACTLY.
   - v2 marginPct was a FRACTION (0.15) used as account_value * marginPct -> marginUsd. This
     port emits `marginPct` PERCENT (15) at the top level; the runtime sizes
-    (marginPct/100)*withdrawable. The defensive "<=1.0 means a pasted fraction, x100" guard
+    (marginPct/100)*withdrawable. The defensive "<1.0 means a pasted fraction, x100" guard
     is applied in scan().
   - The fade scoring needs NO 24h momentum (unlike the trend book) — it uses only 1h/4h
     candles. market_list_instruments is still read for the per-name venue leverage clamp +
@@ -174,9 +174,9 @@ def scan(inputs, ctx):
     whitelist = inputs.get("allowedAssets", _MACRO_WHITELIST_DEFAULT)
     min_score = int(inputs.get("minScore", 4))
     margin_pct = float(inputs.get("marginPct", 15))          # PERCENT of withdrawable (0,100]
-    # defensive: a stale config may carry the v2 FRACTION (0.15). <=1.0 means a pasted
+    # defensive: a stale config may carry the v2 FRACTION (0.15). <1.0 means a pasted
     # fraction -> x100. (dire/koala guard.)
-    if 0 < margin_pct <= 1.0:
+    if 0 < margin_pct < 1.0:
         margin_pct *= 100.0
     max_lev = int(inputs.get("maxLeverage", 5))
     max_slots = int(inputs.get("maxSlots", 3))

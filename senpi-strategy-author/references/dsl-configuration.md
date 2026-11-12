@@ -19,6 +19,8 @@ and breakeven rungs that the presets had already dropped.
 > (`entry × (1 - max_loss_pct/100/leverage)`), so `max_loss_pct: 15` means "cut at −15% of *margin*"
 > at any leverage — not a price move. Shipped presets run 5–18.
 
+A stop computed in `scan()` and emitted in `data{}` does not bind — see [`signal-data-does-not-bind.md`](signal-data-does-not-bind.md).
+
 ---
 
 ## Exit block
@@ -32,7 +34,7 @@ Configured under the `exit` key in the recipe YAML.
 | `order_type` | string | No | `MARKET` | Execution method for DSL exit closes: `MARKET` or `FEE_OPTIMIZED_LIMIT`. |
 | `fee_optimized_limit_options` | object | No | — | Only valid when `order_type` is `FEE_OPTIMIZED_LIMIT`. |
 | `fee_optimized_limit_options.ensure_execution_as_taker` | boolean | No | — | When `true`, falls back to market order if maker doesn't fill within timeout. |
-| `fee_optimized_limit_options.execution_timeout_seconds` | integer | No | `45` | Seconds to wait for maker fill (1–300). |
+| `fee_optimized_limit_options.execution_timeout_seconds` | integer | No | `30` with the taker fallback, else 45 | Seconds to wait for a maker fill before the taker fallback (schema 1–300). The MCP server caps it at 30 when `ensure_execution_as_taker` is `true`: omitted or above 30 runs as 30. With the flag `false` or omitted the MCP forwards it untouched, and an omitted value runs as the engine's own 45. |
 | `dsl_preset` | object | Yes | — | Single preset config (see below). |
 
 ```yaml
@@ -77,7 +79,7 @@ Active from entry until the first tier is reached.
 
 | Key | Type | Required | Default | Description |
 |-----|------|----------|---------|-------------|
-| `enabled` | boolean | No | `true` | `false` = skip Phase 1 rules; start with Phase 2 behavior. |
+| `enabled` | boolean | No | `true` | `false` = turn off only the Phase 1 trailing retrace/breach logic; `max_loss_pct` still applies from entry as an exchange stop-loss, and the position starts in Phase 2 behavior. |
 | `max_loss_pct` | number | Yes | — | Max loss as **ROE %** (margin), not price %. Range: (0, 100]. Converted to a price floor by dividing by leverage. `15` = cut at −15% of margin. Sets the absolute floor. |
 | `retrace_threshold` | number | Yes* | — | ROE % retrace from high-water mark. Must be > 0. *Required when phase1 enabled. |
 | `consecutive_breaches_required` | integer | Yes* | — | Consecutive ticks below floor before exit (>= 1). *Required when phase1 enabled. |
@@ -94,6 +96,8 @@ phase1:
 ---
 
 ## Time-based cuts
+
+**Which of these to enable at all is decided by the strategy's `time_horizon`, not by the preset you started from — see [time-cuts-by-horizon.md](time-cuts-by-horizon.md). A long-hold strategy carries no `weak_peak_cut` and no short timed close; `strategies/tests/test_time_cuts_match_horizon.py` enforces it.**
 
 Defined at **preset level** (NOT inside `phase1`). All optional. Evaluated every tick after breach logic, **regardless of phase**; first match wins. The only exception is `hard_timeout`, which is skipped on the exact tick a position crosses into Phase 2 so a boundary hit cannot lose to the clock before the tier advance runs.
 
@@ -165,6 +169,8 @@ Phase 2 is exchange-SL driven. It starts when the first tier is reached (always 
 
 Each tier is a profit milestone. Tiers must be sorted ascending by `trigger_pct`. Each tier has exactly two fields.
 
+**Keep `lock_hw_pct` the same or higher at every tier.** A lower lock never protects more profit. At best the tier does nothing. At worst it loosens the stop. Not rejected at load.
+
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
 | `trigger_pct` | number | Yes | ROE % from entry that activates this tier. Must be > 0; strictly increasing across tiers. |
@@ -177,7 +183,7 @@ Example: `{ trigger_pct: 7, lock_hw_pct: 40 }` means: when ROE reaches 7% from e
 ## How phases and tiers combine
 
 **While a tier is active:**
-1. **Tier floor** = `lock_hw_pct`% of `highWaterRoe`, converted to price. Ratchets (never loosens).
+1. **Tier floor** = `lock_hw_pct`% of `highWaterRoe`, converted to price. Moves up as high water rises. A lower lock at a later tier never raises it.
 2. **Effective floor** = stricter of tier floor and any phase-level trailing floor.
 
 **Phase transition:** Phase becomes 2 when the first tier is reached (tier index 0) and `phase2.enabled` is not false. Tiers can be active in Phase 1 before the transition.

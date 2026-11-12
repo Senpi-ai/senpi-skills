@@ -99,72 +99,95 @@ def _leaderboard():
 
 
 class CondorGateReachable(unittest.TestCase):
-    """condor's smart-money gate must be satisfiable by real leaderboard data."""
+    """condor's entry gate chain must be satisfiable by production-shaped data.
+
+    This class exists because condor once shipped a gate that could never pass:
+    `minSmConsensusPct: 70` was applied to `pct_of_top_traders_gain`, a share of TOTAL
+    board gain that sums to ~100 ACROSS every market, so no single market could reach 70
+    and 100% of signals were blocked.
+
+    On 2026-10-12 the whole chain changed — direction moved off the 4h gain board (which
+    was circular: when a coin falls, every wallet short it is mechanically at the top of
+    that board) onto the proven cohort, counted by headcount among wallets with >= $1M
+    lifetime realized PnL. A new chain is exactly when "is this reachable at all?" needs
+    asking again, so the class is rewritten rather than retired — and the lesson is now
+    live in a second place: condor-concentrated shipped with a realized-PnL field list
+    that omitted the only name the API sends, so its cohort was empty on every tick.
+    """
 
     @classmethod
     def setUpClass(cls):
         cls.scan = _load(STRATEGIES / "condor/main/scanners/scan.py", "condor_scan")
-        cls.scoring = sys.modules["scoring"] if "scoring" in sys.modules else None
-        cls.sm_map = cls.scan.fetch_sm_map(_Ctx({"leaderboard_get_markets": _leaderboard()}), {})
+        cls.price_map = cls.scan.fetch_price_changes(
+            _Ctx({"leaderboard_get_markets": _leaderboard()}), {})
 
-    def test_gain_share_is_carried_on_its_own_scale(self):
-        """The field is a gain SHARE — mapping it to a 0-100 'consensus' is the bug."""
-        hype = self.sm_map["HYPE"]
-        self.assertIn("gain_share_pct", hype,
-                      "condor must carry pct_of_top_traders_gain as gain_share_pct, "
-                      "not as a 0-100 'consensus_pct'")
-        self.assertAlmostEqual(hype["gain_share_pct"], 25.63, places=2)
-        self.assertTrue(hype["is_dominant"],
-                        "is_dominant_direction must be carried — it is the only field "
-                        "that actually expresses directional agreement")
+    def _cohort_for(self, coin, direction, positioned=60, conviction=85.0):
+        return {"direction": direction, "total_positioned": positioned,
+                "conviction_pct": conviction}
 
-    def test_board_wide_gain_share_cannot_reach_a_consensus_threshold(self):
-        """Guards the root cause: no single market can carry 70% of board gain."""
-        shares = [m["gain_share_pct"] for m in self.sm_map.values()]
-        self.assertLess(max(shares), 70.0,
-                        "fixture must reflect production: gain share is distributed "
-                        "across the board and never approaches 70")
+    def test_the_board_supplies_price_data_and_nothing_directional(self):
+        """The circular read must be gone, not merely de-weighted."""
+        self.assertTrue(self.price_map, "no price data parsed from a production board")
+        for coin, row in self.price_map.items():
+            for banned in ("direction", "is_dominant", "gain_share_pct", "traders"):
+                self.assertNotIn(banned, row,
+                                 f"{coin} still carries `{banned}` from the 4h gain board")
 
     def test_at_least_one_candidate_survives_the_full_gate_chain(self):
-        """The whole point: a live-shaped board must produce a scorable setup."""
+        """The whole point: production-shaped prices plus a plausible cohort must produce
+        a scorable setup. Zero here means an entry gate is unreachable again."""
         scoring = self.scan.scoring
-        btc = self.sm_map.get("BTC")
-        btc_macro = {"direction": btc["direction"], "p4h": btc["p4h"]} if btc else None
         hits = []
-        for coin, sm in self.sm_map.items():
+        for coin, pd in self.price_map.items():
+            # direction is price-led, so hand the cohort the side the price implies
+            side = "LONG" if pd["p4h"] >= 0 else "SHORT"
             asset_info = {"coin": coin, "oi_usd": 5_000_000, "volume_24h": 1e8,
                           "price": 1.0, "funding": 0.0}
-            sig = scoring.evaluate_trend_continuation(asset_info, sm, btc_macro, 17)
+            sig = scoring.evaluate_trend_continuation(
+                asset_info, pd, self._cohort_for(coin, side), None, 17)
             if sig:
                 hits.append(sig)
         self.assertGreaterEqual(
             len(hits), 1,
-            "condor produced ZERO candidates from a production-shaped leaderboard — "
-            "an entry gate is unreachable, so the strategy can never trade")
+            "condor produced ZERO candidates from a production-shaped board with a "
+            "cooperating cohort — an entry gate is unreachable, so it can never trade")
         self.assertTrue(any(h["score"] >= scoring.MIN_SCORE for h in hits),
                         f"no candidate cleared MIN_SCORE={scoring.MIN_SCORE}")
 
-    def test_non_dominant_direction_is_rejected(self):
-        """The replacement gate must still filter — not just pass everything."""
+    def test_the_cohort_can_still_veto(self):
+        """The replacement gate must filter, not just pass everything."""
         scoring = self.scan.scoring
-        sm = dict(self.sm_map["HYPE"])
-        sm["is_dominant"] = False
-        asset_info = {"coin": "HYPE", "oi_usd": 5_000_000, "volume_24h": 1e8,
+        coin, pd = next(iter(self.price_map.items()))
+        wrong_side = "SHORT" if pd["p4h"] >= 0 else "LONG"
+        asset_info = {"coin": coin, "oi_usd": 5_000_000, "volume_24h": 1e8,
                       "price": 1.0, "funding": 0.0}
         self.assertIsNone(
-            scoring.evaluate_trend_continuation(asset_info, sm, None, 17),
-            "a market where smart money is NOT directionally dominant must be skipped")
+            scoring.evaluate_trend_continuation(
+                asset_info, pd, self._cohort_for(coin, wrong_side), None, 17),
+            "a cohort holding the OTHER side must veto the signal")
+        self.assertIsNone(
+            scoring.evaluate_trend_continuation(asset_info, pd, None, None, 17),
+            "no cohort at all must mean no signal — it is a hard gate")
 
-    def test_legacy_consensus_input_cannot_re_brick_the_strategy(self):
-        """A stale runtime.yaml still carrying minSmConsensusPct: 70 must be ignored."""
+    def test_a_thin_or_unconvinced_cohort_is_rejected(self):
         scoring = self.scan.scoring
-        asset_info = {"coin": "HYPE", "oi_usd": 5_000_000, "volume_24h": 1e8,
+        coin, pd = next(iter(self.price_map.items()))
+        side = "LONG" if pd["p4h"] >= 0 else "SHORT"
+        asset_info = {"coin": coin, "oi_usd": 5_000_000, "volume_24h": 1e8,
                       "price": 1.0, "funding": 0.0}
-        sig = scoring.evaluate_trend_continuation(
-            asset_info, self.sm_map["HYPE"], None, 17, {"minSmConsensusPct": 70})
-        self.assertIsNotNone(
-            sig, "the legacy minSmConsensusPct input must NOT be honoured — it was set "
-                 "on the wrong scale and would block every signal again")
+        self.assertIsNone(scoring.evaluate_trend_continuation(
+            asset_info, pd, self._cohort_for(coin, side, positioned=3), None, 17),
+            "a cohort of 3 positioned wallets must not clear the depth floor")
+        self.assertIsNone(scoring.evaluate_trend_continuation(
+            asset_info, pd, self._cohort_for(coin, side, conviction=51.0), None, 17),
+            "a near-even cohort split must not clear the conviction floor")
+
+    def test_the_realized_pnl_field_the_api_actually_sends_is_read(self):
+        """The condor-concentrated bug, guarded at the family's shared entry point."""
+        self.assertEqual(self.scan._realized_pnl({"realizedProfitAndLoss": 2_000_000}),
+                         2_000_000.0,
+                         "`realizedProfitAndLoss` is the only name the API sends; a list "
+                         "omitting it reads 0.0 for every trader and empties the cohort")
 
 
 class PiranhaOiGateReachable(unittest.TestCase):

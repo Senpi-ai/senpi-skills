@@ -3,9 +3,10 @@
 # v1.0.1). Liquid-majors basket (BTC/ETH/SOL): LONG a 3-7% 1h dip inside a bullish
 # 4h trend / SHORT a 3-7% 1h rally inside a bearish 4h trend, GATED by the
 # 4h leaderboard side (net >= 55% in the trend direction). 5-component pullback
-# score (max ~9, floor 5), flat 20% margin / 5x leverage. Asymmetric DSL — WIDE
-# Phase 1 (max_loss 10%, retrace 6) gives a pullback room to develop; WIDE Phase 2
-# ladder (first lock at +10% ROE) lets the resumed trend run. hard_timeout 48h.
+# score (max ~9, floor 5), one slot, flat 40% margin / 5x leverage. Asymmetric
+# DSL — the Phase 1 stop is 12% ROE (2.4% of price at 5x) so a pullback has room
+# to develop; the Phase 2 ladder (first lock at +20% ROE) lets the resumed trend
+# run. No clock cuts: the DSL decides every exit (1.3.0).
 # Faithful port — see scanners/scoring.py (math reproduced verbatim, v2-quirks
 # flagged).
 name: salamander-main
@@ -20,16 +21,16 @@ description: >
   with SM net short. The 4h-trend-non-neutral gate, the 3-7% pullback band, and
   the SM-direction agreement are ALL HARD GATES; the 4-6% midpoint and a strong-SM
   (>=70%) tilt are score contributors (5 components, max ~9, floor 5). Flat sizing:
-  20% margin, 5x leverage (clamped to 5x max). Asymmetric DSL — a wide Phase 1
-  (max_loss 10%) gives the dip room to develop, while a wide Phase 2 ratchet (first
-  lock at +10% ROE) lets the resumed trend run; hard_timeout 48h cuts a pullback
-  that never resolves. Onboarding-grade. Faithful port of the v2 Salamander v1.0.0
-  thesis (all scoring/thresholds verbatim).
+  one slot, 40% margin, 5x leverage (clamped to 5x max). Asymmetric DSL — the
+  Phase 1 stop is 12% ROE (2.4% of price at 5x) so the dip has room to develop,
+  while the Phase 2 ratchet (first lock at +20% ROE) lets the resumed trend run.
+  No clock cuts: the DSL decides every exit. Onboarding-grade. Port of the v2
+  Salamander v1.0.0 thesis (all scoring/thresholds verbatim).
 
 strategy:
   wallet: "${SALAMANDER_WALLET}"
   slots: 1                                 # v2 strategy.slots 1
-  margin_pct: 20                           # baseline %; scan emits the flat marginPct per signal
+  margin_pct: 40                           # baseline %; scan emits the flat marginPct per signal (1.3.0: 20 -> 40)
   default_leverage: 5                      # fallback; scan emits 5x per signal (clamped to MAX 5)
   trading_risk: moderate
   enabled: true
@@ -43,13 +44,13 @@ scanners:
     path: ./scanners
     entrypoint: scan.py
     interval_seconds: 300                   # v2 producer cadence (5 min)
-    timeout_seconds: 180                    # v2 tick_timeout=180; ~1 read/asset + sm + account
+    timeout_seconds: 180                    # v2 tick_timeout=180; account + ONE 4h-board read + ~1 candle read/asset
     default_signal_validity_seconds: 600    # 2x tick; rule action, a fresh re-score arrives next tick
     state_history_max_count: 100            # dedup map + per-tick scan-results history
     inputs:
       universe: ["BTC", "ETH", "SOL"]       # v1 DEFAULT_UNIVERSE / config.universe (validated live on HL main DEX 2026-06-29)
       minScore: 5                           # v1 DEFAULT_MIN_SCORE / config.minScore
-      marginPct: 20                         # PERCENT of withdrawable (0,100]; flat (no conviction tiers)
+      marginPct: 40                         # PERCENT of withdrawable (0,100]; flat (no conviction tiers); 1.3.0: 20 -> 40
       leverage: 5                           # clamped to MAX_LEVERAGE 5 in scan.py
       smTiltMinPct: 55                      # v1 DEFAULT_SM_TILT_MIN — SM-agreement gate
       smStrongTiltPct: 70                   # v1 DEFAULT_SM_STRONG — +1 "strongly tilted" component
@@ -89,15 +90,15 @@ actions:
       - type: signal
         scanner: salamander_main_signals
 
-# ── EXIT (DSL — preserved VERBATIM from the v2 salamander runtime.yaml) ────────
-# Asymmetric "pullback" profile: WIDE Phase 1 (max_loss 10%, retrace 6) gives a
-# pullback room to develop (vs Hawk's tighter breakout floor of 8%); WIDE Phase 2
-# ladder lets the resumed trend run. hard_timeout 48h kills a pullback that never
-# resolves; weak_peak_cut 90min/3% kills stale pullbacks; dead_weight_cut DISABLED.
-# Phase 2 FIRST lock at +10% ROE (reachable on realistic winners — NOT the
-# unreachable >+40% pattern). order_type FEE_OPTIMIZED_LIMIT, taker fallback on
-# (closes MUST happen). interval_seconds 60 (v2: REDUCE_ONLY-spam mitigation when
-# runtime position state lags HL).
+# ── EXIT (DSL) ─────────────────────────────────────────────────────────────────
+# Asymmetric "pullback" profile. The Phase 1 stop is 12% ROE = 2.4% of price at 5x
+# (1.3.0): the entry IS a 3-7% counter-move, and live over 60 days all six closes
+# were the exchange stop at the old 6% ROE (1.2% of price) — the dip never had room
+# to finish. No clock cuts — hard_timeout, weak_peak_cut and dead_weight_cut are
+# all off; the DSL decides every exit. The Phase 2 ladder lets the resumed trend
+# run: FIRST lock at +20% ROE keeps 40% of the high-water. order_type
+# FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST happen). interval_seconds 60
+# (v2: REDUCE_ONLY-spam mitigation when runtime position state lags HL).
 exit:
   engine: dsl
   interval_seconds: 60
@@ -107,7 +108,7 @@ exit:
     execution_timeout_seconds: 30           # v2: kept the maker attempt under the server connection window
   dsl_preset:
     hard_timeout:
-      enabled: true                         # v2: 48h cap — failed pullbacks get cut
+      enabled: false                        # 1.3.0: OFF — no clock cut; the DSL decides every exit (v2 had a 48h cap)
       interval_in_minutes: 2880
     weak_peak_cut:
       # DISABLED - this cut closes at MARKET at whatever price is there, with no floor, so on a
@@ -122,17 +123,18 @@ exit:
       interval_in_minutes: 90
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
-      # could sit BELOW entry and close a winner at a loss. max_loss_pct is set to the old
-      # retrace (6% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
-      # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
+      # could sit BELOW entry and close a winner at a loss. max_loss_pct IS the stop (ROE %;
+      # price distance = max_loss_pct / leverage). 1.3.0 widened it from 6% ROE (1.2% of
+      # price): the entry is a 3-7% pullback and every live close had been that stop.
+      # retrace_threshold below is inert while enabled: false.
       enabled: false
-      max_loss_pct: 6.0   # was 10.0 — set to the old retrace so the risk cap is unchanged
+      max_loss_pct: 12.0   # 12% ROE = 2.4% of price at 5x (1.3.0; was 6.0 = 1.2% of price)
       retrace_threshold: 6
       consecutive_breaches_required: 1
     phase2:
       enabled: true
-      tiers:                                # wide-by-design "let winners run"; FIRST lock at +10% ROE (NOT >+40%)
-        - { trigger_pct: 20,  lock_hw_pct: 25 }
+      tiers:                                # "let winners run"; FIRST lock at +20% ROE keeps 40% of the high-water (1.3.0: 25 -> 40)
+        - { trigger_pct: 20,  lock_hw_pct: 40 }
         - { trigger_pct: 30,  lock_hw_pct: 40 }
         - { trigger_pct: 50,  lock_hw_pct: 60 }
         - { trigger_pct: 75,  lock_hw_pct: 75 }

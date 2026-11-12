@@ -30,12 +30,16 @@ import yaml
 
 _ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
-IDS = ["bald-eagle", "condor", "dog", "kestrel", "lemon", "jaguar", "orca", "roach", "scorpion", "vulture", "raccoon"]
+# condor LEFT this cohort on 2026-10-12: it no longer takes DIRECTION from the 4h gain
+# board, so there is no "4h leader momentum" claim for its card to make and no
+# trader-count floor to enforce. It now reads the proven cohort (>= $1M lifetime realized,
+# by headcount) and its card says smart money because that is what it is. Same for
+# wild-condor, which shares its scanner. See strategies/tests/test_condor_family_cohort.py.
+IDS = ["bald-eagle", "dog", "kestrel", "lemon", "jaguar", "orca", "roach", "scorpion", "vulture", "raccoon"]
 
 # (runtime.yaml input, floor) — the templates that already floored at or above 10 keep theirs.
 FLOORS = {
     "bald-eagle": ("minTraderCount", 10),
-    "condor": ("minTraderCount", 50),
     "dog": ("minTraderCount", 30),
     "kestrel": ("minTraderCount", 10),
     "lemon": ("minSmTraders", 20),
@@ -276,7 +280,7 @@ def _raccoon(scan, floor):
     assert lean[0] == "LONG" and round(lean[1], 1) == 83.3
 
 
-_READS = {"bald-eagle": _bald_eagle, "condor": _condor, "dog": _dog, "kestrel": _kestrel, "lemon": _lemon,
+_READS = {"bald-eagle": _bald_eagle, "dog": _dog, "kestrel": _kestrel, "lemon": _lemon,
           "jaguar": _jaguar, "orca": _orca, "roach": _roach, "scorpion": _scorpion, "vulture": _vulture,
           "raccoon": _raccoon}
 

@@ -40,6 +40,17 @@ def test_failed_top_up_recovers_the_spot_leg_and_names_the_balance():
              "**Never say \"still in the funding wallet\" without naming the balance — perps or Spot.**")
 
 
+def test_spot_to_perps_is_never_claimed_as_the_agents_move():
+    """No tool moves Spot -> Perps (the MCP dropped transfer_spot_to_perps, senpi-hyperliquid-mcp#232).
+    A Say line claiming the agent moved it back sends the user hunting in the wrong balance."""
+    text = _skill()
+    assert not re.search(r"I(?:'ve| have) moved it back to perps", text, re.I)
+    tool_moves = re.search(r"\(([^)]*)\) DO use tools", text.split("license:", 1)[0]).group(1)
+    assert "spot" not in tool_moves.lower(), f"the description lists Spot → Perps as a tool move: {tool_moves}"
+    assert " ".join(text.split()).count("Move it to Perps in Balances and I'll top up again.") >= 2, \
+        "rule 3 and the Say table must hand the user the same move"
+
+
 def test_failed_top_up_reread_bypasses_the_portfolio_cache():
     """The default account_get_portfolio read is cached — a post-FAILED re-read that does not
     force-fetch cannot see the Spot rise, and the money is reported as never having moved."""
@@ -107,9 +118,33 @@ def test_withdraw_everything_is_the_exact_available_figure():
              "keeps scanning — offer to close it")
 
 
+def test_unallocated_means_the_funding_wallet_and_a_strategy_source_needs_a_yes():
+    """"Move my unallocated funds into X" was read as "drain every flat strategy too": two
+    ACTIVE strategies the user never named were emptied on a "go" given before the plan existed."""
+    text = " ".join(_skill().split())
+    for needle in ("**The source is the wallet the user named.**",
+             "means the funding wallet's free perps USDC only",
+             "a flat strategy waiting for its signal is still allocated",
+             "name each strategy and amount and get a yes to that plan",
+             "Never withdraw from a strategy the user did not name without a confirmed plan"):
+        assert needle in text, needle
+
+
+def test_withdrawal_reports_the_returned_status_never_a_predicted_close():
+    """Withdrawals floor to cents, so "everything" leaves dust and the strategy stays ACTIVE; the
+    agent announced an auto-close the tool never returned."""
+    text = " ".join(_skill().split())
+    assert "if it drains the strategy to $0 the strategy **auto-closes**" not in text
+    for needle in ("leaves sub-cent dust and the strategy stays **ACTIVE**",
+             "Only a returned `CLOSING_POSITIONS` means it is closing",
+             "Report the status the tool returned — never predict a close."):
+        assert needle in text, needle
+
+
 def test_creation_fee_is_stated_before_money_moves():
     _needles("Creating a strategy reserves a creation fee — about $1, budgeted as $1.50 per wallet",
-             "the per-wallet minimum and fee up front",
+             "quote the design's minimum, not the floor",
+             "~$11.50 per wallet opens a wallet. It is not what the strategy needs to",
              "\"funds in transit\" figure",
              "Never invent a fee a tool did not return")
 

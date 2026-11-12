@@ -24,7 +24,7 @@ FIDELITY NOTES vs cub-producer.py v1.0.0 (CUB_LEG=short):
   - v2 sized margin_usd = account_value * marginPct(FRACTION 0.15) * sizingWeight (USD). This port
     emits a top-level `marginPct` PERCENT with the per-name conviction weight baked in
     (marginPct = base_margin_pct_percent * sizing_weight); the runtime sizes
-    (marginPct/100)*withdrawable. `<=1.0 means a pasted fraction -> x100` guard converts a fraction.
+    (marginPct/100)*withdrawable. `<1.0 means a pasted fraction -> x100` guard converts a fraction.
   - v2 ranked laggards-first (reverse=False for the short leg); preserved.
   - v2 funding cap (free margin, 1.1 headroom); ported.
   - v2 recent-signals JSON cache -> ctx.state dedup (180s race-window).
@@ -62,7 +62,7 @@ def _unwrap(resp):
 
 def _resolve_margin_pct(inputs, default_pct):
     mp = scoring._f(inputs.get("marginPct", default_pct), default_pct)
-    if mp <= 1.0:                 # a fraction was pasted (e.g. 0.15) -> percent
+    if mp < 1.0:                 # a fraction was pasted (e.g. 0.15) -> percent
         mp *= 100.0
     return mp
 

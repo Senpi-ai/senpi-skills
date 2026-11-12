@@ -20,7 +20,7 @@ FIDELITY NOTES vs cuckoo-producer.py v1.0.1:
   - v2 sized margin from marginPct=0.15 (a FRACTION) * account_value -> marginUsd.
     This port emits `marginPct` as a PERCENT in (0,100] (×100 -> 15) at the top
     level; the runtime sizes (marginPct/100)*withdrawable. Includes the defensive
-    "<=1.0 means a pasted fraction, ×100" guard (dire/koala pattern). The 0.15
+    "<1.0 means a pasted fraction, ×100" guard (dire/koala pattern). The 0.15
     sizing is otherwise identical.
   - v2 emitted exactly one signal (best). Preserved: scan() emits <= 1 signal/tick.
   - v2 recent-signals JSON cache (RECENT_SIGNAL_TTL_SEC=240) -> ctx.state dedup
@@ -192,10 +192,10 @@ def _was_recently_signaled(signaled, coin, ttl, now):
 
 
 def _normalize_margin_pct(raw):
-    """marginPct must be a PERCENT in (0,100]. A pasted v2 fraction (<=1.0) is
+    """marginPct must be a PERCENT in (0,100]. A pasted v2 fraction (<1.0) is
     converted ×100 (dire/koala defensive guard)."""
     mp = float(raw)
-    if mp <= 1.0:
+    if mp < 1.0:
         mp = mp * 100.0
     return mp
 

@@ -21,6 +21,20 @@ import _cli    # noqa: E402
 import status  # noqa: E402
 
 
+class TestScannerReasons(unittest.TestCase):
+    def test_quotes_each_rows_degraded_reason_by_scanner_name(self):
+        entry = {"health": "unhealthy", "components": {"scanners": {"scanners": [
+            {"scannerId": "jackal_main_signals", "health": "unhealthy",
+             "degradedReason": "5 crashes in a row, each within 10s of starting"},
+            {"scannerId": "position_tracker", "health": "healthy"}]}}}
+        self.assertEqual(_cli.scanner_reasons(entry),
+                         ["jackal_main_signals: 5 crashes in a row, each within 10s of starting"])
+
+    def test_no_rows_or_no_reason_is_an_empty_list_not_none(self):
+        self.assertEqual(_cli.scanner_reasons({"health": "healthy"}), [])
+        self.assertEqual(_cli.scanner_reasons({"components": {"scanners": {"scanners": []}}}), [])
+
+
 class TestHealthVerdict(unittest.TestCase):
     def test_unknown_passes_through(self):
         self.assertEqual(_cli.health_verdict({"health": "unknown"}), "unknown")
@@ -104,13 +118,15 @@ class UnreadableStrategyListRefuses(unittest.TestCase):
     CAUSE = "the MCP `strategy_list` call failed (no SENPI_AUTH_TOKEN)"
 
     def setUp(self):
-        self._or_none, self._runtimes = _cli.list_strategies_or_none, _cli.list_runtimes
+        self._or_none, self._runtimes = _cli.list_strategies_or_none, _cli.list_runtimes_or_none
         self._avail = status._openclaw_available
-        status._openclaw_available = lambda: False   # no openclaw here: the runtime read is skipped
-        _cli.list_runtimes = lambda *a, **k: []
+        # A read, empty runtime list: these tests are about the STRATEGY list. (An unread runtime list
+        # exits 1 — only a read one earns exit 0, the out-of-memory way back.)
+        status._openclaw_available = lambda why=None: True
+        _cli.list_runtimes_or_none = lambda *a, **k: []
 
     def tearDown(self):
-        _cli.list_strategies_or_none, _cli.list_runtimes = self._or_none, self._runtimes
+        _cli.list_strategies_or_none, _cli.list_runtimes_or_none = self._or_none, self._runtimes
         status._openclaw_available = self._avail
 
     @staticmethod
@@ -225,6 +241,15 @@ class TriageCommandsAreReadOnly(unittest.TestCase):
         text = self._render("degraded")
         self.assertIn("deploy.py runtime <id>", text)       # named as the escape, not per row
         self.assertIn("can move money", text)
+
+    def test_a_row_with_the_runtimes_reason_prints_it_verbatim(self):
+        row = dict(self._row("unhealthy"), reason="spider_main_signals: 5 crashes in a row, each within 10s of starting")
+        status.MCPClient = lambda *a, **k: None
+        status.build = lambda *a, **k: ([row], [], True)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            status.main(["status.py"])
+        self.assertIn("↳ spider_main_signals: 5 crashes in a row, each within 10s of starting", out.getvalue())
 
     def test_verify_is_offered_as_a_read_only_check_never_as_the_money_path(self):
         # The escape and the check are different commands now. A monitoring surface that still calls

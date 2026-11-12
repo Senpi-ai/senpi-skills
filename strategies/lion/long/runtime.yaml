@@ -116,7 +116,8 @@ exit:
       interval_in_minutes: 480            # 8h — cut a winner that peaked then stalled
       min_value: 2.0
     dead_weight_cut:
-      enabled: true
+      # 15 Oct: OFF. horizon=position, measured median hold 17.4h — a 16h clock fires at 0.92x the hold
+      enabled: false
       interval_in_minutes: 960            # 16h — recycle a position going nowhere
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it

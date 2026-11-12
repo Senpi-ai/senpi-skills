@@ -112,7 +112,8 @@ exit:
       interval_in_minutes: 360            # 6h — cut a short that bottomed then stalled
       min_value: 2.0
     dead_weight_cut:
-      enabled: true
+      # 15 Oct: OFF. horizon=position, measured median hold 13.3h — a 12h clock fires at 0.90x the hold
+      enabled: false
       interval_in_minutes: 720            # 12h — recycle a short going nowhere
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it

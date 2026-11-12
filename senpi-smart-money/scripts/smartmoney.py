@@ -9,6 +9,7 @@ near-term Leaderboard/Hyperfeed flow — and the LLM does all the prose, the "wh
   python3 smartmoney.py               # `all` (default): full pull (cohorts + divergence + near-term)
   python3 smartmoney.py cohorts       # STEP 1 — the proven-vs-crowd divergence table (the headline)
   python3 smartmoney.py near_term     # STEP 2 — the 4h leaderboard confirmation, layered on state
+  python3 smartmoney.py flow [--window 1h] [--asset ETH]   # what the cohorts DID (changes + intent)
   python3 smartmoney.py all           # one-shot fallback: the full composed dict (unchanged output)
   python3 smartmoney.py --no-near     # skip the leaderboard / Hyperfeed near-term layer
   python3 smartmoney.py --state f.json     # override the shared step-state file path
@@ -106,12 +107,16 @@ def _get_client():
 
 
 class _FixtureClient:
-    """Offline stand-in. Keys a call by (tool, dex) or (tool, first trader_address) so a fixture can
-    return DIFFERENT trader-state for the smart vs crowd cohort. Falls back to the bare tool name."""
+    """Offline stand-in. Keys a call by (tool, cohort), (tool, dex) or (tool, first trader_address) so a
+    fixture can return DIFFERENT data per cohort. Falls back to the bare tool name."""
     def __init__(self, recorded):
         self._r = recorded
 
     def mcp_call(self, tool, timeout=12, **kw):
+        if "cohort" in kw:
+            k = f"{tool}::{kw['cohort']}"
+            if k in self._r:
+                return self._r[k]
         if "dex" in kw:
             k = f"{tool}::{kw['dex']}"
             if k in self._r:
@@ -277,10 +282,79 @@ def divergences(smart_per, crowd_per):
 
 
 # ──────────────────────────────────────────────────────────────── near-term layer (Leaderboard / Hyperfeed)
+# OpenClaw truncates exec results over ~16k chars, and the raw leaderboard reads run to ~220k (live
+# 2026-10-09). near_term therefore keeps only these rows of the narrated fields, then trims to the budget.
+NEAR_MARKET_LIMIT = 8
+NEAR_TRADER_LIMIT = 5
+NEAR_EVENT_LIMIT = 8
+NEAR_BUDGET_CHARS = 5_000       # near_term's share: the step also prints the cohort headline (~7k live)
+
+
+def _latest_per_trader(events):
+    """Momentum events arrive newest first, and most are blocked repeats of the same few traders (live
+    2026-10-09: 1,807 events in 4h from 3 traders, every one blocked, none with top_positions). Blocked
+    only means the push was not delivered — the tier crossing is still the signal — so a positionless
+    event is kept, not dropped. One event per trader: its newest `sent` one if any (sent events name
+    their positions), else its newest. Sent traders first, then recency."""
+    def sent(e):
+        return e.get("decision") == "sent"
+
+    best = {}
+    for i, e in enumerate(events):
+        t = e.get("trader_id")
+        if t is not None and (t not in best or (sent(e) and not sent(best[t][1]))):
+            best[t] = (i, e)
+    picked = sorted(best.values(), key=lambda p: (not sent(p[1]), p[0]))
+    return [dict(e, top_positions=(e.get("top_positions") or [])[:3] or None) for _, e in picked]
+
+
+# Each tool's `data`, per senpi-hyperliquid-mcp src/types/leaderboard.types.ts + src/tools/leaderboard.tools.ts
+# (every handler wraps its client payload under one more key): label → (tool, path to the rows, envelope
+# fields kept, row limit, row fields kept, row filter). Never the status `prices` map (one per market), never
+# `blocked_details` (free text that repeats the wallet).
+NEAR_LAYERS = {
+    "concentration": ("leaderboard_get_markets", ("markets", "markets"), ("window", "source_trader_count"),
+                      NEAR_MARKET_LIMIT, ("token", "dex", "direction", "is_dominant_direction",
+                      "pct_of_top_traders_gain", "trader_count", "contribution_pct_change_15m",
+                      "contribution_pct_change_1h", "contribution_pct_change_4h", "token_price_change_pct_4h"),
+                      None),
+    "hot_traders": ("leaderboard_get_top", ("leaderboard", "data"), ("window", "total_traders"),
+                    NEAR_TRADER_LIMIT, ("rank", "trader_id", "unrealized_pnl", "pnl_percentage", "top_markets"),
+                    None),
+    "momentum_events": ("leaderboard_get_momentum_events", ("events", "events"), ("total_count",),
+                        NEAR_EVENT_LIMIT, ("trader_id", "tier_label", "delta_pnl", "decision", "blocked_reason",
+                        "top_positions", "detected_at"), _latest_per_trader),
+}
+# The tool's max: the newest 50 events span ~3 minutes of re-fires from the same 2-3 traders, 200 span ~17.
+NEAR_CALL_ARGS = {"leaderboard_get_momentum_events": {"limit": 200}}
+
+
+def _dig(data, path):
+    """The value at `path`, or None where the envelope does not have it (schema drift)."""
+    for key in path:
+        data = data.get(key) if isinstance(data, dict) else None
+    return data
+
+
+def _fit_budget(near):
+    """Drop the last (lowest-ranked) row of the largest layer until near_term fits NEAR_BUDGET_CHARS,
+    never below one row per layer; each layer's source counts still say how many there were."""
+    def size(x):
+        return len(json.dumps(x, ensure_ascii=False))
+
+    while size(near) > NEAR_BUDGET_CHARS:
+        layers = [v for v in near.values() if isinstance(v, dict) and len(v.get("rows") or []) > 1]
+        if not layers:
+            break
+        max(layers, key=lambda v: size(v["rows"]))["rows"].pop()
+    return near
+
+
 def fetch_near_term(client, meta):
-    """The 4h-window momentum layer — health-gated. Returns None cleanly if Hyperfeed is down.
-    leaderboard_get_markets = where the hot cohort's gains concentrate; momentum_events = the live
-    entry/scale/exit flow (is the move building or fading)."""
+    """The 4h-window momentum layer — health-gated, projected to the narrated fields and bounded.
+    Returns None cleanly if Hyperfeed is down; a single unreadable layer is None plus a warning.
+    concentration = where the hot cohort's gains concentrate (contribution_pct_change_* = building or
+    fading); hot_traders = the 4h board's top; momentum_events = traders whose 4h PnL crossed a tier."""
     try:
         status = client.mcp_call("leaderboard_get_status", timeout=8)
     except Exception as e:  # noqa
@@ -289,16 +363,112 @@ def fetch_near_term(client, meta):
     if _ok(status) is None:
         meta.setdefault("warnings", []).append("near-term layer unavailable (Hyperfeed unreachable)")
         return None
-    near = {"status": _ok(status)}
-    for label, tool in (("concentration", "leaderboard_get_markets"),
-                        ("hot_traders", "leaderboard_get_top"),
-                        ("momentum_events", "leaderboard_get_momentum_events")):
+    st = _dig(_ok(status), ("status",))
+    if isinstance(st, dict):
+        st = {k: st[k] for k in ("window", "last_update_timestamp", "total_leaderboard_traders")
+              if st.get(k) is not None}
+    else:
+        meta.setdefault("warnings", []).append("leaderboard_get_status: response has no `status` object")
+        st = None
+    near = {"status": st}
+    for label, (tool, path, env_fields, limit, fields, keep) in NEAR_LAYERS.items():
         try:
-            near[label] = _ok(client.mcp_call(tool, timeout=10))
+            data = _ok(client.mcp_call(tool, timeout=10, **NEAR_CALL_ARGS.get(tool, {})))
+            if data is None:
+                raise ValueError("no data")
+            env = _dig(data, path[:-1])
+            rows = env.get(path[-1]) if isinstance(env, dict) else None
+            # a renamed envelope must read as unavailable, not as "no rows"
+            if not isinstance(rows, list):
+                raise ValueError(f"response has no `{'.'.join(path)}` list")
+            rows = [r for r in rows if isinstance(r, dict)]
+            layer = {k: env[k] for k in env_fields if env.get(k) is not None}
+            layer.setdefault("total_count", len(rows))
+            layer["rows"] = [{k: r[k] for k in fields if r.get(k) is not None}
+                             for r in (keep(rows) if keep else rows)[:limit]]
+            near[label] = layer
         except Exception as e:  # noqa
             meta.setdefault("warnings", []).append(f"{tool} failed: {e}")
             near[label] = None
-    return near
+    return _fit_budget(near)
+
+
+# ──────────────────────────────────────────────────────────────── flow layer (what the cohorts DID)
+# smart_money_flow diffs consecutive position snapshots: what each cohort opened, added, cut or closed
+# in the window, with the intent of each change. It is snapshot-delayed (`age_s`), never real time.
+FLOW_WINDOWS = ("latest", "1h", "4h", "24h")
+FLOW_COHORTS = ("proven", "crowd", "apex", "whale")   # one call each, so each list is ranked by its own net_usd
+FLOW_ASSET_LIMIT = 8
+FLOW_DIVERGENCE_LIMIT = 8
+FLOW_ROW_FIELDS = ("net_usd", "wallets_adding", "wallets_cutting",
+                   "long_added_usd", "long_cut_usd", "short_added_usd", "short_cut_usd")
+
+
+def _flow_row(r):
+    """One asset's change for one cohort: whole-dollar USD, plus the USD behind each intent that moved
+    (a zero intent is dropped, so every intent listed is one that happened)."""
+    row = {"asset": r.get("asset")}
+    for k in FLOW_ROW_FIELDS:
+        n = _num(r.get(k))
+        if n is not None:
+            row[k] = round(n) if k.endswith("_usd") else int(n)
+    intents = r.get("intents") if isinstance(r.get("intents"), dict) else {}
+    usd = {k: round(_f(v, "usd")) for k, v in intents.items()}
+    row["intent_usd"] = {k: v for k, v in usd.items() if v}
+    return row
+
+
+def _flow_call(client, cohort, window, asset):
+    """The `flow` body for one cohort. Raises on a failed call, with the tool's own error message when it
+    returns `success: false`, or on a response without a `flow` object."""
+    kw = {"window": window, "cohort": cohort, "limit": FLOW_ASSET_LIMIT}
+    if asset:
+        kw["asset"] = asset
+    resp = client.mcp_call("smart_money_flow", timeout=15, **kw)
+    if isinstance(resp, dict) and resp.get("success") is False:
+        err = resp.get("error") if isinstance(resp.get("error"), dict) else {}
+        raise ValueError(err.get("message") or err.get("code") or "the tool returned success: false")
+    data = _ok(resp)
+    flow = data.get("flow") if isinstance(data, dict) else None
+    if not isinstance(flow, dict) or not isinstance(flow.get("assets"), list):
+        raise ValueError("response has no `flow.assets` list")
+    return flow
+
+
+def fetch_flow(client, window="1h", asset=None):
+    """Returns (slice, None), or (None, reason) when every cohort call failed (the reason is the first
+    failure). The first cohort that answered carries the shared fields (age, window, cohort sizes,
+    divergences, quality); a failed cohort call leaves that cohort `null` plus a warning."""
+    flows, errors = {}, {}
+    for cohort in FLOW_COHORTS:
+        try:
+            flows[cohort] = _flow_call(client, cohort, window, asset)
+        except Exception as e:  # noqa
+            errors[cohort] = str(e)
+            flows[cohort] = None
+    answered = [c for c in FLOW_COHORTS if flows[c] is not None]
+    if not answered:
+        return None, f"smart_money_flow failed: {errors[FLOW_COHORTS[0]]}"
+    warnings = [f"smart_money_flow ({c}) failed: {errors[c]}" for c in FLOW_COHORTS if c in errors]
+    head = flows[answered[0]]
+    win = head.get("window") if isinstance(head.get("window"), dict) else {}
+    sizes = head.get("cohorts") if isinstance(head.get("cohorts"), dict) else {}
+    out = {
+        "as_of_ts": head.get("as_of_ts"),
+        "age_s": head.get("age_s"),
+        "window": {k: win.get(k) for k in ("name", "from_ts", "to_ts", "snapshots", "max_gap_s")},
+        "cohort_sizes": {c: sizes[c].get("size") if isinstance(sizes.get(c), dict) else None
+                         for c in FLOW_COHORTS},
+    }
+    for cohort in FLOW_COHORTS:
+        f = flows[cohort]
+        out[cohort] = None if f is None else [
+            _flow_row(r) for r in f["assets"]
+            if isinstance(r, dict) and r.get("cohort") == cohort][:FLOW_ASSET_LIMIT]
+    out["divergences"] = [d for d in (head.get("divergences") or []) if isinstance(d, dict)][:FLOW_DIVERGENCE_LIMIT]
+    out["quality"] = head.get("quality")
+    out["warnings"] = warnings
+    return out, None
 
 
 # ──────────────────────────────────────────────────────────────── orchestration
@@ -509,7 +679,16 @@ def _dry(client):
     return out
 
 
-_STEPS = ("cohorts", "near_term", "all")
+def step_flow(client, window="1h", asset=None):
+    """`flow` — what the proven, crowd, apex and whale cohorts DID in the window (opened, added, cut, closed, and
+    why). Standalone: no cohort fetch, no state. Fails open to `{"flow": null, "flow_unavailable": ...}`."""
+    flow, reason = fetch_flow(client, window=window, asset=asset)
+    if flow is None:
+        return {"flow": None, "flow_unavailable": reason}
+    return {"flow": flow}
+
+
+_STEPS = ("cohorts", "near_term", "flow", "all")
 _STEP_FNS = {"cohorts": step_cohorts, "near_term": step_near_term}
 
 
@@ -549,14 +728,16 @@ def main(argv=None):
         step, argv = cand, argv[1:]
 
     ap = argparse.ArgumentParser(
-        description="senpi smart-money engine (cohort + divergence + near-term). Optional leading STEP: "
-                    "cohorts|near_term|all (default all = the composed one-shot). Steps share a state "
-                    "file so near_term doesn't re-run the heavy cohort fetch.")
+        description="senpi smart-money engine (cohort + divergence + near-term + flow). Optional leading "
+                    "STEP: cohorts|near_term|flow|all (default all = the composed one-shot). Steps share "
+                    "a state file so near_term doesn't re-run the heavy cohort fetch; flow is standalone.")
     ap.add_argument("--no-near", action="store_true", help="skip the leaderboard / Hyperfeed near-term layer")
     ap.add_argument("--state", default=None,
                     help="shared state file path (default <tempdir>/senpi-smart-money/state.json)")
     ap.add_argument("--fixture", help="offline: path to a recorded MCP-response map (tests only)")
     ap.add_argument("--dry", action="store_true", help="dump raw MCP responses for schema debugging")
+    ap.add_argument("--window", default="1h", choices=FLOW_WINDOWS, help="flow step only: the change window")
+    ap.add_argument("--asset", default=None, help="flow step only: one market, e.g. ETH or xyz:TSLA")
     # `step` was already peeled off argv above; feed the remainder (flags only).
     args = ap.parse_args(argv)
 
@@ -582,6 +763,8 @@ def main(argv=None):
     try:
         if step == "all":
             result = _all_and_persist(client, want_near, args.state)
+        elif step == "flow":
+            result = step_flow(client, window=args.window, asset=args.asset)
         else:
             fn = _STEP_FNS[step]
             result = fn(client, want_near=want_near, state_path=args.state)

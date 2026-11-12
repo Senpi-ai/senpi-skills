@@ -1,24 +1,29 @@
 # ── HYDRA · CORE sleeve — the LONG-TERM THESIS of a single-coin conviction fund ──
-# Runtime 3.0 port of v2 runtime-core.yaml (origin/main, Hydra v2.1). DSL preserved
-# EXACTLY: catastrophic-only — a wide disaster stop, weak_peak OFF, time-cuts OFF,
-# and a Phase 2 whose FIRST lock is reachable (+12%, the retuned ladder — NOT the old
-# +80% that never armed). You ride normal volatility; the cross-asset HEDGE sleeve
-# (separate wallet) cushions the interim drawdown.
+# Runtime 3.0 port of v2 runtime-core.yaml (origin/main, Hydra v2.1). 1.3.0: LONG-only by
+# default — the card's "never bets against the thesis coin" is now what the code does (a
+# bearish 4h stands down unless allowShort is true); one 40% slot at 3x; a wide stop (15%
+# ROE = 5.0% of price at 3x); weak_peak OFF, time-cuts OFF; a Phase 2 whose FIRST lock is
+# reachable (+12% ROE → lock 40% of high-water — NOT the old +80% that never armed). You
+# ride normal volatility; the cross-asset HEDGE sleeve (separate wallet) cushions the
+# interim drawdown. Structure and RSI are read off CLOSED candles only — the bar in
+# progress never moves a read.
 name: hydra-core
 group: hydra
 version: 3.0.0
 description: >
   HYDRA CORE — single-coin trend-momentum on the thesis coin (inputs.coin; default ETH,
-  set per deployment). LONG when 4h structure is bullish, SHORT when bearish, sit out a
-  neutral tape. The 1d must confirm the 4h (v2.1 chop filter — don't buy the range-top).
-  Conviction-tiered leverage: stdLeverage standard, maxLeverage at apexScore. One
-  position. Ridden on a CATASTROPHIC-ONLY DSL (long-term hold). Pairs with the DIP
-  (tactical add) and HEDGE (cross-asset cushion) sleeves on separate wallets.
+  set per deployment). LONG when the 4h structure is bullish and the 1d confirms it (v2.1
+  chop filter — don't buy the range-top); a bearish 4h stands down (LONG-only by default;
+  allowShort: true also shorts a confirmed 4h+1d downtrend); sit out a neutral tape. One
+  position, 40% of the wallet at 3x, on a wide stop (15% ROE = 5.0% of price) and a profit
+  ratchet from +12% ROE — no clock cuts. Pairs with the DIP (tactical add) and HEDGE
+  (cross-asset cushion) sleeves on separate wallets.
 
 strategy:
   wallet: "${HYDRA_CORE_WALLET}"
   slots: 1                                 # single asset, single position
-  default_leverage: 3                      # fallback; scan emits per-signal 3 (std) / 5 (apex) by score
+  margin_pct: 40                           # per-slot margin %; 1 x 40% of the wallet (= inputs.marginPct)
+  default_leverage: 3                      # fallback; the scan emits 3 per signal (= inputs.leverage = catalog leverage_max)
   trading_risk: moderate
   enabled: true
 
@@ -39,11 +44,10 @@ scanners:
       coin: "ETH"                           # thesis asset; SOL / HYPE for the other variants
       dex: ""                               # "" main DEX; "xyz" for an xyz: thesis coin
       leg: "core"
-      minScore: 5
-      marginPct: 20                         # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
-      maxLeverage: 5
-      stdLeverage: 3
-      apexScore: 7
+      minScore: 5                           # the composite tops out at 6 (4h+1d 3, 1h 2, funding 1)
+      marginPct: 40                         # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
+      leverage: 3                           # one leverage for every signal (= strategy.default_leverage = catalog leverage_max)
+      allowShort: false                     # LONG-only: a bearish 4h stands down. true = also short a confirmed 4h+1d downtrend
       rsiOverbought: 80
       rsiOversold: 20
       requireDailyAlign: true               # v2.1: only enter when the 1d trend confirms the 4h (chop filter)
@@ -75,10 +79,10 @@ actions:
       - type: signal
         scanner: hydra_core_signals
 
-# ── EXIT (DSL — v2 CATASTROPHIC-ONLY, ported VERBATIM from runtime-core.yaml on main) ──
-# A long-term thesis HOLD: WIDE disaster stop only, weak_peak OFF (hold through
-# consolidation), time-cuts OFF, Phase 2 does nothing until a real run — but the FIRST
-# lock is REACHABLE (+12% → lock 35%), the retuned ladder. Do NOT regress to +60-80%.
+# ── EXIT (DSL — the stop and the ratchet decide every exit; no clock cuts) ──
+# A long-term thesis HOLD: a wide stop only (15% ROE = 5.0% of price at 3x), weak_peak OFF
+# (hold through consolidation), time-cuts OFF, Phase 2 does nothing until a real run — but
+# the FIRST lock is REACHABLE (+12% ROE → lock 40% of high-water). Do NOT regress to +60-80%.
 exit:
   engine: dsl
   interval_seconds: 60
@@ -98,17 +102,16 @@ exit:
       interval_in_minutes: 2880
     phase1:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a favourable move it
-      # could sit BELOW entry and close a winner at a loss. max_loss_pct is set to the old
-      # retrace (10% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
-      # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
+      # could sit BELOW entry and close a winner at a loss. max_loss_pct IS the stop (ROE %);
+      # retrace_threshold below is inert while enabled: false.
       enabled: false
-      max_loss_pct: 10.0   # was 32.0 — set to the old retrace so the risk cap is unchanged
-      retrace_threshold: 10                  # tightened (was 20) — trail a winner into profit
+      max_loss_pct: 15.0   # 15% ROE = 5.0% of price at 3x (was 10 = 3.3% of price)
+      retrace_threshold: 10                  # inert while enabled: false
       consecutive_breaches_required: 2
     phase2:
       enabled: true
       tiers:                                 # lock medium winners early, still ride a real moonshot
-        - { trigger_pct: 12, lock_hw_pct: 35 }   # first lock REACHABLE (retuned; was 80 — never armed)
+        - { trigger_pct: 12, lock_hw_pct: 40 }   # first lock REACHABLE (+12% ROE = 4% of price at 3x); locks 40% of high-water
         - { trigger_pct: 25, lock_hw_pct: 55 }
         - { trigger_pct: 50, lock_hw_pct: 68 }
         - { trigger_pct: 120, lock_hw_pct: 80 }
@@ -117,7 +120,7 @@ exit:
 risk:
   guard_rails:
     daily_loss_limit_pct: 12
-    max_entries_per_day: 3
+    max_entries_per_day: 3                   # above strategy.slots (1)
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 4
     cooldown_seconds: 7200                   # v2 cooldown_minutes 120

@@ -128,7 +128,7 @@ def build_thesis(coin, candles_1h, candles_4h, sm, inputs):
     minScore is NOT applied here — the caller gates on thesis['score'].
 
     `sm` is the smart-money tuple (direction, tilt_pct) or (None, 0) — the caller
-    fetches it (scan._get_sm_direction)."""
+    fetches it (scan._sm_direction, off the board rows scan._read_board read once a tick)."""
     lookback = int(inputs.get("pullbackLookbackHours", 24))
     min_pct = float(inputs.get("pullbackMinPct", 3.0))
     max_pct = float(inputs.get("pullbackMaxPct", 7.0))

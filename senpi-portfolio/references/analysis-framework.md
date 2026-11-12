@@ -26,6 +26,15 @@ report idle capital, **name the wallet**: *"$0 idle in your embedded wallet — 
 strategies; $2,300 of that is sitting as free margin inside the strategy wallets waiting for
 signals."* Never collapse those into one "idle" number.
 
+SKILL.md's trap, in its own words:
+
+> `total_withdrawable` from the portfolio API is **idle-in-strategies** (bucket 2) — the unused margin
+> summed across strategy wallets. **It is NOT idle cash in the embedded wallet.** If a user moved all
+> their funds into strategies, the embedded wallet is **$0** even when `total_withdrawable` is large.
+> The engine computes these as two separate fields precisely so you don't mix them. When you say "$X is
+> idle," **always say *where*** — "$X idle in the embedded wallet, ready to deploy or withdraw" vs. "$Y
+> sitting in strategy wallets waiting for signals." They are not the same money and not the same thing.
+
 **Always re-fetch.** Balances move every second. The engine forces a fresh pull (no 12h cache) and
 reads each strategy's live clearinghouse state — so re-run it every time, even if the user asked a
 minute ago. Never quote a figure from earlier in the conversation.
@@ -37,6 +46,9 @@ open position, the engine gives you `return_on_equity_pct`, `market_24h_pct`, an
 
 - **Leveraged return, always.** Cite `return_on_equity_pct` (uPnL / margin), not the raw price move.
   A 1% price move at 10x is a 10% return on margin — the raw % understates everything.
+- **Use leveraged return, not raw price %.** Cite `return_on_equity_pct` (uPnL / margin), the number
+  that actually reflects the position — a 1% price move at 10x is a 10% return on margin.
+
 - **With or against the tape.** A short is *working* when the asset is down today; a long when it's
   up. `vs_market` flags this. The interesting cases are the ones *fighting* the move — a long
   bleeding into a falling market is a position to call out, not bury.
@@ -66,6 +78,12 @@ A small strategy balance is **not** proof of a loss. `netFunded = total_funded �
 can be negative when profits (and then some) have been withdrawn — that's a *win* being harvested,
 not a blow-up. Before calling anything "down," check the funding ledger. True performance is PnL
 against `netFunded`, not the raw account value.
+
+- **Live capital = clearinghouse `account_value`, NEVER `total_funded` / `budget` / `status`.**
+  `total_funded` / `total_withdrawn` are **lifetime history**, not a current balance. A strategy with
+  `total_funded: 3000` and `account_value: 0` has **$0 now**; one with `account_value: 3000` has **$3K now**
+  regardless of what it was funded. Never present `total_funded` (or a configured budget) as current idle /
+  reserved money — read `idle_withdrawable` / `account_value` from the live clearinghouse.
 
 ## 5. Compose the read
 

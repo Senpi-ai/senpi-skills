@@ -8,6 +8,11 @@ on:
   push:
     branches: [main]
 
+# Supersede earlier runs of the same PR. Pushes to main key on the sha and are never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -52,13 +57,20 @@ jobs:
       # and its suite had never run in CI — so the engine half of a two-copy fix was ungated.
       # `senpi-deposit-withdraw-transfer/tests` added 2026-09-15: needle guards on the money-rails
       # rules (top-up precheck + Spot recovery, exact-figure withdrawals, fees before money moves).
+      # `quant-desk/tests` joined this run 2026-10-19: it ran on its own while senpi-signals shipped a
+      # second scripts/score.py (both importable as `score`); senpi-signals no longer has one.
       - name: full suites (ops + discover + author + trading-runtime + catalog guards)
-        run: python3 -m pytest senpi-strategy-ops/tests senpi-strategy-discover/tests senpi-strategy-author/tests senpi-trading-runtime/tests senpi-trader-research/tests senpi-market-pulse/tests senpi-portfolio/tests senpi-trade/tests senpi-improve-trades/tests senpi-signals/tests senpi-smart-money/tests senpi-deposit-withdraw-transfer/tests strategies/tests -q
+        run: python3 -m pytest senpi-strategy-ops/tests senpi-strategy-discover/tests senpi-strategy-author/tests senpi-trading-runtime/tests senpi-trader-research/tests senpi-market-pulse/tests senpi-portfolio/tests senpi-trade/tests senpi-improve-trades/tests senpi-signals/tests senpi-smart-money/tests senpi-deposit-withdraw-transfer/tests strategies/tests quant-desk/tests -q
 
-      # quant-desk runs in its own invocation: quant-desk/scripts/score.py and
-      # senpi-signals/scripts/score.py are both importable as `score`, so in a shared pytest run the
-      # first one collected wins and the other package's tests bind to the wrong module (14 failures,
-      # `module 'score' has no attribute dimensions`). Same reason the strategy packages run per
-      # directory above. Keep this step separate as long as two packages ship a scripts/score.py.
-      - name: quant-desk suite (separate invocation — scripts/score.py name collision)
-        run: python3 -m pytest quant-desk/tests -q
+      # Repo-root `tests/` added 2026-10-21: the context-budget gate for the OpenClaw 10.x migration.
+      # Every */SKILL.md ≤ 56,000 est chars (10.4 refuses an over-cap SKILL.md read whole), and the
+      # skills catalog plus the OpenClaw-bundled entries ≤ 30,000 (prod maxSkillsPromptChars is 32,000;
+      # over it every box drops all descriptions). Sizes are measured with ports of OpenClaw's own
+      # code, pinned by goldens in the same directory. Over 16,000 is a warning, never a failure. Own
+      # invocation so its warnings and failures read on their own, apart from the skill suites.
+      # `.github/scripts/check_conservation.py` is a hand-run restructure tool, smoke-tested here.
+      # Last, and run even when a suite above failed, so a budget failure never hides a suite result
+      # (a SKILL.md trim regression shows in the suites) and a suite failure never hides the budget.
+      - name: context budgets (SKILL.md ceiling + skills catalog, as OpenClaw measures them)
+        if: ${{ !cancelled() }}
+        run: python3 -m pytest tests -q

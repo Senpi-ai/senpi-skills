@@ -111,7 +111,7 @@ _COPYABLE = sorted(
 )
 
 # Scoped to fenced yaml blocks so PROSE may name a banned pattern in order to ban it.
-# senpi-portfolio/SKILL.md explains what `lock_hw_pct: 0` means; documenting the rule is not
+# senpi-portfolio/references/dsl.md explains what `lock_hw_pct: 0` means; documenting the rule is not
 # breaking it, and a bare substring check fails that file.
 _YAML_BLOCK = re.compile(r"```ya?ml\n(.*?)```", re.S)
 _BREAKEVEN = re.compile(r"lock_hw_pct:\s*0(\.0+)?\b")

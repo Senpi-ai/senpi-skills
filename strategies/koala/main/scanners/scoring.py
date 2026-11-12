@@ -90,8 +90,61 @@ def record_exit(state, now_ts):
 
 
 def empty_state():
-    """The v2 koala_config.read_koala_state() default shape."""
-    return {"first_entry_at": None, "last_entry_at": None, "last_exit_at": None, "total_entries": 0}
+    """The v2 koala_config.read_koala_state() default shape, plus the 2.0.0 pending marker."""
+    return {"first_entry_at": None, "last_entry_at": None, "last_exit_at": None, "total_entries": 0,
+            "pending_since": None}
+
+
+# ═══════════════════════════════════════════════════════════════
+# 2.0.0 — an entry counts when it FILLS, not when it is emitted
+# ═══════════════════════════════════════════════════════════════
+# 1.x recorded the entry the moment the signal left the scanner. A first order the venue
+# or the runtime refused (no margin configured, below the minimum notional, an open that
+# failed) still consumed the lifetime one-shot, and the wallet sat idle until redeployed
+# with nothing telling the user. The fix is a pending marker: the emit sets it, the next
+# tick that sees the asset HELD converts it into the entry record, and a marker older than
+# `pendingEntryExpirySeconds` with nothing held is dropped — the one-shot was never spent.
+
+def record_pending(state, now_ts):
+    """Pure: the signal is out; the entry is not yet real."""
+    new_state = dict(state or {})
+    new_state["pending_since"] = float(now_ts)
+    return new_state
+
+
+def pending_fill_state(state, expiry_seconds, now_ts):
+    """Pure: 'none' (no marker), 'waiting' (marker younger than the expiry) or 'expired'."""
+    since = (state or {}).get("pending_since")
+    if since is None:
+        return "none"
+    try:
+        since = float(since)
+    except (TypeError, ValueError):
+        return "none"
+    return "waiting" if (now_ts - since) < float(expiry_seconds) else "expired"
+
+
+def confirm_fill(state, now_ts):
+    """Pure: the asset is held after an emit — the entry is real. Records it at the time the
+    signal went out (the fill followed within the tick), clears the marker and opens a new
+    lifecycle (no exit recorded yet)."""
+    since = (state or {}).get("pending_since")
+    try:
+        at = float(since) if since is not None else float(now_ts)
+    except (TypeError, ValueError):
+        at = float(now_ts)
+    new_state = record_entry(state, at)
+    new_state["pending_since"] = None
+    new_state["last_exit_at"] = None
+    return new_state
+
+
+def drop_pending(state):
+    """Pure: the order never filled — forget the marker; the one-shot is NOT consumed."""
+    new_state = dict(state or {})
+    new_state["pending_since"] = None
+    new_state["unfilled_entries"] = int(new_state.get("unfilled_entries", 0)) + 1
+    return new_state
 
 
 # ═══════════════════════════════════════════════════════════════

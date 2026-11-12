@@ -186,9 +186,27 @@ def scan(inputs, ctx):
             import sys; print(f"[scan] state append failed: {e!r}", file=sys.stderr)
     return out
 ```
+The dynamic universe in (1). A row's live numbers sit under `row["context"]`, as strings, and open interest is in coins; there is no `row["volume"]` or `row["openInterest"]`, and reading one returns the default on every row:
+```python
+def _dynamic_from_board(ctx, inputs):
+    resp = ctx.senpi_mcp.call_tool("market_list_instruments", {"fields": ["context"], "include_delisted": False})
+    rows = resp.get("data", {}).get("instruments", []) if isinstance(resp, dict) else []
+    if not rows:
+        import sys; print(f"[scan] empty instrument board: {str(resp)[:200]!r}", file=sys.stderr)
+    ranked = []
+    for row in rows:
+        c = row.get("context") or {}
+        vol = scoring._f(c.get("dayNtlVlm"))                                       # 24h volume, USD
+        oi_usd = scoring._f(c.get("openInterest")) * scoring._f(c.get("markPx"))   # coins x price
+        if vol >= inputs.get("minVolumeUsd", 10e6) and oi_usd >= inputs.get("minOiUsd", 5e6):
+            ranked.append((vol, row["name"]))
+    return [name for _, name in sorted(ranked, reverse=True)[: inputs.get("maxAssets", 20)]]
+```
 - **`ctx` is frozen:** `ctx.senpi_mcp.call_tool(name, args)` (read-only), `ctx.state` (`.last()/.recent(n)/.append()/len()`), `ctx.wallet`, `ctx.scanner_name`, `ctx.interval_seconds`. No logging handle — `print(..., file=sys.stderr)`.
 - **Signal dict keys:** `asset`✅, `direction`✅ (LONG/SHORT), `marginPct` (intent), `leverage` (optional), `data{}` (validated against `signal_data_schema`), optional `valid_for_seconds` / `signal_id`. The scaffold owns `produced_at`/`valid_until`/dedup — don't set them.
 - **Anchor every `call_tool` on the published MCP I/O reference** (`read_senpi_guide`). A guessed tool name, interval string, or output field = a silent dead scanner.
+- **Bind every name before the branch that reads it.** Python fixes a function's locals at compile time, so a read on a path that runs before the assignment raises `UnboundLocalError` — it does NOT fall back to a module-level name of the same spelling — and a nested `_persist()` defined above its free variable raises `NameError` the first time an early return calls it. Both compile, both pass a scan of the happy path, and both crash EVERY tick once the branch is first taken, which can be days later. `validate_strategy.py` now fails the package on either; keep the catalog's shape — give `_persist(result=None, signaled=None)` parameters rather than closing over values bound further down.
+- **`marginPct` is a PERCENT in (0, 100], and stays one.** Out of range, the runtime drops the whole candidate at delivery (`delivery_candidate_invalid`), so the strategy funds, ticks clean and never opens. Read it from `inputs` as a constant, as the catalog does. A percent recomputed from a live balance (`max(size, MIN_ORDER) / free_margin * 100`) is correct while the wallet is liquid and passes 100 the moment the floor binds — clamp it with `min(pct, 100.0)`, or emit nothing when the size cannot be funded. `validate_strategy.py` fails an out-of-range literal and warns on a division by a live balance with no clamp.
 - **A response is not guaranteed to be a dict.** When a tool's text payload is not JSON, `call_tool` returns it as a **raw string** (by design — it mirrors `producer.mjs`), and a bare JSON array comes back as a **list**. `if not resp:` does NOT catch that, because a non-empty string is truthy. Guard with `isinstance(resp, dict)` before any `.get()`, or the tick dies on `AttributeError: 'str' object has no attribute 'get'`. It is intermittent, so it passes `validate` and surfaces hours later.
 
 ### `runtime.yaml` — the deterministic spec
@@ -227,7 +245,7 @@ actions:
     action_type: OPEN_POSITION
     decision_mode: rule                   # 'rule' unless you genuinely need an LLM gate
     scanners: [<id>_signals]
-    params: { order_type: FEE_OPTIMIZED_LIMIT, fee_optimized_limit_options: { ensure_execution_as_taker: true, execution_timeout_seconds: 60 } }
+    params: { order_type: FEE_OPTIMIZED_LIMIT, fee_optimized_limit_options: { ensure_execution_as_taker: true, execution_timeout_seconds: 30 } }
     context: [ { type: signal, scanner: <id>_signals } ]
 exit:   { engine: dsl, dsl_preset: { ... } }   # <-- a named preset (§7)
 risk:   { guard_rails: { drawdown_halt_pct: 25, daily_loss_limit_pct: 15, cooldown_seconds: 3600, ... } }
@@ -305,7 +323,7 @@ Want to *watch* it before funding? `senpi validate` is the shadow run, and the r
 strategy for free — **never schedule agent turns to poll it** (each firing is a model call):
 [`shadow-testing.md`](shadow-testing.md).
 
-**"running" ≠ "operating."** Don't trust `status: running`. Confirm the scanner has a **positive run count + a fresh `lastRunFinishedAt`** (`openclaw senpi state -r <id>-main --json`, or `openclaw senpi scanner -r <id>-main` — `-r` is the runtime id, so `<id>-<leg>` per leg on §2's exception), and that it **emits a non-empty set on a tick where it should** — a `live` report proves it *ticked*, not that it produced a signal. Those reads are read-only, and so is `deploy.py verify <id>` (it composes them into a per-instance verdict and deploys nothing); the command that moves money is the resume, `deploy.py runtime <id>` / `create <id> --budget <usd>`. This is an **agent-side check** — run it yourself; never ask the user "is it working?".
+**"running" ≠ "operating."** Don't trust `status: running`. Confirm the scanner is **live: a recent `lastAliveAt`** (`openclaw senpi state -r <id>-main --json`, or `alive=` in `openclaw senpi scanner -r <id>-main` — `-r` is the runtime id, so `<id>-<leg>` per leg on §2's exception). Then read `health`: `degraded`/`unhealthy` with `last=error` and a fresh `alive` is a past delivery error (read `reason`), not a dead scanner; `unhealthy` with `inFlight=true`, or a crash-loop reason, is a real fault; `health=unknown` with `alive=—` is a child not heard from yet. Never judge it by the run count: it moves only on an accepted signal or an error, so 0 is normal on a quiet scanner (`runs=0` on older runtimes). Then confirm it **emits a non-empty set on a tick where it should** — a `live` report proves it *ticked*, not that it produced a signal. Those reads are read-only, and so is `deploy.py verify <id>` (it composes them into a per-instance verdict and deploys nothing); the command that moves money is the resume, `deploy.py runtime <id>` / `create <id> --budget <usd>`. This is an **agent-side check** — run it yourself; never ask the user "is it working?".
 
 ### The gate — `senpi validate`, before any wallet exists
 
@@ -351,7 +369,7 @@ both are reported, check both.
 
 Fix what it reports, re-run, and only hand to ops once it says PASS. **A clean lint is not a pass; only `senpi validate` is.**
 
-Two things it deliberately does *not* prove, so don't over-claim on its behalf: branches this tick didn't take, and logic that depends on open positions (it runs against an empty account by default — which is exactly the state a freshly funded strategy starts in). It prints both as `does not prove:` lines on a PASS. **A PASS is therefore a floor, not a finish line: it proves the strategy *runs*, never that its logic is *right*.** Two from testing, both of which passed cleanly — a Supertrend that returned the same direction for every input, so the strategy could never open a long; and a cooldown keyed on `ctx.now_utc`, which does not exist on the ctx surface, so it never fired. Read your own indicator math against a known trend before you call it done. After deploy, still confirm the strategy **operates** — `deploy.py verify <id>`, then a positive run count and an accepted signal in `openclaw senpi state -r <id>-main --json` (`<id>-<leg>` per leg on §2's exception).
+Two things it deliberately does *not* prove, so don't over-claim on its behalf: branches this tick didn't take, and logic that depends on open positions (it runs against an empty account by default — which is exactly the state a freshly funded strategy starts in). It prints both as `does not prove:` lines on a PASS. **A PASS is therefore a floor, not a finish line: it proves the strategy *runs*, never that its logic is *right*.** Two from testing, both of which passed cleanly — a Supertrend that returned the same direction for every input, so the strategy could never open a long; and a cooldown keyed on `ctx.now_utc`, which does not exist on the ctx surface, so it never fired. Read your own indicator math against a known trend before you call it done. After deploy, still confirm the strategy **operates** — `deploy.py verify <id>`, then an accepted signal in `openclaw senpi state -r <id>-main --json` (`<id>-<leg>` per leg on §2's exception).
 
 ## 10. The author's checklist (the silent-failure guards)
 
@@ -428,13 +446,13 @@ scanners:
 actions:
   - { name: position_tracker_action, action_type: POSITION_TRACKER, decision_mode: rule, scanners: [position_tracker] }
   - { name: us_rebound_entry, action_type: OPEN_POSITION, decision_mode: rule, scanners: [us_rebound_signals],
-      params: { order_type: FEE_OPTIMIZED_LIMIT, fee_optimized_limit_options: { ensure_execution_as_taker: true, execution_timeout_seconds: 60 } },
+      params: { order_type: FEE_OPTIMIZED_LIMIT, fee_optimized_limit_options: { ensure_execution_as_taker: true, execution_timeout_seconds: 30 } },
       context: [ { type: signal, scanner: us_rebound_signals } ] }
 exit:
   engine: dsl
   dsl_preset:                                   # let_winners_run, with the only thesis-specific tweak:
     hard_timeout: { enabled: true, interval_in_minutes: 144000 }   # ~100d -> the Q3-2026 deadline
-    phase1: { enabled: false, max_loss_pct: 8.0, retrace_threshold: 8, consecutive_breaches_required: 1 }
+    phase1: { enabled: false, max_loss_pct: 8.0, retrace_threshold: 8, consecutive_breaches_required: 1 }   # enabled:false = no trailing; max_loss_pct still stops from entry
     phase2:
       enabled: true
       tiers:                                  # let_winners_run, verbatim from dsl-presets.yaml
@@ -525,7 +543,11 @@ came in at 398 and 390 calls against a 240s budget and both timed out.
   ceiling (~400 on a 240s tick), not a target.
 - Fetch candles/state **once per unique asset** and reuse across every pair or leg that needs them.
 - Hoist board-wide reads (`leaderboard_get_markets`, `discovery_get_top_traders`) out of the
-  per-asset loop — they return the whole board in one call.
+  per-asset loop — one read per tick serves every asset.
+- A ranked list is NOT the whole board: without `limit`, `discovery_get_top_traders` and
+  `leaderboard_get_top` return 20 rows. Pass `limit` for the rows you use. `discovery_get_top_traders`
+  takes up to 1000 per call and pages with `offset` (the ≥ $1M realized-cohort templates read 1000 per
+  page; clone the paging from `starling`); `leaderboard_get_top` takes up to 500 and has no `offset`.
 - Batch wallet reads (`discovery_get_trader_state` takes a list) rather than looping one per wallet.
 - If the count really is irreducible, raise `timeout_seconds` deliberately and say why in the
   recipe. Don't discover the ceiling by failing validation: each attempt costs a multi-minute
@@ -537,7 +559,8 @@ Counting calls bounds the work a tick *intends* to do. It does nothing about a s
 never returns, and that is the failure that actually strands scanners: no output, no error, no
 timeout line, the runtime alive and the scan silent for hours.
 
-Observed 2026-09-19: a hand-authored scanner made the SAME reads as `senpi-signals/scripts/sweep.py`
+Observed 2026-09-19: a hand-authored scanner made the SAME reads as the signals engine's `sweep.py`
+(today `strategies/signals-hunter/main/scanners/sweep.py`)
 with the SAME limits — universe top-120, one cohort page, board 500, momentum 50 — and produced
 **zero completed ticks in 2h49m**, while the sweep runs the identical gather in about a minute. The
 limits were never the difference. The sweep budgets its reads; the scanner did not:
@@ -555,7 +578,7 @@ time it fires you have lost the tick and learned nothing about which read hung.
 So, for any scanner that makes more than a couple of reads:
 
 - **Per-read timeout**, with one retry. Pass it to `call_tool` if the host accepts a `timeout=`
-  keyword; `sweep.py`'s `Client.mcp_call` shows how to detect that once and fall back cleanly.
+  keyword; `Client.mcp_call` in that `sweep.py` shows how to detect that once and fall back cleanly.
 - **A whole-tick deadline** checked between reads, comfortably under `timeout_seconds`, so the scan
   returns `[]` on its own terms instead of being killed mid-flight.
 - **Cheap reads first, the expensive lens last.** `sweep.py` reads market and leaderboard before the

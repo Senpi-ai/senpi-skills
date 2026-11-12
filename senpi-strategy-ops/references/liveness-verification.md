@@ -13,9 +13,10 @@ This is an **agent-side check**. Run the commands yourself; do not ask the user 
 > producer daemon and no `push_signal`** — so there is nothing to reconcile against. **Never read the
 > on-disk state files** (`/data/.openclaw/senpi-state/…`); they're internal, partially-written, and not a
 > contract. The deploy report's `overall` carries this verdict at deploy time — re-read it read-only with
-> `openclaw senpi deploy status`; use this doc for hand triage. `deploy.py verify <id>` is **read-only**
+> `python3 deploy.py status`; use this doc for hand triage. `deploy.py verify <id>` is **read-only**
 > too — it composes the surfaces below into a per-instance verdict (`0` verified / `3` not verified /
-> `1` could not check), deploys nothing, and fetches nothing (a package not on disk — or on disk but
+> `1` could not check / `9` out of memory: stop, don't retry or poll now; safe again when `status.py`
+> exits `0`), deploys nothing, and fetches nothing (a package not on disk — or on disk but
 > unparseable — is could-not-check, never a download). It applies the downgrade rule below: an entry
 > with no health field whose run state reads `failed` is **not verified (3)** quoting that state, not
 > could-not-check. It confirms an instance live only on an **ACTIVE** wallet: a
@@ -58,8 +59,13 @@ doing real work, with timestamps and counters as proof. `runtime_id` = the runti
 ## Self-questions checklist
 
 1. **Is the target runtime in `runtime list` with `status: running`?**
-2. **Has its `external_scanner` executed at least once and recently** (a positive run count + a fresh
-   `lastRunFinishedAt`)?
+2. **Is its `external_scanner` alive?** It is live when `lastAliveAt` is recent (`alive=` in `senpi scanner`).
+   Then read `health`:
+   - `degraded`/`unhealthy` with `last=error` and a fresh `alive` is a past delivery error (read `reason`),
+     not a dead scanner. Heartbeats do not clear it; the next accepted signal does.
+   - `unhealthy` with `inFlight=true`, or a crash-loop reason, is a real fault.
+   - `health=unknown` with `alive=—` is a child not heard from yet.
+   Never require a positive run count: it moves only on an accepted signal or an error.
 3. **Are its actions either operating or dormant-by-design** — never a wiring problem or failing?
 
 **On DSL.** The DSL monitor exposes counters (`tickSuccessCount`, `lastTickFinishedAt`) in `state`, but
@@ -80,27 +86,30 @@ Path: the scanner entry under the runtime's scanners state (match on the `extern
 `spider_swing_signals`).
 
 A scanner is **operating** when the runtime says so — and for a **supervised external scanner** the
-authoritative signals are `health` and the heartbeat, **not** the run counters:
+authoritative signals are the heartbeat first, then `health` — **not** the run counters:
 
-- **`health ∈ {"healthy", "degraded"}`** — the runtime's own verdict (in **both** `status` and `state`).
-  This is the primary signal; trust it. It is **fail-closed** and self-downgrading: `healthy` is earned
-  (never painted on an unproven external scanner), **`unknown`** means "not yet proven by a tick" (wait /
-  verify — not breakage), and a scanner that goes silent beyond ~2× its cadence is downgraded to
-  `degraded` (≈4× → `unhealthy`) by the runtime itself, so staleness surfaces in `health` without you
-  computing it.
-- **`lastAliveAt` is fresh** (`now − lastAliveAt ≤ 2 × interval_seconds`) — the scanner POSTed to intake
+- **`health`, read second** — the runtime's own verdict (in **both** `status` and `state`). It is
+  **fail-closed**: `healthy` is earned (never painted on an unproven external scanner), and a scanner that
+  goes silent beyond ~2× its cadence is downgraded to `degraded` (≈4× → `unhealthy`) by the runtime itself.
+  Read it against a fresh `lastAliveAt`:
+  - `degraded`/`unhealthy` with `last=error` and a fresh `alive` is a past delivery error (read `reason`),
+    not a dead scanner. Heartbeats do not clear it; the next accepted signal does.
+  - `unhealthy` with `inFlight=true`, or a crash-loop reason, is a real fault.
+  - `unknown` with `alive=—` is a child not heard from yet (wait / verify — not breakage).
+- **`lastAliveAt` is fresh — the first check** (`now − lastAliveAt ≤ 2 × max(interval_seconds, 30)` s) — the scanner POSTed to intake
   this cycle. **A healthy scanner that finds no setup still POSTs an empty heartbeat every tick**, so a
   live barren scanner has a fresh `lastAliveAt` even with **`runCount === 0` / no signals**. (For **hand
   triage** of an already-running strategy, check this freshness. The deploy-time gate — the verb's
   **observe** step — intentionally does **not** apply this 2×-cadence rule: staleness can't have accrued
   yet, so it asks only for a tick at or after *this* install and defers stall-detection to the runtime's
   own `health` verdict, which flips a silent scanner to `unhealthy`/`degraded`.)
-- `enabled === true`, `consecutiveErrorCount === 0`, `lastError === null`.
+- `enabled === true`. A nonzero `consecutiveErrorCount` or a set `lastError` on a scanner with a fresh
+  `lastAliveAt` is a past delivery error, not a dead scanner (`lastError` is never cleared).
 
 > **Do NOT require `runCount > 0`.** For an external scanner, `runCount` and `lastRunFinishedAt` lag or
-> stay `0`/`null` until the runtime has processed a POST, and a barren scanner legitimately emits no
+> stay `0`/`null` until it delivers a signal or reports an error (a heartbeat records no run), and a barren scanner legitimately emits no
 > signals for long stretches. `runCount === 0` on its own is **never** breakage — it means "no trade this
-> cycle," which is normal. Judge liveness by `health` + `lastAliveAt`; `runCount > 0` is a bonus, not a
+> cycle," which is normal. Judge liveness by `lastAliveAt` first, then `health`; `runCount > 0` is a bonus, not a
 > requirement.
 
 **Read the schedule fields against `scheduleMode` first.** The same row means opposite things in the two
@@ -110,8 +119,8 @@ modes, and every zero in the `external` column is the runtime working:
 |---|---|---|
 | `intervalSeconds` | the cadence, `> 0` | **`0` — correct**, the scanner is not timer-driven |
 | `nextRunAt` | a timestamp | **`null` — correct**, no timer is armed |
-| `runCount` | climbs **every tick** (complete, skip, error) | climbs **only on a tick that emits** |
-| liveness comes from | the tick | `health` + `lastAliveAt` (the intake heartbeat) |
+| `runCount` | climbs **every tick** (complete, skip, error) | climbs **only on an accepted signal or an error** |
+| liveness comes from | the tick | `lastAliveAt` (the intake heartbeat), then `health` |
 
 `intervalSeconds: 0` / `nextRunAt: null` on an `external` scanner is **not** an unwired scanner and not a
 failed deploy: the runtime only arms a timer for `interval` mode, so those fields are null by
@@ -121,9 +130,16 @@ with `intervalSeconds: 0`). Saying "the runtime never wired it" off those two fi
 their money is in a broken thing while it scans.
 
 > **Never call a strategy dead without a tick check.** Before any "not running" / "never wired" /
-> "sat dead" wording: read `health`, then `lastAliveAt` (or the scaffold tick events) for that wallet in
+> "sat dead" wording: read `lastAliveAt` (or the scaffold tick events), then `health`, for that wallet in
 > the window you are describing. Ticks landing `ok` with no candidates is a strategy that is working and
 > finding nothing — say that instead, and take the question to the gates or the budget.
+>
+> **The events log is not a heartbeat.** `events/events.jsonl` (and `openclaw senpi events`) records
+> errors and state changes — signals, orders, DSL, `scaffold.tick_error`, `mcp.call_failed` — and nothing
+> for an `ok` tick with no candidates. A `tail` of it is therefore all failures with no successes between
+> them, even when nearly every tick succeeded. Never count failures there and call it an outage. When
+> the user asks "is it broken, or just no signal?", answer from `health` + a fresh `lastAliveAt` (above),
+> not from how many errors the log holds.
 
 Failure signatures (**positive** evidence of breakage only — anything else is "not yet confirmed," retry).
 Note what this table structurally cannot tell you: a scanner that runs perfectly and *reads nothing*
@@ -131,13 +147,13 @@ emits no failure signature at all. That is what `senpi validate` is for, before 
 
 | Symptom | Field signature | Likely cause |
 |---|---|---|
-| Runtime says it's broken | `health === "unhealthy"` (in `status` or `state`) | The runtime's own verdict — trust it; read `lastError` |
-| Crash-looping | `health === "unhealthy"` with a restart count + cause on the scanner's own line in `status` | The supervisor is restarting a rapidly-failing scanner (it keeps retrying at capped backoff — restarts never stop on their own); fix the scanner code. Events carry `senpi.error.code: E_SCANNER_CRASH_LOOP` (tick failures: `E_SCANNER_TICK_ERROR` / `E_SCANNER_TICK_TIMEOUT`); read `lastError` for the cause |
-| Repeatedly failing | `consecutiveErrorCount ≥ 1` or a persistent `lastError` | `scan()` is throwing — print `lastError`, `lastErrorAt` (usually an upstream MCP/RPC read in `scan()`) |
+| Runtime says it's broken | `health === "unhealthy"` (in `status` or `state`) with `inFlight === true`, a crash-loop reason, or a stale `lastAliveAt` | The runtime's own verdict — trust it; read `lastError`. With `last=error` and a fresh `lastAliveAt` on an external scanner it is a past delivery error instead (read `reason`) |
+| Crash-looping | `health === "unhealthy"` with a restart count + a crash cause (`N crashes in a row, …`) on the scanner's own line in `status` — a reason like `error: …` is the last tick error, see "Repeatedly failing" | The supervisor is restarting a rapidly-failing scanner (it keeps retrying at capped backoff — restarts never stop on their own); fix the scanner code. Events carry `senpi.error.code: E_SCANNER_CRASH_LOOP` (tick failures: `E_SCANNER_TICK_ERROR` / `E_SCANNER_TICK_TIMEOUT`); read `lastError` for the cause |
+| Repeatedly failing | `errorCount` climbing across reads (an external scanner keeps its `consecutiveErrorCount` until its next accepted signal, and `lastError` stays set) | `scan()` is throwing — print `lastError`, `lastErrorAt` (usually an upstream MCP/RPC read in `scan()`) |
 | Disabled | `enabled === false` | Scanner is turned off — not wired to run |
 | Hung mid-tick | `inFlight === true` & `lastRunStartedAt` older than `timeout_seconds` | `scan()` exceeded its time box — the runtime kills + restarts it; persistent hangs point at a slow upstream read |
 | Can't read either command | `state` throws AND `status` unreadable | **Not a scanner fault** — the gateway read is transiently unavailable (common right after deploy). Re-check; do not declare the scanner down. |
-| **Healthy and doing nothing** | `health === "healthy"`, ticks land, `runCount` climbing — and **no signal ever accepted** | The hardest one to see from here: a scanner whose reads all fail, or that returns before reading, looks *identical* to one with no setups. Nothing in this table catches it, because there is no positive evidence to find. **Catch it before deploy** — `openclaw senpi validate <recipe-dir>` counts successful reads and reports **UNPROVEN** (exit 2) for a tick that established nothing. |
+| **Healthy and doing nothing** | `health === "healthy"`, ticks land (fresh `lastAliveAt`) — and **no signal ever accepted** | The hardest one to see from here: a scanner whose reads all fail, or that returns before reading, looks *identical* to one with no setups. Nothing in this table catches it, because there is no positive evidence to find. **Catch it before deploy** — `openclaw senpi validate <recipe-dir>` counts successful reads and reports **UNPROVEN** (exit 2) for a tick that established nothing. |
 
 **When `status` and `state` disagree, `status` wins for the health verdict.** `status` (getHealthStatus)
 keeps answering while `state` (getSystemState) is still throwing post-deploy — so a scanner that `status`
@@ -169,10 +185,10 @@ treat it as a liveness failure. (Rule-mode strategies like spider have no LLM de
 Declare a strategy **live** only when, for **every** instance:
 
 - `runtime list` shows its runtime as `running`;
-- its `external_scanner` is `health ∈ {healthy, degraded}` (per `status`, and per `state` when it loads),
-  `enabled`, `consecutiveErrorCount === 0`, `lastError === null` — with a fresh `lastAliveAt` when `state`
-  is readable. **A barren scanner (`runCount === 0`, healthy, heartbeating) counts as live** — it is
-  scanning, just not trading this cycle. A scanner reading **`unknown`** right after deploy is
+- its `external_scanner` has a fresh `lastAliveAt` when `state` is readable, is `enabled`, and its `health`
+  (per `status`, and per `state` when it loads) is not a real fault: `healthy`, or `degraded`/`unhealthy`
+  only as the past delivery error read in checklist item 2. **A barren scanner (`runCount === 0`, healthy,
+  heartbeating) counts as live** — it is scanning, just not trading this cycle. A scanner reading **`unknown`** right after deploy is
   *live-but-unmeasured* (supervised, not yet proven by a tick — the fallback below applies); `unknown`
   persisting well past a couple of scan intervals means no tick has ever been proven — walk the `state`
   fields before declaring anything;
@@ -188,9 +204,43 @@ unreadable scanner list as no tick and records `unobserved` → `overall: instal
 with no health entry as COULD NOT CHECK. Only a runtime **missing/stopped** in `runtime list`, one
 showing **`running — NO ENTRY SCANNERS`** there (entry scanners never wired — check `senpi events`), or a
 scanner the reads *positively* report unhealthy/erroring, is a real failure. Still: **never report a
-strategy as live until a deploy report says `overall: live`** — read it with `openclaw senpi deploy
+strategy as live until a deploy report says `overall: live`** — read it with `python3 deploy.py
 status`, which starts nothing.
 
 Anything less: surface the specific failing field and the remediation, not a generic "looks fine." For
 deeper engine triage (position_tracker → DSL → actions), see
 `senpi-trading-runtime/references/runtime-concepts.md` and `openclaw senpi dsl|action …`.
+
+---
+
+## Healthy, live — and it has never traded
+
+Everything above proves the strategy is **operating**. It does not answer the question a funded user
+actually asked: *why has it not opened anything?* "It's live and being selective" is the end of the
+liveness check, **not** an answer — and repeated back three or four times it reads as a brush-off from a
+system holding their money. `senpi scanner` showing `signals=0` (and `(no signals yet)` on an interval scanner —
+a quiet external one shows it only after an error run) says *that* it found nothing; it never says *why*. Once liveness is established, answer with the strategy's **own arithmetic**:
+
+1. **Name the binding gate and its threshold**, from that instance's `runtime.yaml` `inputs` (the
+   running recipe — when `status.py` flags `✎ running recipe ≠ disk`, the disk copy is an unapplied edit). "Waiting
+   for a liquidation-unwind signature scoring ≥ 5" is an answer; "being selective" is not.
+2. **State the universe it actually scans, as a count.** The same gate over 4 instruments and over 200 is
+   two different strategies, and the count is the lever the user can act on. A narrow universe crossed
+   with a rare signature is the common shape of a strategy that is *working perfectly* and will realistically
+   never fire — say so plainly, in that arithmetic, rather than leaving them to wait it out.
+3. **Say how often it has fired** — `signalsProduced` on the scanner row, and its `signal.*` events in
+   `openclaw senpi events -r <runtime_id>`. Zero signals since install is a fact worth leading with, not a
+   detail to omit because the runtime is healthy.
+
+Then give the two levers in the user's terms — **widen the universe** or **loosen the binding gate** —
+edited with `senpi-strategy-author` and applied in place with `deploy.py update`; never close and recreate, which costs a
+real creation fee and resets nothing but the book.
+
+> **Selective vs. unreachable.** If no value the scanner can actually read would satisfy the gate, the
+> strategy is not selective — it is **broken**, and no amount of waiting fixes it. Two funded catalog
+> strategies sat ACTIVE for 15 days and ~7,000 clean ticks each on exactly this (a threshold set on the
+> wrong scale; a nested payload shape the venue returns flat), each indistinguishable from patience from
+> every surface above. Before telling a user to keep waiting, read the value the gate tests from the tool
+> the scanner reads and check it can reach the threshold (`senpi-strategy-ops/tests/test_entry_gate_reachability.py`
+> holds both cases). `openclaw senpi validate` does not catch this: a tick that reads data and stands aside
+> is a **PASS** — **UNPROVEN** (exit 2) only means the tick read nothing.

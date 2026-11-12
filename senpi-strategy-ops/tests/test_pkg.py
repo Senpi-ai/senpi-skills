@@ -655,7 +655,8 @@ def test_margin_offenders_flags_fraction_passes_percent():
     assert off({"scanners": [{"inputs": {"marginPct": 0.10}}]}) == [("scanners[0].inputs.marginPct", 0.10)]
     assert off({"strategy": {"margin_pct": 0.2}}) == [("strategy.margin_pct", 0.2)]
     assert off({"inputs": {"marginPctBase": 0.15, "marginPctCap": 25}}) == [("inputs.marginPctBase", 0.15)]
-    assert off({"inputs": {"marginPct": 1}}) == [("inputs.marginPct", 1)]        # 1 == the (0,1] boundary
+    assert off({"inputs": {"marginPct": 0.99}}) == [("inputs.marginPct", 0.99)]
+    assert off({"inputs": {"marginPct": 1}, "strategy": {"margin_pct": 1}}) == []  # exactly 1 is a legal 1%
     # legit percents and non-margin keys never flag
     assert off({"strategy": {"margin_pct": 20}, "inputs": {"marginPctBase": 18, "marginPctCap": 25}}) == []
     assert off({"inputs": {"minScore": 0.5, "leverage": 0.5, "volFloorPctOfMedian": 0.2}}) == []

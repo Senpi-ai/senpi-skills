@@ -46,11 +46,26 @@ LEVERAGE_TIERS = [
 
 def get_leverage_for_score(score, tiers=None):
     """Returns the leverage for the score tier. Ported verbatim from v2
-    get_leverage_for_score; the fallback (7) matches v2 DEFAULT_LEVERAGE."""
+    get_leverage_for_score; the fallback (7) matches v2 DEFAULT_LEVERAGE.
+
+    Kept for callers that only want the leverage; get_sizing_for_score is the one scan.py uses."""
+    return get_sizing_for_score(score, tiers)[0]
+
+
+def get_sizing_for_score(score, tiers=None):
+    """Resolve (leverage, marginPct) for a score. A tier may carry an optional `marginPct`.
+
+    WHY THAT KEY EXISTS. Every DSL threshold is ROE, and the engine converts ROE to a price floor
+    by DIVIDING BY LEVERAGE. Scaling conviction through LEVERAGE therefore rescales the entire exit
+    ladder per trade, and backwards — the lowest-conviction tier gets the lowest leverage and so
+    the WIDEST stop. Scaling through MARGIN leaves leverage, and the ladder's meaning in price,
+    constant. A tier without `marginPct` returns None and the caller falls back to the flat value,
+    so an old-shape config behaves exactly as before."""
     for tier in (tiers or LEVERAGE_TIERS):
         if score >= tier["min_score"]:
-            return tier["leverage"]
-    return DEFAULT_LEVERAGE
+            m = tier.get("marginPct")
+            return tier["leverage"], (float(m) if m is not None else None)
+    return DEFAULT_LEVERAGE, None
 
 
 def funding_annualized_pct(funding):

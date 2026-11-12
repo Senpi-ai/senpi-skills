@@ -40,8 +40,8 @@ def intent(**kw):
     return discover.normalize_intent(a)
 
 
-def m(catalog=FIXTURE, limit=None, **kw):
-    return discover.match(intent(**kw), catalog, limit=limit)
+def m(catalog=FIXTURE, **kw):
+    return discover.match(intent(**kw), catalog)
 
 
 def ids(r):

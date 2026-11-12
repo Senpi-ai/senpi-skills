@@ -3,7 +3,7 @@
 Run: python3 tests/test_cli.py
 
 New contract: concrete flags only (--assets / --direction / --exclude / --budget / --limit). The script
-returns ALL survivors; the LLM ranks them. No --risk/--belief/--horizon/--offset.
+reports the full eligible count and returns a bounded shortlist; the LLM ranks it. No soft-rank flags.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import json
@@ -63,7 +63,8 @@ if __name__ == "__main__":
     case("exclude-copy", ["--exclude", "copy_trading"])
     case("stocks-not-crypto", ["--assets", "xyz_equities", "--exclude", "crypto"], expect_top="bobcat")
     re = case("empty", [])
-    ck("empty: returns full fixture (11)", re and re["meta"]["eligible_count"] == 11)
+    ck("empty: defaults to 8 of 11 eligible", re and re["meta"]["eligible_count"] == 11
+       and re["meta"]["returned_n"] == 8)
     case("loose-nl-direction", ["--direction", "no shorting", "--assets", "btc"])
     ri = case("impossible", ["--assets", "btc_eth", "--exclude", "crypto,copy_trading"])
     ck("impossible: empty + unmet", ri and ri["candidates"] == [] and ri["meta"].get("unmet"))

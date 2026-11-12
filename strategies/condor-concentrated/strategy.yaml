@@ -1,0 +1,56 @@
+# Condor Concentrated — one concentrated trade per day. A single-instance PACKAGE: this
+# manifest + one self-contained runtime.yaml + scanners/. Forked from condor v1.4.1.
+#
+# Listed in the catalog and in discover. Compare it against the parent it varies, not on
+# its own: see senpi-strategy-discover/references/variant-families.md.
+#
+# Six changes from condor, all moving together: XYZ equities/commodities/indices are no
+# longer banned · the 24h move is scored (free — `prevDayPx` is already in the instruments
+# payload) · 4h<->24h and 1h<->4h alignment are scored · the directional read moves from
+# the 4h gain board to the PROVEN COHORT (>= $1M lifetime realized, counted by headcount)
+# · margin is flat 80% at 10x for every score above the floor · and no clock closes
+# anything.
+#
+# THE RISK, STATED: at 80% margin and 10x, the 15% ROE stop costs ~12% of the wallet per
+# stop-out, so the 25% drawdown halt absorbs TWO. And with one slot and no time cut, a
+# position that drifts without hitting the stop holds that slot until it does — the
+# strategy can go quiet because the slot is occupied, not because there is no signal.
+#
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: condor-concentrated
+version: "1.0.1"
+
+catalog:
+  name: "Condor Concentrated — One Concentrated Trade per Day"
+  emoji: "🦅"
+  varies: condor          # a VARIANT of this template — never outrank it
+  tagline: "Condor's apex sniper, concentrated: ONE position at 80% margin and 10x instead of 20-32%, across crypto AND XYZ equities — and its directional confirmation comes from the traders with >= $1M lifetime realized PnL rather than the 4h gain board. Fires only when 24h, 4h, 1h and 15m momentum all align behind them. No time cuts."
+  belief_plain: "Watches every liquid coin and equity on Hyperliquid and does nothing until ONE setup is near-perfect: the trend agreeing across four timeframes, and the traders with the best lifetime records actually holding that side. Then it puts 80% of the account behind that single trade and trails a wide stop, never cutting a winner on a clock. The trade-off is blunt: one stop-out costs about 12% of the wallet, and two of them halt the strategy."
+  thesis: "Condor's edge is its gate, not its sizing — so the question concentration asks is whether the gate is good enough to back harder. Two things change together. First the money: one position at 80% margin and 10x, flat for every score above the floor, because the score was never a real sizing gradient (condor's own tiers spanned 28% to 32%). Second, and more important, the confirmation: condor read direction from the 4h gain leaderboard, which is circular — when a coin falls, every wallet short it is mechanically at the top of that board, so it agrees with the move it is meant to confirm. Here the board supplies price data only, and direction is confirmed by HEADCOUNT among the wallets with >= $1M lifetime realized PnL. Price cannot change a headcount. Offer this only to someone who has asked for leverage AND concentration."
+  group: momentum
+  archetype: breakout_momentum
+  sub_style: trend_continuation
+  asset_classes: [universe_crypto, xyz_equities, commodities, indices]
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 10
+  max_slots: 1
+  assets: []
+  tags: [momentum, trend-continuation, universe, proven-cohort, apex-sniper, one-trade-per-day, xyz, no-time-cuts]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: CONDOR_CONCENTRATED_WALLET
+    funding_share: 1.0

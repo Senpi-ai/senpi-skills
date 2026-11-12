@@ -1,0 +1,43 @@
+{
+ "as_of": "2026-10-06T18:58:40Z",
+ "stale": false,
+ "engine": "signals/1 skills@04ce9e33 profile=backend",
+ "trade": [
+  {
+   "asset": "SOL",
+   "dex": "main",
+   "detector": "whale_open",
+   "family": "whale",
+   "side": "long",
+   "trade_score": 66.9,
+   "social_score": 60.2,
+   "band": "worth_a_look",
+   "credibility": 1,
+   "tradeable": true,
+   "early": "early",
+   "read": "A proven wallet 0x5555…5555, $4.6M in lifetime gains, opened $1.1M LONG just now on SOL — size, on a record, with a time on it.",
+   "news": "A wallet (0x5555…5555) up $4.6M lifetime just opened $1.1M LONG just now on SOL.",
+   "when": "",
+   "numbers": [
+    "$1.1M LONG just now"
+   ],
+   "source": "proven_cohort",
+   "wallet": "0x5555…5555",
+   "feed": {
+    "trade": 1,
+    "news": null
+   }
+  }
+ ],
+ "news": [],
+ "coverage": {
+  "board_4h": "ok",
+  "cohort": "ok",
+  "cross_asset": "ok",
+  "momentum": "failed",
+  "universe": "ok"
+ },
+ "not_measured": [
+  "momentum events"
+ ]
+}

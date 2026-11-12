@@ -22,7 +22,7 @@ FIDELITY NOTES vs the v2 producer (iguana-producer.py v1.0.1):
     the runtime computes (marginPct/100)*withdrawable. The fraction was the only
     sizing input, so behaviour is preserved.
   - v2 used config marginPct directly (0.20). The runtime.yaml `marginPct` input is the
-    PERCENT (20). If an operator passes a value <= 1.0 (i.e. a fraction was left in by
+    PERCENT (20). If an operator passes a value < 1.0 (i.e. a fraction was left in by
     mistake) this scan *100-normalizes it* so a 0.20 still becomes 20% — defensive,
     matches dire/polar fraction->percent handling.
   - v2 read positions via cfg.get_positions (clearinghouse, dual-DEX equity via max(),
@@ -186,7 +186,7 @@ def scan(inputs, ctx):
 
     # marginPct: PERCENT in (0,100]. Defensive fraction->percent (a stray 0.20 -> 20).
     raw_margin = float(inputs.get("marginPct", _DEFAULT_MARGIN_PCT))
-    margin_pct = round(raw_margin * 100, 2) if 0 < raw_margin <= 1.0 else round(raw_margin, 2)
+    margin_pct = round(raw_margin * 100, 2) if 0 < raw_margin < 1.0 else round(raw_margin, 2)
 
     account_value, held_assets = _get_account(ctx)
     held_set = {h.upper() for h in held_assets}

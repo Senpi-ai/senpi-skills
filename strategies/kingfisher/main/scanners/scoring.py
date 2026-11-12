@@ -4,8 +4,8 @@ Two textbook indicators, combined the way retail traders actually use them:
   - MACD (EMA fast/slow, signal EMA, histogram) is the DIRECTIONAL trigger — a fresh signal-line
     crossover (the histogram flips sign) is the entry; an already-crossed, still-expanding histogram
     is a weaker continuation.
-  - RSI(14) CONFIRMS: a long wants RSI with room above 50 (momentum, not yet overbought); a short
-    wants RSI below 50 (not yet oversold). RSI at the opposite extreme vetoes the crossover.
+  - RSI(14) CONFIRMS: a long wants RSI above 50, a short below 50. RSI at a true extreme (>= the
+    overbought / <= the oversold input) docks the score one point; it does NOT veto the crossover.
   - 4h trend structure is a context bonus/penalty.
 
 Pure + single-pass + unit-testable on plain candle lists. Candles are keyed o/h/l/c/v with STRING
@@ -107,18 +107,6 @@ def trend_structure(candles, lookback=6):
     if total and lower_highs >= total * 0.6:
         return "BEARISH", lower_highs / total
     return "NEUTRAL", 0.0
-
-
-# ── conviction-scaled margin PERCENT ──
-
-def margin_tier_pct(score, base_pct):
-    """marginPct (PERCENT in (0,100]) scaled by conviction: score>=8 -> base*1.5, >=6 -> base*1.25,
-    else base. The runtime sizes (marginPct/100) x withdrawable."""
-    if score >= 8:
-        return base_pct * 1.5
-    if score >= 6:
-        return base_pct * 1.25
-    return base_pct
 
 
 # ── the thesis: MACD crossover trigger + RSI confirmation + 4h trend context ──
