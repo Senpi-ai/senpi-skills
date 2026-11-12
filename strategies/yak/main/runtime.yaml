@@ -1,0 +1,140 @@
+# ── YAK · single instance — all-weather, every sleeve gated on its own trend ───────────────────────
+# Five sleeves held side by side in equal clips: US tech (xyz:XYZ100) and the S&P 500 (xyz:SP500) for
+# growth; gold (xyz:GOLD), crude oil (xyz:CL) and silver (xyz:SILVER) for the other half. A sleeve is
+# held only while its market is above its 40-week (200-trading-day) average AND higher than 13 weeks
+# ago; otherwise that clip sits in USDC. There is no Treasury sleeve: the venue's bond market trades
+# about $1M a day. The rotation engine is Pronghorn's (scanners/ are byte copies, SHA-256 pinned in
+# tests/test_yak.py) with every qualifier held instead of the strongest: five slots for five markets.
+# The DSL is the ONLY exit for every sleeve: a 30% ROE stop and a wide ladder. No clocks, no shorts.
+#
+# Why these numbers: replayed on US daily bars Jan 2010 - Nov 2026 (QQQ, SPY, GLD, USO for crude, SLV),
+# entry at the signal close, the stop on the wick, rungs arming on the close, 0.18% round-trip fees:
+# 97 trades, profit factor 3.03; every sleeve positive (Nasdaq 5.42, S&P 4.05, gold 2.49, oil 2.92,
+# silver 1.61); every four-year block positive (2.82 / 2.07 / 2.49 / 4.49); worst book drawdown 17.5%
+# at 15% a sleeve. All 162 neighbouring settings (average 30/40/50 weeks, momentum 42/63/84 days, stop
+# 21/30/40, three ladders, both arming bounds) cleared fees, the worst at 1.84. A trend-only gate (no
+# momentum check) also cleared: 2.86, worst 1.79. Measurement in the commit that added this.
+name: yak-main
+group: yak
+version: 1.0.0
+description: >
+  YAK — all-weather with trend gates, long only. Five sleeves in equal clips of 15% of withdrawable:
+  xyz:XYZ100 and xyz:SP500 at 2x, xyz:GOLD at 2x, xyz:CL and xyz:SILVER at 1x. At each UTC-midnight
+  daily close any sleeve not held is bought if its market is above its 40-week average and above its
+  close 13 weeks earlier; a sleeve that fails waits in USDC. Every position exits only by the DSL — a
+  30% ROE stop and a wide ladder — and is bought back at the next close where its gate holds. No clock
+  closes anything. Fully invested it carries 75% of the account as margin.
+
+strategy:
+  wallet: "${YAK_WALLET}"
+  slots: 5                                # one per sleeve: every qualifying market is held
+  margin_pct: 15                          # baseline %; scan emits marginPct per signal (same number)
+  default_leverage: 1                     # fallback only — every signal carries its market's leverage; 1 is
+                                          # the LOWEST the recipe uses (oil, silver), which min_budget must size
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: yak_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # the daily close is the only decision point; 5 min bounds the delay
+    timeout_seconds: 180                   # one account read + one candle read per market (five)
+    default_signal_validity_seconds: 600   # 2x tick; rule action, a fresh re-score never re-emits a bar
+    state_history_max_count: 50            # (market, bar) dedup map + per-tick result
+    inputs:
+      allowedAssets: ["xyz:XYZ100", "xyz:SP500", "xyz:GOLD", "xyz:CL", "xyz:SILVER"]   # the five sleeves
+      trendWeeks: 40                       # close above the average of the last 40 CLOSED weekly closes
+      momentumWeeks: 13                    # close above the weekly close 13 weeks back; the most of it wins
+      entryWindowSeconds: 3600             # buy within the hour after the UTC-midnight close, or wait a day
+      leverageByAsset: {"xyz:XYZ100": 2, "xyz:SP500": 2, "xyz:GOLD": 2, "xyz:CL": 1, "xyz:SILVER": 1}
+      leverageDefault: 1                   # a market missing from the table trades at 1x
+      leverageMax: 2                       # cap (catalog leverage_max)
+      stopRoePct: 30                       # MUST equal exit.dsl_preset.phase1.max_loss_pct (tests pin it)
+      marginPct: 15                        # PERCENT of withdrawable (0,100] per sleeve
+      maxSlots: 5
+      minNotionalUsd: 12                   # the venue's bumped minimum; the free-margin gate stops emitting below it
+    signal_data_schema:
+      direction: { type: string }
+      momentumPct: { type: number }
+      trendAverage: { type: number }
+      closePx: { type: number }
+      signalBarTime: { type: number }
+      leverage: { type: number }
+      stopPricePct: { type: number }
+      reasons: { type: array, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: yak_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already ranked and filtered the markets
+    scanners: [yak_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # the buy is AT the close — maker window first, taker fallback
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: yak_main_signals
+
+# ── EXIT (DSL only) ───────────────────────────────────────────────────────────────────────
+# Every threshold is ROE (% of margin); in PRICE it is ROE / leverage. At 2x (the indices, gold): stop
+# 15%, rungs arm at +7.5% / +12.5% / +20% / +30% / +50%; at 1x (oil, silver) the ROE is the price move.
+# The rungs lock 30 / 45 / 60 / 75 / 85% of the best gain: a trend in an asset class lasts months, so
+# the first lock is light, and a stopped sleeve is bought back at the next close where its gate holds.
+# Clock cuts are OFF: of 142 clock-driven closes measured in one fleet week, 110 were in profit.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout: { enabled: false, interval_in_minutes: 4320 }
+    weak_peak_cut: { enabled: false, interval_in_minutes: 360, min_value: 3.0 }
+    dead_weight_cut: { enabled: false, interval_in_minutes: 60 }
+    phase1:
+      # Trailing DISABLED fleet-wide: the phase-1 floor trails HIGH-WATER, so after a small favourable
+      # move it can still sit BELOW entry and close a WINNER at a loss. max_loss_pct is the hard
+      # stop; retrace_threshold is inert while enabled is false.
+      enabled: false
+      max_loss_pct: 30.0   # 15% of price at 2x, 30% at 1x — mirrored by inputs.stopRoePct
+      retrace_threshold: 30
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # trigger / lock, ROE; price at 3x in the comment (x1.5 at 2x)
+        - { trigger_pct: 15, lock_hw_pct: 30 }   # +5% of price    -> floor +1.5%
+        - { trigger_pct: 25, lock_hw_pct: 45 }   # +8.3%           -> floor +3.75%
+        - { trigger_pct: 40, lock_hw_pct: 60 }   # +13.3%          -> floor +8%
+        - { trigger_pct: 60, lock_hw_pct: 75 }   # +20%            -> floor +15%
+        - { trigger_pct: 100, lock_hw_pct: 85 }  # +33%            -> floor +28.3%
+
+# ── RISK guard rails (a held book: five sleeves, wide stops, no self-resetting breaker) ──
+risk:
+  data_retention_seconds: 604800           # 7d — a position can live for months
+  guard_rails:
+    daily_loss_limit_pct: 12               # one sleeve's stop is 30% x 15% = 4.5% of the account
+    max_entries_per_day: 6                 # the first close can fill all five sleeves
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 86400                # a day after three losses in a row
+    drawdown_halt_pct: 25                  # the wallet-wide hard stop; above the replay's 17.5% worst drawdown
+    drawdown_reset_on_day_rollover: false  # clearing it is a deliberate act (redeploy), not midnight
+    per_asset_cooldown_seconds: 300        # the scanner already allows one entry per sleeve per daily close
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

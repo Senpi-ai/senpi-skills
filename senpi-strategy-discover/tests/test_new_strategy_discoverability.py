@@ -79,6 +79,9 @@ _CASES = [
     ("ibex",    _intent(), "gold breakout"),
     ("ibex",    _intent(), "donchian breakout gold"),
     ("ibex",    _intent(assets=[("class", "commodities")]), "gold xauusd metals"),
+    # ── all-weather with trend gates (2026-11-12): five sleeves, each held only while it trends up ──
+    ("yak", _intent(), "all weather portfolio with trend filter"),
+    ("yak", _intent(), "diversified stocks gold commodities step out of what is falling"),
 ]
 
 

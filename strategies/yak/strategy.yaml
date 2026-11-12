@@ -1,0 +1,43 @@
+# Yak — all-weather with trend gates. A single-instance PACKAGE: this manifest + one self-contained
+# runtime.yaml + scanners/ (byte copies of strategies/pronghorn's engine, SHA-256 pinned in
+# tests/test_yak.py). Five sleeves in equal clips — US tech, the S&P 500, gold, crude oil, silver —
+# each held only while its own market trends up, USDC otherwise. Long only, DSL-only exits. STARTER
+# tier. Install/teardown via senpi-strategy-ops. A new template; Ox is unchanged.
+schema_version: 1
+
+id: yak
+version: "1.0.0"
+
+catalog:
+  name: "Yak — All-Weather with Trend Gates"
+  emoji: "🐂"
+  tagline: "An all-weather book that only holds what is trending: five equal sleeves — US tech (xyz:XYZ100), the S&P 500 (xyz:SP500), gold (xyz:GOLD), crude oil (xyz:CL) and silver (xyz:SILVER) — each bought at the daily close only while its market is above its 40-week average and higher than three months ago, and parked in USDC when it is not. Modest leverage (2x on the indices and gold, 1x on oil and silver), and a trailing stop on every sleeve."
+  belief_plain: "Spreading money across stocks, gold and commodities smooths the ride, but holding all of them all the time means sitting through every bear market. This holds each one only while its own long-term trend is up: a sleeve that falls below its trend is sold by its trailing stop and stays in cash until the trend returns. Most of the time two or three sleeves are trending, so the book is part invested and part in cash."
+  thesis: "You want a diversified, set-and-forget book across stocks, gold and commodities that steps out of whatever is falling instead of riding it down. It trades a few times a year per sleeve and holds for months. There is no bond sleeve, because the venue has no liquid bond market; cash plays that role."
+  group: multi-asset-whitelist
+  archetype: risk_parity
+  sub_style: basket
+  asset_classes: [indices, commodities]
+  asset_scope: basket
+  direction: long_only
+  risk_level: conservative
+  tier: starter
+  time_horizon: position
+  leverage_max: 2
+  max_slots: 5
+  assets: ["xyz:XYZ100", "xyz:SP500", "xyz:GOLD", "xyz:CL", "xyz:SILVER"]
+  tags: [all-weather, all-season, multi-asset, diversified, trend-gate, trend-following, 200-day,
+         moving-average, cash-when-weak, stocks, nasdaq, sp500, gold, oil, silver, commodities,
+         macro, set-and-forget, long-only, low-leverage, xyz, slow, low-turnover, dsl-only]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: YAK_WALLET
+    funding_share: 1.0
