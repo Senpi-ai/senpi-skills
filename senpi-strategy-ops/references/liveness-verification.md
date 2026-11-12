@@ -133,6 +133,13 @@ their money is in a broken thing while it scans.
 > "sat dead" wording: read `lastAliveAt` (or the scaffold tick events), then `health`, for that wallet in
 > the window you are describing. Ticks landing `ok` with no candidates is a strategy that is working and
 > finding nothing — say that instead, and take the question to the gates or the budget.
+>
+> **The events log is not a heartbeat.** `events/events.jsonl` (and `openclaw senpi events`) records
+> errors and state changes — signals, orders, DSL, `scaffold.tick_error`, `mcp.call_failed` — and nothing
+> for an `ok` tick with no candidates. A `tail` of it is therefore all failures with no successes between
+> them, even when nearly every tick succeeded. Never count failures there and call it an outage. When
+> the user asks "is it broken, or just no signal?", answer from `health` + a fresh `lastAliveAt` (above),
+> not from how many errors the log holds.
 
 Failure signatures (**positive** evidence of breakage only — anything else is "not yet confirmed," retry).
 Note what this table structurally cannot tell you: a scanner that runs perfectly and *reads nothing*
