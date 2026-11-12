@@ -148,8 +148,8 @@ def test_tech_lagging_means_cash_and_one_entry_per_close(monkeypatch):
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026), US daily bars Jan 2010 - Nov 2026 (QQQ, SOXL; basket GLD, USO, FXE, 1/FXY),
     entry at the signal close, the stop on the wick, rungs arming on the close, each traded market
-    charged its Hyperliquid taker fee both sides plus its measured spread: long only, 81 trades, 75%
-    winners, profit factor 2.59 (2.70 on the bar extreme); Nasdaq 2.95, chip fund 2.13; blocks 4.22 /
-    5.09 / 3.09 / 1.56; worst drawdown 29% at 20% margin. 648 neighbouring cells all above 1.0, worst
-    1.76. The always-in switch: 529 of 648 cells above 1, worst 0.68."""
+    charged its Hyperliquid taker fee both sides, its measured spread and funding at its 180-day
+    average rate: long only, 81 trades, profit factor 2.15 (2.22 on the bar extreme); Nasdaq 2.24, chip
+    fund 2.03; blocks 3.02 / 4.20 / 2.62 / 1.36; worst drawdown 31% at 20% margin. 648 neighbouring
+    cells all above 1.0, worst 1.50 (1.21 stressed). The always-in switch: 492 of 648 above 1, worst 0.70."""
     assert (INPUTS["rsiPeriod"], INPUTS["crashRsi"], INPUTS["overheatRsi"], INPUTS["stopRoePct"]) == (10, 30, 79, 30)

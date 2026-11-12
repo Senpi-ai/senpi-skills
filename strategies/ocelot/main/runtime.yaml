@@ -11,13 +11,14 @@
 # chips when the Nasdaq overheats. Replayed on US daily bars Jan 2010 - Nov 2026 (QQQ, SOXL; GLD, USO,
 # FXE and 1/FXY for the basket), entry at the signal close, the stop on the wick, rungs arming on the
 # close, each traded market charged its own Hyperliquid cost (taker fee both sides, about 0.018% a
-# round trip on these growth-mode xyz markets, plus measured spread), the always-in switch cleared fees
-# at only 529 of 648 neighbouring settings (worst 0.68; the Nasdaq short leg loses). Long only: 81
-# trades, 75% winners, profit factor 2.59 (2.70 arming on the bar extreme); Nasdaq entries 2.95,
-# chip-fund entries 2.13; every four-year block positive (4.22 / 5.09 / 3.09 / 1.56); worst drawdown
-# 29% at 20% margin. All 648 neighbouring settings (RSI 8/10/12, crash 28/30/32, overheat 75/79/83,
-# stop 21/30/40, four ladders, both arming bounds) cleared fees, the worst at 1.76. On the exchange's
-# own candles (Jan - Nov 2026): 5 trades, profit factor 1.85. Measurement in the commit that added this.
+# round trip on these growth-mode xyz markets, plus measured spread) and funding at its 180-day
+# average rate (XYZ100 5.0%, SOXL 8.3% a year), the always-in switch cleared at only 492 of 648
+# neighbouring settings (worst 0.70) even with its shorts receiving funding. Long only: 81 trades,
+# profit factor 2.15 (2.22 arming on the bar extreme); Nasdaq entries 2.24, chip-fund entries 2.03;
+# every four-year block positive (3.02 / 4.20 / 2.62 / 1.36); worst drawdown 31% at 20% margin. All 648
+# neighbouring settings (RSI 8/10/12, crash 28/30/32, overheat 75/79/83, stop 21/30/40, four ladders,
+# both arming bounds) cleared, the worst at 1.50 (1.21 with funding stressed to 11% a year). On the
+# exchange's own candles (Jan - Nov 2026): 5 trades, profit factor 1.64 (1.07 on bar extremes). Measurement in the commit.
 name: ocelot-main
 group: ocelot
 version: 1.0.0
@@ -137,7 +138,7 @@ risk:
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 3
     cooldown_seconds: 86400                # a day after three losses in a row
-    drawdown_halt_pct: 35                  # the wallet-wide hard stop; above the replay's 29% worst drawdown
+    drawdown_halt_pct: 35                  # the wallet-wide hard stop; above the replay's 31% worst drawdown
     drawdown_reset_on_day_rollover: false  # clearing it is a deliberate act (redeploy), not midnight
     per_asset_cooldown_seconds: 300        # the scanner already allows one entry per daily close
 
