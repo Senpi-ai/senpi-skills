@@ -120,7 +120,7 @@ Before Decision 1, read the **deployable** balance ONCE: `account_get_portfolio`
 Never `total_withdrawable`, never `total_balance_usd` — committed capital. **0 is a fact, not a missing read**: no `or` chain.
 Never say "$total free": say what is free, and that freeing the rest means withdrawing from a strategy — their call. [`references/deployable-balance.md`](references/deployable-balance.md). **~$11.50/wallet opens a wallet** (`deploy.py create` reserves the
 ~$1.50 fee first; exactly $10 refuses with `[E_FUNDS_BELOW_FLOOR]`) — **not what the strategy needs to trade**: under the design's own minimum it installs, scans and never opens.
-No design exists yet, so check the floor here; Handoff step 1 quotes the minimum. That floor is also how a strategy is **tested**: there is no paper-trading mode, and a scan re-run on a timer is a model call per tick, not a simulation — [`references/shadow-testing.md`](references/shadow-testing.md).
+No design exists yet, so check the floor here; Handoff step 1 quotes the minimum. That floor is also how a strategy is **tested**: there is no paper-trading mode, and a scan re-run on a timer is a model call per tick, not a simulation; an offline backtest follows the rules in [`references/shadow-testing.md`](references/shadow-testing.md).
 
 - **Balance ≥ ~$11.50/wallet, or unreadable** → say nothing about funding and move on. Unreadable
   means move on too — no retry loop, no blocking; funding is re-checked at deploy anyway.
@@ -306,10 +306,10 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
    - **FAIL** (exit 1) — every finding carries `what` / `why` / `fix`, computed against your actual
      package. Apply the fix, re-run. Don't go silent while you debug — narrate the fix and re-run.
 
-   **Quote the three stage lines back verbatim** — `✓ static`, `✓ import`, `✓ live` — plus the
-   verdict. If `live` is not in what you are about to paste, you did not run the gate and you have
-   nothing to report. This is the one claim in the whole flow that must carry its own evidence,
-   because nothing downstream re-checks it.
+   **Quote the stage lines (`✓ static`, `✓ import`, `✓ live`), every `⚠` line and the verdict
+   verbatim and unfiltered** (no `| grep`); if `live` is missing, you did not run the gate. **A PASS
+   with `⚠ W_VALIDATE_NO_SIGNALS_EMITTED` on a new scanner is not done:** call each tool it reads once
+   and check every key path the code reads is in that response; a missing key reads 0 on every row.
 
    **Fix → re-run is a loop, and it has a stop.** Re-running is not optional after an edit: the
    proof a PASS writes is tied to the exact bytes it validated, so any change invalidates it.
@@ -379,12 +379,12 @@ makes one new wallet per instance). Authoring just designs the package; **concur
 
 ## Editing an existing strategy
 
-**An edit that removes a protection is a consent question, not a task.** Removing a daily-loss limit, a
-drawdown halt or a cap, or lowering a score / threshold you recommended earlier, gets one line of
-consequence in the user's own numbers ("this limit tripped three times in the last four days; without it
-the worst day would have run to the drawdown halt") and an explicit yes before you touch the file. Never
-"done". The same applies to deploying below the design budget: say the design number, say what degrades
-(fewer slots, smaller sizes, a strategy that cannot express its thesis), take the yes.
+**An edit that removes a protection is a consent question, not a task.** Removing a daily-loss limit, a drawdown halt or a cap, or lowering a score / threshold you recommended
+earlier, gets one line of consequence in the user's own numbers ("this limit tripped three times in the last four days; without it the worst day would have run to the drawdown
+halt") and an explicit yes before you touch the file. Never "done". The same applies to deploying below the design budget: say the design number, say what degrades (fewer slots,
+smaller sizes, a strategy that cannot express its thesis), take the yes. **A value you asked for and did not get is still open.** A reply without it ("So?", "go on", "?") is not
+a choice: ask again with one recommended value and its basis ("I'd use $X because Y. OK?") and edit
+nothing until they answer.
 
 Same references; usually no rebuild: tune `runtime.yaml` `inputs` (universe/thresholds/sizing), swap
 the `dsl_preset`, adjust `risk.guard_rails`, or change the `scoring.py` math. Re-validate, then

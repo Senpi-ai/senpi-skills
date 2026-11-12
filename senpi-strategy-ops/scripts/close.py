@@ -10,7 +10,9 @@ Does NOT wait for the on-chain flatten — it hands off to the agent to poll. Pe
 from strategy_list by attribution skillName == manifest id, or directly by strategyId/wallet for
 --strategy-id/--address; sid + wallet read from the strategy record, not the runtime, so orphans
 close too):
-  1. STOP    — openclaw senpi runtime delete (if a runtime is live), confirm gone.
+  1. STOP    — gateway `senpi.deleteRuntime` (if a runtime is live), confirm gone from
+               `senpi.listRuntimes`. An unreadable inventory refuses the whole run: nothing is closed.
+               Nothing live but an unanswered deploy START whose job may still run also refuses.
   2. TRIGGER — submit MCP strategy_close(<strategyId>) — flattens ALL positions + closes the strategy
                (returns funds). Submit only; no poll.
   → reports `closing`. strategy_close is async, so POLL by re-running `close.py <id>`: it's idempotent
@@ -19,10 +21,16 @@ close too):
 
 --instance scopes which instance(s) to close; --dry-run prints the plan with no side effects.
 --strategy-id/--address are mutually exclusive with <id>/--all/--instance/--ref and with each other.
+Exit: 0 done · 2 failed/partial/refused · 1 error · `_cli.EXIT_OOM` (9) a call was SIGKILLed (out of
+memory): the killed instance sends nothing more, and `--json` carries `oom: true`. In a parallel
+close nothing is cancelled: the other workers run their own close to the end (delete retry, re-read,
+strategy_close) and queued instances still start. Close is the safe direction, and each instance
+reports its own outcome.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
 import json
+import shlex
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -30,6 +38,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _cli  # noqa: E402
 import _fetch  # noqa: E402
+import _journal  # noqa: E402
 import _pkg  # noqa: E402
 from mcp_client import MCPClient, MCPError  # noqa: E402
 
@@ -80,22 +89,99 @@ def _select_direct_target(rows, target):
     return rows[0]
 
 
-def _runtime_gone(name):
-    """True ONLY when `runtime list` was read successfully AND `name` is absent from it. An UNREADABLE
-    inventory (rc!=0 / garbled → None) returns False: on teardown's money path we must never mistake
+def _runtime_gone(name, why=None):
+    """True ONLY when `senpi.listRuntimes` was read successfully AND `name` is absent from it. An
+    UNREADABLE inventory (no answer / no runtimes list → None) returns False: on teardown's money path we must never mistake
     'couldn't read the inventory' for 'the runtime is gone' and then strategy_close a strategy whose
-    runtime is still live and could re-enter positions. Fail CLOSED here — the caller retries / reports."""
-    rts = _cli.list_runtimes_or_none()
+    runtime is still live and could re-enter positions. Fail CLOSED here — the caller retries / reports.
+    `why`, a list, receives the read's `_cli.Cause` when it failed."""
+    rts = _cli.list_runtimes_or_none(why=why)
     if rts is None:
         return False
     return not any(_cli.runtime_name(r) == name for r in rts)
 
 
-def close_one(label, strat, runtimes, dry_run, log):
+# `senpi.deleteRuntime` budget (RPC ms / our wall clock s). A DSL teardown with open positions makes MCP
+# calls; measured 1.1-1.5 s on 10.10.
+DELETE_RPC_MS, DELETE_WALL_S = 90000, 100
+
+
+def _delete_runtime(rname, log, label):
+    """`senpi.deleteRuntime` by id (the handler ignores `address` when `id` is given). Its answer is
+    not trusted either way; `_runtime_gone` decides."""
+    r = _cli.gateway_call("senpi.deleteRuntime", {"id": rname}, rpc_timeout_ms=DELETE_RPC_MS,
+                          timeout_s=DELETE_WALL_S)
+    msg = " ".join(str(r["message"] or "").split())
+    kill = _cli.killed_note(r["rc"]) if isinstance(r["rc"], int) else ""
+    if kill and len(msg) > 200:   # the clip must never cut the kill: it is the one sure fact here
+        msg = msg[:max(0, 200 - len(kill) - 3)] + " … " + kill
+    elif len(msg) > 200:
+        msg = msg[:200]
+    log(f"  [{label}] senpi.deleteRuntime: {r['kind']} in {r['elapsed']}s" + (f" ({msg})" if msg else ""))
+    return r
+
+
+def _close_rerun(rerun):
+    return rerun or f"python3 {Path(__file__).resolve()} <the same arguments>"
+
+
+def oom_not_closed(rerun):
+    """The out-of-memory stop for teardown (`_cli.oom_stop`): what is true (NOT closed, may be
+    trading), and the one sanctioned way back. Never a raw strategy_close."""
+    return (_cli.oom_stop("The strategy is NOT closed yet, and its runtime may still be trading.",
+                          "the strategy is NOT closed yet")
+            + f" Then re-run: {_close_rerun(rerun)}. Do not call strategy_close directly: it leaves "
+            f"the runtime trading.")
+
+
+def _deploy_job_unknown_stop(rerun):
+    """The out-of-memory stop when the deploy job-record read was killed: whether a lost START's job
+    is still running (and funding) is unknown, so nothing is read or re-run now."""
+    return (_cli.oom_stop("Whether the earlier deploy job is still running is unknown, and it may "
+                          "still fund a wallet.",
+                          "the strategy is NOT fully torn down yet and a deploy may still be running")
+            + f" Then re-run: {_close_rerun(rerun)}. Do not run `deploy.py create` meanwhile.")
+
+
+def _inventory_or_stop(rerun, as_json):
+    """The runtime inventory (`senpi.listRuntimes`), read ONCE for the whole run, or a stop: NOTHING
+    is closed off an unreadable inventory. Every target needs it (a strategy_close sent past a live
+    runtime leaves it trading), and so does `--instance`, which maps the instance to its wallet
+    through it: an unreadable read there is never "no such runtime"."""
+    vwhy, rwhy = [], []
+    _cli.openclaw_available(why=vwhy)
+    runtimes = _cli.list_runtimes_or_none(why=rwhy)
+    if runtimes is not None:
+        return runtimes
+    head = (f"error: the runtime inventory (`senpi.listRuntimes`) could not be read "
+            f"({_cli.cause_fact(rwhy[0]) if rwhy else 'no cause'}), so no runtime could be stopped first. "
+            f"NOTHING WAS CLOSED and no runtime was stopped.")
+    # The kill comes first: a killed `openclaw --version` (rc -9) is openclaw running out of memory,
+    # never openclaw missing from this host.
+    if _cli.sigkilled(rwhy, vwhy):
+        sys.exit(_cli.emit_oom(f"{head}\n  {oom_not_closed(rerun)}", as_json,
+                               {"status": "failed", "instances": []}))
+    rc0 = getattr(vwhy[0], "rc", None) if vwhy else 0
+    if rc0 != 0 and not (isinstance(rc0, int) and rc0 < -1):
+        cure = ("openclaw is not available on this host, so no runtime can be stopped from here. Run "
+                "this command on the agent's own box, where the runtimes run.")
+    else:
+        cure = "Re-run this command; if it keeps failing, the gateway is not answering."
+    raise SystemExit(f"{head}\n  {cure}\n  Do not call strategy_close directly: it leaves the runtime "
+                     f"trading.")
+
+
+def close_one(label, strat, runtimes, dry_run, log, rerun=None):
     """Stop the runtime (FIRE — no confirm-wait) + TRIGGER strategy_close, then return immediately. The
     agent polls by re-running close.py (idempotent: runtime already gone → skip; status closing/closed →
     skip re-submit). Thread-safe: uses the pre-fetched `runtimes` list and its OWN MCP client, so instances
-    run in parallel. sid + wallet come from the strategy record, not the runtime."""
+    run in parallel. sid + wallet come from the strategy record, not the runtime. `rerun` is the exact
+    close command, named in the out-of-memory stop.
+
+    A killed delete, by signal: a SIGKILL (on a box near its memory limit, the OOM killer) gets no
+    second delete, since that is killed too; the same holds for a SIGKILLed confirming read. Any other
+    signal (a SIGTERM, a crash) gets the one retry an unconfirmed delete always gets: the delete is
+    idempotent and `_runtime_gone` decides, so a retry can only finish the teardown."""
     sid = _cli.strategy_id_of(strat)
     wallet = _cli.strategy_wallet(strat)
     status0 = str(_cli.strategy_status(strat) or "").upper()
@@ -105,7 +191,7 @@ def close_one(label, strat, runtimes, dry_run, log):
            "strategy_status": status0 or None}
 
     if dry_run:
-        rec["plan"] = ([f"runtime delete --id {rname} --address {wallet}"] if rt else ["(no live runtime)"])
+        rec["plan"] = ([f"senpi.deleteRuntime {{\"id\": \"{rname}\"}}"] if rt else ["(no live runtime)"])
         rec["plan"] += ([f"strategy_close({sid})  (trigger, no wait)"] if status0 not in _CLOSED
                         else ["(already closed)"])
         rec["status"] = "planned"
@@ -119,25 +205,49 @@ def close_one(label, strat, runtimes, dry_run, log):
         rec["status"] = "closed"
         return rec
 
-    # 1. stop the runtime if one is live. Trust `runtime list` (the authoritative inventory), NOT the
-    #    delete's exit code: `runtime delete` rides the flaky gateway (its OTel/HyperDX banner leaks into
-    #    our captured output) AND returns NOT_FOUND / non-zero when the runtime is ALREADY gone — so a
-    #    non-zero is NOT proof of failure. Trusting it both broke idempotent re-runs (a poll re-run hit
-    #    NOT_FOUND → false 'failed') and false-aborted the money-critical strategy_close below, stranding
-    #    the strategy open (seen live). The delete succeeded iff the runtime is gone from `runtime list`.
+    # 1. stop the runtime if one is live. Trust `senpi.listRuntimes` (the authoritative inventory), NOT
+    #    the delete's answer: the delete rides the flaky gateway AND answers an error when the runtime
+    #    is ALREADY gone — so an error is NOT proof of failure. Trusting it both broke idempotent
+    #    re-runs (a poll re-run hit not-found → false 'failed') and false-aborted the money-critical
+    #    strategy_close below, stranding the strategy open (seen live). The delete succeeded iff the
+    #    runtime is gone from `senpi.listRuntimes`.
     if rt:
         log(f"  [{label}] stopping runtime {rname!r}…")
-        _cli.run_cli(["openclaw", "senpi", "runtime", "delete", "--id", rname,
-                      "--address", wallet or ""], timeout=60)
-        if not _runtime_gone(rname):   # still listed OR inventory unreadable → one retry, then treat as stuck
-            _cli.run_cli(["openclaw", "senpi", "runtime", "delete", "--id", rname,
-                          "--address", wallet or ""], timeout=60)
-        if not _runtime_gone(rname):
+        attempts = []
+        for _ in range(2):   # still listed OR inventory unreadable → one retry, then treat as stuck
+            why = []
+            r = _delete_runtime(rname, log, label)
+            attempts.append(r)
+            if _runtime_gone(rname, why):
+                break
+            if _cli.sigkilled(r, why):
+                # No second delete into a box that just killed a call: it is killed again, and
+                # whether the delete stopped the runtime is not known.
+                rec["status"] = "failed"
+                what = (f"senpi.deleteRuntime was {_cli.killed_note(r['rc'])}" if _cli.is_sigkill(r["rc"])
+                        else f"the read that confirms the delete was {_cli.killed_note(-9)}")
+                rec["error"] = (f"{what}, and runtime {rname!r} is still in (or unreadable from) "
+                                f"`senpi.listRuntimes` — whether it stopped is unknown, so no further "
+                                f"delete was sent and strategy_close was NOT sent. {oom_not_closed(rerun)}")
+                rec.update(_cli.oom_fields())
+                return rec
+        else:
             rec["status"] = "failed"
-            rec["error"] = (f"runtime {rname!r} still in (or unreadable from) `runtime list` after delete — "
-                            f"it may re-enter positions; delete it "
-                            f"(`openclaw senpi runtime delete --id {rname} --address {wallet or '<wallet>'}`) "
-                            f"then re-run close")
+            last = attempts[-1]["rc"]
+            if isinstance(last, int) and last < -1:
+                # The retry was killed by another signal (not out of memory): the next read says
+                # whether it stopped. A retry that ANSWERED and left the runtime listed is a stuck
+                # runtime, whatever happened to the first delete: that gets the manual delete below.
+                rec["error"] = (f"senpi.deleteRuntime was {_cli.killed_note(last)}, and runtime "
+                                f"{rname!r} is still in (or unreadable from) `senpi.listRuntimes` after "
+                                f"the retry — whether it stopped is unknown, so strategy_close was NOT "
+                                f"sent. Read what is running now (read-only): python3 {_cli.STATUS_PY}, "
+                                f"then re-run: {_close_rerun(rerun)}")
+                return rec
+            delete = shlex.join(_cli.gateway_argv("senpi.deleteRuntime", {"id": rname}, DELETE_RPC_MS))
+            rec["error"] = (f"runtime {rname!r} still in (or unreadable from) `senpi.listRuntimes` after "
+                            f"delete — it may re-enter positions, so strategy_close was NOT sent. Delete "
+                            f"it (`{delete}`) then re-run close")
             return rec
         rec["runtime"] = "stopped"
     else:
@@ -155,6 +265,47 @@ def close_one(label, strat, runtimes, dry_run, log):
             return rec
     rec["status"] = "closing"   # handed off — agent polls (re-run close.py, or strategy_list) until closed
     return rec
+
+
+def _close_open_request(pkg, a, checked=False):
+    """Close the package's open START request (deploy journal) once this command ends with nothing of
+    the package live: a close triggered now, or every strategy already terminal. A close that leaves
+    something live, or that refused, keeps it open.
+
+    The entry also stays open while the job record says a deploy may be running (the rule of
+    `_unanswered_start_may_be_running`): a lost START can still be creating and funding wallets after
+    the close of the ones already live, and the open entry is what makes the next poll refuse instead
+    of reporting `closed`. Returns that `(entry, why)` when it kept the entry open, else None.
+    `checked=True` skips the read when the caller has just made it."""
+    # `--instance` closes one instance; the package's other instances may still be live.
+    if pkg is None or a.dry_run or a.instance:
+        return None
+    if not checked:
+        pending = _unanswered_start_may_be_running(pkg)
+        if pending:
+            return pending
+    _journal.resolve(pkg.id, None, "closed-by-close.py")
+    return None
+
+
+def _unanswered_start_may_be_running(pkg):
+    """`(open entry, why)` when the package has an open START request whose job may still be running,
+    else None.
+
+    Used when nothing of the package is live in strategy_list. That is exactly the window of a lost
+    START: its job may still be in reconcile, preflight or wallet creation, with no strategy yet.
+    Closing the entry there lets the next `create` mint a fresh id and START again over a job that
+    goes on to fund a wallet (RT566-08's second funding). So the entry closes only on the rule
+    `deploy.py` uses for it: the job record answers, the START's wall clock has passed, and no job is
+    running (the gateway's `[NOT_FOUND]`, or a finished job; one deploy slot per agent). A running
+    job or an unreadable record keeps it open."""
+    entry = _journal.read(pkg.id) or {}
+    if entry.get("packageId") != str(pkg.id) or entry.get("resolved") is not None \
+            or not entry.get("requestId"):
+        return None
+    import deploy  # lazy: only this branch needs the job-record reader
+    why = deploy._why_a_job_may_be_running(entry)
+    return (entry, why) if why else None
 
 
 def main(argv):
@@ -188,6 +339,8 @@ def main(argv):
     mcp = MCPClient()
     pkg = None
     why = []
+    rerun = shlex.join(["python3", str(Path(__file__).resolve())] + list(argv[1:]))
+    runtimes = None   # the inventory, read once (`--instance` reads it before targeting)
 
     if a.all:
         # Close every OPEN strategy across all packages — for "close all strategies / return funds".
@@ -236,7 +389,10 @@ def main(argv):
                                why, pkg.id)
         opens = [s for s in rows if _cli.strategy_open(s)]
         if a.instance:
-            rt = _cli.find_runtime(f"{pkg.id}-{a.instance}")
+            # The instance maps to its wallet only through its runtime, so the inventory is read
+            # here, fail-closed: an unreadable read stops the run, never "no runtime".
+            runtimes = _inventory_or_stop(rerun, a.json)
+            rt = next((r for r in runtimes if _cli.runtime_name(r) == f"{pkg.id}-{a.instance}"), None)
             w = _cli.runtime_wallet(rt) if rt else None
             targets = [(a.instance, s) for s in opens if w and _cli.wallet_match(w, _cli.strategy_wallet(s))]
             if not targets:
@@ -264,6 +420,29 @@ def main(argv):
         if pkg is not None:
             ever = _read_or_refuse(
                 _cli.strategies_for_or_none(mcp, skill_name=pkg.id, why=why), why, pkg.id)
+            pending = None if a.instance else _unanswered_start_may_be_running(pkg)
+            if pending and _cli.sigkilled(pending[1]):
+                entry, why_open = pending
+                sys.exit(_cli.emit_oom(
+                    f"{hdr}: NOT torn down. Nothing of this package is live in strategy_list, but the "
+                    f"deploy START {entry['requestId']} (sent at {entry.get('sentAt', '?')}) never got "
+                    f"an answer, and {why_open}, so whether a deploy is running is unknown: it may "
+                    f"still create and fund a wallet. Nothing was closed and the request stays open.\n  "
+                    + _deploy_job_unknown_stop(rerun),
+                    a.json, {"strategy": strategy_label, "status": "failed", "instances": [],
+                             "openDeployRequest": {"requestId": entry["requestId"],
+                                                   "sentAt": entry.get("sentAt"), "why": why_open}}))
+            if pending:
+                entry, why_open = pending
+                print(f"{hdr}: NOT torn down. Nothing of this package is live in strategy_list, but "
+                      f"the deploy START {entry['requestId']} (sent at {entry.get('sentAt', '?')}) "
+                      f"never got an answer, and {why_open}. A deploy MAY BE RUNNING and may still "
+                      f"create and fund a wallet; close.py cannot stop a deploy job. Nothing was "
+                      f"closed and the request stays open.\n"
+                      f"  Next: python3 deploy.py status   — wait until it shows no job running (or "
+                      f"that job finished), then re-run: close.py {pkg.id}. Do not run "
+                      f"`deploy.py create` meanwhile.")
+                sys.exit(2)
             if ever:
                 # Rows exist but none is LIVE, so every one is terminal. Name the statuses rather
                 # than printing a bare `closed.`: this branch also fires for a package whose only
@@ -273,23 +452,25 @@ def main(argv):
                 print(f"{hdr}: closed — {len(ever)} {noun}, all {'/'.join(seen)}.")
             else:
                 print(f"{hdr}: no strategies for this package on this account — nothing to close.")
+            # Nothing of this package is live, so this command ends with the package torn down: an
+            # open START request is accounted for here too, not only after a triggered close (P2-03).
+            _close_open_request(pkg, a, checked=True)
             sys.exit(0)
         print(f"{hdr}: no OPEN strategies to close.")
         sys.exit(0)
 
     # stop runtime + trigger strategy_close per instance — in PARALLEL (each instance uses its own MCP client),
-    # then hand off to the agent to poll. runtime list fetched ONCE and shared (instances target distinct ids).
-    rc0, _o0, _e0 = _cli.run_cli(["openclaw", "--version"], timeout=15)
-    if rc0 != 0:
-        log("⚠ openclaw is not available on this host — runtimes (if any, on the runtime host) will "
-            "NOT be stopped by this run and would be left orphaned. Run close.py on the runtime host "
-            "too, or `openclaw senpi runtime delete <id>` there.")
-    runtimes = _cli.list_runtimes()
+    # then hand off to the agent to poll. The runtime inventory is fetched ONCE and shared (instances target distinct ids).
+    # Fail CLOSED. An unreadable inventory used to read as "no runtime", so every target skipped the
+    # delete and strategy_close fired while its runtime kept running (and could re-enter).
+    if runtimes is None:
+        runtimes = _inventory_or_stop(rerun, a.json)
     if a.dry_run or len(targets) == 1:
-        results = [close_one(label, strat, runtimes, a.dry_run, log) for label, strat in targets]
+        results = [close_one(label, strat, runtimes, a.dry_run, log, rerun) for label, strat in targets]
     else:
         with ThreadPoolExecutor(max_workers=min(8, len(targets))) as ex:
-            results = list(ex.map(lambda t: close_one(t[0], t[1], runtimes, a.dry_run, log), targets))
+            results = list(ex.map(lambda t: close_one(t[0], t[1], runtimes, a.dry_run, log, rerun),
+                                  targets))
 
     statuses = {r["status"] for r in results}
     overall = ("planned" if a.dry_run else
@@ -297,15 +478,41 @@ def main(argv):
                "closing" if "closing" in statuses else
                "closed" if statuses <= {"closed"} else "partial")
     out = {"strategy": strategy_label, "status": overall, "instances": results}
+    oom = any(r.get("oom") for r in results)
+    if oom:
+        out.update(_cli.oom_fields())
+
+    # A START for this package whose reply never came back left its request id open in the deploy
+    # journal, and the next `deploy.py create` would reuse it: the runtime then answers with the OLD
+    # job (`repeated`), now closed, and nothing new runs. Once the close is triggered, that START is
+    # accounted for, so close the entry and let the next deploy mint a new id. Not while its job may
+    # still be running, though: it can go on to create and fund a wallet the close did not see.
+    pending = _close_open_request(pkg, a) if overall in ("closing", "closed") else None
+    if pending:
+        entry, why_open = pending
+        out["openDeployRequest"] = {"requestId": entry["requestId"], "sentAt": entry.get("sentAt"),
+                                    "why": why_open}
+    job_stop = None
+    if pending and _cli.sigkilled(why_open):
+        # The close went out, but the job-record read was killed: the stop, never "poll status now"
+        # and never "poll by re-running close" (both load the CLI that was just killed).
+        job_stop = (f"NOT torn down yet: the deploy START {entry['requestId']} (sent at "
+                    f"{entry.get('sentAt', '?')}) never got an answer, and {why_open}, so whether a "
+                    f"deploy is running is unknown: it may still create and fund a wallet. The request "
+                    f"stays open.\n  " + _deploy_job_unknown_stop(rerun))
+        oom = True
+        out.update(_cli.oom_fields(stop=job_stop))
 
     if a.json:
+        if job_stop:
+            print(job_stop, file=sys.stderr)
         print(json.dumps(out, indent=2))
     else:
         print(f"\n{hdr}: {overall}")
         for r in results:
             extra = f"  ({r['error']})" if r.get("error") else ""
             print(f"  - {r['instance']}: {r['status']}{extra}")
-        if overall == "closing":
+        if overall == "closing" and not oom:
             if pkg:
                 poll = f"close.py {pkg.id}"
             elif direct:
@@ -314,6 +521,17 @@ def main(argv):
                 poll = "close.py --all"
             print(f"\nClose triggered (runtimes stopped). strategy_close is async — positions flatten "
                   f"on-chain. Poll until closed by re-running: {poll}  (or check strategy_list status).")
+        if job_stop:
+            print(f"\nClose triggered for what is live (runtimes stopped); positions flatten on-chain.\n"
+                  + job_stop, file=sys.stderr)
+        elif pending:
+            print(f"\nNOT torn down yet: the deploy START {entry['requestId']} (sent at "
+                  f"{entry.get('sentAt', '?')}) never got an answer, and {why_open}. A deploy MAY BE "
+                  f"RUNNING and may still create and fund a wallet; close.py cannot stop a deploy job. "
+                  f"The request stays open.\n"
+                  f"  Next: python3 deploy.py status   — wait until it shows no job running (or that "
+                  f"job finished), then re-run: close.py {pkg.id}. Do not run `deploy.py create` "
+                  f"meanwhile.")
 
     # state is ephemeral: once a package is torn down, clear its deploy state so the next deploy is clean
     if pkg and not a.dry_run:
@@ -321,7 +539,7 @@ def main(argv):
             (pkg.dir / ".deploy-state.json").unlink()
         except OSError:
             pass
-    sys.exit(2 if overall in ("failed", "partial") else 0)
+    sys.exit(_cli.EXIT_OOM if oom else 2 if overall in ("failed", "partial") or pending else 0)
 
 
 if __name__ == "__main__":

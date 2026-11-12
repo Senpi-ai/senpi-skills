@@ -118,13 +118,15 @@ class UnreadableStrategyListRefuses(unittest.TestCase):
     CAUSE = "the MCP `strategy_list` call failed (no SENPI_AUTH_TOKEN)"
 
     def setUp(self):
-        self._or_none, self._runtimes = _cli.list_strategies_or_none, _cli.list_runtimes
+        self._or_none, self._runtimes = _cli.list_strategies_or_none, _cli.list_runtimes_or_none
         self._avail = status._openclaw_available
-        status._openclaw_available = lambda: False   # no openclaw here: the runtime read is skipped
-        _cli.list_runtimes = lambda *a, **k: []
+        # A read, empty runtime list: these tests are about the STRATEGY list. (An unread runtime list
+        # exits 1 — only a read one earns exit 0, the out-of-memory way back.)
+        status._openclaw_available = lambda why=None: True
+        _cli.list_runtimes_or_none = lambda *a, **k: []
 
     def tearDown(self):
-        _cli.list_strategies_or_none, _cli.list_runtimes = self._or_none, self._runtimes
+        _cli.list_strategies_or_none, _cli.list_runtimes_or_none = self._or_none, self._runtimes
         status._openclaw_available = self._avail
 
     @staticmethod

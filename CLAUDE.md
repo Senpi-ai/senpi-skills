@@ -39,7 +39,7 @@ strategies/<id>/                   # a strategy package (e.g. strategies/spider/
   `deploy.py create|runtime <id>` drive the **same idempotent verb**: re-running either resumes and
   adopts whatever exists, so they are not separate steps. **`deploy.py verify <id>` is NOT one of
   them** — it is the **read-only** check (`strategy_list` + `runtime list` + `senpi status --json`,
-  quoting what it read; exits `0` verified / `3` not verified / `1` could-not-check) and it never
+  quoting what it read; exits `0` verified / `3` not verified / `1` could-not-check / `9` out of memory: stop, don't retry or poll now; safe again when `status.py` exits `0`) and it never
   starts a deploy, funds a wallet, installs a runtime **or fetches a package** (it resolves on disk
   only — downloading and writing one is a side effect too). It NAMES the resume when one is needed —
   but only for a wallet the backend reads as `ACTIVE`, and only when no deploy job for that package is

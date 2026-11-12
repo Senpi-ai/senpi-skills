@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-10-27",
+  "_updated": "2026-11-03",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -7209,7 +7209,7 @@
       "varies": null,
       "tagline": "Watches a handful of vetted Hyperliquid traders and mirrors only the positions they NEWLY open, reading their books live off-chain so a mirror lands within two minutes of their fill — with a hard entry-slippage guard so you never chase a move that already ran, plus budget-relative sizing with a min-notional floor.",
       "belief_plain": "Instead of copying one trader's whole account — and inheriting trades already deep in profit or loss at a worse price than they got — Squid watches up to ten proven traders and only acts when one of them OPENS a brand-new position. It reads their positions directly from the exchange every two minutes, so it sees a new trade almost as soon as they make it. It checks how far price has already moved from their entry and skips the trade if it is too late to get a comparable fill. It sizes each mirror to your budget with a floor so a position is never too small to matter, and it manages its own exit.",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "thesis": "The failure mode of naive mirroring is entry drift: you inherit a book at a 1-5% worse price than the trader got, so the same trade is a loss for you. The second failure mode is latency — a mirror is only worth having if it sees the open while the price is still near the fill. Squid fires ONLY on fresh opens (a tick-to-tick diff against a seeded book, so nothing pre-existing is ever inherited), reads those books live from the exchange rather than from an index that trails the chain, rejects any entry whose price has already run past a slippage cap, and can require multi-trader confirmation before committing size. You follow proven money at their price, not yesterday's book at yours. Leverage is capped, so a trader's 40x book becomes something survivable.",
       "tags": [
         "copy-trading",
