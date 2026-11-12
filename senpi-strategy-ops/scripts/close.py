@@ -18,6 +18,9 @@ close too):
   → reports `closing`. strategy_close is async, so POLL by re-running `close.py <id>`: it's idempotent
     (runtime already gone → skip; status already closing/closed → skip re-submit) and reports `closed`
     once the strategy leaves the active set.
+A strategy already terminal (closed in the app, or by a raw strategy_close) whose runtime still runs gets
+step 1 only: when <id> or --all finds nothing live, close.py deletes the runtime of every terminal
+strategy whose wallet no open strategy uses, then reports `closed`. strategy_close is never re-sent.
 
 --instance scopes which instance(s) to close; --dry-run prints the plan with no side effects.
 --strategy-id/--address are mutually exclusive with <id>/--all/--instance/--ref and with each other.
@@ -171,12 +174,32 @@ def _inventory_or_stop(rerun, as_json):
                      f"trading.")
 
 
-def close_one(label, strat, runtimes, dry_run, log, rerun=None):
+def _sweep_targets(mcp, pkg, why, rerun, as_json):
+    """`(targets, runtimes)` for the terminal strategies (of `pkg`, or any with `pkg=None`) whose runtime
+    still runs: closed outside close.py (the app, a raw strategy_close), they drop out of the LIVE read
+    while the runtime keeps ticking against the emptied wallet. Only a wallet no open strategy uses, in
+    any package: a runtime there may belong to the live one. The inventory read fails closed."""
+    runtimes = _inventory_or_stop(rerun, as_json)
+    if not runtimes:
+        return [], runtimes
+    every = _read_or_refuse(_cli.list_strategies_or_none(mcp, why=why), why, "every strategy")
+    live = [_cli.strategy_wallet(s) for s in every if _cli.strategy_open(s)]
+    stranded = [s for s in every if not _cli.strategy_open(s)
+                and (pkg is None or _cli._match_strategy(s, pkg.id, None, None))
+                and any(_cli.wallet_match(_cli.runtime_wallet(r), _cli.strategy_wallet(s)) for r in runtimes)
+                and not any(_cli.wallet_match(w, _cli.strategy_wallet(s)) for w in live)]
+    return [(f"{pkg.id}[{i + 1}]" if pkg else
+             f"{_cli.strategy_skill(s) or 'strategy'}:{str(_cli.strategy_id_of(s))[:8]}", s)
+            for i, s in enumerate(stranded)], runtimes
+
+
+def close_one(label, strat, runtimes, dry_run, log, rerun=None, sweep=False):
     """Stop the runtime (FIRE — no confirm-wait) + TRIGGER strategy_close, then return immediately. The
     agent polls by re-running close.py (idempotent: runtime already gone → skip; status closing/closed →
     skip re-submit). Thread-safe: uses the pre-fetched `runtimes` list and its OWN MCP client, so instances
     run in parallel. sid + wallet come from the strategy record, not the runtime. `rerun` is the exact
-    close command, named in the out-of-memory stop.
+    close command, named in the out-of-memory stop. `sweep` is set only for a terminal strategy whose
+    wallet no open strategy uses (main's sweep): its runtime is stopped, and nothing is sent.
 
     A killed delete, by signal: a SIGKILL (on a box near its memory limit, the OOM killer) gets no
     second delete, since that is killed too; the same holds for a SIGKILLed confirming read. Any other
@@ -201,9 +224,11 @@ def close_one(label, strat, runtimes, dry_run, log, rerun=None):
         rec["status"] = "failed"
         rec["error"] = "no strategyId on strategy record"
         return rec
-    if status0 in _CLOSED:
+    if status0 in _CLOSED and not (sweep and rt):
         rec["status"] = "closed"
         return rec
+    if status0 in _CLOSED:
+        log(f"  [{label}] strategy is already {status0}, but its runtime {rname!r} still runs")
 
     # 1. stop the runtime if one is live. Trust `senpi.listRuntimes` (the authoritative inventory), NOT
     #    the delete's answer: the delete rides the flaky gateway AND answers an error when the runtime
@@ -252,6 +277,9 @@ def close_one(label, strat, runtimes, dry_run, log, rerun=None):
         rec["runtime"] = "stopped"
     else:
         rec["runtime"] = "not_found"
+    if status0 in _CLOSED:
+        rec["status"] = "closed"
+        return rec
 
     # 2. TRIGGER close (no wait). Only submit while still ACTIVE — once triggered it leaves ACTIVE, so a
     #    re-run won't re-submit. Own MCP client → safe to run instances concurrently.
@@ -403,6 +431,7 @@ def main(argv):
         hdr = f"{pkg.id} v{pkg.version}"
         strategy_label = pkg.id
 
+    sweep = False
     if not targets and not a.dry_run:
         # A LIVE-filtered read that came back empty has TWO causes and they are not the same answer:
         # the close we are being polled for has completed, or this package was never deployed here.
@@ -443,6 +472,13 @@ def main(argv):
                       f"that job finished), then re-run: close.py {pkg.id}. Do not run "
                       f"`deploy.py create` meanwhile.")
                 sys.exit(2)
+            if not a.instance:
+                targets, runtimes = _sweep_targets(mcp, pkg, why, rerun, a.json)
+        elif a.all:
+            targets, runtimes = _sweep_targets(mcp, None, why, rerun, a.json)
+        sweep = bool(targets)
+    if not targets and not a.dry_run:
+        if pkg is not None:
             if ever:
                 # Rows exist but none is LIVE, so every one is terminal. Name the statuses rather
                 # than printing a bare `closed.`: this branch also fires for a package whose only
@@ -466,10 +502,11 @@ def main(argv):
     if runtimes is None:
         runtimes = _inventory_or_stop(rerun, a.json)
     if a.dry_run or len(targets) == 1:
-        results = [close_one(label, strat, runtimes, a.dry_run, log, rerun) for label, strat in targets]
+        results = [close_one(label, strat, runtimes, a.dry_run, log, rerun, sweep)
+                   for label, strat in targets]
     else:
         with ThreadPoolExecutor(max_workers=min(8, len(targets))) as ex:
-            results = list(ex.map(lambda t: close_one(t[0], t[1], runtimes, a.dry_run, log, rerun),
+            results = list(ex.map(lambda t: close_one(t[0], t[1], runtimes, a.dry_run, log, rerun, sweep),
                                   targets))
 
     statuses = {r["status"] for r in results}
