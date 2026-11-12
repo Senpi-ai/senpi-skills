@@ -141,8 +141,8 @@ def test_risk_means_cash_and_one_entry_per_close(monkeypatch):
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026), US daily bars Jan 2010 - Nov 2026 (QQQ, AAPL, NVDA, TSLA, META, AMZN),
     entry at the signal close, the stop on the wick, rungs arming on the close, each market charged its
-    Hyperliquid taker fee both sides plus its measured spread: 84 trades, 79% winners, profit factor
-    2.56, blocks 2.93 / 5.60 / 3.31 / 1.49, worst drawdown 27% at 20% margin; 1,458 neighbouring cells
-    all above 1.0, worst 1.73 (Jun 2021 - Nov 2026 alone: all above 1.0, worst 1.00). Legs uneven
-    (AAPL 0.55, NVDA 0.79); with Bitcoin: 7 of 1,458 lose, worst 0.83 (left out)."""
+    Hyperliquid taker fee both sides, its measured spread and funding at its 180-day average rate: 84
+    trades, profit factor 2.15, blocks 2.39 / 4.14 / 2.94 / 1.30, worst drawdown 28% at 20% margin;
+    1,458 neighbouring cells all above 1.0, worst 1.55 (1.38 stressed). Jun 2021 - Nov 2026 alone: 8 of
+    1,458 lose (worst 0.89). Legs uneven (AAPL 0.58, NVDA 0.67); with Bitcoin: 41 of 1,458 lose."""
     assert (INPUTS["washoutRsi"], INPUTS["overheatRsi"], INPUTS["stopRoePct"]) == (30, 79, 30)

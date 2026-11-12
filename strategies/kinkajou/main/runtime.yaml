@@ -10,15 +10,16 @@
 # Replayed on US daily bars Jan 2010 - Nov 2026 (QQQ and the five stocks), entry at the signal close,
 # the stop on the wick, rungs arming on the close, each market charged its own Hyperliquid cost (taker
 # fee both sides — about 0.018% a round trip on these xyz markets, all in growth mode — plus its
-# measured bid-ask spread, 0.003-0.011%): 84 trades, 79% winners, profit factor 2.56 (3.06 arming on
-# the bar extreme); every four-year block positive (2.93 / 5.60 / 3.31 / 1.49); worst drawdown 27% at
-# 20% margin. All 1,458 neighbouring settings (average 30/40/50 weeks, momentum 42/63/84 days,
-# overheat 75/79/83, washout 28/30/32, stop 21/30/40, three ladders, both arming bounds) cleared fees,
-# the worst at 1.73; over Jun 2021 - Nov 2026 alone all 1,458 cleared too, the worst exactly at 1.00.
-# READ THIS TOO: the legs are uneven on close-arming (washout 7.67, META 8.40, TSLA 3.99, AMZN 3.39,
-# but AAPL 0.55 and NVDA 0.79), and adding Bitcoin to the candidates (as the original rule does)
-# failed the gate there (7 of 1,458 cells lost, worst 0.83), so Bitcoin is not in it. The single names
-# are today's famous ones: hindsight.
+# measured bid-ask spread) and funding at its 180-day average rate for every hour held (XYZ100 5.0%,
+# AAPL -1.0%, NVDA 8.9%, TSLA 6.0%, META 8.8%, AMZN 7.8% a year): 84 trades, profit factor 2.15 (2.69
+# arming on the bar extreme); every four-year block positive (2.39 / 4.14 / 2.94 / 1.30); worst
+# drawdown 28% at 20% margin. All 1,458 neighbouring settings (average 30/40/50 weeks, momentum
+# 42/63/84 days, overheat 75/79/83, washout 28/30/32, stop 21/30/40, three ladders, both arming bounds)
+# cleared, the worst at 1.55 (1.38 with funding stressed to 11% a year). READ THIS TOO: over Jun 2021 -
+# Nov 2026 alone 8 of 1,458 neighbours lost (worst 0.89); the legs are uneven on close-arming (washout
+# 5.52, META 6.01, TSLA 3.69, AMZN 2.66, but AAPL 0.58 and NVDA 0.67); adding Bitcoin to the candidates
+# (as the original rule does) failed (41 of 1,458 cells lost there), so Bitcoin is not in it. The
+# single names are today's famous ones: hindsight.
 name: kinkajou-main
 group: kinkajou
 version: 1.0.0
@@ -138,7 +139,7 @@ risk:
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 3
     cooldown_seconds: 86400                # a day after three losses in a row
-    drawdown_halt_pct: 35                  # the wallet-wide hard stop; above the replay's 27% worst drawdown
+    drawdown_halt_pct: 35                  # the wallet-wide hard stop; above the replay's 28% worst drawdown
     drawdown_reset_on_day_rollover: false  # clearing it is a deliberate act (redeploy), not midnight
     per_asset_cooldown_seconds: 300        # the scanner already allows one entry per daily close
 
