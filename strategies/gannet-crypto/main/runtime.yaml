@@ -1,0 +1,137 @@
+# ── GANNET CRYPTO · single instance — Gannet's daily dip cascade on the crypto majors ─────────────
+# The Gannet engine (scanners/ are byte-identical to strategies/gannet — tests/test_engine_parity.py
+# pins them) pointed at BTC, then ETH, then SOL, then HYPE: at each UTC-midnight daily close buy the
+# FIRST whose 10-day RSI closed under 30. One position at a time, 1x on every coin, flat in USDC the
+# rest of the time. The DSL is the ONLY exit: a 30% ROE stop (30% of price at 1x) and a wide ladder
+# that starts locking at +15%. No clocks.
+#
+# Why these numbers: replayed on the exchange's own daily candles (Aug 2020 - Nov 2026), entry at the
+# signal close, the stop on the wick, rungs arming on the close, 0.18% round-trip fees: 28 trades
+# (about one every two and a half months), 75% winners, profit factor 2.36 (2.18 arming on the bar
+# extreme); every coin's own leg positive. All neighbouring settings (RSI 8/10/12, line 28/30/32,
+# stop 21/30/40, three ladders, both arming bounds) cleared fees, but the worst only at 1.02, and
+# 2022 lost: thinner evidence than Gannet's. At 2x on BTC (tried first) the BTC leg lost money, so
+# every coin is 1x. The short-the-spike half of the rule lost here as on the stock indices.
+name: gannet-crypto-main
+group: gannet-crypto
+version: 1.0.0
+description: >
+  GANNET CRYPTO — Gannet's daily dip cascade on the crypto majors, long only. At each UTC-midnight
+  daily close it reads the 10-day RSI of BTC, ETH, SOL and HYPE, in that order, and buys the first
+  one that closed under 30, at 1x. One position at a time at 20% of withdrawable as margin; flat in
+  USDC the rest of the time. The DSL is the only exit — a 30% ROE hard stop (30% of price at 1x) and
+  a wide ladder that locks a rising share of the gain from +15%, never a loss. No clock closes
+  anything. Expect a trade every two to three months, and positions that can stay open for weeks.
+
+strategy:
+  wallet: "${GANNET_CRYPTO_WALLET}"
+  slots: 1                                # one position at a time — the cascade's first washed-out market
+  margin_pct: 20                          # baseline %; scan emits marginPct per signal (same number)
+  default_leverage: 1                     # every coin trades at 1x
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: gannet_crypto_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # the daily close is the only decision point; 5 min bounds the delay
+    timeout_seconds: 120                   # one account read + at most four candle reads
+    default_signal_validity_seconds: 600   # 2x tick; rule action, a fresh re-score never re-emits a bar
+    state_history_max_count: 50            # (market, bar) dedup map + per-tick result
+    inputs:
+      allowedAssets: ["BTC", "ETH", "SOL", "HYPE"]   # THE CASCADE, in order — main-dex coins, no prefix
+      rsiPeriod: 10                        # Wilder RSI on CLOSED daily candles
+      oversoldRsi: 30                      # a daily close with RSI under this line is the buy
+      entryWindowSeconds: 3600             # buy within the hour after the UTC-midnight close, or wait a day
+      leverageByAsset: {"BTC": 1, "ETH": 1, "SOL": 1, "HYPE": 1}   # 2x on BTC lost money in the replay
+      leverageDefault: 1                   # a market missing from the table trades at 1x
+      leverageMax: 1                       # cap (catalog leverage_max)
+      stopRoePct: 30                       # MUST equal exit.dsl_preset.phase1.max_loss_pct (tests pin it)
+      marginPct: 20                        # PERCENT of withdrawable (0,100]; one slot
+      maxSlots: 1
+      minNotionalUsd: 12                   # the venue's bumped minimum; the free-margin gate stops emitting below it
+    signal_data_schema:
+      rsi: { type: number }
+      rsiPrev: { type: number, required: false }
+      direction: { type: string }
+      closePx: { type: number }
+      signalBarTime: { type: number }
+      leverage: { type: number }
+      stopPricePct: { type: number }
+      reasons: { type: array, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: gannet_crypto_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied the whole rule (close + RSI + order)
+    scanners: [gannet_crypto_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # the buy is AT the close — maker window first, taker fallback
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: gannet_crypto_main_signals
+
+# ── EXIT (DSL only) ───────────────────────────────────────────────────────────────────────
+# Every threshold is ROE (% of margin); at 1x ROE IS the price move. Stop 30% of price; rungs arm at
+# +15% / +25% / +40% / +60% / +100% and lock 40 / 50 / 65 / 80 / 90% of the best gain. Crypto's
+# washouts rebound further and slower than an index's: around Gannet's index ladders (stops 15-30)
+# 8 of 162 neighbouring settings lost after fees on this replay, around this one none did.
+# Clock cuts are OFF: of 142 clock-driven closes measured in one fleet week, 110 were in profit.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout: { enabled: false, interval_in_minutes: 4320 }
+    weak_peak_cut: { enabled: false, interval_in_minutes: 360, min_value: 3.0 }
+    dead_weight_cut: { enabled: false, interval_in_minutes: 60 }
+    phase1:
+      # Trailing DISABLED fleet-wide: the phase-1 floor trails HIGH-WATER, so after a small favourable
+      # move it can still sit BELOW entry and close a WINNER at a loss. max_loss_pct is the hard
+      # stop; retrace_threshold is inert while enabled is false.
+      enabled: false
+      max_loss_pct: 30.0   # 30% of price at 1x — mirrored by inputs.stopRoePct
+      retrace_threshold: 30
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # trigger / lock, ROE = % of price at 1x
+        - { trigger_pct: 15, lock_hw_pct: 40 }   # +15% -> floor +6%
+        - { trigger_pct: 25, lock_hw_pct: 50 }   # +25% -> floor +12.5%
+        - { trigger_pct: 40, lock_hw_pct: 65 }   # +40% -> floor +26%
+        - { trigger_pct: 60, lock_hw_pct: 80 }   # +60% -> floor +48%
+        - { trigger_pct: 100, lock_hw_pct: 90 }  # +100% -> floor +90%
+
+# ── RISK guard rails (one slow book: rare entries, a wide stop, no self-resetting breaker) ──
+risk:
+  data_retention_seconds: 604800           # 7d — a position can live for weeks
+  guard_rails:
+    daily_loss_limit_pct: 10               # one stop-out is 30% x 20% = 6% of the account
+    max_entries_per_day: 2                 # one per daily close; the second covers a re-entry the next close
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 86400                # a day after three losses in a row
+    drawdown_halt_pct: 25                  # the wallet-wide hard stop; above the replay's 15.5% worst drawdown
+    drawdown_reset_on_day_rollover: false  # clearing it is a deliberate act (redeploy), not midnight
+    per_asset_cooldown_seconds: 300        # the scanner already allows one entry per market per daily close
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

@@ -1,0 +1,139 @@
+# ── GANNET · single instance — the daily dip cascade on the chip fund and the two US indices ──────
+# At each UTC-midnight daily close, walk three markets in a fixed order — xyz:SOXL (a 3x chip fund),
+# then xyz:XYZ100, then xyz:SP500 — and buy the FIRST one whose 10-day RSI closed under 30. One
+# position at a time; nothing is shorted; flat (USDC) the rest of the time, which is most of it.
+# The DSL is the ONLY exit: a 21% ROE stop and a ladder that starts locking at +6% ROE. No clocks.
+#
+# Why these numbers: replayed on 16.7 years of US daily bars (Mar 2010 - Nov 2026: SOXL, QQQ for
+# XYZ100, SPY for SP500), entry at the signal close, the stop on the wick, rungs arming on the close,
+# 0.18% round-trip fees: 91 trades (about one every two months), 79% winners, profit factor 2.25,
+# every four-year block positive (1.69-2.91). All 324 neighbouring settings (RSI 8/10/12, line
+# 28/30/32, stop 15/21/30, three ladders, both arming bounds, cross or level entry) cleared fees,
+# worst profit factor 1.42. On the exchange's own candles (Oct 2025 - Nov 2026): 14 trades, profit
+# factor 2.5. The short-the-spike half of the rule (RSI over 79 -> short) lost at every setting
+# tried, on both boards and on weekly bars, and is not here. Measurement in the commit that added this.
+name: gannet-main
+group: gannet
+version: 1.0.0
+description: >
+  GANNET — daily dip cascade, long only. At each UTC-midnight daily close it reads the 10-day RSI
+  of xyz:SOXL, xyz:XYZ100 and xyz:SP500, in that order, and buys the first one that closed under 30:
+  SOXL at 1x (it is already a 3x chip fund), the indices at 3x. One position at a time at 30% of
+  withdrawable as margin; flat in USDC the rest of the time. The DSL is the only exit — a 21% ROE
+  hard stop (7% of price on an index, 21% on SOXL) and a ladder that locks a rising share of the
+  gain from +6% ROE, never a loss. No clock closes anything. Expect about one trade every two months
+  in a calm year and several in a month of selling.
+
+strategy:
+  wallet: "${GANNET_WALLET}"
+  slots: 1                                # one position at a time — the cascade's first washed-out market
+  margin_pct: 30                          # baseline %; scan emits marginPct per signal (same number)
+  default_leverage: 1                     # fallback only — every signal carries its market's leverage; 1 is
+                                          # the LOWEST the recipe uses (SOXL), which is what min_budget must size
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: gannet_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # the daily close is the only decision point; 5 min bounds the delay
+    timeout_seconds: 120                   # one account read + at most three candle reads
+    default_signal_validity_seconds: 600   # 2x tick; rule action, a fresh re-score never re-emits a bar
+    state_history_max_count: 50            # (market, bar) dedup map + per-tick result
+    inputs:
+      allowedAssets: ["xyz:SOXL", "xyz:XYZ100", "xyz:SP500"]   # THE CASCADE, in order — the xyz: prefix is mandatory
+      rsiPeriod: 10                        # Wilder RSI on CLOSED daily candles
+      oversoldRsi: 30                      # a daily close with RSI under this line is the buy
+      entryWindowSeconds: 3600             # buy within the hour after the UTC-midnight close, or wait a day
+      leverageByAsset: {"xyz:SOXL": 1, "xyz:XYZ100": 3, "xyz:SP500": 3}
+      leverageDefault: 1                   # a market missing from the table trades at 1x
+      leverageMax: 3                       # cap (catalog leverage_max)
+      stopRoePct: 21                       # MUST equal exit.dsl_preset.phase1.max_loss_pct (tests pin it)
+      marginPct: 30                        # PERCENT of withdrawable (0,100]; one slot
+      maxSlots: 1
+      minNotionalUsd: 12                   # the venue's bumped minimum; the free-margin gate stops emitting below it
+    signal_data_schema:
+      rsi: { type: number }
+      rsiPrev: { type: number, required: false }
+      direction: { type: string }
+      closePx: { type: number }
+      signalBarTime: { type: number }
+      leverage: { type: number }
+      stopPricePct: { type: number }
+      reasons: { type: array, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: gannet_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied the whole rule (close + RSI + order)
+    scanners: [gannet_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # the buy is AT the close — maker window first, taker fallback
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: gannet_main_signals
+
+# ── EXIT (DSL only) ───────────────────────────────────────────────────────────────────────
+# Every threshold is ROE (% of margin); its distance in PRICE is ROE / leverage. On an index (3x):
+# stop 7% of price; rungs arm at +2% / +4% / +6% / +10% and lock 40 / 60 / 75 / 85% of the best
+# gain. On SOXL (1x) every distance is three times wider in price, which is SOXL's own scale —
+# it is a 3x fund. Measured median moves after a signal (2010-2026): an index rose 2.7-3.6% at its
+# best within five days and SOXL 12%, so the first rung sits inside the typical rebound.
+# Clock cuts are OFF: of 142 clock-driven closes measured in one fleet week, 110 were in profit.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout: { enabled: false, interval_in_minutes: 4320 }
+    weak_peak_cut: { enabled: false, interval_in_minutes: 360, min_value: 3.0 }
+    dead_weight_cut: { enabled: false, interval_in_minutes: 60 }
+    phase1:
+      # Trailing DISABLED fleet-wide: the phase-1 floor trails HIGH-WATER, so after a small favourable
+      # move it can still sit BELOW entry and close a WINNER at a loss. max_loss_pct is the hard
+      # stop; retrace_threshold is inert while enabled is false.
+      enabled: false
+      max_loss_pct: 21.0   # 7% of price on an index at 3x, 21% on SOXL at 1x — mirrored by inputs.stopRoePct
+      retrace_threshold: 21
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # trigger / lock, ROE; price on an index at 3x (SOXL at 1x)
+        - { trigger_pct: 6, lock_hw_pct: 40 }    # +2% of price (+6%)    -> floor +0.8% (+2.4%)
+        - { trigger_pct: 12, lock_hw_pct: 60 }   # +4% (+12%)            -> floor +2.4% (+7.2%)
+        - { trigger_pct: 18, lock_hw_pct: 75 }   # +6% (+18%)            -> floor +4.5% (+13.5%)
+        - { trigger_pct: 30, lock_hw_pct: 85 }   # +10% (+30%)           -> floor +8.5% (+25.5%)
+
+# ── RISK guard rails (one slow book: rare entries, a wide stop, no self-resetting breaker) ──
+risk:
+  data_retention_seconds: 604800           # 7d — a position can live for weeks
+  guard_rails:
+    daily_loss_limit_pct: 10               # one stop-out is 21% x 30% = 6.3% of the account
+    max_entries_per_day: 2                 # one per daily close; the second covers a re-entry the next close
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 86400                # a day after three losses in a row
+    drawdown_halt_pct: 25                  # the wallet-wide hard stop; above the replay's 13.6% worst drawdown
+    drawdown_reset_on_day_rollover: false  # clearing it is a deliberate act (redeploy), not midnight
+    per_asset_cooldown_seconds: 300        # the scanner already allows one entry per market per daily close
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

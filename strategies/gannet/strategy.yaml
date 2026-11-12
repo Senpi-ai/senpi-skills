@@ -1,0 +1,47 @@
+# Gannet — the daily dip cascade on the chip fund and the two US indices. A single-instance PACKAGE:
+# this manifest + one self-contained runtime.yaml + scanners/. At each UTC-midnight daily close it
+# asks three markets in a fixed order — xyz:SOXL, xyz:XYZ100, xyz:SP500 — whether their 10-day RSI
+# closed under 30, buys the first that did, and is otherwise flat in USDC. Long only, one position at
+# a time, DSL-only exits. STARTER tier. Install/teardown via senpi-strategy-ops.
+#
+# The rule's mirror half (short an index whose RSI runs over ~79) was replayed too and lost at every
+# setting, so it is not part of this package. The measurement is in the commit that added it.
+schema_version: 1
+
+id: gannet
+version: "1.0.0"
+
+catalog:
+  name: "Gannet — Index Dip Cascade"
+  emoji: "🐦"
+  tagline: "Buys only the hardest daily drops in US stocks, and only one at a time: at each daily close it checks the 3x chip fund (xyz:SOXL), then the Nasdaq 100 (xyz:XYZ100), then the S&P 500 (xyz:SP500), and buys the first whose 10-day RSI closed under 30 — the chip fund at 1x, an index at 3x. Flat in USDC the rest of the time, which is most of it. A trailing stop that only moves in your favour does all the selling."
+  belief_plain: "Sharp sell-offs in big US stock markets tend to bounce within days. Once a day, right after the daily close, it checks the chip fund first, then the Nasdaq, then the S&P 500, and buys the first one that has fallen unusually hard over the last two weeks. It holds one position at a time, never shorts, and sits in cash between signals, so most weeks it does nothing. A fixed stop caps each loss and a ratchet locks in the rebound once it comes."
+  thesis: "You want to buy panic in US stocks with rules instead of nerve: only after a real washout, only in the deepest markets, and with the rest of your money sitting still. The chip fund is asked first because its drops are the deepest and its rebounds the largest; the broad index is the fallback when only it is washed out. It trades rarely, which keeps fees small, and it will sit idle for months in a calm, rising market."
+  group: multi-asset-whitelist
+  archetype: contrarian_fade
+  sub_style: mean_reversion
+  asset_classes: [indices, xyz_equities]
+  asset_scope: basket
+  direction: long_only
+  risk_level: moderate
+  tier: starter
+  time_horizon: swing
+  leverage_max: 3
+  max_slots: 1
+  assets: ["xyz:SOXL", "xyz:XYZ100", "xyz:SP500"]
+  tags: [dip-buy, buy-the-dip, oversold, rsi, mean-reversion, panic, washout, capitulation, rebound,
+         bounce, cascade, nasdaq, nasdaq-100, xyz100, sp500, s-and-p, soxl, semiconductors, chips,
+         indices, us-stocks, xyz, long-only, one-position, cash-between-signals, daily-close, slow,
+         low-turnover, onboarding, dsl-only]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: GANNET_WALLET
+    funding_share: 1.0

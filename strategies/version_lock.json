@@ -153,6 +153,18 @@
       "behaviour": "84fd230055e731cb",
       "version": "1.1.1"
     },
+    "gannet": {
+      "behaviour": "a3fce5731f3a3cba",
+      "version": "1.0.0"
+    },
+    "gannet-crypto": {
+      "behaviour": "fd605924c35e97f3",
+      "version": "1.0.0"
+    },
+    "gannet-duo": {
+      "behaviour": "0a13898d2d8715b7",
+      "version": "1.0.0"
+    },
     "gecko": {
       "behaviour": "69559c099afe6d38",
       "version": "1.2.0"
