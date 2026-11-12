@@ -575,6 +575,8 @@ Per strategy:
    A strategy already closed elsewhere (the app, a raw `strategy_close`) whose runtime still runs gets
    this step only: when `<id>` or `--all` finds nothing live, its runtime is deleted (only on a wallet no
    open strategy uses) and it reports `closed`; `strategy_close` is never re-sent.
+   If the runtime inventory cannot be read there, it still reports `closed`, adds `Runtimes not
+   checked`, deletes nothing and exits 2: re-run until the inventory was read.
 2. **Trigger `strategy_close(strategyId)`** — flattens **all** positions + closes the strategy (funds
    returned). Submit **only**, no wait. Only submitted while status is `ACTIVE`, so a re-run won't
    re-submit.

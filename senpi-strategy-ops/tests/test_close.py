@@ -943,6 +943,28 @@ class StrandedRuntimeSweep(unittest.TestCase):
         self.assertEqual(self.deletes, [])
         self.assertIn("closed", out)
 
+    def test_unreadable_inventory_reports_closed_with_runtimes_not_checked(self):
+        """The strategy is closed whatever the inventory read says: no 'NOTHING WAS CLOSED' refusal,
+        no delete, and exit 2 so the poll re-runs until the runtimes were checked."""
+        self.rows = [dict(self._CLOSED_ROW, skillName="omega")]
+        self._box([], self.rows)
+        _cli.list_runtimes_or_none = lambda *a, **k: None
+        for argv in ("omega", "--all"):
+            out, code = self._run(argv)
+            self.assertEqual(code, 2, argv)
+            self.assertIn("Runtimes not checked", out)
+            self.assertNotIn("NOTHING WAS CLOSED", out)
+            self.assertEqual(self.deletes, [])
+        self.assertIn("omega v1.0.0: closed", self._run("omega")[0])
+
+    def test_a_package_never_deployed_here_reads_no_inventory(self):
+        self.rows = []
+        self._box([], [])
+        _cli.list_runtimes_or_none = lambda *a, **k: self.fail("nothing deployed, no inventory read")
+        out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertIn("nothing to close", out)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
