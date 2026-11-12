@@ -949,8 +949,8 @@ def test_event_timeout_fails_open_without_a_breaker():
     old_ev = os.environ.pop("SENPI_EVENTS_FIXTURE", None)   # force the subprocess path, not the fixture
     def _raise_timeout(*a, **k):
         raise _sp.TimeoutExpired(cmd="openclaw", timeout=review.EVENTS_CALL_TIMEOUT_S)
-    real_run = review.subprocess.run
-    review.subprocess.run = _raise_timeout
+    real_run = review._run_grouped
+    review._run_grouped = _raise_timeout
     try:
         meta = {}
         assert review._fetch_events("rt-1", NOW_MS, meta) == []            # fail-open for this strategy
@@ -958,9 +958,110 @@ def test_event_timeout_fails_open_without_a_breaker():
         assert "_telemetry_dead" not in meta                               # ONE timeout is not terminal
         assert not hasattr(review, "EVENTS_TIMEOUT_BUDGET")                # the dead breaker constant is gone
     finally:
-        review.subprocess.run = real_run
+        review._run_grouped = real_run
         if old_ev is not None:
             os.environ["SENPI_EVENTS_FIXTURE"] = old_ev
+
+
+def test_events_are_a_direct_gateway_call_reading_the_raw_answer():
+    """`senpi.getEvents` with the numeric limit (10.x drops a string one) and the raw `{entries}` answer."""
+    import subprocess as _sp
+    seen = {}
+
+    def _answer(cmd, timeout):
+        seen.update(cmd=cmd, timeout=timeout)
+        return _sp.CompletedProcess(cmd, 0, json.dumps({"entries": [{"name": "dsl.closed"}, "junk"], "address": "0x1"}), "")
+    real_run = review._run_grouped
+    review._run_grouped = _answer
+    try:
+        entries = review._fetch_events("rt-1", NOW_MS, {})
+    finally:
+        review._run_grouped = real_run
+    assert entries == [{"name": "dsl.closed"}]
+    assert seen["cmd"][:4] == ["openclaw", "gateway", "call", "senpi.getEvents"]
+    assert seen["cmd"][seen["cmd"].index("--timeout") + 1] == str(review.EVENTS_RPC_MS)
+    params = json.loads(seen["cmd"][-1])
+    assert params["runtimeId"] == "rt-1" and params["limit"] == review.EVENTS_PULL and "since" in params
+
+
+def test_a_10x_unknown_method_on_stdout_stops_further_event_calls():
+    import subprocess as _sp
+    env = json.dumps({"ok": False, "error": {"type": "gateway_request_error", "message": "unknown method: senpi.getEvents"}})
+    real_run = review._run_grouped
+    review._run_grouped = lambda cmd, timeout: _sp.CompletedProcess(cmd, 1, env, "")
+    meta = {}
+    try:
+        assert review._fetch_events("rt-1", NOW_MS, meta) == []
+    finally:
+        review._run_grouped = real_run
+    assert meta.get("_telemetry_dead") is True
+
+
+def test_an_event_read_timeout_kills_the_calls_whole_process_group(tmp_path):
+    """On OpenClaw 10.x a timed-out `openclaw` left its worker running (it respawns detached). The
+    event read runs the call in its own session and kills the whole group on timeout, so a child the
+    call started does not outlive the read. Real processes: a sleeper that starts its own sleeper."""
+    import subprocess as _sp
+    import sys as _sys
+    import time as _time
+    pidf = tmp_path / "grandchild.pid"
+    script = (f"import subprocess,time;p=subprocess.Popen(['sleep','60']);"
+              f"open({str(pidf)!r},'w').write(str(p.pid));time.sleep(60)")
+    t0 = _time.time()
+    try:
+        review._run_grouped([_sys.executable, "-c", script], 1.5)
+        raise AssertionError("expected TimeoutExpired")
+    except _sp.TimeoutExpired:
+        pass
+    assert _time.time() - t0 < 10
+    gpid = int(pidf.read_text())
+    deadline = _time.time() + 5
+    def gone():
+        st = _sp.run(["ps", "-o", "stat=", "-p", str(gpid)], capture_output=True, text=True).stdout.strip()
+        return st == "" or st.startswith("Z")
+    while not gone() and _time.time() < deadline:
+        _time.sleep(0.1)
+    assert gone(), "the event call's own child outlived the timeout"
+
+
+def test_an_event_read_timeout_kills_a_sigterm_ignoring_member_when_the_leader_exits(tmp_path):
+    """The leader exits on SIGTERM; its child ignores SIGTERM. The group SIGKILL must still follow."""
+    import os as _os
+    import subprocess as _sp
+    import sys as _sys
+    import time as _time
+    pidf = tmp_path / "member.pid"
+    leader = ("import subprocess,sys,time\n"
+              "m=subprocess.Popen([sys.executable,'-c',"
+              "'import signal,time;signal.signal(signal.SIGTERM,signal.SIG_IGN);time.sleep(60)'])\n"
+              "open(sys.argv[1],'w').write(str(m.pid))\n"
+              "time.sleep(60)\n")
+    t0 = _time.time()
+    try:
+        review._run_grouped([_sys.executable, "-c", leader, str(pidf)], 1.5)
+        raise AssertionError("expected TimeoutExpired")
+    except _sp.TimeoutExpired:
+        pass
+    assert _time.time() - t0 < 6
+    mpid = int(pidf.read_text())
+    def gone():
+        st = _sp.run(["ps", "-o", "stat=", "-p", str(mpid)], capture_output=True, text=True).stdout.strip()
+        return st == "" or st.startswith("Z")
+    deadline = _time.time() + 3
+    while not gone() and _time.time() < deadline:
+        _time.sleep(0.1)
+    alive = not gone()
+    if alive:
+        _os.kill(mpid, 9)
+    assert not alive, "a SIGTERM-ignoring group member outlived the event-read timeout"
+
+
+def test_the_event_read_runs_one_process_with_stdin_closed():
+    import sys as _sys
+    p = review._run_grouped([_sys.executable, "-c",
+                             "import os,sys;print(os.environ.get('OPENCLAW_NO_RESPAWN'),"
+                             "os.getsid(0)==os.getpid(),sys.stdin.read()=='')"], 10)
+    assert p.stdout.strip() == "1 True True"
 
 
 # ─────────────────────── stdout context-cost slimming (the samurai-pro timeout fix) ───────────────
@@ -1076,10 +1177,15 @@ def _two_sleeve_fixture():
     # long sleeve closes SOL+ETH, short sleeve closes BTC → both buckets non-empty, different terminals
     fx[f"discovery_get_trader_history::{COUGAR_LONG.lower()}"] = {"closedPositions": hist[:2]}
     fx[f"discovery_get_trader_history::{COUGAR_SHORT.lower()}"] = {"closedPositions": hist[2:]}
-    fx[f"ratchet_stop_list::{COUGAR_LONG.lower()}"] = {"configs": [
-        {"asset": "SOL", "status": "SL_TRIGGERED", "currentTierIndex": 2, "highWaterRoe": 41.0}]}
-    fx[f"ratchet_stop_list::{COUGAR_SHORT.lower()}"] = {"configs": [
-        {"asset": "BTC", "status": "SL_TRIGGERED", "currentTierIndex": 0, "highWaterRoe": 5.0}]}
+    # the MCP's real envelope; each row's life spans its own trade (created after the open, updated at the close)
+    sol = dict(base["ratchet_stop_list::0xkodiak00000000000000000000000000000kdk"]["data"]["positions"][0],
+               strategyId="strat-cougar-long", strategyWalletAddress=COUGAR_LONG.lower())
+    btc = dict(sol, id="dsl-cougar-btc", strategyId="strat-cougar-short", strategyWalletAddress=COUGAR_SHORT.lower(),
+               asset="BTC", direction="SHORT", entryPrice=104000.0, size=0.05, leverage=3, currentTierIndex=0,
+               highWaterRoe=5.0, activeSLOrderId="910000000003", createdAt="2026-06-28T12:34:20.000000Z",
+               updatedAt="2026-06-30T06:13:22.000000Z", lastEvaluatedAt="2026-06-30T06:13:22.000000Z")
+    fx[f"ratchet_stop_list::{COUGAR_LONG.lower()}"] = {"success": True, "data": {"positions": [sol], "count": 1}}
+    fx[f"ratchet_stop_list::{COUGAR_SHORT.lower()}"] = {"success": True, "data": {"positions": [btc], "count": 1}}
     fx[f"strategy_get_clearinghouse_state::{COUGAR_LONG.lower()}"] = ch
     fx[f"strategy_get_clearinghouse_state::{COUGAR_SHORT.lower()}"] = ch
     return fx

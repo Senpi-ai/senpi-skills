@@ -96,6 +96,30 @@ def test_data_null_with_no_errors_array_also_raises():
         _ur.urlopen = orig
 
 
+def test_the_request_sets_an_explicit_user_agent():
+    """The blacklist read names its client in the User-Agent header."""
+    import json as _json
+    import urllib.request as _ur
+
+    class _Resp:
+        def read(self): return _json.dumps({"data": {"blacklist": []}}).encode()
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    sent = []
+    orig = _ur.urlopen
+    _ur.urlopen = lambda req, timeout=None: sent.append(req) or _Resp()
+    try:
+        try:
+            blacklist.check([MM], token="t")
+        except blacklist.BlacklistUnavailable:
+            pass  # only the outgoing request matters here, not how this stub body parses
+    finally:
+        _ur.urlopen = orig
+    assert sent, "no request was sent"
+    assert sent[0].get_header("User-agent") == "senpi-mm-blacklist"
+
+
 def test_a_missing_token_raises_instead_of_sending_an_unauthenticated_request():
     """Sending it anyway would return the 200-with-errors shape, which is the trap. Refuse earlier."""
     with pytest.raises(blacklist.BlacklistUnavailable) as ei:

@@ -117,9 +117,9 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
     survive a price change (no rollover, instant upgrade, the user's own page wins) matter as much
     as the numbers."""
 
-    def test_the_four_plans_and_the_cycle_rules_are_in_the_table(self):
+    def test_the_three_open_plans_and_the_cycle_rules_are_in_the_table(self):
         section = _flat(_section(_split(SKILL)[1], PLANS))
-        for plan in ("Starter", "Pro (default)", "Advanced", "Quant"):
+        for plan in ("Pro (default)", "Advanced", "Quant"):
             self.assertIn(plan, section, plan)
         for needle in (
             "Every plan includes every model",
@@ -136,12 +136,38 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
         # numbers (credits from 2026-10-26: Pro $55, Advanced $115, Quant $240).
         section = _section(_split(SKILL)[1], PLANS)
         for row in (
-            "| Starter | $25 | $25 | 1 |",
             "| Pro (default) | $50 | $55 (+10%) | 1.5 |",
             "| Advanced | $100 | $115 (+15%) | 2 |",
             "| Quant | $200 | $240 (+20%) | 3 |",
         ):
             self.assertIn(row, section, row)
+
+    def test_starter_is_closed_to_new_subscribers_not_offered(self):
+        # Starter ($25) is closed to new subscribers: the table offers only open plans, and one
+        # sentence keeps the agent right for a user who already holds it. Same sentence as the MCP
+        # overview resource's plan table; the two are copies.
+        section = _section(_split(SKILL)[1], PLANS)
+        rows = [line for line in section.splitlines() if line.startswith("|")]
+        self.assertEqual(
+            [r.split("|")[1].strip() for r in rows[2:]],
+            ["Pro (default)", "Advanced", "Quant"],
+        )
+        self.assertNotIn("$25 |", section)
+        self.assertIn(
+            "Starter ($25 a month, $25 credits, 1 point per $1 volume) is closed to new subscribers; "
+            "people already on it keep it and can upgrade, but cannot return to it after leaving.",
+            _flat(section),
+        )
+
+    def test_the_zero_fee_lists_name_starter_for_holders_only(self):
+        # a Starter holder is still on a paid plan and pays no Senpi fee, so the fee rule keeps them,
+        # but only as people already on it, never as a plan to pick
+        for path in (SKILL, REPO / "senpi-improve-trades" / "SKILL.md"):
+            text = _flat(path.read_text(encoding="utf-8"))
+            self.assertNotIn("(Starter, Pro, Advanced, Quant)", text, path)
+            self.assertIn("(Pro, Advanced, Quant, and Starter for people already on it)", text, path)
+        if README.is_file():
+            self.assertNotIn("Starter/Pro/Advanced/Quant", README.read_text(encoding="utf-8"))
 
     def test_the_advertised_bonus_matches_the_credits_it_grants(self):
         # "$100 -> $130 (+30%)" has to be arithmetic, not decoration
@@ -255,6 +281,33 @@ class TheFeeFollowsThePlan(unittest.TestCase):
     def test_the_presentation_notes_quote_the_same_field(self):
         notes = _flat(NOTES.read_text(encoding="utf-8"))
         self.assertIn("Quote `fee.pct` as returned", notes)
+
+
+class ReferralsPayAShareOfSpend(unittest.TestCase):
+    """Referrals pay 15% of a referred friend's monthly Senpi spend for their first 12 months (the
+    senpi.ai/referrals program), not a share of the builder fee, and they do earn: the interim
+    "referrals earn nothing new" line is gone."""
+
+    def test_the_catalog_states_the_referral_share(self):
+        section = _flat(_section(_split(SKILL)[1], PLANS))
+        for needle in (
+            "Referrals pay 15% of a referred friend's monthly Senpi spend, for their first 12 months",
+            "not from their trading",
+            "$15 a month × 12 months = $180",
+            # Payout is TBD: without this the agent falls back on the old daily-USDC payout.
+            "How and when the share is paid out is not announced yet: if asked, say so, and never "
+            "describe a payout schedule, token or threshold for it.",
+        ):
+            self.assertIn(needle, section, needle)
+
+    def test_no_file_says_referrals_earn_nothing(self):
+        for path in (SKILL, NOTES):
+            text = _flat(path.read_text(encoding="utf-8"))
+            self.assertNotIn("earn nothing", text, path.name)
+            self.assertNotIn("builder fee on referred", text, path.name)
+
+    def test_the_router_finds_the_referral_question(self):
+        self.assertIn("how do referrals work?", _flat(_split(SKILL)[0]))
 
 
 class TiersCarryNoBenefit(unittest.TestCase):

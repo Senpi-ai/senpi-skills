@@ -34,9 +34,16 @@
      "openTime": 1782640000000, "closeTime": 1782780000000}
   ]},
 
-  "ratchet_stop_list::0xkodiak00000000000000000000000000000kdk": {"configs": [
-    {"asset": "SOL", "status": "SL_TRIGGERED", "currentTierIndex": 2, "highWaterRoe": 41.0}
-  ]},
+  "ratchet_stop_list::0xkodiak00000000000000000000000000000kdk": {"success": true, "data": {"positions": [
+    {"id": "dsl-kodiak-sol", "strategyId": "strat-kodiak-1", "asset": "SOL",
+     "strategyWalletAddress": "0xkodiak00000000000000000000000000000kdk", "dex": "", "direction": "LONG",
+     "entryPrice": 120.0, "size": 3.0, "leverage": 5, "status": "SL_TRIGGERED",
+     "currentTierIndex": 2, "tierFloorPrice": null, "highWaterPrice": null, "highWaterRoe": 41.0,
+     "currentBreachCount": 0, "activeSLOrderId": "910000000001",
+     "dslConfig": {"tiered": {"tiers": [{"triggerRoe": 8, "lockRoe": 0}, {"triggerRoe": 14, "lockRoe": 40}, {"triggerRoe": 24, "lockRoe": 62}, {"triggerRoe": 40, "lockRoe": 80}]}},
+     "lastEvaluatedAt": "2026-06-29T02:26:41.500000Z", "lastPrice": null, "lastPriceSource": "price-feed",
+     "createdAt": "2026-06-26T18:53:50.000000Z", "updatedAt": "2026-06-29T02:26:41.500000Z"}
+  ], "count": 1, "query": {"filter": {"strategyId": "strat-kodiak-1", "strategyWalletAddress": "0xkodiak00000000000000000000000000000kdk"}, "status": "ALL", "limit": 100}}},
 
   "market_get_asset_data::sol": {"asset_context": {"markPx": "130.00", "prevDayPx": "148.0"}},
   "market_get_asset_data::eth": {"asset_context": {"markPx": "2200.00", "prevDayPx": "2010.0"}},

@@ -19,6 +19,9 @@ answered *"Exit mechanism: undetermined"* because one command timed out, while t
 
 …plus `entryPrice` / `lastPrice` / `elapsedMinutes` / `closedAt`.
 
+`currentTierIndex` is 0-based: say **Tier N = index + 1** (index 1 is Tier 2), and -1 means the ladder never
+armed (the hard stop governed), never "Tier 0".
+
 ### `closeReason` vocabulary
 
 Translate `closeReason`, never paste the enum:
@@ -44,7 +47,7 @@ computing anything:
 - `floorPrice` / `tierFloorPrice` — where the stop actually is
 - **`lockedProfitPct`** — what is locked in *right now* (the answer to "at what point does it lock profits")
 - `highWaterRoe` / `peakROE` — the best it has seen
-- `currentTierIndex` + `phase` — which rung is governing
+- `currentTierIndex` + `phase` — which rung is governing (0-based: Tier = index + 1; -1 = not armed yet)
 - `distanceToNextTierPct` — how far to the next rung
 - `slOrderId` / `lastSyncedFloorPrice` — the resting exchange order the floor is synced to
 
