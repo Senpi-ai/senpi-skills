@@ -79,6 +79,8 @@ _CASES = [
     ("ibex",    _intent(), "gold breakout"),
     ("ibex",    _intent(), "donchian breakout gold"),
     ("ibex",    _intent(assets=[("class", "commodities")]), "gold xauusd metals"),
+    # ── big-tech momentum, Nasdaq-gated (2026-11-12): strongest name when healthy, the index after a washout ──
+    ("kinkajou", _intent(), "leveraged big tech momentum when the market is healthy"),
 ]
 
 
