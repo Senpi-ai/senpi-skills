@@ -61,7 +61,7 @@ def test_the_rails_fit_two_slots():
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026) on US daily bars Mar 2010 - Nov 2026 (SOXL; QQQ for XYZ100; SPY for
     SP500), Gannet's rule and exits with two slots, each market charged its Hyperliquid taker fee both
-    sides plus its measured spread: 146 trades, profit factor 2.56, 2010-14 2.70, 2014-18 2.52,
-    2018-22 1.91, 2022-26 3.09, worst drawdown 12.7% at 15% a slot. All 162 neighbouring cells (RSI
-    8/10/12 x line 28/30/32 x stop 15/21/30 x three ladders x both arming bounds) above 1.0, worst 1.98."""
+    sides, its measured spread and funding at its 180-day average rate: 146 trades, profit factor 2.43,
+    2010-14 2.50, 2014-18 2.37, 2018-22 1.83, 2022-26 2.95, worst drawdown 13% at 15% a slot. All 162
+    neighbouring cells above 1.0, worst 1.88 (1.66 with funding stressed to 11% a year)."""
     assert (INPUTS["rsiPeriod"], INPUTS["oversoldRsi"], INPUTS["stopRoePct"], INPUTS["maxSlots"]) == (10, 30, 21, 2)

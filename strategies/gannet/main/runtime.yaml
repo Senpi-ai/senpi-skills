@@ -7,13 +7,15 @@
 # Why these numbers: replayed on 16.7 years of US daily bars (Mar 2010 - Nov 2026: SOXL, QQQ for
 # XYZ100, SPY for SP500), entry at the signal close, the stop on the wick, rungs arming on the close,
 # each market charged its own Hyperliquid cost (taker fee both sides, about 0.018% a round trip on
-# these growth-mode xyz markets, plus its measured spread): 91 trades (about one every two months),
-# 79% winners, profit factor 2.34, every four-year block positive (1.76-3.04). All 324 neighbouring
-# settings (RSI 8/10/12, line 28/30/32, stop 15/21/30, three ladders, both arming bounds, cross or
-# level entry) cleared fees, worst profit factor 1.49. On the exchange's own candles (Oct 2025 - Nov
-# 2026): 14 trades, profit factor 2.63. The short-the-spike half of the rule (RSI over 79 -> short)
-# lost at almost every setting tried (151 of 1,536 above 1, median 0.54), on both boards and on
-# weekly bars, and is not here. Measurement in the commit that added this.
+# these growth-mode xyz markets, plus its measured spread) and funding at its own 180-day average rate
+# for every hour held (SOXL 8.3%, XYZ100 5.0%, SP500 0.8% a year on notional, longs paying): 91 trades
+# (about one every two months), 79% winners, profit factor 2.24, every four-year block positive
+# (1.70-2.90). All 324 neighbouring settings (RSI 8/10/12, line 28/30/32, stop 15/21/30, three
+# ladders, both arming bounds, cross or level entry) cleared, worst profit factor 1.43; with funding
+# stressed to 11% a year on every market, worst 1.32. On the exchange's own candles (Oct 2025 - Nov
+# 2026): 14 trades, profit factor 2.57. The short-the-spike half of the rule (RSI over 79 -> short)
+# lost at almost every setting tried (247 of 1,536 above 1, median 0.65, even with shorts receiving
+# funding), on both boards and on weekly bars, and is not here. Measurement in the commit that added this.
 name: gannet-main
 group: gannet
 version: 1.0.0

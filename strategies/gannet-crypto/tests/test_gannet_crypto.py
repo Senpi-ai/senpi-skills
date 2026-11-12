@@ -37,7 +37,7 @@ def test_four_majors_in_order_all_at_1x():
 
 
 def test_the_stop_and_the_ladder():
-    assert INPUTS["stopRoePct"] == DSL["phase1"]["max_loss_pct"] == 30
+    assert INPUTS["stopRoePct"] == DSL["phase1"]["max_loss_pct"] == 40
     assert DSL["phase1"]["enabled"] is False
     tiers = [(t["trigger_pct"], t["lock_hw_pct"]) for t in DSL["phase2"]["tiers"]]
     assert tiers == [(15, 40), (25, 50), (40, 65), (60, 80), (100, 90)]
@@ -105,9 +105,10 @@ def test_the_scanner_reads_the_main_dex_and_buys_the_first_washed_out_coin(monke
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026) on Hyperliquid's own daily candles, Aug 2020 - Nov 2026, entry at the
     signal close, the stop on the wick, rungs arming on the close, each coin charged its taker fee both
-    sides (4.5 bps a side) plus its measured spread: 28 trades, 75% winners, profit factor 2.38 (2.20
-    on the bar extreme); BTC 13 trades PF 1.87, ETH 5 PF 1.17, SOL 8 and HYPE 2 all winners; 2022 lost
-    (PF 0.40); worst drawdown about 15% at 20% margin. Every neighbouring cell (RSI 8/10/12 x line
-    28/30/32 x stop 21/30/40 x ladders wide/wider/widest x both arming bounds) above 1.0, the worst
-    1.03 — thin, and said so. With BTC at 2x the BTC leg lost (PF 0.71), which is why every coin is 1x."""
-    assert (INPUTS["rsiPeriod"], INPUTS["oversoldRsi"], INPUTS["stopRoePct"]) == (10, 30, 30)
+    sides (4.5 bps a side), its measured spread and funding at its 180-day average rate per hour held:
+    24 trades, profit factor 2.04 (2.01 on the bar extreme); BTC PF 1.93, ETH 0.83, SOL and HYPE all
+    winners; 2022 lost (0.77); worst drawdown 16.5% at 20% margin. Every neighbouring cell (RSI
+    8/10/12 x line 28/30/32 x stop 30/40/50 x ladders wide/wider/widest x both bounds) above 1.0, the
+    worst 1.15 (1.10 with funding stressed to 11% a year). The first-shipped 30% stop fell to 0.96 once
+    funding was charged; 40% is its adjacent setting that clears. With BTC at 2x the BTC leg lost."""
+    assert (INPUTS["rsiPeriod"], INPUTS["oversoldRsi"], INPUTS["stopRoePct"]) == (10, 30, 40)

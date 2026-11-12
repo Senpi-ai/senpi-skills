@@ -245,14 +245,13 @@ def test_unreadable_payloads_emit_nothing(monkeypatch):
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026), entry at the signal close, the stop on the wick, rungs arming on the
     close (and on the bar extreme as the upper bound), each market charged its Hyperliquid taker fee
-    both sides plus its measured spread, one position:
+    both sides, its measured spread and funding at its 180-day average rate per hour held:
 
     US daily bars Mar 2010 - Nov 2026 (SOXL; QQQ for XYZ100; SPY for SP500), RSI(10) < 30, stop
-    21 ROE, ladder 6/40 12/60 18/75 30/85: 91 trades, 79% winners, profit factor 2.34; 2010-14
-    1.90, 2014-18 2.78, 2018-22 1.76, 2022-26 3.04. Every one of 324 neighbouring cells (RSI 8/10/12
-    x line 28/30/32 x stop 15/21/30 x three ladders x both arming bounds x cross/level) above 1.0,
-    the worst 1.49. Hyperliquid's own candles (Oct 2025 - Nov 2026): 14 trades, profit factor 2.63.
-    The short leg (RSI(10) > 79, short the index) lost almost everywhere: median profit factor 0.54.
+    21 ROE, ladder 6/40 12/60 18/75 30/85: 91 trades, 79% winners, profit factor 2.24; 2010-14
+    1.80, 2014-18 2.64, 2018-22 1.70, 2022-26 2.90. Every one of 324 neighbouring cells above 1.0,
+    the worst 1.43 (1.32 with funding stressed to 11% a year). Hyperliquid's own candles (Oct 2025 -
+    Nov 2026): 14 trades, profit factor 2.57. The short leg lost almost everywhere (median 0.65).
     """
     assert (INPUTS["rsiPeriod"], INPUTS["oversoldRsi"], INPUTS["stopRoePct"]) == (10, 30, 21)
     assert INPUTS["allowedAssets"][0] == "xyz:SOXL"

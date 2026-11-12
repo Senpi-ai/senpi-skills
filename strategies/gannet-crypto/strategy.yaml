@@ -12,8 +12,8 @@ catalog:
   name: "Gannet Crypto — Crypto Dip Cascade"
   emoji: "🐦"
   varies: gannet
-  tagline: "Gannet's dip cascade on the crypto majors: at each daily close it checks BTC, then ETH, then SOL, then HYPE, and buys the first whose 10-day RSI closed under 30, at 1x. One position at a time, flat in USDC between signals, a 30% stop and a wide trailing ladder that only moves in your favour."
-  belief_plain: "When a major coin has fallen unusually hard over two weeks it tends to rebound, but slowly and unevenly. Once a day, after the daily close, it checks Bitcoin first, then Ether, Solana and Hype, and buys the first one that is washed out, without leverage. It holds one coin at a time and sits in cash between signals, so it trades only a few times a year. Positions can stay open for weeks: the stop is wide, and the ratchet starts locking the gain only after a 15% rise."
+  tagline: "Gannet's dip cascade on the crypto majors: at each daily close it checks BTC, then ETH, then SOL, then HYPE, and buys the first whose 10-day RSI closed under 30, at 1x. One position at a time, flat in USDC between signals, a 40% stop and a wide trailing ladder that only moves in your favour."
+  belief_plain: "When a major coin has fallen unusually hard over two weeks it tends to rebound, but slowly and unevenly. Once a day, after the daily close, it checks Bitcoin first, then Ether, Solana and Hype, and buys the first one that is washed out, without leverage. It holds one coin at a time and sits in cash between signals, so it trades only a few times a year. Positions can stay open for weeks, paying funding while they do: the stop is very wide (40%), and the ratchet starts locking the gain only after a 15% rise."
   thesis: "You want to buy crypto crashes by rule, with no leverage and nothing else running in between: only after a real two-week washout, only in the biggest coins, one at a time. It is slow and idle most of the year, and its past record is thinner than the stock-index version's, so it suits a small allocation you are happy to leave alone."
   group: multi-asset-whitelist
   archetype: contrarian_fade
