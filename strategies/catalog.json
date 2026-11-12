@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-11-03",
+  "_updated": "2026-11-13",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -4859,6 +4859,89 @@
       "sort_order": 9
     },
     {
+      "id": "kudu",
+      "name": "Kudu — Quality Big-Tech Basket",
+      "emoji": "🦌",
+      "varies": null,
+      "tagline": "Holds ten large quality companies — Apple, Microsoft, Alphabet, Amazon, Meta, Nvidia, Broadcom, Oracle, Eli Lilly and Costco on the xyz board — in equal 5% clips at 2x, and times them with the Nasdaq: a name that stops out is bought back at the next daily close unless the Nasdaq 100 is overheated (10-day RSI over 79), and when the Nasdaq is washed out (RSI under 30) it adds the Nasdaq 100 itself at 3x. Long only; a trailing stop on every position does the selling.",
+      "belief_plain": "Great companies tend to keep compounding, and the usual mistakes are buying them after a blow-off or selling them in a panic. This keeps ten of them, equally weighted. It only waits to re-buy when the whole tech market has just run up too hard, and when tech is washed out it adds the Nasdaq with extra leverage for the rebound. Each position has its own stop; one that stops out is simply bought back at the next calm close.",
+      "version": "1.0.0",
+      "thesis": "You want to own the biggest quality names rather than trade them, with a simple rule that keeps you from buying into a frenzy and puts extra money to work in a crash. Fully invested it carries about 65% of the account as margin; it trades each name about once every two or three months and holds for weeks to months.",
+      "tags": [
+        "quality",
+        "big-tech",
+        "megacap",
+        "mega-caps",
+        "megacaps",
+        "magnificent-seven",
+        "mag7",
+        "basket",
+        "equal-weight",
+        "buy-and-hold",
+        "long-term",
+        "aapl",
+        "msft",
+        "googl",
+        "amzn",
+        "meta",
+        "nvda",
+        "avgo",
+        "orcl",
+        "lly",
+        "cost",
+        "nasdaq",
+        "xyz100",
+        "rsi",
+        "overbought-filter",
+        "buy-the-crash",
+        "long-only",
+        "us-stocks",
+        "xyz",
+        "slow",
+        "let-winners-run",
+        "dsl-only"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "big_tech",
+      "sub_style_label": "Trades big-tech equities (NVDA/TSLA/AAPL/…) 24/7.",
+      "asset_classes": [
+        "xyz_equities",
+        "indices"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "xyz:AAPL",
+        "xyz:MSFT",
+        "xyz:GOOGL",
+        "xyz:AMZN",
+        "xyz:META",
+        "xyz:NVDA",
+        "xyz:AVGO",
+        "xyz:ORCL",
+        "xyz:LLY",
+        "xyz:COST",
+        "xyz:XYZ100"
+      ],
+      "direction": "long_only",
+      "risk_level": "moderate",
+      "tier": "starter",
+      "leverage_max": 3,
+      "time_horizon": "position",
+      "cadence_seconds": 300,
+      "min_budget": 125,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 11,
+      "branch": "main",
+      "sort_order": 10
+    },
+    {
       "id": "lion",
       "name": "Lion — Two-Speed-Market Cross-Asset L/S",
       "emoji": "🦁",
@@ -4947,7 +5030,7 @@
       ],
       "max_slots": 9,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 11
     },
     {
       "id": "manatee",
@@ -5006,7 +5089,7 @@
       ],
       "max_slots": 10,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 12
     },
     {
       "id": "mandate",
@@ -5071,7 +5154,7 @@
       ],
       "max_slots": 8,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 13
     },
     {
       "id": "mongoose",
@@ -5131,7 +5214,7 @@
       ],
       "max_slots": 7,
       "branch": "main",
-      "sort_order": 13
+      "sort_order": 14
     },
     {
       "id": "ox",
@@ -5193,7 +5276,7 @@
       ],
       "max_slots": 14,
       "branch": "main",
-      "sort_order": 14
+      "sort_order": 15
     },
     {
       "id": "rhino",
@@ -5258,7 +5341,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 15
+      "sort_order": 16
     },
     {
       "id": "scorpion",
@@ -5328,7 +5411,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 16
+      "sort_order": 17
     },
     {
       "id": "spider",
@@ -5394,7 +5477,7 @@
       ],
       "max_slots": 7,
       "branch": "main",
-      "sort_order": 17
+      "sort_order": 18
     },
     {
       "id": "thesis-fund",
@@ -5454,7 +5537,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 18
+      "sort_order": 19
     },
     {
       "id": "wolf",
@@ -5517,7 +5600,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 19
+      "sort_order": 20
     },
     {
       "id": "aegis",

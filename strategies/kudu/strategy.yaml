@@ -1,0 +1,43 @@
+# Kudu — a quality big-tech basket timed by the Nasdaq. A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. Ten large companies held in equal clips at 2x, bought back
+# after a stop unless the Nasdaq is overheated, plus the Nasdaq 100 at 3x after a washout. Long only,
+# DSL-only exits. STARTER tier. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: kudu
+version: "1.0.0"
+
+catalog:
+  name: "Kudu — Quality Big-Tech Basket"
+  emoji: "🦌"
+  tagline: "Holds ten large quality companies — Apple, Microsoft, Alphabet, Amazon, Meta, Nvidia, Broadcom, Oracle, Eli Lilly and Costco on the xyz board — in equal 5% clips at 2x, and times them with the Nasdaq: a name that stops out is bought back at the next daily close unless the Nasdaq 100 is overheated (10-day RSI over 79), and when the Nasdaq is washed out (RSI under 30) it adds the Nasdaq 100 itself at 3x. Long only; a trailing stop on every position does the selling."
+  belief_plain: "Great companies tend to keep compounding, and the usual mistakes are buying them after a blow-off or selling them in a panic. This keeps ten of them, equally weighted. It only waits to re-buy when the whole tech market has just run up too hard, and when tech is washed out it adds the Nasdaq with extra leverage for the rebound. Each position has its own stop; one that stops out is simply bought back at the next calm close."
+  thesis: "You want to own the biggest quality names rather than trade them, with a simple rule that keeps you from buying into a frenzy and puts extra money to work in a crash. Fully invested it carries about 65% of the account as margin; it trades each name about once every two or three months and holds for weeks to months."
+  group: multi-asset-whitelist
+  archetype: trend_following
+  sub_style: big_tech
+  asset_classes: [xyz_equities, indices]
+  asset_scope: basket
+  direction: long_only
+  risk_level: moderate
+  tier: starter
+  time_horizon: position
+  leverage_max: 3
+  max_slots: 11
+  assets: ["xyz:AAPL", "xyz:MSFT", "xyz:GOOGL", "xyz:AMZN", "xyz:META", "xyz:NVDA", "xyz:AVGO",
+           "xyz:ORCL", "xyz:LLY", "xyz:COST", "xyz:XYZ100"]
+  tags: [quality, big-tech, megacap, mega-caps, megacaps, magnificent-seven, mag7, basket, equal-weight, buy-and-hold, long-term, aapl,
+         msft, googl, amzn, meta, nvda, avgo, orcl, lly, cost, nasdaq, xyz100, rsi, overbought-filter,
+         buy-the-crash, long-only, us-stocks, xyz, slow, let-winners-run, dsl-only]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: KUDU_WALLET
+    funding_share: 1.0
