@@ -93,3 +93,15 @@ def test_skill_forbids_recommending_from_the_unthemed_neutral_order_shortlist():
                    "`--limit N` is the browse path only"):
         assert needle in text, needle
     assert "Keep risk, belief, horizon, and worldview in your head" not in text
+
+
+def test_card_format_never_prints_the_raw_tier_field():
+    """The card example once ended in a `[{tier}]` placeholder, so every template line came out as a raw
+    `[{tier: advanced}]` tag. The badge is the literal `[STARTER]`, only for `tier == "starter"`."""
+    text = open(SKILL, encoding="utf-8").read()
+    section = text.split("### Card format", 1)[1].split("\n## ", 1)[0]
+    example = section.split("```")[1]
+    assert "{tier" not in example and "[{" not in example, example
+    flat = " ".join(section.split())
+    for needle in ('`[STARTER]` after the name iff `tier == "starter"`', "never print `tier` raw"):
+        assert needle in flat, needle
