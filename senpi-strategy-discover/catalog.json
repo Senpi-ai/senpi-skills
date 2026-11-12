@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-11-03",
+  "_updated": "2026-11-13",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -5134,6 +5134,72 @@
       "sort_order": 13
     },
     {
+      "id": "ocelot",
+      "name": "Ocelot — Tech vs Trend Switch",
+      "emoji": "🐆",
+      "varies": null,
+      "tagline": "Owns tech only when tech is the stronger trend. At each daily close it compares the Nasdaq 100's 10-day RSI with the average RSI of gold, crude oil, the euro and the yen: if tech is ahead (and not overheated, under 79) it buys the Nasdaq 100 (xyz:XYZ100) at 3x; if the Nasdaq has just crashed (RSI under 30) it buys the 3x chip fund (xyz:SOXL) at 1x for the rebound; otherwise it sits in USDC. Long only, one position, a wide trailing stop that only moves in your favour.",
+      "belief_plain": "Money flows between tech stocks and the big macro trends — gold, oil, currencies. Once a day it asks which is stronger right now: if tech's momentum beats the macro basket's and tech has not just run up too hard, it buys the Nasdaq; if tech has just crashed, it buys the chip fund for the bounce; otherwise it waits in cash. It never shorts. One position at a time, a stop on each, and a ratchet that locks in the gain as it grows.",
+      "version": "1.0.0",
+      "thesis": "You want to be in tech when tech is leading and out of it when the macro trades are leading, without having to call which is which yourself — and you want the crash-day rebound in chips on top. It trades every two or three months, holds for weeks, and accepts deep swings in the 3x positions it takes.",
+      "tags": [
+        "tech",
+        "nasdaq",
+        "xyz100",
+        "chips",
+        "soxl",
+        "semiconductors",
+        "managed-futures",
+        "trend-basket",
+        "macro",
+        "gold",
+        "oil",
+        "fx",
+        "relative-strength",
+        "rsi",
+        "switch",
+        "risk-on-risk-off",
+        "buy-the-crash",
+        "long-only",
+        "one-position",
+        "cash-when-weak",
+        "xyz",
+        "slow",
+        "let-winners-run",
+        "dsl-only"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "rotation",
+      "sub_style_label": "Always holds the strongest of a basket; rotates as leadership changes.",
+      "asset_classes": [
+        "indices",
+        "xyz_equities"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "xyz:XYZ100",
+        "xyz:SOXL"
+      ],
+      "direction": "long_only",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 3,
+      "time_horizon": "position",
+      "cadence_seconds": 300,
+      "min_budget": 75,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "main",
+      "sort_order": 14
+    },
+    {
       "id": "ox",
       "name": "Ox — Risk-Parity / All-Weather",
       "emoji": "🐂",
@@ -5193,7 +5259,7 @@
       ],
       "max_slots": 14,
       "branch": "main",
-      "sort_order": 14
+      "sort_order": 15
     },
     {
       "id": "rhino",
@@ -5258,7 +5324,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 15
+      "sort_order": 16
     },
     {
       "id": "scorpion",
@@ -5328,7 +5394,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 16
+      "sort_order": 17
     },
     {
       "id": "spider",
@@ -5394,7 +5460,7 @@
       ],
       "max_slots": 7,
       "branch": "main",
-      "sort_order": 17
+      "sort_order": 18
     },
     {
       "id": "thesis-fund",
@@ -5454,7 +5520,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 18
+      "sort_order": 19
     },
     {
       "id": "wolf",
@@ -5517,7 +5583,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 19
+      "sort_order": 20
     },
     {
       "id": "aegis",
