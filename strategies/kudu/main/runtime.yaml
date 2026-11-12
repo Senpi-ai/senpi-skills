@@ -8,14 +8,15 @@
 # Why these numbers: replayed on US daily bars Jan 2010 - Nov 2026, entry at the signal close, the stop
 # on the wick, rungs arming on the close, each market charged its own Hyperliquid cost (taker fee both
 # sides, about 0.018% a round trip on these growth-mode xyz markets, plus its measured spread — wider on
-# the thinner books: about 0.05% on AVGO and LLY, 0.08% on COST): 810 trades across the book (about
-# 0.4 a month per name), 77% winners, profit factor 2.65 (2.51 arming on the bar extreme); every name
-# positive (META and ORCL weakest at 1.9, COST strongest at 6.5); every four-year block positive (2.93 /
-# 5.33 / 2.43 / 2.13); worst book drawdown 31% at these clips. All 486 neighbouring settings (RSI
-# 8/10/12, overheat 75/79/83, washout 28/30/32, stop 21/30/40, three ladders, both arming bounds)
-# cleared fees, the worst at 1.82. CAVEAT: the ten names are today's winners, so a 2010-2026 replay of
-# them is flattered by hindsight. The same rule with the Nasdaq 100 itself as the "basket" (no stock
-# picking) cleared too: neighbourhood worst 2.27.
+# the thinner books: about 0.05% on AVGO and LLY, 0.08% on COST) and funding at its 180-day average rate
+# for every hour held (from -1.0% a year on AAPL to 12.3% on LLY, longs paying): 810 trades across the
+# book (about 0.4 a month per name), profit factor 2.07 (1.98 arming on the bar extreme); every name
+# positive (ORCL weakest at 1.30, COST strongest at 5.8); every four-year block positive (2.09 / 3.65 /
+# 1.93 / 1.78); worst book drawdown 34% at these clips. All 486 neighbouring settings (RSI 8/10/12,
+# overheat 75/79/83, washout 28/30/32, stop 21/30/40, three ladders, both arming bounds) cleared, the
+# worst at 1.53 (1.40 with funding stressed to 11% a year). CAVEAT: the ten names are today's winners,
+# so a 2010-2026 replay of them is flattered by hindsight. The same rule with the Nasdaq 100 itself as
+# the "basket" (no stock picking) cleared too: neighbourhood worst 1.85.
 name: kudu-main
 group: kudu
 version: 1.0.0
@@ -135,7 +136,7 @@ risk:
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 6
     cooldown_seconds: 86400                # a day after six losses in a row
-    drawdown_halt_pct: 35                  # the wallet-wide hard stop; above the replay's 31% worst drawdown
+    drawdown_halt_pct: 35                  # the wallet-wide hard stop; above the replay's 34% worst drawdown
     drawdown_reset_on_day_rollover: false  # clearing it is a deliberate act (redeploy), not midnight
     per_asset_cooldown_seconds: 300        # the scanner already allows one entry per market per daily close
 

@@ -135,9 +135,9 @@ def test_once_per_close_only_after_the_close_and_the_margin_gate(monkeypatch):
 
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026), US daily bars Jan 2010 - Nov 2026, entry at the signal close, the stop on
-    the wick, rungs arming on the close, each market charged its Hyperliquid taker fee both sides plus
-    its measured spread: 810 trades, 77% winners, profit factor 2.65 (2.51 on the bar extreme), every
-    name positive, blocks 2.93 / 5.33 / 2.43 / 2.13, worst book drawdown 31%. 486 neighbouring cells all
-    above 1.0, worst 1.82. Hindsight caveat: the ten names are today's winners; with the Nasdaq 100
-    itself as the basket the neighbourhood's worst is 2.27."""
+    the wick, rungs arming on the close, each market charged its Hyperliquid taker fee both sides, its
+    measured spread and funding at its 180-day average rate: 810 trades, profit factor 2.07 (1.98 on the
+    bar extreme), every name positive, blocks 2.09 / 3.65 / 1.93 / 1.78, worst book drawdown 34%. 486
+    neighbouring cells all above 1.0, worst 1.53 (1.40 stressed). Hindsight caveat: the ten names are
+    today's winners; with the Nasdaq 100 itself as the basket the neighbourhood's worst is 1.85."""
     assert (INPUTS["overheatRsi"], INPUTS["washoutRsi"], INPUTS["stopRoePct"]) == (79, 30, 30)
