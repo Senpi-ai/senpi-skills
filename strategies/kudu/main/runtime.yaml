@@ -6,14 +6,16 @@
 # name is bought back at the next close that is not overheated. No clocks, no shorts.
 #
 # Why these numbers: replayed on US daily bars Jan 2010 - Nov 2026, entry at the signal close, the stop
-# on the wick, rungs arming on the close, 0.18% round-trip fees: 810 trades across the book (about
-# 0.4 a month per name), 77% winners, profit factor 2.59 (2.45 arming on the bar extreme); every name
-# positive (ORCL and META weakest at 1.9, COST strongest at 6.4); washout entries 2.92; every four-year
-# block positive (2.86 / 5.22 / 2.37 / 2.08); worst book drawdown 31% at these clips. All 486
-# neighbouring settings (RSI 8/10/12, overheat 75/79/83, washout 28/30/32, stop 21/30/40, three
-# ladders, both arming bounds) cleared fees, the worst at 1.76. CAVEAT: the ten names are today's
-# winners, so a 2010-2026 replay of them is flattered by hindsight. The same rule with the Nasdaq 100
-# itself as the "basket" (no stock picking) cleared too: profit factor 3.50, neighbourhood worst 2.18.
+# on the wick, rungs arming on the close, each market charged its own Hyperliquid cost (taker fee both
+# sides, about 0.018% a round trip on these growth-mode xyz markets, plus its measured spread — wider on
+# the thinner books: about 0.05% on AVGO and LLY, 0.08% on COST): 810 trades across the book (about
+# 0.4 a month per name), 77% winners, profit factor 2.65 (2.51 arming on the bar extreme); every name
+# positive (META and ORCL weakest at 1.9, COST strongest at 6.5); every four-year block positive (2.93 /
+# 5.33 / 2.43 / 2.13); worst book drawdown 31% at these clips. All 486 neighbouring settings (RSI
+# 8/10/12, overheat 75/79/83, washout 28/30/32, stop 21/30/40, three ladders, both arming bounds)
+# cleared fees, the worst at 1.82. CAVEAT: the ten names are today's winners, so a 2010-2026 replay of
+# them is flattered by hindsight. The same rule with the Nasdaq 100 itself as the "basket" (no stock
+# picking) cleared too: neighbourhood worst 2.27.
 name: kudu-main
 group: kudu
 version: 1.0.0
