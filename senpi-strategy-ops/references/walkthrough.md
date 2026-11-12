@@ -127,7 +127,8 @@ template, not a choice. Beside the question, one line each, once: **a different 
 ## 5. Fee load and the design budget
 
 Say what the cadence, slots, margin and leverage cost in fees at the budget on the table — a 10-minute
-scanner turning a $200 book pays more in fees than it wins or loses on direction — and say the design
+scanner turning a $200 book pays more in fees than it wins or loses on direction; those are Hyperliquid's
+exchange fees, and Senpi adds none on a paid plan — and say the design
 budget (`min_budget` is the floor; the catalog card says what the design assumes). **Deploying below the
 design budget needs the user's explicit yes after hearing what degrades**; the `[W_BUDGET_*]` warn after
 the fact is not that consent.
