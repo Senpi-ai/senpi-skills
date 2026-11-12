@@ -6,11 +6,12 @@
 # that starts locking at +15%. No clocks.
 #
 # Why these numbers: replayed on the exchange's own daily candles (Aug 2020 - Nov 2026), entry at the
-# signal close, the stop on the wick, rungs arming on the close, 0.18% round-trip fees: 28 trades
-# (about one every two and a half months), 75% winners, profit factor 2.36 (2.18 arming on the bar
-# extreme); every coin's own leg positive. All neighbouring settings (RSI 8/10/12, line 28/30/32,
-# stop 21/30/40, three ladders, both arming bounds) cleared fees, but the worst only at 1.02, and
-# 2022 lost: thinner evidence than Gannet's. At 2x on BTC (tried first) the BTC leg lost money, so
+# signal close, the stop on the wick, rungs arming on the close, each coin charged its Hyperliquid cost
+# (taker 4.5 bps a side on the main dex, about 0.09% a round trip, plus its measured spread): 28
+# trades (about one every two and a half months), 75% winners, profit factor 2.38 (2.20 arming on the
+# bar extreme); every coin's own leg positive. All neighbouring settings (RSI 8/10/12, line 28/30/32,
+# stop 21/30/40, three ladders, both arming bounds) cleared fees, but the worst only at 1.03, and 2022
+# lost: thinner evidence than Gannet's. At 2x on BTC (tried first) the BTC leg lost money (0.71), so
 # every coin is 1x. The short-the-spike half of the rule lost here as on the stock indices.
 name: gannet-crypto-main
 group: gannet-crypto

@@ -72,8 +72,8 @@ def test_the_ladder_only_ever_locks_a_gain():
     assert [(t["trigger_pct"], t["lock_hw_pct"]) for t in tiers] == [(6, 40), (12, 60), (18, 75), (30, 85)]
     assert triggers == sorted(triggers) and len(set(triggers)) == len(triggers)
     assert locks == sorted(locks) and all(0 < lk < 100 for lk in locks)
-    # the first locked floor clears a 0.18% round trip on the index (3x): 6 ROE = 2% of price, 40% kept = 0.8%
-    assert triggers[0] / 3 * locks[0] / 100 > 0.18
+    # the first locked floor is a real profit on the index (3x): 6 ROE = 2% of price, 40% kept = 0.8% of price
+    assert triggers[0] / 3 * locks[0] / 100 >= 0.8
 
 
 def test_the_tick_budget_and_the_gates():
@@ -244,14 +244,15 @@ def test_unreadable_payloads_emit_nothing(monkeypatch):
 
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026), entry at the signal close, the stop on the wick, rungs arming on the
-    close (and on the bar extreme as the upper bound), 0.18% fees per round trip, one position:
+    close (and on the bar extreme as the upper bound), each market charged its Hyperliquid taker fee
+    both sides plus its measured spread, one position:
 
     US daily bars Mar 2010 - Nov 2026 (SOXL; QQQ for XYZ100; SPY for SP500), RSI(10) < 30, stop
-    21 ROE, ladder 6/40 12/60 18/75 30/85: 91 trades, 79% winners, profit factor 2.25; 2010-14
-    1.83, 2014-18 2.69, 2018-22 1.69, 2022-26 2.91. Every one of 324 neighbouring cells (RSI 8/10/12
+    21 ROE, ladder 6/40 12/60 18/75 30/85: 91 trades, 79% winners, profit factor 2.34; 2010-14
+    1.90, 2014-18 2.78, 2018-22 1.76, 2022-26 3.04. Every one of 324 neighbouring cells (RSI 8/10/12
     x line 28/30/32 x stop 15/21/30 x three ladders x both arming bounds x cross/level) above 1.0,
-    the worst 1.42. Hyperliquid's own candles (Oct 2025 - Nov 2026): 14 trades, profit factor 2.51.
-    The short leg (RSI(10) > 79, short the index) lost at every setting: median profit factor 0.48.
+    the worst 1.49. Hyperliquid's own candles (Oct 2025 - Nov 2026): 14 trades, profit factor 2.63.
+    The short leg (RSI(10) > 79, short the index) lost almost everywhere: median profit factor 0.54.
     """
     assert (INPUTS["rsiPeriod"], INPUTS["oversoldRsi"], INPUTS["stopRoePct"]) == (10, 30, 21)
     assert INPUTS["allowedAssets"][0] == "xyz:SOXL"

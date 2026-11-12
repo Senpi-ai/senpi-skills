@@ -104,10 +104,10 @@ def test_the_scanner_reads_the_main_dex_and_buys_the_first_washed_out_coin(monke
 
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026) on Hyperliquid's own daily candles, Aug 2020 - Nov 2026, entry at the
-    signal close, the stop on the wick, rungs arming on the close, 0.18% fees per round trip: 28
-    trades, 75% winners, profit factor 2.36 (2.18 arming on the bar extreme); BTC 13 trades PF 1.86,
-    ETH 5 PF 1.16, SOL 8 and HYPE 2 all winners; 2022 lost (PF 0.39); worst drawdown 15.5% at 20%
-    margin. Every neighbouring cell (RSI 8/10/12 x line 28/30/32 x stop 21/30/40 x ladders
-    wide/wider/widest x both arming bounds) above 1.0, the worst 1.02 — thin, and said so. With BTC
-    at 2x the BTC leg lost (PF 0.64-0.70), which is why every coin is 1x."""
+    signal close, the stop on the wick, rungs arming on the close, each coin charged its taker fee both
+    sides (4.5 bps a side) plus its measured spread: 28 trades, 75% winners, profit factor 2.38 (2.20
+    on the bar extreme); BTC 13 trades PF 1.87, ETH 5 PF 1.17, SOL 8 and HYPE 2 all winners; 2022 lost
+    (PF 0.40); worst drawdown about 15% at 20% margin. Every neighbouring cell (RSI 8/10/12 x line
+    28/30/32 x stop 21/30/40 x ladders wide/wider/widest x both arming bounds) above 1.0, the worst
+    1.03 — thin, and said so. With BTC at 2x the BTC leg lost (PF 0.71), which is why every coin is 1x."""
     assert (INPUTS["rsiPeriod"], INPUTS["oversoldRsi"], INPUTS["stopRoePct"]) == (10, 30, 30)

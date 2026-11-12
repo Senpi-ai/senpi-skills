@@ -6,10 +6,11 @@
 # withdrawable each, instead of only the first at 30%. Gross exposure when one position is open is
 # half Gannet's; when two are open it is the same, split across two markets.
 #
-# Replayed on the same 16.7 years of US daily bars with the same exits and 0.18% fees: 146 trades,
-# profit factor 2.45, every four-year block positive (1.80-2.94), worst drawdown 13% at 15% a slot
-# (Gannet: 91 trades, 2.25, 13.6% at 30%). All 162 neighbouring settings cleared fees, worst profit
-# factor 1.89. Measurement in the commit that added this.
+# Replayed on the same 16.7 years of US daily bars with the same exits and each market's own
+# Hyperliquid cost (taker fee both sides plus measured spread): 146 trades, profit factor 2.56, every
+# four-year block positive (1.91-3.09), worst drawdown 13% at 15% a slot (Gannet: 91 trades, 2.34,
+# 13.5% at 30%). All 162 neighbouring settings cleared fees, worst profit factor 1.98. Measurement in
+# the commit that added this.
 name: gannet-duo-main
 group: gannet-duo
 version: 1.0.0

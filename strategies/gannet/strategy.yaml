@@ -4,8 +4,8 @@
 # closed under 30, buys the first that did, and is otherwise flat in USDC. Long only, one position at
 # a time, DSL-only exits. STARTER tier. Install/teardown via senpi-strategy-ops.
 #
-# The rule's mirror half (short an index whose RSI runs over ~79) was replayed too and lost at every
-# setting, so it is not part of this package. The measurement is in the commit that added it.
+# The rule's mirror half (short an index whose RSI runs over ~79) was replayed too and lost at almost
+# every setting, so it is not part of this package. The measurement is in the commit that added it.
 schema_version: 1
 
 id: gannet
