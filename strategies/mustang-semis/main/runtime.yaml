@@ -8,12 +8,13 @@
 #
 # Replayed on US daily bars Mar 2010 - Nov 2026 (SOXL traded, QQQ's 40-week regime), entry at the
 # signal close, the stop on the wick, rungs arming on the close, charged xyz:SOXL's Hyperliquid cost
-# (taker fee both sides, about 0.018% a round trip in growth mode, plus its measured spread): 131
-# trades, 75% winners, profit factor 2.12 (1.85 arming on the bar extreme); every four-year block
-# positive (2.42 / 3.96 / 1.87 / 1.72); worst drawdown 26% at 20% margin. All 1,458 neighbouring
-# settings cleared fees, the worst at 1.37. The switcher's two SHORT states (overheated: RSI over 80
-# -> short; weak: under the trend -> short) lost on their own at every regime tried (18 of 72 and 0
-# of 72 cells above 1) and are not here. Measurement in the commit that added this.
+# (taker fee both sides, about 0.018% a round trip in growth mode, plus its measured spread) and
+# funding at its 180-day average rate (8.3% a year, longs paying): 131 trades, profit factor 1.96 (1.72
+# arming on the bar extreme); every four-year block positive (2.14 / 3.57 / 1.72 / 1.64); worst
+# drawdown 27% at 20% margin. All 1,458 neighbouring settings cleared, the worst at 1.29 (1.26 with
+# funding stressed to 11% a year). The switcher's two SHORT states (overheated: RSI over 80 -> short;
+# weak: under the trend -> short) lost on their own even receiving funding (21 of 72 and 0 of 72
+# cells above 1) and are not here. Measurement in the commit that added this.
 name: mustang-semis-main
 group: mustang-semis
 version: 1.0.0

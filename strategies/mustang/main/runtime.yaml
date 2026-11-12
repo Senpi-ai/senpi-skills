@@ -11,15 +11,15 @@
 # Why these numbers: replayed on 16.7 years of US daily bars (Mar 2010 - Nov 2026; QQQ for XYZ100,
 # the regime from QQQ's 40-week average exactly as the scanner computes it — it disagrees with the
 # daily 200-day average on 14 of 3,981 days), entry at the signal close, the stop on the wick, rungs
-# arming on the close, charged Hyperliquid's own cost for xyz:XYZ100 (taker fee both sides, about
-# 0.018% a round trip in growth mode, plus its measured spread): 61 trades, 77% winners, profit factor
-# 2.81 (2.49 with rungs arming on the bar extreme), median hold 44 days; uptrend entries 2.96,
-# washouts 2.24; worst drawdown 22.5% at 30% margin. All 1,458 neighbouring settings (average
-# 30/40/50 weeks, RSI 8/10/12, overheat 75/79/83, washout 28/30/32, stop 21/30/40, three ladders,
-# both arming bounds) cleared fees, the worst at 1.85. On the exchange's own candles (Oct 2025 - Nov
-# 2026, the regime read off the US index because the exchange's weekly history is too short to seed
-# it): 5 trades, profit factor 2.7. The downtrend SHORT of the original rule (below the 20-day
-# average) lost at 13 of 15 settings tried and is not here. Measurement in the commit that added this.
+# arming on the close, charged xyz:XYZ100's own Hyperliquid cost (taker fee both sides, about 0.018% a
+# round trip in growth mode, plus its measured spread) and funding at its 180-day average rate for
+# every hour held (5.0% a year on notional, longs paying): 61 trades, 74% winners, profit factor 2.18
+# (1.93 with rungs arming on the bar extreme); uptrend entries 2.26, washouts 1.86; worst drawdown 24%
+# at 30% margin. All 1,458 neighbouring settings (average 30/40/50 weeks, RSI 8/10/12, overheat
+# 75/79/83, washout 28/30/32, stop 21/30/40, three ladders, both arming bounds) cleared, the worst at
+# 1.48; with funding stressed to 11% a year, worst 1.05. On the exchange's own candles (Oct 2025 - Nov
+# 2026, regime read off the US index): 5 trades, profit factor 2.1. The downtrend SHORT of the original
+# rule (below the 20-day average) lost at 12 of 15 settings even receiving funding and is not here.
 name: mustang-main
 group: mustang
 version: 1.0.0
@@ -139,7 +139,7 @@ risk:
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 3
     cooldown_seconds: 86400                # a day after three losses in a row
-    drawdown_halt_pct: 30                  # the wallet-wide hard stop; above the replay's 23% worst drawdown
+    drawdown_halt_pct: 30                  # the wallet-wide hard stop; above the replay's 24% worst drawdown
     drawdown_reset_on_day_rollover: false  # clearing it is a deliberate act (redeploy), not midnight
     per_asset_cooldown_seconds: 300        # the scanner already allows one entry per daily close
 

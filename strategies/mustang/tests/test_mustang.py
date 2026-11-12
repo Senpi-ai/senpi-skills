@@ -207,10 +207,8 @@ def test_the_free_margin_gate_and_unreadable_payloads(monkeypatch):
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026), US daily bars Mar 2010 - Nov 2026 (QQQ for XYZ100, the regime from QQQ's
     40-week average as the scanner computes it), entry at the signal close, the stop on the wick,
-    rungs arming on the close, charged xyz:XYZ100's Hyperliquid taker fee both sides plus its measured
-    spread: 61 trades, 77% winners, profit factor 2.81 (2.49 arming on the bar extreme), uptrend
-    entries 2.96, washouts 2.24, median hold 44 days, worst drawdown 22.5% at 30% margin. 1,458
-    neighbouring cells (average 30/40/50 weeks x RSI 8/10/12 x overheat 75/79/83 x washout 28/30/32 x
-    stop 21/30/40 x three ladders x both arming bounds) all above 1.0, the worst 1.85. The downtrend
-    short (under the 20-day average) lost at 13 of 15 cells."""
+    rungs arming on the close, charged xyz:XYZ100's Hyperliquid taker fee both sides, its measured
+    spread and funding at its 180-day average rate: 61 trades, 74% winners, profit factor 2.18 (1.93 on
+    the bar extreme), worst drawdown 24% at 30% margin. 1,458 neighbouring cells all above 1.0, the
+    worst 1.48 (1.05 with funding stressed to 11% a year). The downtrend short lost at 12 of 15 cells."""
     assert (INPUTS["regimeWeeks"], INPUTS["rsiPeriod"], INPUTS["overheatRsi"], INPUTS["dipRsi"], INPUTS["stopRoePct"]) == (40, 10, 79, 30, 30)
