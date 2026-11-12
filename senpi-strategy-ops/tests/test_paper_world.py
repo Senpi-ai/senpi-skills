@@ -383,8 +383,8 @@ class StatusOneWorld(unittest.TestCase):
         self.runtimes = [{"name": "omega-main", "wallet": LIVE_WALLET, "status": "running"},
                          {"name": "omega-main-paper", "wallet": PAPER_WALLET, "status": "running"}]
         _cli.list_runtimes_or_none = lambda *a, **k: list(self.runtimes)
-        status._openclaw_available = lambda: True
-        _cli.runtime_health_map = lambda: {}
+        status._openclaw_available = lambda **k: True
+        _cli.runtime_health_map = lambda **k: {}
 
     def tearDown(self):
         _cli.list_runtimes_or_none, status._openclaw_available, _cli.runtime_health_map = self._orig
@@ -652,7 +652,7 @@ class DeployPaper(unittest.TestCase):
         deploy._fork_for_deploy = lambda p, a, log: p
         deploy.outside_durable_root = lambda p, cmd, paper=False: None
         deploy.full_validate = lambda p: []
-        deploy.start_request_ids_supported = lambda log: True
+        deploy.start_request_ids_supported = lambda log, as_json=False: True
         try:
             for argv in (["create", "omega", "--budget", "30", "--paper"], ["runtime", "omega", "--paper"],
                          ["create", "omega", "--budget", "30"]):

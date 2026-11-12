@@ -13,7 +13,8 @@
 #   (preflight -> create+fund -> install -> verified tick) and polls it to a terminal report.
 #
 # Exit: 0 when the deploy went through — live (0), installed-unobserved (4) or still running (6),
-# each reported in its own words. Anything else (1 could-not-answer / 2 refused / 3 failed /
+# each reported in its own words. 9 is the out-of-memory stop (a call was SIGKILLed): it aborts with
+# 9 and says stop, never "poll". Anything else (1 could-not-answer / 2 refused / 3 failed /
 # 5 interrupted) aborts carrying the deploy's own code.
 #
 # Host prerequisites: an @senpi-ai/runtime carrying the `senpi deploy` verb, SENPI_AUTH_TOKEN set, and a funding
@@ -59,6 +60,8 @@ case "$RC" in
      echo ">> Check in a few minutes:  openclaw senpi scanner -r <runtime_id>   (ids: openclaw senpi runtime list)" ;;
   6) echo ">> $ID: the deploy job is STILL RUNNING (a wallet may still be funding) — nothing failed."
      echo ">> Watch it:  python3 deploy.py status      (do not re-run this script while the job runs)" ;;
+  9) echo "error: deploy.py stopped because the box is out of memory (exit 9): relay its report above as written; don't re-run or poll now." >&2
+     exit 9 ;;
   *) echo "error: the deploy did not complete (exit $RC) — read the report above, it carries the cause and the next step." >&2
      echo "       The job's own record:  python3 deploy.py status   (on exit 1: read it until it shows the job's outcome, and report that; do not re-run create)" >&2
      exit "$RC" ;;

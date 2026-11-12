@@ -12,6 +12,15 @@ its codes, its branches, its escapes. A box on an older `@senpi-ai/runtime` rend
 some of them differently, which does not make this file a second opinion; it makes it the wrong one.
 Read what the box printed.
 
+## Exit `9` — the out-of-memory stop
+
+Not a refusal and not a verdict: a call on this box was SIGKILLed (`rc -9`), most likely by the
+out-of-memory killer. `deploy.py` (every subcommand), `close.py`, `status.py` and `run.sh` all exit `9`
+for it, and `--json` carries `oom: true`. Out of memory: stop, don't retry or poll now — every further
+command loads the same CLI and is killed too. Tell the user what the stop says (what was and was not
+changed). Safe again when `status.py` exits `0` (it does only once it has read the runtime list; `1`
+or `9` = not yet), then re-run the command the stop names.
+
 ## Refusals (`E_`)
 
 Each of these **stopped something**. The refusal names its own next step; the depth below is for when
@@ -217,6 +226,13 @@ prose:**
 `NO_PROOF` = nothing here has been observed to run; validate the directory the refusal names.
 `CONTENT_CHANGED` = the files differ from the ones that passed, and it names them; **look at the
 edit before re-proving it** — either restore the proven content or validate what is there now.
+For all three, the only fix is a run of `openclaw senpi validate`: **never write, edit or copy a
+`.senpi-proof.json` by hand.** Recomputing its hashes proves nothing ran, and a hand-edited proof
+is a false record that the package passed. If validate itself cannot finish (killed (rc -9, exit 137, or 'Killed'),
+out of memory), the gate stays shut and that is no verdict on the package: report the edit as
+saved, not applied, and stop (exit `9`, the out-of-memory stop every lifecycle script shares).
+Try again only after the box restarts or memory frees — `status.py` exiting `0` is the sign it has
+(it exits `0` only once it has read the runtime list; `1` or `9` = not yet).
 `RUNTIME_VERSION_CHANGED` = the package is untouched and only the engine under it moved (the
 runtime self-updates in place, so this hits packages nobody has touched). **`deploy.py
 create|runtime` repairs that one for you**: it re-runs `senpi validate` once, re-runs the deploy,

@@ -34,7 +34,8 @@ running after the script answers. There is no fallback to the CLI verb. `opencla
 **A START whose reply is lost** (timeout, dropped connection, unreadable answer) may still have been
 taken by the gateway. `deploy.py` waits 2 s, then reads `senpi.deploy.status` up to 3 times, 3 s apart,
 and follows the job that matches. If none turns up it exits `1`: a job MAY BE RUNNING and a wallet may
-already be funded. Run `deploy.py status` until it shows that job's outcome, and do not re-run `create`.
+already be funded. Run `deploy.py status` until it shows that job's outcome (if status exits 9, out of
+memory, stop as that stop says; don't poll now). Never re-run `create`.
 A START the gateway never received (`unknown method`, a command line openclaw rejected, no `openclaw` on
 the host) exits `1` with NOTHING WAS DISPATCHED.
 
@@ -360,7 +361,8 @@ instance) ·
 **`3`** not verified (each instance names what is missing/unhealthy plus the one non-destructive next
 step: `deploy.py create <id> --budget <usd>` where nothing is funded, `deploy.py runtime <id>` on a
 funded runtime-less wallet — each named **with the fact that it installs and starts trading** — and
-`status.py <id>` for degraded/unknown/ambiguous states) · **`1`** could-not-check, fail-closed: if
+`status.py <id>` for degraded/unknown/ambiguous states) · **`9`** out of memory: stop, don't retry
+or poll now; safe again when `status.py` exits `0` · **`1`** could-not-check, fail-closed: if
 `strategy_list`, `runtime list`, `status --json`, **the deploy-job read** or **the package itself**
 cannot be read, NO verdict is rendered at all, the failed read is named, and nothing steers at the
 money path. It never emits a close command. All three verdicts print the SAME `--json` keys on clean
@@ -474,9 +476,10 @@ same predicates and reports them beside its structural verdict), and it is what 
 the fix → re-check → deploy loop.
 
 **Exit codes** for `validate`/`create`/`runtime`/`status` (identical to the verb's; `verify` has its
-own 0/3/1 above): `0` live · `2` refused · `3` failed · `4`
+own 0/3/1/9 above): `0` live · `2` refused · `3` failed · `4`
 installed-unobserved · `5` interrupted · `6` pending (a wallet still funding, or the job still running) ·
-`1` internal/transport error. `2` is **any gate saying no with nothing created past it**: the verb's
+`1` internal/transport error · `9` out of memory (a call was SIGKILLed): stop, don't retry or poll now;
+safe again when `status.py` exits `0` (it does only once it has read the runtime list). `2` is **any gate saying no with nothing created past it**: the verb's
 refusals, and the wrapper's own structural preflight failing on `create`/`runtime` — the same
 check `validate` runs, deterministic, so a bare retry refuses identically. `1` is also the fallback
 for a status the wrapper does not recognise, so a new

@@ -120,7 +120,9 @@ class UnreadableStrategyListRefuses(unittest.TestCase):
     def setUp(self):
         self._or_none, self._runtimes = _cli.list_strategies_or_none, _cli.list_runtimes_or_none
         self._avail = status._openclaw_available
-        status._openclaw_available = lambda: False   # no openclaw here: the runtime read is skipped
+        # A read, empty runtime list: these tests are about the STRATEGY list. (An unread runtime list
+        # exits 1 — only a read one earns exit 0, the out-of-memory way back.)
+        status._openclaw_available = lambda why=None: True
         _cli.list_runtimes_or_none = lambda *a, **k: []
 
     def tearDown(self):

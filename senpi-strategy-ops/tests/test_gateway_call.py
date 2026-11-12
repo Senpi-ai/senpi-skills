@@ -24,6 +24,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -318,6 +319,110 @@ class ProcessGroupKill(unittest.TestCase):
         self.assertEqual((rc, out), (-1, ""))
         self.assertIn("timed out after 1s", err)
         self.assertLess(time.time() - t0, 10)
+
+    def test_run_cli_names_a_signal_kill_instead_of_no_output(self):
+        # A child SIGKILLed mid-bootstrap prints nothing; `rc -9 — no output` read as a mystery and
+        # the same command was retried again and again. The kill is the answer: say so.
+        rc, out, err = _cli.run_cli(
+            [sys.executable, "-c", "import os, signal; os.kill(os.getpid(), signal.SIGKILL)"])
+        self.assertEqual((rc, out), (-9, ""))
+        self.assertEqual(err, "killed by SIGKILL (rc -9) before it answered")
+
+    def test_only_a_real_signal_is_a_kill(self):
+        # No shell sits between us and the CLI, and a Node CLI exits 130/143 on purpose.
+        for rc in (1, 130, 137, 143, -1):           # -1: this module's own timeout/spawn sentinel
+            self.assertEqual(_cli.killed_note(rc), "", rc)
+
+    def test_the_shared_note_is_a_bare_fact_with_no_verb_guidance(self):
+        # It reaches reads, close's delete and deploy's START alike; each says its own next step.
+        for rc in (-9, -15, -11):
+            note = _cli.killed_note(rc)
+            for word in ("re-run", "write", "status.py", "memory", "package"):
+                self.assertNotIn(word, note.lower(), (rc, note))
+
+    def test_out_of_memory_is_said_for_sigkill_only(self):
+        self.assertIn("out of memory", _cli.read_killed_hint(-9))
+        for rc in (-15, -11, -6):
+            self.assertEqual(_cli.read_killed_hint(rc), "", rc)
+
+    def test_status_py_is_the_one_beside_this_module(self):
+        self.assertEqual(Path(_cli.STATUS_PY), Path(_cli.__file__).resolve().with_name("status.py"))
+
+    def test_the_note_is_added_after_stdout_never_in_place_of_it(self):
+        # 10.x writes its error to stdout; `error_tail(err, out)` must still find it under the kill line.
+        rc, out, err = _cli.run_cli([sys.executable, "-c",
+                                     "import os, signal; print('real cause', flush=True); os.kill(os.getpid(), signal.SIGKILL)"])
+        self.assertEqual(rc, -9)
+        self.assertIn("real cause", _cli.error_tail(err, out))
+        self.assertIn("killed by SIGKILL", _cli.error_tail(err, out))
+
+    def test_stdout_is_not_copied_into_stderr(self):
+        # A caller that prints both streams (`deploy.py update`) would print stdout twice.
+        rc, out, err = _cli.run_cli([sys.executable, "-c",
+                                     "import os, signal; print('partial plan', flush=True); os.kill(os.getpid(), signal.SIGKILL)"])
+        self.assertEqual(rc, -9)
+        self.assertIn("partial plan", out)
+        self.assertNotIn("partial plan", err)
+
+    def test_a_banner_only_stderr_does_not_hide_the_stdout_error(self):
+        rc, out, err = _cli.run_cli([sys.executable, "-c",
+                                     "import os, signal, sys; sys.stderr.write('[plugins] loading x\\n'); "
+                                     "sys.stderr.flush(); print('the 10.x error', flush=True); "
+                                     "os.kill(os.getpid(), signal.SIGKILL)"])
+        self.assertEqual(rc, -9)
+        tail = _cli.error_tail(err, out)
+        self.assertIn("the 10.x error", tail)
+        self.assertTrue(tail.endswith("killed by SIGKILL (rc -9) before it answered"), tail)
+
+    def test_error_tail_keeps_the_kill_line_past_the_limit(self):
+        tail = _cli.error_tail("x" * 5000 + "\nkilled by SIGKILL (rc -9) before it answered", "", limit=200)
+        self.assertTrue(tail.endswith("killed by SIGKILL (rc -9) before it answered"), tail)
+        self.assertLessEqual(len(tail), 200 + 60)
+
+    def test_gateway_call_names_the_kill_too(self):
+        with mock.patch.object(_cli, "gateway_argv",
+                               lambda *a, **k: [sys.executable, "-c", "import os, signal; os.kill(os.getpid(), signal.SIGKILL)"]):
+            r = _cli.gateway_call("senpi.deploy.start", {})
+        self.assertEqual(r["rc"], -9)
+        self.assertEqual(r["message"], "killed by SIGKILL (rc -9) before it answered")
+
+    def test_a_killed_read_says_stop_and_never_a_write_may_have_landed(self):
+        kill = [sys.executable, "-c", "import os, signal; os.kill(os.getpid(), signal.SIGKILL)"]
+        with mock.patch.object(_cli, "gateway_argv", lambda *a, **k: kill):
+            why = []
+            self.assertIsNone(_cli.list_runtimes_or_none(why=why))
+            hwhy = []
+            self.assertIsNone(_cli.health_or_none(why=hwhy))
+        for w in (why[0], hwhy[0]):
+            self.assertIn("killed by SIGKILL", w)
+            self.assertIn("stop here", w)
+            self.assertNotIn("may have landed", w)
+
+    def test_a_kill_line_for_an_unnamed_signal_is_set_aside_too(self):
+        # `killed_note` writes `signal <n>` for a signal `signal.Signals` cannot name; that line must
+        # be kept last like any other, and the 10.x error on stdout still found.
+        line = "killed by signal 40 (rc -40) before it answered"
+        tail = _cli.error_tail(line, "the 10.x error")
+        self.assertIn("the 10.x error", tail)
+        self.assertTrue(tail.endswith(line), tail)
+        self.assertEqual(_cli.error_tail("x" * 5000 + "\n" + line, "", limit=200).splitlines()[-1], line)
+
+    def test_a_killed_read_carries_its_rc_so_no_caller_reads_the_wording(self):
+        kill = [sys.executable, "-c", "import os, signal; os.kill(os.getpid(), signal.SIGKILL)"]
+        with mock.patch.object(_cli, "gateway_argv", lambda *a, **k: kill):
+            why, hwhy = [], []
+            _cli.list_runtimes_or_none(why=why)
+            _cli.health_or_none(why=hwhy)
+        self.assertEqual((why[0].rc, hwhy[0].rc), (-9, -9))
+        self.assertTrue(_cli.sigkilled(why) and _cli.sigkilled(hwhy))
+        self.assertFalse(_cli.sigkilled([_cli.Cause("killed by SIGKILL (rc -9) before it answered", 1)]))
+        self.assertFalse(_cli.sigkilled([_cli.Cause("x", -15)]))
+
+    def test_the_read_stop_says_when_to_try_again(self):
+        hint = _cli.read_killed_hint(-9)
+        self.assertIn("stop here", hint)
+        self.assertIn("after the box restarts or memory frees", hint)
+        self.assertIn(_cli.STATUS_PY, hint)
 
 
 def _gw(kind, payload=None, message=None):
