@@ -925,13 +925,13 @@ class StrandedRuntimeSweep(unittest.TestCase):
         self.assertEqual(self.deletes, [])
         self.assertEqual(self.closed, [])
 
-    def test_all_with_nothing_live_sweeps_every_package(self):
+    def test_all_with_nothing_live_sweeps_closed_strategies_only(self):
         every = [dict(self._CLOSED_ROW, skillName="omega"),
                  {"strategyId": "s2", "strategyWalletAddress": "0xdef", "status": "FAILED", "skillName": "beta"}]
         self._box([{"name": "omega-main", "wallet": "0xabc"}, {"name": "beta-main", "wallet": "0xdef"}], every)
         out, code = self._run("--all")
         self.assertEqual(code, 0)
-        self.assertEqual(sorted(self.deletes), ["beta-main", "omega-main"])
+        self.assertEqual(self.deletes, ["omega-main"])     # FAILED may hold a position its DSL guards
         self.assertEqual(self.closed, [])
 
     def test_no_runtime_left_reads_nothing_more(self):

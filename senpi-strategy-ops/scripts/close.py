@@ -178,6 +178,12 @@ def _inventory_or_stop(rerun, as_json, soft=False):
                      f"trading.")
 
 
+# The sweep's statuses: only a strategy that strategy_close flattened. A FAILED/INACTIVE/TERMINATED
+# wallet may still hold a position, and the runtime's DSL is its only stop: deleting the runtime would
+# leave that position unprotected, so those runtimes are left for the user to close.
+_FLATTENED = ("CLOSED", "CLOSING_DONE")
+
+
 def _sweep_targets(mcp, pkg, why, rerun, as_json):
     """`(targets, runtimes)` for the terminal strategies (of `pkg`, or any with `pkg=None`) whose runtime
     still runs: closed outside close.py (the app, a raw strategy_close), they drop out of the LIVE read
@@ -189,7 +195,7 @@ def _sweep_targets(mcp, pkg, why, rerun, as_json):
         return [], runtimes
     every = _read_or_refuse(_cli.list_strategies_or_none(mcp, why=why), why, "every strategy")
     live = [_cli.strategy_wallet(s) for s in every if _cli.strategy_open(s)]
-    stranded = [s for s in every if not _cli.strategy_open(s)
+    stranded = [s for s in every if str(_cli.strategy_status(s) or "").upper() in _FLATTENED
                 and (pkg is None or _cli._match_strategy(s, pkg.id, None, None))
                 and any(_cli.wallet_match(_cli.runtime_wallet(r), _cli.strategy_wallet(s)) for r in runtimes)
                 and not any(_cli.wallet_match(w, _cli.strategy_wallet(s)) for w in live)]
