@@ -1,0 +1,47 @@
+# Mustang — the Nasdaq 100 trend rider. A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. Long xyz:XYZ100 at 3x while the index is above its
+# 40-week (200-trading-day) average and not overheated; below it, only after a washout; otherwise
+# USDC. One position, DSL-only exits with a wide ladder. STARTER tier. Install/teardown via
+# senpi-strategy-ops.
+#
+# The rule's downtrend short (short the index when it is under its 20-day average) was replayed too
+# and lost, so it is not part of this package. The measurement is in the commit that added it.
+schema_version: 1
+
+id: mustang
+version: "1.0.0"
+
+catalog:
+  name: "Mustang — Nasdaq Trend Rider"
+  emoji: "🐎"
+  tagline: "Rides the Nasdaq 100 (xyz:XYZ100) at 3x while its long-term trend is up, and steps aside when it is not. At each daily close it buys if the index is above its 40-week (200-trading-day) average and its 10-day RSI is not overheated (under 79); below that average it buys only a washout (RSI under 30). Long only, one position, flat in USDC otherwise, and a wide trailing stop that lets a trend run for weeks or months."
+  belief_plain: "Tech stocks spend most of their time in long uptrends, and the expensive mistakes are fighting the trend or buying at a blow-off top. Once a day it checks whether the Nasdaq is above its long-term average: if it is and the index has not just run up too hard, it buys; if the trend is down, it waits for a real washout before buying. It never shorts. One position at a time, a stop 10% below the entry, and a ratchet that starts locking in the gain after a 5% rise and tightens as the trend extends."
+  thesis: "You believe in big tech for the long run and want leveraged exposure only when the trend is on your side: in the market through the long bull runs, out of the way when the index breaks its long-term trend, and back in on a real crash. It trades a handful of times a year, holds for weeks to months, and accepts that a 3x position will see deep swings on the way."
+  group: single-asset
+  archetype: trend_following
+  sub_style: broad_index
+  asset_classes: [indices]
+  asset_scope: single
+  direction: long_only
+  risk_level: moderate
+  tier: starter
+  time_horizon: position
+  leverage_max: 3
+  max_slots: 1
+  assets: ["xyz:XYZ100"]
+  tags: [nasdaq, nasdaq-100, xyz100, qqq, tech, big-tech, index, indices, long-term,
+         trend-following, 200-day, moving-average, regime, buy-the-dip, washout, rsi, overbought-filter,
+         long-only, leveraged-index, 3x, single-asset, xyz, slow, low-turnover, onboarding,
+         let-winners-run, dsl-only]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: MUSTANG_WALLET
+    funding_share: 1.0

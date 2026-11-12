@@ -1,0 +1,44 @@
+# Mustang S&P — Mustang's rule on the S&P 500, timed by the Nasdaq 100's long-term trend. A
+# single-instance PACKAGE: this manifest + one self-contained runtime.yaml + scanners/ byte-identical
+# to strategies/mustang (tests/test_engine_parity.py pins them). Long xyz:SP500 at 3x while xyz:XYZ100
+# is above its 40-week average and the S&P is not overheated; in a downtrend only after a washout;
+# otherwise USDC. STARTER tier. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: mustang-sp500
+version: "1.0.0"
+
+catalog:
+  name: "Mustang S&P — S&P 500 Trend Rider"
+  emoji: "🐎"
+  varies: mustang
+  tagline: "Mustang's rule on the S&P 500 (xyz:SP500) instead of the Nasdaq: at 3x while the Nasdaq 100's long-term trend is up (above its 40-week average) and the S&P's 10-day RSI is not overheated (under 79); in a downtrend only after a washout (RSI under 30). Long only, one position, flat in USDC otherwise, and the same wide trailing stop."
+  belief_plain: "The same idea as Mustang, on the broader and calmer S&P 500: own it with leverage while the market's long-term trend is up, skip the moments it has just run up too hard, and in a downtrend wait for a real washout before buying. The trend is read off the Nasdaq 100, whose long history on the exchange is long enough to measure it. It never shorts; one position, a stop 10% below the entry, and a ratchet that locks in the gain as it grows."
+  thesis: "You want leveraged exposure to the whole US market rather than just tech, but only while the trend is on your side. It trades a few times a year, holds for weeks to months, and sits in cash when the trend breaks."
+  group: single-asset
+  archetype: trend_following
+  sub_style: broad_index
+  asset_classes: [indices]
+  asset_scope: single
+  direction: long_only
+  risk_level: moderate
+  tier: starter
+  time_horizon: position
+  leverage_max: 3
+  max_slots: 1
+  assets: ["xyz:SP500"]
+  tags: [sp500, s-and-p, spy, us-stocks, index, indices, long-term, trend-following, 200-day,
+         moving-average, regime, buy-the-dip, washout, rsi, overbought-filter, long-only,
+         leveraged-index, 3x, single-asset, xyz, slow, low-turnover, let-winners-run, dsl-only]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: MUSTANG_SP500_WALLET
+    funding_share: 1.0

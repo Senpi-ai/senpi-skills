@@ -309,6 +309,14 @@
       "behaviour": "d1dede2daa8645ff",
       "version": "1.0.1"
     },
+    "mustang": {
+      "behaviour": "e9a906c7db7f6fd7",
+      "version": "1.0.0"
+    },
+    "mustang-sp500": {
+      "behaviour": "f462f29d34ec0b34",
+      "version": "1.0.0"
+    },
     "octopus": {
       "behaviour": "44ea159a42e07100",
       "version": "1.2.1"
