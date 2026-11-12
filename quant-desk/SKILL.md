@@ -47,7 +47,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.49.2"
+  version: "1.49.3"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -79,10 +79,11 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    If a run really is dead, the state dir is the shared surface: the finished desk lands in the same
    file, so a fresh `--section overview` after it completes is instant.
 
-   **PASS `yieldMs`, NOT JUST `timeout` — this is the single most common way a reader gets no desk.**
-   `timeout` is the hard kill; **`yieldMs` is how long exec WAITS before handing you a background
-   handle instead of the output.** Without it the tool backgrounds the run at **~10 seconds** no
-   matter how large a `timeout` you passed, and you get
+   **PASS `yieldMs`, NOT JUST THE HARD KILL — this is the single most common way a reader gets no
+   desk.** The hard kill (seconds) is `timeoutSeconds` when the exec tool lists it, otherwise `timeout`.
+   Send only the one the exec tool lists. **`yieldMs` is how long exec WAITS before handing you a
+   background handle instead of the output.** Without it the tool backgrounds the run at
+   **~10 seconds** no matter how large a hard kill you passed, and you get
    `Command still running (session …, pid …)` with a progress tail — not a desk. Measured over 24h:
 
    | `yieldMs` passed | what came back | runs | got the score |
@@ -91,14 +92,14 @@ compare). Run it plain (`--mine`) unless the user asks for the analyst read; the
    | 5000 / 15000 | backgrounded at exactly that | 2 | **0** |
    | 120000 / 190000 | the finished desk, in 39-49s | 3 | **3** |
 
-   So: **`yieldMs: 190000` together with `timeout: 200`** on the first desk call. The desk itself is
-   not slow — it lands in well under a minute on a normal book. Twenty-one runs across seventeen
-   users produced nothing last window purely because the wait was ten seconds.
+   So: **`yieldMs: 190000` together with a hard kill of 200 seconds** on the first desk call. The desk
+   itself is not slow — it lands in well under a minute on a normal book. Twenty-one runs across
+   seventeen users produced nothing last window purely because the wait was ten seconds.
 
-   `timeout` still matters as the hard kill — give a desk on a wide book **at least 180s** of
-   `timeout`, because at 120s the exec tool SIGTERMs it mid-run and you get nothing after paying the
-   whole cost. The two are not alternatives: `timeout` decides when the run is killed, `yieldMs`
-   decides when you stop waiting for it. You need both.
+   The hard kill still matters — give a desk on a wide book **at least 180s** of it, because at 120s
+   the exec tool SIGTERMs it mid-run and you get nothing after paying the whole cost. The two are not
+   alternatives: the hard kill decides when the run is killed, `yieldMs` decides when you stop
+   waiting for it. You need both.
 
    If you DO get a background handle, you are not finished: poll it (`process poll <sessionId>`)
    until it exits and relay what it printed. Abandoning the handle is how a user ends up with a
