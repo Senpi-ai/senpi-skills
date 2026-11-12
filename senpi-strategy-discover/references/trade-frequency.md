@@ -9,12 +9,10 @@ This is not hypothetical. Measured on 2026-10-12:
 
 | strategy | what the user would have assumed | what actually happened |
 |---|---|---|
-| `shadow` | a copy-trader — constant activity | **0 fills, ever**, across 10 installs; all 10 wallets withdrawn to $0 |
 | `condor` | "One Amazing Trade per Day" — its own name | 69 closes across 6 users, **44% of realized PnL paid in fees**, 5 of 6 net negative |
 | `moose` | a crossover system — a few a week | **13 entries in 120 days** across 3 coins, including a 24-day gap |
 
-Every one of those is a frequency mismatch, not a returns mismatch. Shadow's users did not
-leave because it lost money — it never traded at all.
+Each of those is a frequency mismatch, not a returns mismatch.
 
 ## The rule
 
@@ -35,8 +33,8 @@ actually did. Never estimate when you can count. Two ways:
   functions with only the data visible at that bar, and count the bars where it would have
   fired. This is how moose's "13 in 120 days" was produced, and it is the method in
   `feedback_measure_before_calling_a_scanner_starved`.
-- *Live*: count fills on the wallets already running it. This is how shadow's "0 fills ever"
-  and condor's "69 closes, 44% fees" were produced.
+- *Live*: count fills on the wallets already running it. This is how condor's "69 closes, 44% fees"
+  was produced.
 
 **2. Ceiling (always available).** The config imposes hard caps even when you cannot measure
 the pass rate. These are honest upper bounds, and they are often far below what a user
