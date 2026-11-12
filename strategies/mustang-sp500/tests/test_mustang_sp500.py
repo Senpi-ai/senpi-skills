@@ -98,7 +98,7 @@ def test_the_scanner_reads_the_regime_and_the_traded_market(monkeypatch):
 
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026), US daily bars Mar 2010 - Nov 2026, SPY traded with QQQ's 40-week regime,
-    Mustang's exits, 0.18% fees per round trip: 46 trades, 78% winners, profit factor 2.99 (2.78 on
-    the bar extreme), blocks 2.73 / 5.98 / 2.81 / 2.37, worst drawdown 21% at 30% margin. 1,458
-    neighbouring cells all above 1.0, the worst 1.96."""
+    Mustang's exits, charged xyz:SP500's Hyperliquid taker fee both sides plus its measured spread: 46
+    trades, 78% winners, profit factor 3.09 (2.89 on the bar extreme), blocks 2.85 / 6.15 / 2.91 /
+    2.46, worst drawdown 21% at 30% margin. 1,458 neighbouring cells all above 1.0, the worst 2.06."""
     assert (INPUTS["regimeWeeks"], INPUTS["overheatRsi"], INPUTS["dipRsi"], INPUTS["stopRoePct"]) == (40, 79, 30, 30)

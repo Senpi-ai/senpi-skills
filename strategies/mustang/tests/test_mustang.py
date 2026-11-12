@@ -60,7 +60,7 @@ def test_the_ladder_only_ever_locks_a_gain():
     assert tiers == [(15, 30), (25, 45), (40, 60), (60, 75), (100, 85)]
     assert [t for t, _ in tiers] == sorted(t for t, _ in tiers)
     assert all(0 < lk < 100 for _, lk in tiers)
-    assert tiers[0][0] / INPUTS["leverage"] * tiers[0][1] / 100 > 0.18      # first floor clears a round trip
+    assert tiers[0][0] / INPUTS["leverage"] * tiers[0][1] / 100 >= 1.5      # first floor: +1.5% of price, a real profit
 
 
 def test_the_rails():
@@ -207,9 +207,10 @@ def test_the_free_margin_gate_and_unreadable_payloads(monkeypatch):
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026), US daily bars Mar 2010 - Nov 2026 (QQQ for XYZ100, the regime from QQQ's
     40-week average as the scanner computes it), entry at the signal close, the stop on the wick,
-    rungs arming on the close, 0.18% fees per round trip: 61 trades, 77% winners, profit factor 2.71
-    (2.39 arming on the bar extreme), uptrend entries 2.87, washouts 2.14, median hold 44 days, worst
-    drawdown 23% at 30% margin. 1,458 neighbouring cells (average 30/40/50 weeks x RSI 8/10/12 x
-    overheat 75/79/83 x washout 28/30/32 x stop 21/30/40 x three ladders x both arming bounds) all
-    above 1.0, the worst 1.76. The downtrend short (under the 20-day average) lost at 13 of 15 cells."""
+    rungs arming on the close, charged xyz:XYZ100's Hyperliquid taker fee both sides plus its measured
+    spread: 61 trades, 77% winners, profit factor 2.81 (2.49 arming on the bar extreme), uptrend
+    entries 2.96, washouts 2.24, median hold 44 days, worst drawdown 22.5% at 30% margin. 1,458
+    neighbouring cells (average 30/40/50 weeks x RSI 8/10/12 x overheat 75/79/83 x washout 28/30/32 x
+    stop 21/30/40 x three ladders x both arming bounds) all above 1.0, the worst 1.85. The downtrend
+    short (under the 20-day average) lost at 13 of 15 cells."""
     assert (INPUTS["regimeWeeks"], INPUTS["rsiPeriod"], INPUTS["overheatRsi"], INPUTS["dipRsi"], INPUTS["stopRoePct"]) == (40, 10, 79, 30, 30)

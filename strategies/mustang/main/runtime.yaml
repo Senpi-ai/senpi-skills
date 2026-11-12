@@ -11,14 +11,15 @@
 # Why these numbers: replayed on 16.7 years of US daily bars (Mar 2010 - Nov 2026; QQQ for XYZ100,
 # the regime from QQQ's 40-week average exactly as the scanner computes it — it disagrees with the
 # daily 200-day average on 14 of 3,981 days), entry at the signal close, the stop on the wick, rungs
-# arming on the close, 0.18% round-trip fees: 61 trades, 77% winners, profit factor 2.71 (2.39 with
-# rungs arming on the bar extreme), median hold 44 days; uptrend entries 2.87, washouts 2.14; worst
-# drawdown 23% at 30% margin. All 1,458 neighbouring settings (average 30/40/50 weeks, RSI 8/10/12,
-# overheat 75/79/83, washout 28/30/32, stop 21/30/40, three ladders, both arming bounds) cleared
-# fees, the worst at 1.76. On the exchange's own candles (Oct 2025 - Nov 2026, the regime read off
-# the US index because the exchange's weekly history is too short to seed it): 5 trades, profit
-# factor 2.6. The downtrend SHORT of the original rule (below the 20-day average) lost at 13 of 15
-# settings tried and is not here. Measurement in the commit that added this.
+# arming on the close, charged Hyperliquid's own cost for xyz:XYZ100 (taker fee both sides, about
+# 0.018% a round trip in growth mode, plus its measured spread): 61 trades, 77% winners, profit factor
+# 2.81 (2.49 with rungs arming on the bar extreme), median hold 44 days; uptrend entries 2.96,
+# washouts 2.24; worst drawdown 22.5% at 30% margin. All 1,458 neighbouring settings (average
+# 30/40/50 weeks, RSI 8/10/12, overheat 75/79/83, washout 28/30/32, stop 21/30/40, three ladders,
+# both arming bounds) cleared fees, the worst at 1.85. On the exchange's own candles (Oct 2025 - Nov
+# 2026, the regime read off the US index because the exchange's weekly history is too short to seed
+# it): 5 trades, profit factor 2.7. The downtrend SHORT of the original rule (below the 20-day
+# average) lost at 13 of 15 settings tried and is not here. Measurement in the commit that added this.
 name: mustang-main
 group: mustang
 version: 1.0.0
@@ -99,7 +100,7 @@ actions:
 # Every threshold is ROE (% of margin); at 3x its distance in PRICE is ROE / 3. Stop 10% of price;
 # rungs arm at +5% / +8.3% / +13.3% / +20% / +33% and lock 30 / 45 / 60 / 75 / 85% of the best gain.
 # The first lock is low on purpose: an uptrend entry is a long hold, and a ladder that locks hard
-# early sells the trend at its first wobble (the tighter ladders replayed at 1.8-1.9).
+# early sells the trend at its first wobble (the tighter ladders replayed lower).
 # Clock cuts are OFF: of 142 clock-driven closes measured in one fleet week, 110 were in profit.
 exit:
   engine: dsl

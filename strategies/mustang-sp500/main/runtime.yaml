@@ -7,10 +7,11 @@
 # position, the same wide DSL ladder, no clocks.
 #
 # Replayed on the same 16.7 years of US daily bars (SPY traded, QQQ's 40-week regime), same exits,
-# 0.18% fees: 46 trades, 78% winners, profit factor 2.99 (2.78 arming on the bar extreme), every
-# four-year block positive (2.73 / 5.98 / 2.81 / 2.37), worst drawdown 21% at 30% margin. All 1,458
-# neighbouring settings cleared fees, the worst at 1.96. With the S&P's own regime instead: 43
-# trades, 3.68, neighbourhood worst 1.98. Measurement in the commit that added this.
+# charged xyz:SP500's Hyperliquid cost (taker fee both sides, about 0.018% a round trip in growth mode,
+# plus its measured spread): 46 trades, 78% winners, profit factor 3.09 (2.89 arming on the bar
+# extreme), every four-year block positive (2.85 / 6.15 / 2.91 / 2.46), worst drawdown 21% at 30%
+# margin. All 1,458 neighbouring settings cleared fees, the worst at 2.06. With the S&P's own regime
+# instead: 43 trades, 3.81, neighbourhood worst 2.08. Measurement in the commit that added this.
 name: mustang-sp500-main
 group: mustang-sp500
 version: 1.0.0

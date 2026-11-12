@@ -100,7 +100,8 @@ def test_the_scanner_reads_the_regime_and_the_traded_market(monkeypatch):
 
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026), US daily bars Mar 2010 - Nov 2026, SOXL traded at 1x with QQQ's 40-week
-    regime, Mustang's exits, 0.18% fees per round trip: 131 trades, 75% winners, profit factor 2.09
-    (1.83 on the bar extreme), blocks 2.39 / 3.91 / 1.84 / 1.70, worst drawdown 27% at 20% margin.
-    1,458 neighbouring cells all above 1.0, the worst 1.35. The short states lost on their own."""
+    regime, Mustang's exits, charged xyz:SOXL's Hyperliquid taker fee both sides plus its measured
+    spread: 131 trades, 75% winners, profit factor 2.12 (1.85 on the bar extreme), blocks 2.42 / 3.96 /
+    1.87 / 1.72, worst drawdown 26% at 20% margin. 1,458 neighbouring cells all above 1.0, the worst
+    1.37. The short states lost on their own."""
     assert (INPUTS["regimeWeeks"], INPUTS["overheatRsi"], INPUTS["dipRsi"], INPUTS["stopRoePct"]) == (40, 79, 30, 30)
