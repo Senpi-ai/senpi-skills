@@ -31,6 +31,7 @@ import calendar
 import json
 import math
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -51,9 +52,23 @@ QUIET_AFTER_HOURS = 48      # a strategy whose newest CLOSE is older than this i
 #   catalog  (templates only, our packages)                      →  extra facets when present
 # Neither is agent memory; the runtime outranks the catalog.
 
+# The `openclaw senpi …` verbs wrap one gateway method each, but on OpenClaw 10.x every verb first
+# copies and hashes the runtime's dependency tree (30-160 s). `gateway call` loads no plugins and takes
+# about 1 s. Vendored from senpi-strategy-ops/scripts/_cli.py (test_name_reader_parity.py pins the copy).
+READ_RPC_MS = 15000
+
+
+def gateway_argv(method, params=None, rpc_timeout_ms=READ_RPC_MS):
+    """The exact `openclaw gateway call` argv for one method (also what `--dry-run` prints). Every
+    call passes its own `--timeout`: the CLI default is 10 s on 5.7, 5.12 and 10.x. Params are JSON
+    with `allow_nan=False`, so a non-finite number raises ValueError here, before anything runs."""
+    return ["openclaw", "gateway", "call", method, "--json", "--timeout", str(int(rpc_timeout_ms)),
+            "--params", json.dumps(params or {}, allow_nan=False)]
+
+
 # ASK THE RUNTIME, don't guess at its files. Every registry-derived field on this surface comes from
-# this ONE command — the process that owns the registry, answering through its own CLI.
-RUNTIME_LIST_CMD = ["openclaw", "senpi", "runtime", "list", "--json"]
+# this ONE call — the process that owns the registry, answering through the gateway.
+RUNTIME_LIST_CMD = gateway_argv("senpi.listRuntimes")
 RUNTIMES_FIXTURE_ENV = "SENPI_RUNTIMES_FIXTURE"     # offline test hook (see load_runtime_registry)
 # The producer's exact blind-runtime status is `running — NO ENTRY SCANNERS` (em dash, U+2014). Matched
 # on the phrase, not the whole string, so a dash/spacing drift cannot silently repaint blind as healthy.
@@ -68,7 +83,7 @@ STATUS_FIXTURE_ENV = "SENPI_STATUS_FIXTURE"
 # ONE call for every runtime's health — the document `senpi-strategy-ops/scripts/_cli.py`'s
 # `runtime_health_map` reads. A per-runtime `status -r <id>` costs a plugin start each (~2-3 s) and
 # ran sequentially, so the `strategies` step grew with the runtime count and blew the exec window.
-FLEET_STATUS_CMD = ["openclaw", "senpi", "status", "--json"]
+FLEET_STATUS_CMD = gateway_argv("senpi.getHealthStatus")
 
 CATALOG_REF = os.environ.get("SENPI_SKILLS_REF", "main")
 CATALOG_URL = f"https://raw.githubusercontent.com/Senpi-ai/senpi-skills/{CATALOG_REF}/strategies/catalog.json"
@@ -84,29 +99,112 @@ CATALOG_KEYS = ("belief_plain", "thesis", "archetype", "archetype_label", "sub_s
 SPAWN_FAILED_PREFIX = "command not found: "
 
 
+def _cli_env():
+    """The child env every openclaw call gets.
+
+    SENPI_LOG_LEVEL=error keeps the senpi plugin's info logs (printed to STDOUT) out of `--json`
+    output. OPENCLAW_NO_RESPAWN=1 keeps the CLI in ONE process: `openclaw` otherwise re-executes
+    itself to add node flags, and on OpenClaw 10.x, when stdio is not a TTY (always the case here),
+    that worker is spawned `detached` into its own process group (`entry.respawn.ts`,
+    `process/respawn-child-runner.ts`). A group kill of our child then misses the worker, and a
+    timed-out START keeps running and can still deliver after this script reported (RT566-08). The
+    flag is honoured by 5.7, 5.12 and 10.10 (`entry.respawn.ts`, `isTruthyEnvValue(env.OPENCLAW_NO_RESPAWN)`).
+
+    SENPI_OPENCLAW_CLI_SKIP_PLUGIN_CAPTURE=1 lets an `openclaw senpi …` call skip the 10.x plugin
+    generation capture (two copies + hashes of the runtime's whole install tree, ~18 s of a 25 s
+    `senpi validate`). Only an agent image carrying the senpi-agent #102 dist patch reads it, and only
+    for the `runtime` plugin; 5.x and unpatched 10.x read nothing by this name, so it is inert there.
+    Built-in calls (`gateway call`, `--version`) load no plugins, so it is a no-op on them too."""
+    return dict(os.environ, SENPI_LOG_LEVEL="error", OPENCLAW_NO_RESPAWN="1",
+                SENPI_OPENCLAW_CLI_SKIP_PLUGIN_CAPTURE="1")
+
+
+def _kill_tree(p):
+    """Stop a child started with `start_new_session=True` and everything in its process group:
+    SIGTERM to the group, 2 s grace, then SIGKILL to the group ALWAYS, then reap. Never raises.
+
+    The SIGKILL is unconditional: the leader exiting on SIGTERM says nothing about the rest of its
+    group, and a member that ignores SIGTERM would otherwise outlive the call and hold the output
+    pipes open (so the caller's read blocks on it)."""
+    try:
+        os.killpg(p.pid, signal.SIGTERM)
+    except OSError:
+        pass
+    try:
+        p.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    try:
+        p.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def _spawn(args, timeout):
+    """Run `args` in its own session with stdin closed. Returns
+    `(rc, stdout, stderr, timed_out, spawn_error)`. On timeout the whole process group is killed
+    (`_kill_tree`), so nothing the call started outlives the answer this script gives."""
+    try:
+        p = subprocess.Popen(args, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, env=_cli_env(),
+                             start_new_session=True)
+    except OSError as e:
+        return -1, "", "", False, e
+    try:
+        out, err = p.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_tree(p)
+        try:
+            out, err = p.communicate(timeout=5)
+        except (subprocess.TimeoutExpired, ValueError, OSError):
+            out, err = "", ""
+        return -1, out or "", err or "", True, None
+    out, err, note = out or "", err or "", killed_note(p.returncode)
+    if note:  # the fact only, on stderr; stdout stays where it was (`error_tail` reads both)
+        err = "\n".join(t for t in (err.rstrip(), note) if t)
+    return p.returncode, out, err, False, None
+
+
+def killed_note(rc):
+    """The bare fact when a child died by signal: Python's `rc < -1`. Never a `128 + n` exit: the
+    CLI is exec'd with no shell, and a Node CLI exits 130/143 on purpose from its own signal handlers.
+    `-1` is this module's own timeout/spawn sentinel, never a signal here.
+
+    A SIGKILLed CLI prints nothing, and `rc -9, no output` read as a mystery: the same command was
+    retried again and again into a box that kept killing it. This line says only what happened. What
+    to do next depends on the verb (a read, a write, a poll), so the caller says it."""
+    n = -rc if rc < -1 else None
+    if n is None:
+        return ""
+    try:
+        name = signal.Signals(n).name
+    except ValueError:
+        name = f"signal {n}"
+    return f"killed by {name} (rc {rc}) before it answered"
+
+
 def _run_cli(args, timeout=60):
     """Run a CLI command; return (returncode, stdout, stderr). rc=-1 on spawn failure/timeout —
     `SPAWN_FAILED_PREFIX` on stderr distinguishes the never-ran case from the stopped-waiting one.
     NEVER raises for a failure to run: EVERY spawn-side OSError is caught, not just the missing
     binary, because a caller that dies here takes the whole script's output with it.
 
-    Suppresses the senpi plugin's info logs (which it prints to STDOUT and which otherwise corrupt
-    `--json` output) by forcing SENPI_LOG_LEVEL=error in the child env."""
-    env = dict(os.environ, SENPI_LOG_LEVEL="error")
-    try:
-        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
-        return p.returncode, p.stdout, p.stderr
-    except subprocess.TimeoutExpired:
-        return -1, "", f"timed out after {timeout}s: {' '.join(args)}"
-    except OSError as e:
+    The child runs in its own process group with stdin closed, and a timeout kills the whole group
+    (see `_cli_env` for why one process is not enough on 10.x)."""
+    rc, out, err, timed_out, spawn_error = _spawn(args, timeout)
+    if spawn_error is not None:
+        e = spawn_error
         # The command NEVER RAN. FileNotFoundError (no such binary) is the common case; the rest are
-        # fork/exec failures a strained box really does produce — ENOMEM ("Cannot allocate memory"),
-        # EAGAIN (process-table exhaustion), EACCES, ENOEXEC. All of them are the never-ran event, so
-        # all of them carry SPAWN_FAILED_PREFIX: the distinction the money path makes is never-ran vs
-        # stopped-waiting, and only a timeout is the latter. Catching only FileNotFoundError let an
-        # ENOMEM fork failure propagate out of the read and kill the caller mid-run.
+        # fork/exec failures a strained box really does produce (ENOMEM, EAGAIN, EACCES, ENOEXEC).
         return -1, "", f"{SPAWN_FAILED_PREFIX}{args[0]}" + ("" if isinstance(e, FileNotFoundError)
                                                             else f" ({e})")
+    if timed_out:
+        return -1, "", f"timed out after {timeout}s: {' '.join(args)}"
+    return rc, out, err
 
 
 def _extract_json(text):
@@ -292,8 +390,8 @@ def _runtime_read_failed(meta, cause):
 def load_runtime_registry(meta):
     """wallet_lower → the engine's rendered descriptor, for every runtime the RUNTIME says it has.
 
-    SOURCE: `openclaw senpi runtime list --json` — the process that owns the registry, asked through
-    its own CLI. This used to resolve `~/.openclaw/senpi-state` by hand, which is `/root/…` on a box
+    SOURCE: the `senpi.listRuntimes` gateway method — the process that owns the registry, asked
+    directly. This used to resolve `~/.openclaw/senpi-state` by hand, which is `/root/…` on a box
     where OpenClaw lives under `/data/…`: the read failed on every real host and said nothing.
     FAIL-LOUD: a failed read returns (None, None, None) — three Nones, NOT empty maps — so callers
     render "could not verify" rather than a reassuring false. Offline test hook:
@@ -310,6 +408,9 @@ def load_runtime_registry(meta):
         rc, out, err = _run_cli(RUNTIME_LIST_CMD, timeout=30)
         payload = _extract_json(out)          # stdout carries `[plugins]` banners on a real box
         if payload is None:                   # spawn failure, timeout, or nothing parseable on stdout
+            if rc < -1:                       # killed: any further read would be too
+                meta["_telemetry_dead"] = True
+                return _runtime_read_failed(meta, _killed_read(rc))
             return _runtime_read_failed(meta, (err or "").strip()[:200] or f"exit {rc}, no JSON on stdout")
     if not isinstance(payload, dict):
         return _runtime_read_failed(meta, "output was not a JSON object")
@@ -366,9 +467,18 @@ def _profile_from_descriptor(desc):
 # Registry presence says a runtime was DEPLOYED; telemetry says it's actually RUNNING/healthy. Same
 # fail-open + fixture pattern as senpi-improve-trades' event-log read: absence degrades to "unknown" (never
 # a false "broken"), and once a host shows no CLI we stop shelling out.
-def _note_telemetry_unavailable(meta, msg):
-    """One-time telemetry warning; marks meta so the rollup can say liveness is unverified (registry-only)."""
-    if not meta.get("_telemetry_warned"):
+def _killed_read(rc):
+    """A killed runtime read, in words: the bare fact, the out-of-memory reading only for SIGKILL (a
+    SIGTERM from a container stop or a SIGSEGV is not that), and that it was not retried."""
+    oom = ", most likely out of memory" if rc == -signal.SIGKILL else ""
+    return f"{killed_note(rc)}{oom} — not retried"
+
+
+def _note_telemetry_unavailable(meta, msg, always=False):
+    """One-time telemetry warning; marks meta so the rollup can say liveness is unverified (registry-only).
+    `always=True` is for a kill: an earlier, milder note must not swallow the one that says the box is
+    killing its reads (each kill also sets `_telemetry_dead`, so it still prints once per run)."""
+    if always or not meta.get("_telemetry_warned"):
         meta.setdefault("warnings", []).append(f"telemetry: {msg}")
         meta["_telemetry_warned"] = True
 
@@ -393,16 +503,39 @@ def _fleet_statuses(meta):
     print("reading runtime health (one status call for the whole fleet)…", file=sys.stderr, flush=True)
     for _ in range(2):
         rc, out, err = _run_cli(FLEET_STATUS_CMD, timeout=30)
+        if rc < -1:                                # killed: the per-id reads would be too
+            meta["_telemetry_dead"] = True
+            _note_telemetry_unavailable(meta, f"runtime status read {_killed_read(rc)}; liveness unverified",
+                                        always=True)
+            return None
         if rc != 0:
-            head = (err or "")[:200]
+            head = (err or out or "")[:200]       # 10.x writes a gateway error to stdout, 5.x to stderr
             if head.startswith(SPAWN_FAILED_PREFIX) or "unknown method" in head.lower():
                 return None                        # a dead host; the per-id path says so once and stops
+            timed_out = _read_timed_out(out, err)
+            if timed_out:                          # the per-id reads would wait the same: don't run N more
+                meta["_telemetry_dead"] = True
+                _note_telemetry_unavailable(meta, f"runtime status read {timed_out} — liveness unverified")
+                return None
             continue
         data = _extract_json(out)
         recs = _status_entries(data) if isinstance(data, dict) else []
         if recs:
             meta["_fleet_statuses"] = recs
             return recs
+    return None
+
+
+def _read_timed_out(out, err):
+    """How a failed read ran out of time, or None: our wall clock fired (`timed out after Ns`), or the
+    gateway's own RPC timeout (5.x `GatewayTransportError: … timeout …` on stderr, 10.x a
+    `gateway_transport_error` envelope on stdout)."""
+    err = err or ""
+    if err.startswith("timed out"):
+        return err.split(":")[0]
+    text = f"{err}\n{out or ''}".lower()
+    if ("gatewaytransporterror" in text or "gateway_transport_error" in text) and "timeout" in text:
+        return "timed out (gateway RPC timeout)"
     return None
 
 
@@ -437,16 +570,22 @@ def _fetch_runtime_status(runtime_id, meta):
             _note_telemetry_unavailable(meta, f"status fixture unreadable ({e})")
             return None
     fleet = _fleet_statuses(meta)
+    if meta.get("_telemetry_dead"):               # the fleet read timed out: this per-id read would too
+        return None
     if fleet:
         # The per-runtime slice of the fleet document, in the shape the `-r <id>` call prints, so
         # `_liveness_from_status` / `_risk_pause_from_status` read both paths identically. An id the
         # fleet document does not list gets an EMPTY `statuses` — the same answer the per-id call
         # gives for a runtime that is registered but not running — which maps to 'unknown'.
         return {"ok": True, "statuses": [r for r in fleet if _record_is(r, runtime_id)]}
-    rc, out, err = _run_cli(["openclaw", "senpi", "status", "-r", str(runtime_id), "--json"], timeout=20)
+    rc, out, err = _run_cli(gateway_argv("senpi.getHealthStatus", {"runtimeId": str(runtime_id)}), timeout=20)
     if rc != 0:
-        err = (err or "")[:200]
-        if err.startswith(SPAWN_FAILED_PREFIX):   # not a runtime host → every call fails; stop shelling out
+        err = (err or out or "")[:200]            # 10.x writes a gateway error to stdout, 5.x to stderr
+        if rc < -1:                               # killed: the next id would be too
+            meta["_telemetry_dead"] = True
+            _note_telemetry_unavailable(meta, f"status read {_killed_read(rc)}; liveness unverified",
+                                        always=True)
+        elif err.startswith(SPAWN_FAILED_PREFIX):   # not a runtime host → every call fails; stop shelling out
             meta["_telemetry_dead"] = True
             _note_telemetry_unavailable(meta, "openclaw CLI not found — runtime liveness unverified")
         elif "unknown method" in err.lower():
@@ -1397,8 +1536,9 @@ def fetch_strategies(client, meta):
             drained = bool(tf and tf > 0 and tw is not None and tw >= tf - 0.01)
             strat["empty_reason"] = "closed_or_drained" if drained else "unfunded"
         # LIVE per-position DSL/ratchet tier — read-guarded + fail-open. Attaches a `dsl` object to each
-        # open position (armed → tier/lock; not armed → "protected from entry, ratchet arms at +X%").
-        # NEVER leaves a live position looking "unprotected." (See attach_position_dsl.)
+        # open position (armed → tier/lock; sub-Tier-1, incl. a tier -1 record → "protected from entry,
+        # ratchet arms at +X%" for a runtime ladder; no ladder → never "protected" off the ratchet alone).
+        # NEVER leaves a runtime-ladder position looking "unprotected." (See attach_position_dsl.)
         attach_position_dsl(client, strat, meta)
         strat["closed"] = fetch_closed(client, strat["wallet"], meta)
         return strat
@@ -1645,64 +1785,192 @@ def fetch_closed(client, wallet, meta):
 
 
 # ──────────────────────────────────────────────────────────────── live per-position DSL / ratchet tier
-def _locked_pct_at_tier(ladder, tier_index):
-    """The lock_hw_pct configured at `tier_index` in the parsed profile.dsl ladder (what % of the peak
-    is locked once the ratchet reaches that tier). None if the ladder/index isn't available."""
-    if not isinstance(ladder, dict):
-        return None
-    tiers = ladder.get("tiers")
-    if not isinstance(tiers, list) or tier_index is None:
-        return None
-    try:
-        i = int(tier_index)
-    except (TypeError, ValueError):
-        return None
-    if 0 <= i < len(tiers) and isinstance(tiers[i], dict):
-        return tiers[i].get("lock_hw_pct")
+def _record_tiers(rec):
+    """The record's own ladder, `dslConfig.tiered.tiers[]` ({triggerRoe, lockRoe}), or None. This is
+    what the backend enforces (a `ratchet_stop_edit` changes it, not the runtime.yaml)."""
+    cfg = rec.get("dslConfig") if isinstance(rec, dict) else None
+    tiered = cfg.get("tiered") if isinstance(cfg, dict) else None
+    tiers = tiered.get("tiers") if isinstance(tiered, dict) else None
+    return tiers if isinstance(tiers, list) else None
+
+
+def _locked_pct_at_tier(rec, ladder, tier_index):
+    """% of the peak locked at `tier_index`: the record's `tiers[i].lockRoe` first, else the profile
+    ladder's `lock_hw_pct`. Same unit — the runtime hands `lockHwPct` to the backend as `lockRoe` 1:1
+    (`engine-client/config-mapping.ts`). None if neither has that tier."""
+    for tiers, key in ((_record_tiers(rec), "lockRoe"),
+                       ((ladder or {}).get("tiers") if isinstance(ladder, dict) else None, "lock_hw_pct")):
+        if isinstance(tiers, list) and 0 <= tier_index < len(tiers) and isinstance(tiers[tier_index], dict):
+            got = tiers[tier_index].get(key)
+            if _num(got) is not None and not isinstance(got, bool):
+                return got
     return None
 
 
-def _unarmed_dsl(ladder, roe):
-    """The DSL object for an open position that has NOT yet crossed Tier 1 (no ratchet record). This is
-    the WHOLE POINT of the fix: an empty ratchet record is NOT "no DSL / unprotected" — the phase1 hard
-    stop protects the position FROM ENTRY, and the profit-ratchet simply hasn't ARMED yet. Frame it that
-    way, NEVER as unmonitored. `ladder` = the strategy's profile.dsl (config); `roe` = this position's
-    return_on_equity_pct. Stands alone even if the live ratchet call failed (config + ROE only)."""
-    ladder = ladder if isinstance(ladder, dict) else {}
-    hard = ladder.get("hard_stop_roe_pct")
-    arm = ladder.get("arm_at_roe_pct")
+def _engaged_tier(rec):
+    """The record's `currentTierIndex` (0-based) as an int when a tier is ENGAGED (>= 0), else None. The
+    backend reports -1 (with `tierFloorPrice: null` and no SL order of its own) from open until the first
+    tier fires: a strategy whose runtime starts in phase 2 (`phase1.enabled: false`) is handed to the
+    backend at open. Missing / null / non-numeric / negative ⇒ not engaged ⇒ sub-Tier-1, never "armed"."""
+    ti = _field(rec, "currentTierIndex", "current_tier_index")
+    if isinstance(ti, bool):
+        return None
+    n = _num(ti)
+    if n is None or n != n or n < 0:      # n != n: NaN
+        return None
+    return int(n)
+
+
+def _record_arm_at(rec):
+    """Tier 1's trigger ROE from the record's own ladder (`dslConfig.tiered.tiers[0].triggerRoe`), or None."""
+    tiers = _record_tiers(rec)
+    if tiers and isinstance(tiers[0], dict):
+        return _num(tiers[0].get("triggerRoe"))
+    return None
+
+
+def _is_ladder(d):
+    """A ladder the ENGINE rendered (`RuntimeDslLadder`: hard stop + tiers). `{preset_name, note}` — a
+    string preset, which the runtime says installs no ladder — is not one."""
+    return isinstance(d, dict) and "preset_name" not in d and ("hard_stop_roe_pct" in d or "tiers" in d)
+
+
+def _exit_kind(ladder, strat):
+    """What stands behind an open position before Tier 1 (the runtime's `runtime-descriptor.ts` is the
+    contract: `hasExit` = the author ASKED for a DSL exit; only a non-null `dsl` ladder proves one runs):
+      "ladder"            — the engine rendered a ladder: max-loss stop from entry, ratchet arms at Tier 1
+      "mirror"            — a copy-trade: no DSL by design; the trader's exits + its own strategy SL/TP
+      "unverified"        — the runtime read did not answer (`protected: null`), or a registered runtime's
+                            descriptor did not render: nothing is claimed either way
+      "no_preset"         — `exit: {engine: dsl}` with no `dsl_preset` (hasExit true, dsl null): the engine
+                            runs no ladder, so no hard stop and no trailing floor
+      "preset_unenforced" — a `dsl_preset` the engine could not install (a string preset, or one its
+                            parser refuses — the runtime then does not load it): no ladder enforced
+      "raw"               — no runtime DSL exit: a raw position, a not_running strategy, or a runtime
+                            whose runtime.yaml has no DSL exit"""
+    if _is_ladder(ladder):
+        return "ladder"
+    strat = strat if isinstance(strat, dict) else {}
+    if strat.get("strategy_kind") == "mirror":
+        return "mirror"
+    prot = strat.get("protected")
+    if prot is None:
+        return "unverified"
+    prof = strat.get("profile") if isinstance(strat.get("profile"), dict) else {}
+    described = prof.get("source") in ("registry", "registry+catalog")   # a descriptor rendered
+    if strat.get("runtime_registered") is True and not described:
+        return "unverified"               # registered and running; its runtime.yaml did not render
+    if prot is True:
+        return "preset_unenforced" if (prof.get("dsl_preset") or isinstance(ladder, dict)) else "no_preset"
+    return "raw"
+
+
+_OPEN_ORDERS_HINT = ("resting stop orders are not read here — read strategy_get_open_orders before saying it "
+                     "has no stop")
+
+
+def _unarmed_dsl(ladder, roe, strat, rec=None, read_failed=False):
+    """The ONE builder for an open position that has NOT crossed Tier 1: no ratchet record, a record at
+    tier -1 / null / missing (`rec`), or the ratchet read failed (`read_failed`). Every note for this case
+    is written here, so a wording change cannot miss a copy.
+      - "ladder": NOT "no DSL / unprotected" — the max-loss stop rests from entry (even with phase1
+        trailing disabled) and the profit-ratchet simply hasn't ARMED yet. Never framed as unmonitored.
+      - any other kind never says "protected". `downside_stop: false` = no downside stop from the DSL /
+        ratchet (a raw tier -1 record: `ratchet_stop_add` persists no max-loss floor today — revisit once
+        it does; no_preset / preset_unenforced: the engine runs no ladder). `null` = not read here.
+    "arms at +X%" prefers the record's `tiers[0].triggerRoe` (what the backend will do) over the profile."""
+    kind = _exit_kind(ladder, strat)
+    lad = ladder if kind == "ladder" else {}
+    hard = lad.get("hard_stop_roe_pct")
+    arm = _record_arm_at(rec)
+    if arm is None:
+        arm = lad.get("arm_at_roe_pct")
     obj = {
         "armed": False,
-        "hard_stop_roe_pct": hard,        # floor active FROM ENTRY (phase1) — always protecting
+        "hard_stop_roe_pct": hard,        # floor active FROM ENTRY — only from an engine-rendered ladder
         "arm_at_roe_pct": arm,            # where the profit-ratchet ARMS (Tier 1)
         "roe": roe,                       # this position's current ROE
     }
-    # A plain-language note the narrator can lean on — never reads as "unprotected."
-    if arm is not None:
-        roe_txt = f"+{roe}%" if (roe is not None and roe >= 0) else (f"{roe}%" if roe is not None else "n/a")
-        floor_txt = f"; hard stop at {hard}% ROE" if hard is not None else ""
-        obj["note"] = (f"protected from entry by the phase1 hard stop{floor_txt}; profit-ratchet arms at "
-                       f"Tier 1 (+{arm}%) — currently {roe_txt}")
-    elif hard is not None:
-        obj["note"] = (f"protected from entry by the phase1 hard stop (floor {hard}% ROE); "
-                       f"phase1-only preset — no profit-ratchet tiers")
-    else:
-        obj["note"] = ("protected by the strategy's DSL exit from entry; live ratchet tier not yet armed")
+    arm_txt = f" (+{arm:g}%)" if isinstance(arm, (int, float)) else ""
+    pending = f"ratchet registered, not yet armed (Tier 1{arm_txt}); " if rec is not None else ""
+    if kind == "ladder":
+        if arm is not None:
+            roe_txt = f"+{roe}%" if (roe is not None and roe >= 0) else (f"{roe}%" if roe is not None else "n/a")
+            floor_txt = f"; hard stop at {hard}% ROE" if hard is not None else ""
+            obj["note"] = (f"protected from entry by the phase1 hard stop{floor_txt}; profit-ratchet arms at "
+                           f"Tier 1{arm_txt} — currently {roe_txt}")
+        elif hard is not None:
+            obj["note"] = (f"protected from entry by the phase1 hard stop (floor {hard}% ROE); "
+                           f"phase1-only preset — no profit-ratchet tiers")
+        else:
+            obj["note"] = "protected by the strategy's DSL exit from entry; live ratchet tier not yet armed"
+    elif kind == "mirror":
+        obj["downside_stop"] = None
+        obj["note"] = (pending + "copy-trade: no DSL by design — exits follow the copied trader plus the "
+                       "strategy-level SL/TP (stop_loss_pct / take_profit_pct)")
+    elif kind == "unverified":
+        obj["downside_stop"] = None
+        why = ("runtime read did not answer" if (strat or {}).get("protected") is None
+               else "the runtime is registered but its runtime.yaml did not render")
+        obj["note"] = (pending + f"{why}: whether a DSL exit protects this position could not be verified "
+                       f"on this host")
+    elif kind in ("no_preset", "preset_unenforced"):
+        obj["downside_stop"] = False
+        what = ("its exit is `engine: dsl` with no dsl_preset" if kind == "no_preset"
+                else "the engine could not install its dsl_preset")
+        obj["note"] = (pending + f"{what}, so the runtime enforces no hard stop and no trailing floor; "
+                       + _OPEN_ORDERS_HINT)
+    elif rec is not None:                 # raw, tier -1 record
+        obj["downside_stop"] = False
+        obj["note"] = (f"ratchet registered, not yet armed: no downside stop from the ratchet until Tier 1"
+                       f"{arm_txt}; " + _OPEN_ORDERS_HINT)
+    else:                                 # raw, no record (or the ratchet read failed)
+        obj["downside_stop"] = None
+        head = ("ratchet read failed, so whether a ratchet is registered is unknown; no runtime DSL exit; "
+                if read_failed else "no ratchet: no runtime DSL exit; ")
+        obj["note"] = head + _OPEN_ORDERS_HINT
+    if rec is not None:
+        obj["ratchet_record"] = True      # the backend holds a record; its tier is not engaged yet
+        obj["tier_index"] = _field(rec, "currentTierIndex", "current_tier_index")
+        obj["status"] = _field(rec, "status", default="ACTIVE")
     return obj
+
+
+_RATCHET_ROW_KEYS = ("positions", "configs", "ratchetStops", "data", "items")
+
+
+def _ratchet_rows(rl):
+    """The record list from a `ratchet_stop_list` result (after `_ok`), or None when the shape is not one
+    we know: `{positions, count, query}` is the MCP's; the other keys are older shapes. None — never [] —
+    for a `success: false`, a raw-text `_unwrap` fallback or a dict with none of these keys, so the caller
+    fails open and warns instead of reading every position as "no record"."""
+    if isinstance(rl, list):
+        return rl
+    if isinstance(rl, dict):
+        for k in _RATCHET_ROW_KEYS:
+            if isinstance(rl.get(k), list):
+                return rl[k]
+    return None
 
 
 def attach_position_dsl(client, strat, meta):
     """Attach a `dsl` object to each open position of ONE strategy instance — its LIVE ratchet tier state.
 
     Read-guarded + FAIL-OPEN. One `ratchet_stop_list(strategyId, wallet, status:ACTIVE)` call per
-    instance, indexed by asset:
-      - a record exists (position crossed Tier 1) → armed: true, tier_index, high_water_roe, status,
-        locked (= lock_hw_pct at that tier from the parsed ladder).
-      - NO record (sub-Tier-1) → the `_unarmed_dsl` object: armed: false + the "protected from entry,
-        ratchet arms at +X%" framing. This is EXPECTED, not a gap — never "unprotected."
-      - the ratchet call fails entirely → EVERY position still gets the config-based `_unarmed_dsl`
-        object (config + ROE stands alone), plus a meta.warnings note.
-    NEVER emits anything that reads as "no DSL / no monitoring."
+    instance, indexed by the record's `asset` as is (a HIP-3 row is `asset: "xyz:CL", dex: "xyz"`, the
+    book's coin; a main-dex coin is bare, so the two cannot collide — a bare-asset row with a HIP-3 dex is
+    skipped). Rows come newest first; the first row per asset wins.
+      - a record with an ENGAGED tier (`currentTierIndex` >= 0, 0-based) → armed: true, `tier` (1-based,
+        the "Tier N" to say), tier_index, high_water_roe, status, locked (the record's `lockRoe` at that
+        tier, else the profile ladder's lock_hw_pct).
+      - a record at tier -1 / null / missing (sub-Tier-1: a phase-2-from-open strategy is handed to the
+        backend at open) → `_unarmed_dsl(..., rec)`: armed: false, never "armed at tier -1".
+      - NO record (sub-Tier-1) → `_unarmed_dsl`: armed: false + the "protected from entry, ratchet arms at
+        +X%" framing for an engine-rendered ladder. This is EXPECTED, not a gap.
+      - the ratchet call fails, or answers a shape we don't know → `_unarmed_dsl(..., read_failed=True)`
+        for every position, plus a meta.warnings note.
+    A ladder position is NEVER framed "no DSL / no monitoring"; any other position is never framed
+    "protected" off a ratchet record or a failed read.
     """
     positions = strat.get("positions") or []
     if not positions:
@@ -1716,14 +1984,21 @@ def attach_position_dsl(client, strat, meta):
     try:
         rl = _ok(client.mcp_call("ratchet_stop_list", strategyId=sid,
                                  strategy_wallet_address=wallet, status="ACTIVE", timeout=15))
-        rows = rl if isinstance(rl, list) else _field(rl, "configs", "ratchetStops", "data", "items", default=[])
-        records = {}
-        for r in (rows if isinstance(rows, list) else []):
-            if not isinstance(r, dict):
-                continue
-            asset = _field(r, "asset", "coin")
-            if asset:
-                records[str(asset)] = r
+        rows = _ratchet_rows(rl)
+        if rows is None:
+            meta.setdefault("warnings", []).append(
+                f"ratchet_stop_list {str(wallet)[:8]} answered an unrecognised shape "
+                f"({type(rl).__name__}: {str(rl)[:80]}); DSL tier from config only")
+        else:
+            records = {}
+            for r in rows:
+                asset = _field(r, "asset", "coin") if isinstance(r, dict) else None
+                if not asset:
+                    continue
+                dex = str(r.get("dex") or "")
+                if dex not in ("", "main") and ":" not in str(asset):
+                    continue              # a HIP-3 row is always "xyz:SYM"; a bare one could match a main-dex coin
+                records.setdefault(str(asset), r)
     except Exception as e:  # noqa — fail-open: config-based framing stands alone
         meta.setdefault("warnings", []).append(
             f"ratchet_stop_list {str(wallet)[:8]} failed: {e}; DSL tier from config only")
@@ -1732,18 +2007,18 @@ def attach_position_dsl(client, strat, meta):
     for p in positions:
         roe = p.get("return_on_equity_pct")
         rec = records.get(str(p.get("asset"))) if isinstance(records, dict) else None
-        if rec is not None:
-            ti = _field(rec, "currentTierIndex", "current_tier_index")
+        ti = _engaged_tier(rec) if rec is not None else None
+        if ti is not None:
             p["dsl"] = {
                 "armed": True,
-                "tier_index": ti,
+                "tier": ti + 1,                              # 1-based: "Tier N"
+                "tier_index": ti,                            # the record's 0-based currentTierIndex
                 "high_water_roe": _field(rec, "highWaterRoe", "high_water_roe"),
                 "status": _field(rec, "status", default="ACTIVE"),
-                "locked": _locked_pct_at_tier(ladder, ti),   # lock_hw_pct at the active tier
+                "locked": _locked_pct_at_tier(rec, ladder, ti),   # % of peak locked at the active tier
             }
         else:
-            # no ratchet record (sub-Tier-1) OR the list call failed — either way, config-based framing
-            p["dsl"] = _unarmed_dsl(ladder, roe)
+            p["dsl"] = _unarmed_dsl(ladder, roe, strat, rec=rec, read_failed=records is None)
 
 
 # ──────────────────────────────────────────────────────────────── market context (for analysis)

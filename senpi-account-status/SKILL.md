@@ -4,7 +4,7 @@ description: >-
   Show the user's standing across Senpi programs — points and rank, the Senpi trading fee (none on a
   paid plan), referral earnings — and explain the AI-credits usage meter. Use for "how many points
   do I have?", "what's my rank/tier?", "where did my tier go?", "what are my fees?", "my referral
-  rewards", and for credits: "what is the bubble/meter in the header?", "why are my credits going
+  rewards", "how do referrals work?", and for credits: "what is the bubble/meter in the header?", "why are my credits going
   down?", "how much did that cost?", "does my strategy use credits?", "can I trade or withdraw my
   credits?", and for plans: "what plans are there?", "how much
   does Senpi cost?", "what do I get on Pro/Quant?", "how do I get free credits?", "where are my
@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.8.0"
+  version: "1.10.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -33,7 +33,8 @@ cleanly**: points and rank, the Senpi fee, and referral earnings.
 - **Real-time, not from memory.** Points/rank move — never quote a figure from earlier in the
   conversation; re-run.
 - **The fee comes from the data, never from memory.** Quote `fee.pct` as returned: `0%` on a paid
-  plan (Starter, Pro, Advanced, Quant), the flat free rate without one, free trials included.
+  plan (Pro, Advanced, Quant, and Starter for people already on it), the flat free rate without one,
+  free trials included.
 - **Tiers carry no benefit right now: no fee change, nothing unlocked. Do not bring tiers up.** Never
   suggest reaching, keeping or regaining a tier, and never close with a next-tier offer. If the user
   asks about their tier or where it went, say tiers carry no benefit right now. Points still accrue
@@ -57,7 +58,7 @@ Returns `{as_of, identity, points, fee, referral, meta}`:
   points rate), `rank`, `rank_change`.
 - `fee` — `bps` + `pct`, the Senpi fee this user pays, as the backend reports it: `0` / `0%` on a
   paid plan (`bps` is in tenths of a bp).
-- `referral` — `balance_usdc` (referral earnings not yet claimed; referrals earn nothing new).
+- `referral` — `balance_usdc` (referral earnings not yet claimed).
 - `meta.warnings` / `meta.degraded` — narrate honestly.
 - Fails open — partial data still returns valid JSON.
 
@@ -127,15 +128,21 @@ never a calendar month.
 
 | Plan | Price | Credits | Points per $1 volume |
 |---|---|---|---|
-| Starter | $25 | $25 | 1 |
 | Pro (default) | $50 | $55 (+10%) | 1.5 |
 | Advanced | $100 | $115 (+15%) | 2 |
 | Quant | $200 | $240 (+20%) | 3 |
+
+Starter ($25 a month, $25 credits, 1 point per $1 volume) is closed to new subscribers; people
+already on it keep it and can upgrade, but cannot return to it after leaving.
 
 - **Every plan includes every model.** Plans differ on credits and points rate only — never on model
   access, so a cheaper plan never locks anyone out of the better model.
 - **No Senpi trading fee on any paid plan** — only Hyperliquid's own exchange fees. For any other
   account, quote its own `fee.pct` from the engine; never state a rate from memory.
+- **Referrals pay 15% of a referred friend's monthly Senpi spend, for their first 12 months** — from
+  what the friend spends on Senpi, not from their trading. A friend on $100 a month earns the referrer
+  $15 a month × 12 months = $180. How and when the share is paid out is not announced yet: if asked,
+  say so, and never describe a payout schedule, token or threshold for it.
 - **$1 of credit = $1 of AI usage.** Full credits land at the start of the cycle and expire at the end
   of it: **no rollover, no top-ups, no overage**. Out of credits = upgrade (instant) or wait for renewal.
 - **Upgrading is instant, any day** — the new plan's full credits land immediately, the 30-day cycle
