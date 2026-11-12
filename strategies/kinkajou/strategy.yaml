@@ -12,7 +12,7 @@ catalog:
   emoji: "🐒"
   tagline: "Reads the Nasdaq 100 once a day and acts on three conditions: washed out (10-day RSI under 30) — buy the Nasdaq 100 (xyz:XYZ100) at 3x; healthy (above its 40-week average, RSI under 79) — buy the strongest of Apple, Nvidia, Tesla, Meta and Amazon on the xyz board, the one that rose most over 13 weeks while above its own long-term average, at 2x (Tesla 1x); anything else — sit in USDC. Long only, one position, a wide trailing stop."
   belief_plain: "When the tech market is healthy, the single big-tech stock with the strongest momentum tends to keep leading; when tech has just crashed, the index itself is the cleanest rebound; and when tech is overheated or in a downtrend, cash is the safest place. Once a day it checks which of the three it is and acts accordingly, one position at a time, never shorting, with a stop on every trade and a ratchet that locks in gains."
-  thesis: "You want aggressive, leveraged exposure to the strongest big-tech name, but only when the whole tech market is healthy, and a rule that steps aside when it is not. Its record is uneven across the five stocks, so treat it as an aggressive satellite position, not a core holding."
+  thesis: "You want aggressive, leveraged exposure to the strongest big-tech name, but only when the whole tech market is healthy, and a rule that steps aside when it is not. Its record is uneven across the five stocks, so treat it as an aggressive satellite position, not a core holding. The five stocks are today's biggest tech names, chosen with hindsight, so looking back at how this rule would have done flatters it."
   group: multi-asset-whitelist
   archetype: trend_following
   sub_style: big_tech
