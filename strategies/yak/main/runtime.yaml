@@ -8,12 +8,13 @@
 # The DSL is the ONLY exit for every sleeve: a 30% ROE stop and a wide ladder. No clocks, no shorts.
 #
 # Why these numbers: replayed on US daily bars Jan 2010 - Nov 2026 (QQQ, SPY, GLD, USO for crude, SLV),
-# entry at the signal close, the stop on the wick, rungs arming on the close, 0.18% round-trip fees:
-# 97 trades, profit factor 3.03; every sleeve positive (Nasdaq 5.42, S&P 4.05, gold 2.49, oil 2.92,
-# silver 1.61); every four-year block positive (2.82 / 2.07 / 2.49 / 4.49); worst book drawdown 17.5%
-# at 15% a sleeve. All 162 neighbouring settings (average 30/40/50 weeks, momentum 42/63/84 days, stop
-# 21/30/40, three ladders, both arming bounds) cleared fees, the worst at 1.84. A trend-only gate (no
-# momentum check) also cleared: 2.86, worst 1.79. Measurement in the commit that added this.
+# entry at the signal close, the stop on the wick, rungs arming on the close, each sleeve charged its
+# own Hyperliquid cost (taker fee both sides plus measured spread: about 0.02% a round trip on the
+# growth-mode xyz markets, about 0.183% on xyz:GOLD, which is not in growth mode): 97 trades, profit
+# factor 3.07; every sleeve positive (Nasdaq 5.56, S&P 4.14, gold 2.48, oil 2.97, silver 1.63); every
+# four-year block positive (2.86 / 2.10 / 2.53 / 4.55); worst book drawdown 17.4% at 15% a sleeve. All
+# 162 neighbouring settings (average 30/40/50 weeks, momentum 42/63/84 days, stop 21/30/40, three
+# ladders, both arming bounds) cleared fees, the worst at 1.87. Measurement in the commit that added this.
 name: yak-main
 group: yak
 version: 1.0.0
