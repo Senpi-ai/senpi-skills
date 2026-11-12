@@ -313,6 +313,10 @@
       "behaviour": "e9a906c7db7f6fd7",
       "version": "1.0.0"
     },
+    "mustang-semis": {
+      "behaviour": "7fd4f948da0d4625",
+      "version": "1.0.0"
+    },
     "mustang-sp500": {
       "behaviour": "f462f29d34ec0b34",
       "version": "1.0.0"

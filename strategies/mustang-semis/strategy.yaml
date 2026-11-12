@@ -1,0 +1,44 @@
+# Mustang Semis — Mustang's rule on the 3x semiconductor fund, timed by the Nasdaq 100's long-term
+# trend. A single-instance PACKAGE: this manifest + one self-contained runtime.yaml + scanners/
+# byte-identical to strategies/mustang (tests/test_engine_parity.py pins them). Long xyz:SOXL at 1x
+# while xyz:XYZ100 is above its 40-week average and SOXL is not overheated; in a downtrend only after
+# a washout; otherwise USDC. ADVANCED tier. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: mustang-semis
+version: "1.0.0"
+
+catalog:
+  name: "Mustang Semis — Chip Fund Trend Rider"
+  emoji: "🐎"
+  varies: mustang
+  tagline: "Mustang's rule on the 3x semiconductor fund (xyz:SOXL) at 1x: buy at the daily close while the Nasdaq 100's long-term trend is up (above its 40-week average) and SOXL's 10-day RSI is under 79; in a downtrend only after a washout (RSI under 30). Long only, one position, flat in USDC otherwise, a 30% stop and a wide trailing ladder."
+  belief_plain: "Chip stocks swing three times as hard as the market, and the 3x chip fund swings three times as hard again — so it is only worth owning when the tech trend is behind it. Once a day it checks whether the Nasdaq is above its long-term average; if so it buys the chip fund unless it has just run up too hard, and if not it waits for a real washout. It never shorts, holds one position, and lets a wide trailing stop end it."
+  thesis: "You want the most aggressive way to ride the chip cycle without fighting the tech trend: in the 3x fund while tech is trending up, out of it when the trend breaks, back in on a crash. Swings of 20-30% inside a single position are normal here; size it as a small slice of your money."
+  group: single-asset
+  archetype: trend_following
+  sub_style: sector_momentum
+  asset_classes: [xyz_equities]
+  asset_scope: single
+  direction: long_only
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: position
+  leverage_max: 1
+  max_slots: 1
+  assets: ["xyz:SOXL"]
+  tags: [soxl, semiconductors, chips, semis, leveraged-etf, 3x-fund, nasdaq-trend, 200-day,
+         moving-average, regime, buy-the-dip, washout, rsi, overbought-filter, long-only, single-asset,
+         xyz, slow, let-winners-run, dsl-only]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: MUSTANG_SEMIS_WALLET
+    funding_share: 1.0

@@ -6416,6 +6416,66 @@
       "sort_order": 14
     },
     {
+      "id": "mustang-semis",
+      "name": "Mustang Semis — Chip Fund Trend Rider",
+      "emoji": "🐎",
+      "varies": "mustang",
+      "tagline": "Mustang's rule on the 3x semiconductor fund (xyz:SOXL) at 1x: buy at the daily close while the Nasdaq 100's long-term trend is up (above its 40-week average) and SOXL's 10-day RSI is under 79; in a downtrend only after a washout (RSI under 30). Long only, one position, flat in USDC otherwise, a 30% stop and a wide trailing ladder.",
+      "belief_plain": "Chip stocks swing three times as hard as the market, and the 3x chip fund swings three times as hard again — so it is only worth owning when the tech trend is behind it. Once a day it checks whether the Nasdaq is above its long-term average; if so it buys the chip fund unless it has just run up too hard, and if not it waits for a real washout. It never shorts, holds one position, and lets a wide trailing stop end it.",
+      "version": "1.0.0",
+      "thesis": "You want the most aggressive way to ride the chip cycle without fighting the tech trend: in the 3x fund while tech is trending up, out of it when the trend breaks, back in on a crash. Swings of 20-30% inside a single position are normal here; size it as a small slice of your money.",
+      "tags": [
+        "soxl",
+        "semiconductors",
+        "chips",
+        "semis",
+        "leveraged-etf",
+        "3x-fund",
+        "nasdaq-trend",
+        "200-day",
+        "moving-average",
+        "regime",
+        "buy-the-dip",
+        "washout",
+        "rsi",
+        "overbought-filter",
+        "long-only",
+        "single-asset",
+        "xyz",
+        "slow",
+        "let-winners-run",
+        "dsl-only"
+      ],
+      "group": "single-asset",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "sector_momentum",
+      "sub_style_label": "Rides a whole sector / supply chain only when its breadth confirms; won't chase a lone name.",
+      "asset_classes": [
+        "xyz_equities"
+      ],
+      "asset_scope": "single",
+      "assets": [
+        "xyz:SOXL"
+      ],
+      "direction": "long_only",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 1,
+      "time_horizon": "position",
+      "cadence_seconds": 300,
+      "min_budget": 75,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "main",
+      "sort_order": 15
+    },
+    {
       "id": "mustang",
       "name": "Mustang — Nasdaq Trend Rider",
       "emoji": "🐎",
@@ -6480,7 +6540,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 15
+      "sort_order": 16
     },
     {
       "id": "polar",
@@ -6527,7 +6587,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 16
+      "sort_order": 17
     },
     {
       "id": "ram",
@@ -6574,7 +6634,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 17
+      "sort_order": 18
     },
     {
       "id": "stag",
@@ -6625,7 +6685,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 18
+      "sort_order": 19
     },
     {
       "id": "terrapin",
@@ -6679,7 +6739,7 @@
       ],
       "max_slots": 4,
       "branch": "main",
-      "sort_order": 19
+      "sort_order": 20
     },
     {
       "id": "wolverine",
@@ -6727,7 +6787,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 20
+      "sort_order": 21
     },
     {
       "id": "hydra",

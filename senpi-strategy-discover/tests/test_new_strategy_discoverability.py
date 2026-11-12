@@ -83,6 +83,7 @@ _CASES = [
     ("mustang", _intent(), "leveraged nasdaq trend following 200 day moving average"),
     ("mustang", _intent(assets=[("class", "indices")]), "long term nasdaq with a trend filter"),
     ("mustang-sp500", _intent(assets=[("named", "SP500")]), "s&p 500 trend following 200 day average"),
+    ("mustang-semis", _intent(assets=[("named", "SOXL")]), "soxl trend following"),
 ]
 
 
