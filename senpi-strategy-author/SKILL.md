@@ -386,14 +386,11 @@ makes one new wallet per instance). Authoring just designs the package; **concur
 
 ## Editing an existing strategy
 
-**An edit that removes a protection is a consent question, not a task.** Removing a daily-loss limit, a
-drawdown halt or a cap, or lowering a score / threshold you recommended earlier, gets one line of
-consequence in the user's own numbers ("this limit tripped three times in the last four days; without it
-the worst day would have run to the drawdown halt") and an explicit yes before you touch the file. Never
-"done". The same applies to deploying below the design budget: say the design number, say what degrades
-(fewer slots, smaller sizes, a strategy that cannot express its thesis), take the yes.
-**A value you asked for and did not get is still open.** A reply without it ("So?", "go on", "?") is not a
-choice: ask again with one recommended value and its basis ("I'd use $X because Y. OK?") and edit
+**An edit that removes a protection is a consent question, not a task.** Removing a daily-loss limit, a drawdown halt or a cap, or lowering a score / threshold you recommended
+earlier, gets one line of consequence in the user's own numbers ("this limit tripped three times in the last four days; without it the worst day would have run to the drawdown
+halt") and an explicit yes before you touch the file. Never "done". The same applies to deploying below the design budget: say the design number, say what degrades (fewer slots,
+smaller sizes, a strategy that cannot express its thesis), take the yes. **A value you asked for and did not get is still open.** A reply without it ("So?", "go on", "?") is not
+a choice: ask again with one recommended value and its basis ("I'd use $X because Y. OK?") and edit
 nothing until they answer.
 
 Same references; usually no rebuild: tune `runtime.yaml` `inputs` (universe/thresholds/sizing), swap
