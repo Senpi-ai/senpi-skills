@@ -112,7 +112,8 @@ def test_every_trending_sleeve_is_bought_at_one_close(monkeypatch):
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026), US daily bars Jan 2010 - Nov 2026 (QQQ, SPY, GLD, USO, SLV), entry at the
     signal close, the stop on the wick, rungs arming on the close, each sleeve charged its Hyperliquid
-    taker fee both sides plus its measured spread: 97 trades, profit factor 3.07, every sleeve positive,
-    blocks 2.86 / 2.10 / 2.53 / 4.55, worst book drawdown 17.4% at 15% a sleeve. 162 neighbouring
-    cells all above 1.0, worst 1.87."""
+    taker fee both sides, its measured spread and funding at its 180-day average rate (CL's negative):
+    97 trades, profit factor 2.29, blocks 2.42 / 1.04 / 1.99 / 4.03, worst book drawdown 20% at 15% a
+    sleeve. 162 neighbouring cells all above 1.0, worst 1.57. Funding stressed to 11% a year, never
+    received: 0.98, worst 0.81 (flagged: the book depends on funding staying near recent levels)."""
     assert (INPUTS["trendWeeks"], INPUTS["momentumWeeks"], INPUTS["stopRoePct"]) == (40, 13, 30)

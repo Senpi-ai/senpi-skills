@@ -10,11 +10,15 @@
 # Why these numbers: replayed on US daily bars Jan 2010 - Nov 2026 (QQQ, SPY, GLD, USO for crude, SLV),
 # entry at the signal close, the stop on the wick, rungs arming on the close, each sleeve charged its
 # own Hyperliquid cost (taker fee both sides plus measured spread: about 0.02% a round trip on the
-# growth-mode xyz markets, about 0.183% on xyz:GOLD, which is not in growth mode): 97 trades, profit
-# factor 3.07; every sleeve positive (Nasdaq 5.56, S&P 4.14, gold 2.48, oil 2.97, silver 1.63); every
-# four-year block positive (2.86 / 2.10 / 2.53 / 4.55); worst book drawdown 17.4% at 15% a sleeve. All
-# 162 neighbouring settings (average 30/40/50 weeks, momentum 42/63/84 days, stop 21/30/40, three
-# ladders, both arming bounds) cleared fees, the worst at 1.87. Measurement in the commit that added this.
+# growth-mode xyz markets, about 0.183% on xyz:GOLD) and funding at its 180-day average rate for every
+# hour held (XYZ100 5.0%, SP500 0.8%, GOLD 7.9%, SILVER 8.9% a year paid by longs; xyz:CL -16.4%, paid
+# TO longs): 97 trades, profit factor 2.29; sleeves Nasdaq 3.98, S&P 3.86, gold 1.06, silver 0.99, oil
+# 21.6 (that last number is mostly funding received, and assumes oil's last 180 days of funding held
+# for 16 years — do not lean on it); every four-year block positive (2.42 / 1.04 / 1.99 / 4.03); worst
+# book drawdown 20% at 15% a sleeve. All 162 neighbouring settings cleared, the worst at 1.57.
+# READ THIS: the sleeves are held for months, so funding decides the result. With funding stressed to
+# 11% a year on every market (never received) the profit factor is 0.98 and the worst neighbour 0.81 —
+# this book only works while funding stays near its recent levels. Measurement in the commit.
 name: yak-main
 group: yak
 version: 1.0.0
