@@ -140,6 +140,11 @@ One honest caveat for `puffin-duo`: puffin sizes *up* on its highest-scoring sig
 The duo cannot — two slots and that tier do not fit under the same margin cap — so both of its
 positions are always 45%. A user who valued the conviction tier should stay on puffin.
 
+`gannet-duo` (2 × 15% vs gannet's 1 × 30%) is the one duo whose parent is usually FLAT: gannet holds
+a position only after a hard daily drop, so most days neither holds anything. The duo differs on the
+closes where two of its three markets are washed out at once — gannet buys the first, the duo buys
+both. One stop-out costs 3.15% of the account instead of 6.3%.
+
 ### 3. Leverage sibling — the same ladder at half the leverage
 
 `penguin-x5` — penguin at 5x instead of 10x, with every exit re-derived so the stop and every profit
@@ -193,6 +198,20 @@ again as much, in both directions, and positions stop out sooner." In a six-mont
 manatee (27 Apr–22 Oct 2026) it averaged about 1.0 ROE per position after exchange fees, against
 manatee's 0.62, with fewer losing months. Quote that as what one past window showed, with its
 window, never as a return to expect.
+
+### 8. The same rule on another market
+
+`mustang-sp500` — mustang's rule trading the S&P 500 (xyz:SP500) instead of the Nasdaq 100, with the
+regime still read off the Nasdaq 100's 40-week average (the exchange's S&P market is too young to
+carry 40 weekly closes of its own). Same RSI lines, same 3x, same sizing, same exits. The S&P is the
+calmer index, so the same 10% stop sits further out in its own volatility. Offer it when the user
+names the S&P 500 or "the whole market"; for the Nasdaq, big tech or "tech", offer mustang.
+
+`mustang-semis` — the same rule trading the 3x semiconductor fund (xyz:SOXL) at 1x, timed by the
+same Nasdaq 100 regime. At 1x on a 3x fund the stop is 30% of the fund's price and every rung is three
+times wider in price than mustang's on the index — the same distances relative to its swings. It is
+the aggressive member: swings of 20-30% inside one position are normal. Offer it only when the user
+names chips, semis or SOXL.
 
 ## Not a family any more: camel
 
