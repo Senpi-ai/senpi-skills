@@ -902,8 +902,8 @@ class _FixtureClient:
         self._r = recorded
 
     def mcp_call(self, tool, timeout=12, **kw):
-        if kw.get("paper") is True:
-            return self._r.get(f"{tool}::paper")
+        if kw.get("simulation") is True:
+            return self._r.get(f"{tool}::simulation")
         for keyer in ("strategy_wallet", "strategy_wallet_address", "trader_address", "strategyId", "asset"):
             if kw.get(keyer):
                 k = f"{tool}::{str(kw[keyer]).lower()}"
@@ -1359,35 +1359,35 @@ def _strategy_rows_of(sl):
 
 
 def _live_rows(sl):
-    """The live `strategy_list` rows, never a simulation's: a row marked `paper: true` belongs to the
+    """The live `strategy_list` rows, never a simulation's: a row marked `simulation: true` belongs to the
     simulations section, and its money is never live money."""
-    return [s for s in (_strategy_rows_of(sl) or []) if not (isinstance(s, dict) and s.get("paper") is True)]
+    return [s for s in (_strategy_rows_of(sl) or []) if not (isinstance(s, dict) and s.get("simulation") is True)]
 
 
 def fetch_simulations(client):
-    """Simulations, read with their OWN `strategy_list {paper: true}` call and kept apart from live:
+    """Simulations, read with their OWN `strategy_list {simulation: true}` call and kept apart from live:
     never in `strategies`, the book, the totals or any reconcile. `status` says what the read proved:
-      ok          — the MCP routes simulations; `strategies` holds the rows marked `paper: true`
-      unproven    — the reply carried no `paper_routing: true` (an MCP with no paper router answers
+      ok          — the MCP routes simulations; `strategies` holds the rows marked `simulation: true`
+      unproven    — the reply carried no `simulation_routing: true` (an MCP with no simulation router answers
                     with live rows), so nothing from it is shown
-      unavailable — the call failed (`PAPER_UNAVAILABLE`, transport); `reason` quotes it
+      unavailable — the call failed (`SIMULATION_UNAVAILABLE`, transport); `reason` quotes it
     Neither failure touches the live part. Each simulation's simulated money comes from its own
-    `strategy_get_clearinghouse_state`, which the MCP routes by the paper wallet address."""
+    `strategy_get_clearinghouse_state`, which the MCP routes by the simulation wallet address."""
     try:
-        raw = client.mcp_call("strategy_list", status=["ACTIVE"], paper=True, timeout=20)
-    except Exception as e:  # noqa — a failed paper read leaves the live part intact
+        raw = client.mcp_call("strategy_list", status=["ACTIVE"], simulation=True, timeout=20)
+    except Exception as e:  # noqa — a failed simulation read leaves the live part intact
         return {"status": "unavailable", "strategies": [], "reason": str(e), "warnings": []}
     if isinstance(raw, dict) and raw.get("success") is False:
         err = raw.get("error") or {}
         reason = f"{err.get('code')}: {err.get('message')}" if isinstance(err, dict) else str(err)
         return {"status": "unavailable", "strategies": [], "reason": reason, "warnings": []}
     data = _ok(raw)
-    if not (isinstance(data, dict) and data.get("paper_routing") is True):
+    if not (isinstance(data, dict) and data.get("simulation_routing") is True):
         return {"status": "unproven", "strategies": [], "warnings": [],
-                "reason": "strategy_list {paper: true} was answered without paper_routing: true"}
+                "reason": "strategy_list {simulation: true} was answered without simulation_routing: true"}
     sims, local = [], {"warnings": []}
     for s in (_field(data, "strategies", default=[]) or []):
-        if not (isinstance(s, dict) and s.get("paper") is True):
+        if not (isinstance(s, dict) and s.get("simulation") is True):
             continue
         wallet = _field(s, "strategyWalletAddress", "strategy_wallet_address", "walletAddress")
         if not wallet:
