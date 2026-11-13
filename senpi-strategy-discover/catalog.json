@@ -4740,75 +4740,6 @@
       "sort_order": 7
     },
     {
-      "id": "gannet-crypto",
-      "name": "Gannet Crypto — Crypto Dip Cascade",
-      "emoji": "🐦",
-      "varies": "gannet",
-      "tagline": "Gannet's dip cascade on the crypto majors: at each daily close it checks BTC, then ETH, then SOL, then HYPE, and buys the first whose 10-day RSI closed under 30, at 1x. One position at a time, flat in USDC between signals, a 40% stop and a wide trailing ladder that only moves in your favour.",
-      "belief_plain": "When a major coin has fallen unusually hard over two weeks it tends to rebound, but slowly and unevenly. Once a day, after the daily close, it checks Bitcoin first, then Ether, Solana and Hype, and buys the first one that is washed out, without leverage. It holds one coin at a time and sits in cash between signals, so it trades only a few times a year. Positions can stay open for weeks, paying funding while they do: the stop is very wide (40%), and the ratchet starts locking the gain only after a 15% rise.",
-      "version": "1.0.0",
-      "thesis": "You want to buy crypto crashes by rule, with no leverage and nothing else running in between: only after a real two-week washout, only in the biggest coins, one at a time. It is slow and idle most of the year, and its past record is thinner than the stock-index version's, so it suits a small allocation you are happy to leave alone.",
-      "tags": [
-        "dip-buy",
-        "buy-the-dip",
-        "oversold",
-        "rsi",
-        "mean-reversion",
-        "crash",
-        "washout",
-        "capitulation",
-        "rebound",
-        "cascade",
-        "btc",
-        "eth",
-        "sol",
-        "hype",
-        "crypto",
-        "majors",
-        "no-leverage",
-        "1x",
-        "long-only",
-        "one-position",
-        "cash-between-signals",
-        "daily-close",
-        "slow",
-        "low-turnover",
-        "dsl-only"
-      ],
-      "group": "multi-asset-whitelist",
-      "archetype": "contrarian_fade",
-      "archetype_label": "Contrarian / Fade",
-      "sub_style": "mean_reversion",
-      "sub_style_label": "Buys oversold / sells overbought, betting price reverts to its mean (works in chop, not just trends).",
-      "asset_classes": [
-        "btc_eth",
-        "major_alts"
-      ],
-      "asset_scope": "basket",
-      "assets": [
-        "BTC",
-        "ETH",
-        "SOL",
-        "HYPE"
-      ],
-      "direction": "long_only",
-      "risk_level": "moderate",
-      "tier": "advanced",
-      "leverage_max": 1,
-      "time_horizon": "swing",
-      "cadence_seconds": 300,
-      "min_budget": 75,
-      "wallet_count": 1,
-      "min_budget_binding_wallet": "main",
-      "instance_count": 1,
-      "funding_split": [
-        1.0
-      ],
-      "max_slots": 1,
-      "branch": "main",
-      "sort_order": 8
-    },
-    {
       "id": "gannet-duo",
       "name": "Gannet Duo — Index Dip Cascade, Two Slots",
       "emoji": "🐦",
@@ -4875,7 +4806,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 8
     },
     {
       "id": "gannet",
@@ -4948,7 +4879,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 9
     },
     {
       "id": "kestrel",
@@ -5011,7 +4942,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 10
     },
     {
       "id": "kite",
@@ -5067,7 +4998,7 @@
       ],
       "max_slots": 4,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 11
     },
     {
       "id": "lion",
@@ -5158,7 +5089,7 @@
       ],
       "max_slots": 9,
       "branch": "main",
-      "sort_order": 13
+      "sort_order": 12
     },
     {
       "id": "manatee",
@@ -5217,7 +5148,7 @@
       ],
       "max_slots": 10,
       "branch": "main",
-      "sort_order": 14
+      "sort_order": 13
     },
     {
       "id": "mandate",
@@ -5282,7 +5213,7 @@
       ],
       "max_slots": 8,
       "branch": "main",
-      "sort_order": 15
+      "sort_order": 14
     },
     {
       "id": "mongoose",
@@ -5342,7 +5273,7 @@
       ],
       "max_slots": 7,
       "branch": "main",
-      "sort_order": 16
+      "sort_order": 15
     },
     {
       "id": "ox",
@@ -5404,7 +5335,7 @@
       ],
       "max_slots": 14,
       "branch": "main",
-      "sort_order": 17
+      "sort_order": 16
     },
     {
       "id": "rhino",
@@ -5469,7 +5400,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 18
+      "sort_order": 17
     },
     {
       "id": "scorpion",
@@ -5539,7 +5470,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 19
+      "sort_order": 18
     },
     {
       "id": "spider",
@@ -5605,7 +5536,7 @@
       ],
       "max_slots": 7,
       "branch": "main",
-      "sort_order": 20
+      "sort_order": 19
     },
     {
       "id": "thesis-fund",
@@ -5665,7 +5596,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 21
+      "sort_order": 20
     },
     {
       "id": "wolf",
@@ -5728,7 +5659,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 22
+      "sort_order": 21
     },
     {
       "id": "aegis",

@@ -157,10 +157,6 @@
       "behaviour": "a3fce5731f3a3cba",
       "version": "1.0.0"
     },
-    "gannet-crypto": {
-      "behaviour": "f73ed7d6ce64dcb0",
-      "version": "1.0.0"
-    },
     "gannet-duo": {
       "behaviour": "0a13898d2d8715b7",
       "version": "1.0.0"

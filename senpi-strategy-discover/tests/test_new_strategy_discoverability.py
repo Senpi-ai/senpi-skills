@@ -83,7 +83,6 @@ _CASES = [
     ("gannet",  _intent(), "buy the dip in the nasdaq"),
     ("gannet",  _intent(), "buy the crash in us stocks"),
     ("gannet",  _intent(assets=[("class", "indices")]), "oversold index rsi dip buy"),
-    ("gannet-crypto", _intent(assets=[("class", "btc_eth")]), "buy the crash in bitcoin no leverage"),
 ]
 
 
