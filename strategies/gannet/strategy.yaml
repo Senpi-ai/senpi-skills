@@ -32,7 +32,7 @@ catalog:
   tags: [dip-buy, buy-the-dip, oversold, rsi, mean-reversion, panic, washout, capitulation, rebound,
          bounce, cascade, nasdaq, nasdaq-100, xyz100, sp500, s-and-p, soxl, semiconductors, chips,
          indices, us-stocks, xyz, long-only, one-position, cash-between-signals, daily-close, slow,
-         low-turnover, onboarding, dsl-only]
+         low-turnover, onboarding, dsl-only, beginner]
 
 requires:
   runtime: ">=3.0.0"

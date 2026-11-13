@@ -4774,7 +4774,9 @@
         "daily-close",
         "slow",
         "low-turnover",
-        "dsl-only"
+        "dsl-only",
+        "beginner",
+        "onboarding"
       ],
       "group": "multi-asset-whitelist",
       "archetype": "contrarian_fade",
@@ -4847,7 +4849,8 @@
         "slow",
         "low-turnover",
         "onboarding",
-        "dsl-only"
+        "dsl-only",
+        "beginner"
       ],
       "group": "multi-asset-whitelist",
       "archetype": "contrarian_fade",

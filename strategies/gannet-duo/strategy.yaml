@@ -29,7 +29,8 @@ catalog:
   assets: ["xyz:SOXL", "xyz:XYZ100", "xyz:SP500"]
   tags: [dip-buy, buy-the-dip, oversold, rsi, mean-reversion, washout, rebound, bounce, cascade,
          nasdaq, xyz100, sp500, soxl, semiconductors, indices, us-stocks, xyz, long-only, two-slots,
-         duo, spread, cash-between-signals, daily-close, slow, low-turnover, dsl-only]
+         duo, spread, cash-between-signals, daily-close, slow, low-turnover, dsl-only, beginner,
+         onboarding]
 
 requires:
   runtime: ">=3.0.0"
