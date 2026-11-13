@@ -115,7 +115,7 @@ def _refuse_if_simulation_writes_off(targets, rerun):
     if sid is None:
         return
     try:
-        MCPClient().mcp_call("strategy_get", timeout=SUBMIT_TIMEOUT, strategyId=sid)
+        MCPClient().mcp_call("strategy_get", timeout=SUBMIT_TIMEOUT, strategy_id=sid)
     except Exception as e:  # noqa: BLE001
         if "PAPER_DISABLED" in str(e):
             raise SystemExit(
