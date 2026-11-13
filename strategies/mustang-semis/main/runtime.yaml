@@ -32,7 +32,7 @@ strategy:
   slots: 1                                # one market, one position
   margin_pct: 20                          # baseline %; scan emits marginPct per signal (same number)
   default_leverage: 1                     # fallback; scan emits the same 1x per signal (SOXL is itself 3x)
-  trading_risk: moderate
+  trading_risk: aggressive
   enabled: true
 
 scanners:
