@@ -1230,10 +1230,10 @@ def paper_refusal(what, why):
 
 class NoPaperRouter(str):
     """A `why` entry for an unread simulation list that is a CLEAN answer, "this server holds no
-    simulations": an MCP with no paper router (a reply without the marker), or one whose paper is
-    switched off (PAPER_DISABLED). Every other cause (a timeout, a transport error, a payload with no
-    list, PAPER_UNAVAILABLE, which is an outage or a paper-service not configured) leaves the outcome
-    unknown. Callers test the type."""
+    simulations": an MCP with no paper router (a reply without the marker). Every other cause leaves
+    the outcome unknown: a timeout, a transport error, a payload with no list, PAPER_UNAVAILABLE, and
+    PAPER_DISABLED, which switches routing off but leaves every simulation made while it was on in
+    paper-service. Callers test the type."""
 
 
 def list_strategies_or_none(mcp, timeout=15, statuses=None, why=None, paper=False):
@@ -1271,8 +1271,7 @@ def list_strategies_or_none(mcp, timeout=15, statuses=None, why=None, paper=Fals
         res = mcp.mcp_call("strategy_list", timeout=timeout, **args)
     except Exception as e:  # noqa: BLE001 — the WHOLE point: surface the failure instead of swallowing to []
         if why is not None:
-            msg = f"the MCP `strategy_list` call failed ({e})"
-            why.append(NoPaperRouter(msg) if paper and "PAPER_DISABLED" in str(e) else msg)
+            why.append(f"the MCP `strategy_list` call failed ({e})")
         return None
     found = find_list_or_none(res, "strategies")
     if found is None:

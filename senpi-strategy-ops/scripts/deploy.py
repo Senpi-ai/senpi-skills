@@ -1583,8 +1583,8 @@ def package_simulations(pkg):
     """`(simulations, unread)` for the package. `simulations` is its open simulations (a list, empty
     when there are none) or None when the list was not read. `unread` is None unless the read failed
     in a way that leaves the outcome UNKNOWN (a timeout, a transport error, a payload with no list,
-    PAPER_UNAVAILABLE): then it is the cause. An MCP with no paper router (no marker) is a clean
-    answer, `(None, None)`: there are no simulations to find. Read-only; used only to keep `verify`
+    PAPER_UNAVAILABLE, PAPER_DISABLED): then it is the cause. An MCP with no paper router (no
+    marker) is a clean answer, `(None, None)`: there are no simulations to find. Read-only; used only to keep `verify`
     from naming a live `create` over a package that runs as a simulation."""
     why = []
     try:
