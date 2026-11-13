@@ -5551,7 +5551,10 @@
         "xyz",
         "slow",
         "low-turnover",
-        "dsl-only"
+        "dsl-only",
+        "portfolio",
+        "beginner",
+        "onboarding"
       ],
       "group": "multi-asset-whitelist",
       "archetype": "risk_parity",

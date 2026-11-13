@@ -28,7 +28,8 @@ catalog:
   assets: ["xyz:XYZ100", "xyz:SP500", "xyz:GOLD", "xyz:CL", "xyz:SILVER"]
   tags: [all-weather, all-season, multi-asset, diversified, trend-gate, trend-following, 200-day,
          moving-average, cash-when-weak, stocks, nasdaq, sp500, gold, oil, silver, commodities,
-         macro, set-and-forget, long-only, xyz, slow, low-turnover, dsl-only]
+         macro, set-and-forget, long-only, xyz, slow, low-turnover, dsl-only, portfolio, beginner,
+         onboarding]
 
 requires:
   runtime: ">=3.0.0"
