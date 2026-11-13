@@ -4833,7 +4833,10 @@
         "one-position",
         "cash-when-weak",
         "xyz",
-        "dsl-only"
+        "dsl-only",
+        "magnificent-seven",
+        "mag7",
+        "rotation"
       ],
       "group": "multi-asset-whitelist",
       "archetype": "trend_following",

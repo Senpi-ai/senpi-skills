@@ -26,8 +26,8 @@ catalog:
   max_slots: 1
   assets: ["xyz:XYZ100", "xyz:AAPL", "xyz:NVDA", "xyz:TSLA", "xyz:META", "xyz:AMZN"]
   tags: [big-tech, momentum, single-stocks, aapl, nvda, tsla, meta, amzn, nasdaq, xyz100, regime,
-         risk-on-risk-off, rsi, 200-day, buy-the-crash, leveraged, aggressive, long-only, one-position,
-         cash-when-weak, xyz, dsl-only]
+         risk-on-risk-off, rsi, 200-day, buy-the-crash, leveraged, aggressive, long-only,
+         one-position, cash-when-weak, xyz, dsl-only, magnificent-seven, mag7, rotation]
 
 requires:
   runtime: ">=3.0.0"
