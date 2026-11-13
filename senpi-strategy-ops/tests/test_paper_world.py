@@ -492,26 +492,37 @@ class ClosePaperWithWritesOff(_CloseHarness):
         self.assertIn("planned", out)
         self.assertEqual(self.deleted, [])
 
-    def test_a_closing_simulation_still_has_its_runtime_stopped(self):
-        self.mcp.paper = [_paper_row(status_="CLOSING_POSITIONS")]
-        _out, code = self._run("omega", "--paper")
-        self.assertEqual(code, 0)
-        self.assertEqual(self.deleted, ["omega-main-paper"])
-        self.assertEqual(self.mcp.closed, [])
+    def test_a_simulation_not_active_keeps_its_runtime_too(self):
+        for status_ in ("PAUSED", "CLOSING_POSITIONS"):
+            self.mcp.paper = [_paper_row(status_=status_)]
+            out, code = self._run("omega", "--paper")
+            self._assert_refused_untouched(out, code)
 
-    def test_a_probe_that_fails_another_way_does_not_block_the_close(self):
-        self.mcp.writes_off = False
+    def test_a_closed_simulation_still_reads_closed(self):
+        self.mcp.paper = [_paper_row(status_="CLOSED")]
+        out, code = self._run("--strategy-id", PAPER_ID, "--paper")
+        self.assertEqual(code, 0)
+        self.assertIn("closed", out)
+        self.assertEqual(self.deleted, [])
+
+    def _probe_fails(self, exc):
         orig = self.mcp.mcp_call
 
         def flaky(name, timeout=None, **kw):
             if name == "strategy_get":
-                raise MCPError("tool failed: PAPER_UNAVAILABLE: paper-service did not answer")
+                raise exc
             return orig(name, timeout=timeout, **kw)
         self.mcp.mcp_call = flaky
-        _out, code = self._run("omega", "--paper")
-        self.assertEqual(code, 0)
-        self.assertEqual(self.deleted, ["omega-main-paper"])
-        self.assertEqual(self.mcp.closed, [{"strategyId": PAPER_ID}])
+
+    def test_an_unanswered_probe_stops_nothing(self):
+        for exc in (MCPError("strategy_get HTTP 502"), TimeoutError("timed out")):
+            self._probe_fails(exc)
+            out, code = self._run("omega", "--paper")
+            self.assertNotEqual(code, 0)
+            self.assertEqual(self.deleted, [])
+            self.assertEqual(self.mcp.closed, [])
+            self.assertIn(str(exc), out)
+            self.assertIn("close.py omega --paper", out)
 
 
 class StatusOneWorld(unittest.TestCase):
