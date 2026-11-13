@@ -868,5 +868,103 @@ class MainPackagePollReportsClosed(unittest.TestCase):
         self.assertEqual(self.closed, [])
 
 
+class StrandedRuntimeSweep(unittest.TestCase):
+    """A strategy closed outside close.py (the app, a raw strategy_close) is terminal, so the LIVE read
+    misses it, but its runtime keeps ticking against the emptied wallet. Seen 2026-10-21: a strategy
+    closed from the app kept its scanner emitting OPEN_POSITION against a $0 wallet until the runtime
+    was deleted by hand. close.py now stops that runtime and never re-sends strategy_close."""
+
+    setUp = MainPackagePollReportsClosed.setUp
+    tearDown = MainPackagePollReportsClosed.tearDown
+    _run = MainPackagePollReportsClosed._run
+    _CLOSED_ROW = MainPackagePollReportsClosed._CLOSED_ROW
+
+    def _box(self, runtimes, every):
+        self.deletes = []
+        self.inventory = list(runtimes)
+        outer = self
+
+        def _gateway(method, params=None, rpc_timeout_ms=None, timeout_s=None):
+            if method == "senpi.deleteRuntime":
+                outer.deletes.append(params["id"])
+                outer.inventory = [r for r in outer.inventory if r["name"] != params["id"]]
+                return _gw("ok", payload={"deleted": True})
+            if method == "senpi.deploy.status":
+                return outer.job_status
+            raise AssertionError(f"unexpected gateway call {method!r}")
+        _cli.gateway_call = _gateway
+        _cli.list_runtimes_or_none = lambda *a, **k: list(outer.inventory)
+        orig = _cli.list_strategies_or_none
+        self.addCleanup(setattr, _cli, "list_strategies_or_none", orig)
+        _cli.list_strategies_or_none = lambda mcp, timeout=15, statuses=None, why=None: list(every)
+
+    def test_close_one_sweep_stops_the_runtime_of_a_closed_strategy_and_sends_nothing(self):
+        self._box([{"name": "omega-main", "wallet": "0xabc"}], [])
+        rec = close.close_one("omega[1]", self._CLOSED_ROW, [{"name": "omega-main", "wallet": "0xabc"}],
+                              False, lambda m: None, sweep=True)
+        self.assertEqual((rec["status"], rec["runtime"]), ("closed", "stopped"))
+        self.assertEqual(self.deletes, ["omega-main"])
+        self.assertEqual(self.closed, [])
+
+    def test_package_poll_deletes_the_runtime_left_by_an_app_close(self):
+        self.rows = [dict(self._CLOSED_ROW, skillName="omega")]
+        self._box([{"name": "omega-main", "wallet": "0xabc"}], self.rows)
+        out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.deletes, ["omega-main"])
+        self.assertEqual(self.closed, [])                     # strategy_close is never re-sent
+        self.assertIn("omega v1.0.0: closed", out)
+
+    def test_a_wallet_an_open_strategy_uses_keeps_its_runtime(self):
+        """The runtime on a wallet that an open strategy now uses may belong to the live one."""
+        self.rows = [dict(self._CLOSED_ROW, skillName="omega")]
+        live = {"strategyId": "s9", "strategyWalletAddress": "0xABC", "status": "ACTIVE", "skillName": "other"}
+        self._box([{"name": "other-main", "wallet": "0xabc"}], self.rows + [live])
+        out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.deletes, [])
+        self.assertEqual(self.closed, [])
+
+    def test_all_with_nothing_live_sweeps_closed_strategies_only(self):
+        every = [dict(self._CLOSED_ROW, skillName="omega"),
+                 {"strategyId": "s2", "strategyWalletAddress": "0xdef", "status": "FAILED", "skillName": "beta"}]
+        self._box([{"name": "omega-main", "wallet": "0xabc"}, {"name": "beta-main", "wallet": "0xdef"}], every)
+        out, code = self._run("--all")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.deletes, ["omega-main"])     # FAILED may hold a position its DSL guards
+        self.assertEqual(self.closed, [])
+
+    def test_no_runtime_left_reads_nothing_more(self):
+        self.rows = [dict(self._CLOSED_ROW, skillName="omega")]
+        self._box([], self.rows)
+        _cli.list_strategies_or_none = lambda *a, **k: self.fail("no inventory, no extra read")
+        out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.deletes, [])
+        self.assertIn("closed", out)
+
+    def test_unreadable_inventory_reports_closed_with_runtimes_not_checked(self):
+        """The strategy is closed whatever the inventory read says: no 'NOTHING WAS CLOSED' refusal,
+        no delete, and exit 2 so the poll re-runs until the runtimes were checked."""
+        self.rows = [dict(self._CLOSED_ROW, skillName="omega")]
+        self._box([], self.rows)
+        _cli.list_runtimes_or_none = lambda *a, **k: None
+        for argv in ("omega", "--all"):
+            out, code = self._run(argv)
+            self.assertEqual(code, 2, argv)
+            self.assertIn("Runtimes not checked", out)
+            self.assertNotIn("NOTHING WAS CLOSED", out)
+            self.assertEqual(self.deletes, [])
+        self.assertIn("omega v1.0.0: closed", self._run("omega")[0])
+
+    def test_a_package_never_deployed_here_reads_no_inventory(self):
+        self.rows = []
+        self._box([], [])
+        _cli.list_runtimes_or_none = lambda *a, **k: self.fail("nothing deployed, no inventory read")
+        out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertIn("nothing to close", out)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
