@@ -4,7 +4,7 @@
   python3 status.py            # every open strategy, grouped by package
   python3 status.py <id>       # only the <id> package
   python3 status.py --json
-  python3 status.py --paper    # simulations only (`strategy_list {paper: true}`); without it, live only
+  python3 status.py --simulation  # simulations only (`strategy_list {simulation: true}`); without it, live only
 
 Reads live truth (MCP strategy_list ∪ openclaw runtime list) — NOT the ephemeral deploy state. If that
 strategy read cannot be made, this REFUSES (non-zero) instead of printing "No open strategies." — an
@@ -99,7 +99,7 @@ def _openclaw_available(why=None):
     return _cli.openclaw_available(why=why)
 
 
-def _read_or_refuse(rows, why, paper=False):
+def _read_or_refuse(rows, why, simulation=False):
     """The strategy inventory, or a refusal — never an empty list standing in for an unread one.
 
     The same line `close.py`'s `_read_or_refuse` draws, on the surface every money decision now
@@ -112,8 +112,8 @@ def _read_or_refuse(rows, why, paper=False):
     refuses."""
     if rows is not None:
         return rows
-    if paper:
-        raise SystemExit(_cli.paper_refusal("what simulations you are running", why))
+    if simulation:
+        raise SystemExit(_cli.simulation_refusal("what simulations you are running", why))
     raise SystemExit(
         "error: could not read the strategy list, so NOTHING was read here and nothing about what "
         "you are running is known — this is not 'no open strategies'.\n"
@@ -122,7 +122,7 @@ def _read_or_refuse(rows, why, paper=False):
         "run. Fix the cause and re-run:  python3 status.py")
 
 
-def _config_drift(pkg_id, rt_name, descriptors, paper=False):
+def _config_drift(pkg_id, rt_name, descriptors, simulation=False):
     """The running recipe vs the package on disk — `{"diffs": [...], "dir", "package_dir"}` when
     they differ, None when they agree or nothing can be compared (package not on disk here, no
     descriptor, unreadable YAML). Read-only and fail-open: a status surface may not crash on a
@@ -134,10 +134,10 @@ def _config_drift(pkg_id, rt_name, descriptors, paper=False):
         if not (_pkg.resolve_pkg_dir(pkg_id) / "strategy.yaml").is_file():
             return None
         pkg = _pkg.load(pkg_id)
-        # A simulation runs the same runtime.yaml under `<id>-<inst>-paper`, so its instance is found
+        # A simulation runs the same runtime.yaml under `<id>-<inst>-simulation`, so its instance is found
         # by the id the deploy verb gives it, not by the runtime.yaml `name`.
         inst = next((i for i in pkg.instances
-                     if (_cli.runtime_id_for(pkg.id, i.name, True) if paper else i.runtime_name) == rt_name),
+                     if (_cli.runtime_id_for(pkg.id, i.name, True) if simulation else i.runtime_name) == rt_name),
                     None)
         if inst is None or inst.runtime_doc is None:
             return None
@@ -150,14 +150,14 @@ def _config_drift(pkg_id, rt_name, descriptors, paper=False):
             "dir": str(inst.runtime_path.parent), "package_dir": str(pkg.dir)}
 
 
-def build(mcp, only_pkg=None, deep=True, paper=False, rwhy=None, kills=None, hwhy=None):
+def build(mcp, only_pkg=None, deep=True, simulation=False, rwhy=None, kills=None, hwhy=None):
     """`(rows, orphans, cli_ok)`. `rwhy`, a list, receives why the runtime list could not be read;
     `hwhy`, a list, why the fleet health read failed (a running runtime's health is then unknown).
     `kills`, a list, receives every SIGKILLed read's `Cause` (the probe, the list, the health read):
     the caller turns any of them into the out-of-memory stop."""
     why = []
     strategies = _read_or_refuse(
-        _cli.list_strategies_or_none(mcp, statuses=_cli.LIVE_STATUSES, why=why, paper=paper), why, paper)
+        _cli.list_strategies_or_none(mcp, statuses=_cli.LIVE_STATUSES, why=why, simulation=simulation), why, simulation)
     opens = [s for s in strategies if _cli.strategy_open(s)]
     # No openclaw here, or a `senpi.listRuntimes` read that failed or timed out: the registry is not
     # visible, and an empty list must NOT read as "no runtimes" (that turns a healthy fleet into false
@@ -169,7 +169,7 @@ def build(mcp, only_pkg=None, deep=True, paper=False, rwhy=None, kills=None, hwh
     if runtimes is None:
         rwhy.extend(vwhy)   # a failed probe IS why the list was not read (killed: not "no openclaw")
     cli_ok = runtimes is not None
-    runtimes = [r for r in (runtimes or []) if _cli.runtime_world_is(r, paper)]
+    runtimes = [r for r in (runtimes or []) if _cli.runtime_world_is(r, simulation)]
     # ONE `senpi.getHealthStatus` for the whole fleet — only when runtimes actually exist
     health_by_name = _cli.runtime_health_map(why=hwhy) if (deep and runtimes) else {}
     if kills is not None:
@@ -206,7 +206,7 @@ def build(mcp, only_pkg=None, deep=True, paper=False, rwhy=None, kills=None, hwh
                 paused = _cli.risk_pause(entry)
             elif hwhy:   # the health read failed (killed, timed out, errored): unknown, never "running"
                 health = "unknown"
-            drift = _config_drift(skill, _cli.runtime_name(rt), descriptors, paper)
+            drift = _config_drift(skill, _cli.runtime_name(rt), descriptors, simulation)
             if _cli.runtime_no_entry_scanners(rt):
                 # positive wiring-failure evidence from the inventory itself ("running — NO ENTRY
                 # SCANNERS"): the runtime is up but cannot produce entry signals — own class, not
@@ -247,16 +247,16 @@ def main(argv):
     ap.add_argument("package", nargs="?", help="Filter to one strategy id (e.g. spider).")
     ap.add_argument("--fast", action="store_true",
                     help="Skip the per-runtime health check (status -r) — just running/stopped from the list.")
-    ap.add_argument("--paper", action="store_true",
-                    help="Simulations only (strategy_list {paper: true}). Without it, live strategies only.")
+    ap.add_argument("--simulation", action="store_true",
+                    help="Simulations only (strategy_list {simulation: true}). Without it, live strategies only.")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv[1:])
 
     rwhy, kills, hwhy = [], [], []
-    rows, orphans, cli_ok = build(MCPClient(), a.package, deep=not a.fast, paper=a.paper, rwhy=rwhy,
+    rows, orphans, cli_ok = build(MCPClient(), a.package, deep=not a.fast, simulation=a.simulation, rwhy=rwhy,
                                   kills=kills, hwhy=hwhy)
-    noun = "simulation" if a.paper else "strateg"
-    sfx = " --paper" if a.paper else ""
+    noun = "simulation" if a.simulation else "strateg"
+    sfx = " --simulation" if a.simulation else ""
     # A SIGKILLed read: what is below is only what was read before it, and this run exits EXIT_OOM.
     # Every kill steer names this script's exit 0 as the sign memory has freed, so 0 is earned only by
     # a runtime list that was actually read: one that could not be read (no openclaw, a failure, a
@@ -268,7 +268,7 @@ def main(argv):
     code = _cli.EXIT_OOM if kills else 0 if cli_ok else _cli.STATUS_INVENTORY_UNREAD
 
     if a.json:
-        print(json.dumps({"world": "paper" if a.paper else "live", "strategies": rows,
+        print(json.dumps({"world": "simulation" if a.simulation else "live", "strategies": rows,
                           "orphan_runtimes": orphans, "openclaw_available": cli_ok,
                           "runtime_list_error": str(rwhy[0]) if rwhy else None,
                           "health_read_error": str(hwhy[0]) if hwhy else None,
@@ -291,7 +291,7 @@ def main(argv):
               "rather than re-running it again.")
 
     if not rows and not orphans:
-        print(("No open simulations." if a.paper else "No open strategies.")
+        print(("No open simulations." if a.simulation else "No open strategies.")
               + (f" (filter: {a.package})" if a.package else ""))
         return code
 
@@ -319,7 +319,7 @@ def main(argv):
         bits.append(f"{len(unknown)} runtime-unknown (runtime list unreadable)")
     if off:
         bits.append(f"{len(off)} managed off-runtime")
-    plural = ("" if len(rows) == 1 else "s") if a.paper else ("y" if len(rows) == 1 else "ies")
+    plural = ("" if len(rows) == 1 else "s") if a.simulation else ("y" if len(rows) == 1 else "ies")
     print(f"\nYou have {len(rows)} open {noun}{plural} ({', '.join(bits)}):")
     for pkg in sorted(by_pkg):
         print(f"\n{pkg}")
@@ -388,7 +388,7 @@ def main(argv):
             print(f"  - {r['package']} {r['wallet'][:10]}… ({_funded(r)}) → "
                   f"`deploy.py runtime {r['package']}{sfx}` to start it (runs the deploy verb: it installs and "
                   f"starts trading this funded wallet), or `close.py {r['package']}{sfx}` to "
-                  f"{'close it' if a.paper else 'recover funds'}")
+                  f"{'close it' if a.simulation else 'recover funds'}")
     if off:
         print("\nℹ Not on a runtime — managed outside autonomous trading (this is normal):")
         for r in off:

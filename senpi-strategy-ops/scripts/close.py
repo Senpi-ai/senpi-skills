@@ -5,7 +5,7 @@
   python3 close.py --all                                     # close EVERY open strategy + delete their runtimes
   python3 close.py --strategy-id <id> | --address <wallet>    # a wallet with NO package (unattributed
                                                                 # or app-created) — <id>/--all only resolve a package
-  python3 close.py <id> --paper                              # the same, for simulations only (any form above)
+  python3 close.py <id> --simulation                         # the same, for simulations only (any form above)
   python3 close.py <id> --live                               # live only, though the package also has a simulation
 
 Does NOT wait for the on-chain flatten — it hands off to the agent to poll. Per strategy (discovered
@@ -23,10 +23,10 @@ close too):
 
 --instance scopes which instance(s) to close; --dry-run prints the plan with no side effects.
 --strategy-id/--address are mutually exclusive with <id>/--all/--instance/--ref and with each other.
---paper reads and closes simulations only (`strategy_list {paper: true}`); without it only live strategies
+--simulation reads and closes simulations only (`strategy_list {simulation: true}`); without it only live strategies
 are read. No run touches both.
 A plain `close.py <id>` that finds live strategies refuses, closing nothing, when the same package also has an
-open simulation (or the simulation read is unknown): name `--live` or `--paper` to say which.
+open simulation (or the simulation read is unknown): name `--live` or `--simulation` to say which.
 Exit: 0 done · 2 failed/partial/refused · 1 error · `_cli.EXIT_OOM` (9) a call was SIGKILLed (out of
 memory): the killed instance sends nothing more, and `--json` carries `oom: true`. In a parallel
 close nothing is cancelled: the other workers run their own close to the end (delete retry, re-read,
@@ -57,7 +57,7 @@ _CLOSED = _cli.DEAD_STATUSES
 LIVE_STATUSES = _cli.LIVE_STATUSES
 
 
-def _read_or_refuse(rows, why, what, paper=False):
+def _read_or_refuse(rows, why, what, simulation=False):
     """The strategy inventory, or a refusal — never an empty list standing in for an unread one.
 
     `strategy_list` degrading to `[]` on an unreadable read is not a silent no-op here: teardown then
@@ -68,8 +68,8 @@ def _read_or_refuse(rows, why, what, paper=False):
     teardown money path, "couldn't read it" must never render as "there is nothing there"."""
     if rows is not None:
         return rows
-    if paper:
-        raise SystemExit(_cli.paper_refusal(what, why))
+    if simulation:
+        raise SystemExit(_cli.simulation_refusal(what, why))
     raise SystemExit(
         f"error: could not read the strategy list, so NOTHING was closed and nothing about {what} is "
         f"known here — this is not 'there is nothing to close'.\n"
@@ -80,14 +80,14 @@ def _read_or_refuse(rows, why, what, paper=False):
 
 def _refuse_if_simulations_exist(mcp, pkg, targets, instance):
     """A plain package close must not take the live strategy when the same package also has a
-    simulation: an agent that meant the simulation and dropped `--paper` would close real money.
-    Refuses, naming both worlds and the command for each. An MCP with no paper router has no
+    simulation: an agent that meant the simulation and dropped `--simulation` would close real money.
+    Refuses, naming both worlds and the command for each. An MCP with no simulation router has no
     simulations, so it passes; any other unreadable answer refuses too, since a simulation may exist."""
     why = []
-    sims = _cli.strategies_for_or_none(mcp, skill_name=pkg.id, statuses=LIVE_STATUSES, why=why, paper=True)
+    sims = _cli.strategies_for_or_none(mcp, skill_name=pkg.id, statuses=LIVE_STATUSES, why=why, simulation=True)
     base = f"close.py {pkg.id}" + (f" --instance {instance}" if instance else "")
     if sims is None:
-        if why and isinstance(why[0], _cli.NoPaperRouter):
+        if why and isinstance(why[0], _cli.NoSimulationRouter):
             return
         raise SystemExit(
             f"error: {pkg.id} has live strategies to close, but its simulations could not be read, so "
@@ -101,13 +101,13 @@ def _refuse_if_simulations_exist(mcp, pkg, targets, instance):
         f"  Live ({len(targets)}): {', '.join(str(_cli.strategy_id_of(s))[:8] for _l, s in targets)}\n"
         f"  Simulation ({len(sims)}): {', '.join(str(_cli.strategy_id_of(s))[:8] for s in sims)}\n"
         f"  Close the live one(s):  {base} --live\n"
-        f"  Close the simulation(s):  {base} --paper")
+        f"  Close the simulation(s):  {base} --simulation")
 
 
 def _refuse_if_simulation_writes_off(targets, rerun):
-    """With paper switched off, the MCP still lists simulations but refuses `strategy_close` with
-    PAPER_DISABLED. `strategy_get` on a simulation id is refused the same way and writes nothing, so
-    it is asked first. It takes the close's route to paper-service, so an unanswered probe refuses
+    """With simulations switched off, the MCP still lists simulations but refuses `strategy_close` with
+    SIMULATION_DISABLED. `strategy_get` on a simulation id is refused the same way and writes nothing, so
+    it is asked first. It takes the close's route to simulation-service, so an unanswered probe refuses
     too."""
     sid = next((_cli.strategy_id_of(s) for _l, s in targets
                 if str(_cli.strategy_status(s) or "").upper() not in _CLOSED and _cli.strategy_id_of(s)),
@@ -117,9 +117,9 @@ def _refuse_if_simulation_writes_off(targets, rerun):
     try:
         MCPClient().mcp_call("strategy_get", timeout=SUBMIT_TIMEOUT, strategy_id=sid)
     except Exception as e:  # noqa: BLE001
-        if "PAPER_DISABLED" in str(e):
+        if "SIMULATION_DISABLED" in str(e):
             raise SystemExit(
-                f"error: simulations are switched off on this Senpi MCP (PAPER_DISABLED), so it would "
+                f"error: simulations are switched off on this Senpi MCP (SIMULATION_DISABLED), so it would "
                 f"refuse strategy_close. NOTHING was closed and no runtime was stopped: the simulation "
                 f"stays open and keeps its runtime.\n  Cause: {e}\n"
                 f"  The close works once simulations are switched back on. Then re-run: {rerun}")
@@ -129,7 +129,7 @@ def _refuse_if_simulation_writes_off(targets, rerun):
             f"was stopped.\n  Cause: {e}\n  Re-run: {rerun}")
 
 
-def _select_direct_target(rows, target, paper=False):
+def _select_direct_target(rows, target, simulation=False):
     """From an UNFILTERED-by-status `strategies_for_or_none()` read, pick the one row addressed by
     `--strategy-id`/`--address`. Refuses on 0 or >1 matches rather than guessing: `--all`/`<package>`
     answer a SET question ("what's open for X"), where zero rows is a legitimate true fact; this
@@ -140,9 +140,9 @@ def _select_direct_target(rows, target, paper=False):
     duplicated across DIFFERENT addresses (never one address on two strategy rows), so >1 here would
     mean an unmodeled backend state — refuse and name every match rather than pick one silently."""
     if not rows:
-        hint = (f"\n  {target!r} looks like a simulation. Simulations are closed with --paper."
-                if not paper and _cli.looks_paper(target) else "")
-        world = "simulation" if paper else "strategy"
+        hint = (f"\n  {target!r} looks like a simulation. Simulations are closed with --simulation."
+                if not simulation and _cli.looks_simulation(target) else "")
+        world = "simulation" if simulation else "strategy"
         raise SystemExit(f"error: no {world} found for {target!r} on this account — nothing to close.{hint}")
     if len(rows) > 1:
         ids = ", ".join(str(_cli.strategy_id_of(s) or "?")[:8] for s in rows)
@@ -343,14 +343,14 @@ def _close_open_request(pkg, a, checked=False):
     if pkg is None or a.dry_run or a.instance:
         return None
     if not checked:
-        pending = _unanswered_start_may_be_running(pkg, a.paper)
+        pending = _unanswered_start_may_be_running(pkg, a.simulation)
         if pending:
             return pending
-    _journal.resolve(_journal.key(pkg.id, a.paper), None, "closed-by-close.py")
+    _journal.resolve(_journal.key(pkg.id, a.simulation), None, "closed-by-close.py")
     return None
 
 
-def _unanswered_start_may_be_running(pkg, paper=False):
+def _unanswered_start_may_be_running(pkg, simulation=False):
     """`(open entry, why)` when the package has an open START request whose job may still be running,
     else None.
 
@@ -361,7 +361,7 @@ def _unanswered_start_may_be_running(pkg, paper=False):
     `deploy.py` uses for it: the job record answers, the START's wall clock has passed, and no job is
     running (the gateway's `[NOT_FOUND]`, or a finished job; one deploy slot per agent). A running
     job or an unreadable record keeps it open."""
-    entry = _journal.read(_journal.key(pkg.id, paper)) or {}
+    entry = _journal.read(_journal.key(pkg.id, simulation)) or {}
     if entry.get("packageId") != str(pkg.id) or entry.get("resolved") is not None \
             or not entry.get("requestId"):
         return None
@@ -384,8 +384,8 @@ def main(argv):
     ap.add_argument("--address", default=None,
                     help="Close by wallet address directly — same use as --strategy-id.")
     world = ap.add_mutually_exclusive_group()
-    world.add_argument("--paper", action="store_true",
-                       help="Simulations only: list them with strategy_list {paper: true} and close only "
+    world.add_argument("--simulation", action="store_true",
+                       help="Simulations only: list them with strategy_list {simulation: true} and close only "
                             "those. Without it, only live strategies are read.")
     world.add_argument("--live", action="store_true",
                        help="Live strategies only. Skips the refusal a plain `<package>` close makes "
@@ -393,7 +393,7 @@ def main(argv):
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv[1:])
-    sfx = " --paper" if a.paper else ""
+    sfx = " --simulation" if a.simulation else ""
     direct = a.strategy_id or a.address
     if a.strategy_id and a.address:
         raise SystemExit("error: pass --strategy-id or --address, not both.")
@@ -417,12 +417,12 @@ def main(argv):
         # sid + wallet come from each strategy record; close_one stops the matching runtime (by wallet)
         # and triggers strategy_close, so package runtimes are never stranded.
         rows = _read_or_refuse(_cli.list_strategies_or_none(mcp, statuses=LIVE_STATUSES, why=why,
-                                                            paper=a.paper),
-                               why, "every open strategy", a.paper)
+                                                            simulation=a.simulation),
+                               why, "every open strategy", a.simulation)
         opens = [s for s in rows if _cli.strategy_open(s)]
         targets = [((_cli.strategy_skill(s) or "strategy") + ":" + str(_cli.strategy_id_of(s))[:8], s)
                    for s in opens]
-        hdr = "all open simulations" if a.paper else "all open strategies"
+        hdr = "all open simulations" if a.simulation else "all open strategies"
         strategy_label = "ALL"
     elif direct:
         # A wallet with NO package — unattributed, or app/manual-created — has no <id> to resolve
@@ -432,12 +432,12 @@ def main(argv):
         # all-clear on a target named explicitly. `_select_direct_target` refuses on 0 or >1 matches.
         rows = _read_or_refuse(
             _cli.strategies_for_or_none(mcp, strategy_id=a.strategy_id, wallet=a.address, why=why,
-                                        paper=a.paper),
-            why, direct, a.paper)
-        strat = _select_direct_target(rows, direct, a.paper)
+                                        simulation=a.simulation),
+            why, direct, a.simulation)
+        strat = _select_direct_target(rows, direct, a.simulation)
         sid = str(_cli.strategy_id_of(strat) or "")
         targets = [(f"strategy:{sid[:8]}", strat)]
-        hdr = f"{'simulation' if a.paper else 'strategy'} {sid[:8]} (no package attribution)"
+        hdr = f"{'simulation' if a.simulation else 'strategy'} {sid[:8]} (no package attribution)"
         strategy_label = sid
     else:
         try:
@@ -458,14 +458,14 @@ def main(argv):
             raise SystemExit(f"error: no instance {a.instance!r} in {pkg.id} (have: {', '.join(i.name for i in pkg.instances)})")
         rows = _read_or_refuse(_cli.strategies_for_or_none(mcp, skill_name=pkg.id,
                                                            statuses=LIVE_STATUSES, why=why,
-                                                           paper=a.paper),
-                               why, pkg.id, a.paper)
+                                                           simulation=a.simulation),
+                               why, pkg.id, a.simulation)
         opens = [s for s in rows if _cli.strategy_open(s)]
         if a.instance:
             # The instance maps to its wallet only through its runtime, so the inventory is read
             # here, fail-closed: an unreadable read stops the run, never "no runtime".
             runtimes = _inventory_or_stop(rerun, a.json)
-            rid = _cli.runtime_id_for(pkg.id, a.instance, a.paper)
+            rid = _cli.runtime_id_for(pkg.id, a.instance, a.simulation)
             rt = next((r for r in runtimes if _cli.runtime_name(r) == rid), None)
             w = _cli.runtime_wallet(rt) if rt else None
             targets = [(a.instance, s) for s in opens if w and _cli.wallet_match(w, _cli.strategy_wallet(s))]
@@ -474,9 +474,9 @@ def main(argv):
                                  f"runtime ({rid}). Omit --instance to close all of {pkg.id}{sfx}.")
         else:
             targets = [(f"{pkg.id}[{i + 1}]", s) for i, s in enumerate(opens)]
-        if targets and not a.paper and not a.live:
+        if targets and not a.simulation and not a.live:
             _refuse_if_simulations_exist(mcp, pkg, targets, a.instance)
-        hdr = f"{pkg.id} v{pkg.version}" + (" (simulation)" if a.paper else "")
+        hdr = f"{pkg.id} v{pkg.version}" + (" (simulation)" if a.simulation else "")
         strategy_label = pkg.id
 
     if not targets and not a.dry_run:
@@ -495,9 +495,9 @@ def main(argv):
         # `--strategy-id`/`--address` already re-reads UNFILTERED for this reason; so does this now.
         if pkg is not None:
             ever = _read_or_refuse(
-                _cli.strategies_for_or_none(mcp, skill_name=pkg.id, why=why, paper=a.paper), why, pkg.id,
-                a.paper)
-            pending = None if a.instance else _unanswered_start_may_be_running(pkg, a.paper)
+                _cli.strategies_for_or_none(mcp, skill_name=pkg.id, why=why, simulation=a.simulation), why, pkg.id,
+                a.simulation)
+            pending = None if a.instance else _unanswered_start_may_be_running(pkg, a.simulation)
             if pending and _cli.sigkilled(pending[1]):
                 entry, why_open = pending
                 sys.exit(_cli.emit_oom(
@@ -536,7 +536,7 @@ def main(argv):
         print(f"{hdr}: no OPEN strategies to close.")
         sys.exit(0)
 
-    if a.paper and not a.dry_run:
+    if a.simulation and not a.dry_run:
         _refuse_if_simulation_writes_off(targets, rerun)
     # stop runtime + trigger strategy_close per instance — in PARALLEL (each instance uses its own MCP client),
     # then hand off to the agent to poll. The runtime inventory is fetched ONCE and shared (instances target distinct ids).
