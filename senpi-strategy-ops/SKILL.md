@@ -6,7 +6,8 @@ description: >-
   supervises it at zero model cost, and there is no paper-trading mode ($10 floor = the test).
   Use when the user names a strategy to run — "install spider", "deploy polar",
   "set up kodiak", "reinstall athena", "run the spider strategy", "is my strategy live?",
-  "what am I running", "list my strategies" (→ status.py),
+  "what am I running", "list my strategies" (→ status.py), "why isn't polar trading?" /
+  "is it broken or just no signal?" (→ health + lastAliveAt; a tail of events.jsonl lists only errors, never ok ticks),
   A STRATEGY IS A PACKAGE, NEVER A SKILL: "install/reinstall <name>" is
   `deploy.py create <id>` here — never `openclaw skills install`, never clawhub, and
   never a GitHub user or repo named after the strategy. A package missing from disk is
@@ -29,11 +30,12 @@ description: >-
   bullets and plain words, never a config key — and its name: every template deploys
   as the user's own fork, named after their Senpi username (`deploy.py create <template>` → `ignas-phalanx`,
   spoken as "Ignas's Phalanx"; `--name` for their own words), as-is or with levers moved. The id (spider, polar, kodiak) is the package folder. NOT for choosing WHICH strategy
-  (senpi-strategy-discover) or authoring / editing the strategy files themselves (senpi-strategy-author).
+  (senpi-strategy-discover) or authoring / editing the strategy files themselves, nor for a user who
+  wants their own (senpi-strategy-author).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.30.17"
+  version: "3.31.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -86,8 +88,7 @@ remote fetch. Mechanics + state machine: [`references/lifecycle.md`](references/
 
 **Say how often it will trade before you fund it.** One line: the number and what makes it go quiet —
 a measured rate if you have one, otherwise the CEILING from `max_entries_per_day`, `slots` and the
-cooldowns, said as a ceiling. A user who is not told reads normal silence as breakage: `shadow` took 10
-installs to 0 fills and every wallet was withdrawn. Never quote a rate off the package NAME. Detail:
+cooldowns, said as a ceiling. A user who is not told reads normal silence as breakage. Never quote a rate off the package NAME. Detail:
 [`trade-frequency.md`](../senpi-strategy-discover/references/trade-frequency.md).
 **A strategy with a concentration sibling: name it once before you fund.** If the requested id's family
 (`catalog.varies`) holds a member with fewer `max_slots` / higher `leverage_max`, say so in ONE line with
@@ -131,10 +132,10 @@ it controls, never by its key (*"How picky it is about crowding — now 65% of t
 = more trades and more fees, higher = fewer, stronger ones"*; *"How much of the wallet each position uses —
 15%: about $95 of margin per position on your $635"*), the **fee load and the design budget**, and **the
 name as a fact, never a question**: *"It deploys as **Ignas's Phalanx** (`ignas-phalanx` in your strategy
-list) — say a different name if you want one."* Then one question: *"Run it as-is, or shift one of these
-first? Say **go** and it deploys as-is."* A bare "go" / "deploy" / "yes" = as-is under their name; a status
+list) — say a different name if you want one."* Then one question, leading with the change: *"What do you
+want to make yours — shift one of these, or add a rule of your own? Or say **go** to run it unchanged."* A bare "go" / "deploy" / "yes" = as-is under their name; a status
 check ("did you finish?", "how's it going?") is not a yes. Never a gate, never re-asked; the budget
-question comes after the answer. Cost class is a fact beside the choice, never a discouragement; named
+question comes after the answer. Cost class is a fact said when asked, never a reason to pick a template; named
 installs get the walkthrough too. Below the design budget, a guardrail removed or a threshold lowered:
 the consequence in one line and an explicit yes — never "done". **The fork is the verb's job:**
 `deploy.py create <template> --budget <usd>` reads their username itself, copies the template to
@@ -196,7 +197,7 @@ the scanner row's `lastRunStatus`/`runCount`).
 | `4` | `installed-unobserved` | installed, no tick seen inside `--tick-wait` (or `--tick-wait 0` skipped the check) | say exactly that; check `openclaw senpi scanner -r <runtimeId>` in a few minutes. External scanners legitimately tick on long intervals. **`--tick-wait 0` can never report `live`** — nothing was verified |
 | `6` | `pending` | the job still running when the poll budget ran out, **or** the job ended with a wallet still funding | still running: read `python3 deploy.py status` until it shows the outcome, and do not re-run `create`. Ended `pending` (status shows it done): re-run the same deploy command — it resumes and adopts the wallet |
 | `2` | `refused` | a gate said no (`[E_FUNDS_*]`, `[E_VALIDATE_*]`, `[E_UNIVERSE_NOT_LIVE]`, `[E_STATE_AMBIGUOUS_WALLETS]`, `[E_INSTANCE_BINDING_UNKNOWN]`, `[E_WALLET_OWNED_BY_OTHER_PACKAGE]`, `[INVALID_REQUEST]`) | **do what the refusal's code says** — per-code depth in [`references/refusal-playbook.md`](references/refusal-playbook.md); nothing was created past it |
-| `3` | `failed` | a step genuinely failed (backend rejection, install error, scanner erroring) | read the quoted cause, fix it, re-run — **except `[E_INSTALL_INDETERMINATE]`** (an install whose outcome is UNKNOWN — nothing to fix, and the money may still be out: do its read first) **and `[E_WALLET_INSTALL_IN_FLIGHT]`** (a race, not a defect — "fix it" is not "clear the stuck install"; **never** `runtime delete` here) **and a backend `SERR124`** (this account's pool of strategy wallets is empty — a per-account condition, nothing was created or debited: tell the user, route it to Senpi support, one later attempt after they confirm, never a retry loop) **and a backend `SERR183` / `SERR184`** (the user's plan limit on running strategies / new strategies per billing cycle (the last 30 days without a plan); nothing was created: quote the limit, offer closing one themselves (`SERR183` only), waiting until the stated time (`SERR184` only: when the count resets or the next start frees up) or an upgrade; never retry, never close a strategy for them, never split the deploy into smaller creates). All of these: per [`references/refusal-playbook.md`](references/refusal-playbook.md) |
+| `3` | `failed` | a step genuinely failed (backend rejection, install error, scanner erroring) | read the quoted cause, fix it, re-run — **except `[E_INSTALL_INDETERMINATE]`** (an install whose outcome is UNKNOWN — nothing to fix, and the money may still be out: do its read first) **and `[E_WALLET_INSTALL_IN_FLIGHT]`** (a race, not a defect — "fix it" is not "clear the stuck install"; **never** `runtime delete` here) **and a backend `SERR124`** (this account's pool of strategy wallets is empty — a per-account condition, nothing was created or debited: tell the user, route it to Senpi support, one later attempt after they confirm, never a retry loop) **and a backend `SERR183` / `SERR184`** (the user's plan limit on running strategies / new strategies per billing cycle (the last 30 days when there is no billing cycle); nothing was created: quote the limit, offer closing one themselves (`SERR183` only), waiting until the stated time (`SERR184` only: when the count resets or the next start frees up) or an upgrade; never retry, never close a strategy for them, never split the deploy into smaller creates). All of these: per [`references/refusal-playbook.md`](references/refusal-playbook.md) |
 | `5` | `interrupted` | a gateway restart killed the job mid-run | **nothing resumes on its own** — re-run the deploy; it reconciles |
 | `9` | — (no report) | out of memory: a call here was SIGKILLed | stop, don't retry or poll now; tell the user what the stop says; safe again when `status.py` exits `0` |
 
@@ -321,7 +322,7 @@ POST, and `intervalSeconds: 0` / `nextRunAt: null` are the correct values rather
 `lastAliveAt` is the tick. So `runCount: 0` with a fresh `lastAliveAt` is a scanner finding nothing, not one that
 never ran — and the recipe's own `interval_seconds` is the scaffold's POST cadence, so a file saying 60 while the
 runtime reports 0 is not a contradiction either
-— never call a strategy dead without checking its ticks first: never a fault, never a reason to close and recreate (each new strategy wallet costs a real creation fee); the fix for "it isn't trading" is the gates or the budget, applied in place (below). A scanner interval under 60 s on a small book is fee churn — refuse it with the arithmetic (fills × fee against the budget), not a claim about timing. Decision tree: [`references/liveness-verification.md`](references/liveness-verification.md).
+— never call a strategy dead without checking its ticks first (the strategy's `events/events.jsonl` is not a tick log: an `ok` tick with no candidates writes nothing there, so a `tail` of it is only errors by construction — judge ticks by `health` + a fresh `lastAliveAt`): never a fault, never a reason to close and recreate (each new strategy wallet costs a real creation fee); the fix for "it isn't trading" is the gates or the budget, applied in place (below). A scanner interval under 60 s on a small book is fee churn — refuse it with the arithmetic (fills × fee against the budget), not a claim about timing. Decision tree: [`references/liveness-verification.md`](references/liveness-verification.md).
 `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/status.py` (`<id>` filters, `--fast` skips the per-runtime health call, `--json` for
 machine output). It is the single source of truth — live `strategy_list` ∪ `runtime list` (the same runtime-CLI
 read `senpi-portfolio` also quotes — neither surface independently confirms the other), never the

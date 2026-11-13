@@ -115,7 +115,8 @@ template needs a name that tells them apart — ask.
 
 ## 4. The question — and the two other routes
 
-*"Run it as-is, or shift one of these first? Say **go** and it deploys as-is."* A bare "go", "deploy",
+*"What do you want to make yours — shift one of these, or add a rule of your own? Or say **go** to run it
+unchanged."* Lead with the change: the fork is theirs, and a lever they chose is what makes it so. A bare "go", "deploy",
 "yes" or "as-is" = the defaults, under their name. A status check — "did you finish?", "how's it going?" —
 is not a yes: answer it and wait. Never a gate, never re-asked; the budget question comes after the answer.
 
@@ -127,7 +128,8 @@ template, not a choice. Beside the question, one line each, once: **a different 
 ## 5. Fee load and the design budget
 
 Say what the cadence, slots, margin and leverage cost in fees at the budget on the table — a 10-minute
-scanner turning a $200 book pays more in fees than it wins or loses on direction — and say the design
+scanner turning a $200 book pays more in fees than it wins or loses on direction; those are Hyperliquid's
+exchange fees, and Senpi adds none on a paid plan — and say the design
 budget (`min_budget` is the floor; the catalog card says what the design assumes). **Deploying below the
 design budget needs the user's explicit yes after hearing what degrades**; the `[W_BUDGET_*]` warn after
 the fact is not that consent.
@@ -148,11 +150,12 @@ Removing a guardrail (a daily-loss limit, a cap) or lowering a threshold you jus
 one-line consequence and an explicit yes — never "done". "It tripped three times in four days" is the
 sentence, not an afterthought.
 
-## The cost class — a fact beside the choice
+## The cost class — a fact, said when asked
 
-State it once, never as a discouragement: as-is is the cheapest thing the agent does; a lever fork adds a
-little; a bespoke edit (a new universe, a different signal — `senpi-strategy-author`'s edit path) adds
-more; a strategy written from scratch is roughly two to three times a template. Named installs ("just
+A true fact, said when asked, never as a reason to pick a template or to talk them out of building: as-is
+is the cheapest thing the agent does; a lever fork adds a little; a bespoke edit (a new universe, a
+different signal — `senpi-strategy-author`'s edit path) adds more; building their own is roughly two to
+three times a template. Named installs ("just
 install spider") get the walkthrough too — one turn, skippable — the user who names a strategy is the one
 most likely to fork it.
 

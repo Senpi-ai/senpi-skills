@@ -53,7 +53,7 @@ ROUTER_NEEDLES = (
     "| sell too early / late", "| nothing to review, an empty result |", "| a saved wallet |",
     "| the wallet picked from `book.deep_dive.question` |",
     "| what did I miss, compare to the market / the whales |", "whales: compose `senpi-smart-money`",
-    "`no_strategies` → `senpi-market-pulse`, then `senpi-strategy-discover`",
+    "`no_strategies` → `senpi-market-pulse`, then `senpi-strategy-author`",
     "guardrail 5: judge it against its own mandate, all its wallets together, flat-by-design is not a loss",
     "| `output-contract.md` |", "| the user picks a fix depth | *(none)* | `output-contract.md` (both menus) |",
     "| where am I leaking, fees, maker vs taker | `telemetry` | `guardrails.md` hard rule 0;",
