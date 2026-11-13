@@ -27,7 +27,7 @@ catalog:
   assets: ["xyz:XYZ100", "xyz:SOXL"]
   tags: [tech, nasdaq, xyz100, chips, soxl, semiconductors, managed-futures, trend-basket, macro,
          gold, oil, fx, relative-strength, rsi, switch, risk-on-risk-off, buy-the-crash, long-only,
-         one-position, cash-when-weak, xyz, slow, let-winners-run, dsl-only]
+         one-position, cash-when-weak, xyz, slow, let-winners-run, dsl-only, rotation]
 
 requires:
   runtime: ">=3.0.0"

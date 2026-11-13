@@ -5166,7 +5166,8 @@
         "xyz",
         "slow",
         "let-winners-run",
-        "dsl-only"
+        "dsl-only",
+        "rotation"
       ],
       "group": "multi-asset-whitelist",
       "archetype": "trend_following",
