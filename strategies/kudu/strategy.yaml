@@ -26,9 +26,10 @@ catalog:
   max_slots: 11
   assets: ["xyz:AAPL", "xyz:MSFT", "xyz:GOOGL", "xyz:AMZN", "xyz:META", "xyz:NVDA", "xyz:AVGO",
            "xyz:ORCL", "xyz:LLY", "xyz:COST", "xyz:XYZ100"]
-  tags: [quality, big-tech, megacap, mega-caps, megacaps, magnificent-seven, mag7, basket, equal-weight, buy-and-hold, long-term, aapl,
-         msft, googl, amzn, meta, nvda, avgo, orcl, lly, cost, nasdaq, xyz100, rsi, overbought-filter,
-         buy-the-crash, long-only, us-stocks, xyz, slow, let-winners-run, dsl-only]
+  tags: [quality, big-tech, megacap, mega-caps, megacaps, magnificent-seven, mag7, basket,
+         equal-weight, buy-and-hold, long-term, aapl, msft, googl, amzn, meta, nvda, avgo, orcl,
+         lly, cost, nasdaq, xyz100, rsi, overbought-filter, buy-the-crash, long-only, us-stocks,
+         xyz, slow, let-winners-run, dsl-only, beginner, onboarding, portfolio]
 
 requires:
   runtime: ">=3.0.0"
