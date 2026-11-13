@@ -99,6 +99,31 @@ def _refuse_if_simulations_exist(mcp, pkg, targets, instance):
         f"  Close the simulation(s):  {base} --paper")
 
 
+def _refuse_if_simulation_writes_off(targets, rerun):
+    """With paper switched off, the MCP still lists simulations but refuses `strategy_close` with
+    PAPER_DISABLED. `strategy_get` on a simulation id is refused the same way and writes nothing, so
+    it is asked first. It takes the close's route to paper-service, so an unanswered probe refuses
+    too."""
+    sid = next((_cli.strategy_id_of(s) for _l, s in targets
+                if str(_cli.strategy_status(s) or "").upper() not in _CLOSED and _cli.strategy_id_of(s)),
+               None)
+    if sid is None:
+        return
+    try:
+        MCPClient().mcp_call("strategy_get", timeout=SUBMIT_TIMEOUT, strategyId=sid)
+    except Exception as e:  # noqa: BLE001
+        if "PAPER_DISABLED" in str(e):
+            raise SystemExit(
+                f"error: simulations are switched off on this Senpi MCP (PAPER_DISABLED), so it would "
+                f"refuse strategy_close. NOTHING was closed and no runtime was stopped: the simulation "
+                f"stays open and keeps its runtime.\n  Cause: {e}\n"
+                f"  The close works once simulations are switched back on. Then re-run: {rerun}")
+        raise SystemExit(
+            f"error: the simulation {sid} could not be read before closing it, so NOTHING was closed and "
+            f"no runtime was stopped: strategy_close would likely fail the same way after the runtime "
+            f"was stopped.\n  Cause: {e}\n  Re-run: {rerun}")
+
+
 def _select_direct_target(rows, target, paper=False):
     """From an UNFILTERED-by-status `strategies_for_or_none()` read, pick the one row addressed by
     `--strategy-id`/`--address`. Refuses on 0 or >1 matches rather than guessing: `--all`/`<package>`
@@ -402,6 +427,8 @@ def main(argv):
         print(f"{hdr}: no OPEN strategies to close.")
         sys.exit(0)
 
+    if a.paper and not a.dry_run:
+        _refuse_if_simulation_writes_off(targets, shlex.join(["python3", str(Path(__file__).resolve())] + list(argv[1:])))
     # stop runtime + trigger strategy_close per instance — in PARALLEL (each instance uses its own MCP client),
     # then hand off to the agent to poll. The runtime inventory is fetched ONCE and shared (instances target distinct ids).
     rc0, _o0, _e0 = _cli.run_cli(["openclaw", "--version"], timeout=15)
