@@ -30,9 +30,9 @@ catalog:
   max_slots: 1
   assets: ["xyz:XYZ100"]
   tags: [nasdaq, nasdaq-100, xyz100, qqq, tech, big-tech, index, indices, long-term,
-         trend-following, 200-day, moving-average, regime, buy-the-dip, washout, rsi, overbought-filter,
-         long-only, leveraged-index, 3x, single-asset, xyz, slow, low-turnover, onboarding,
-         let-winners-run, dsl-only]
+         trend-following, 200-day, moving-average, regime, buy-the-dip, washout, rsi,
+         overbought-filter, long-only, leveraged-index, 3x, single-asset, xyz, slow, low-turnover,
+         onboarding, let-winners-run, dsl-only, tqqq, beginner]
 
 requires:
   runtime: ">=3.0.0"

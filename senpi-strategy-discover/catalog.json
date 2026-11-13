@@ -6384,7 +6384,10 @@
         "slow",
         "low-turnover",
         "let-winners-run",
-        "dsl-only"
+        "dsl-only",
+        "upro",
+        "beginner",
+        "onboarding"
       ],
       "group": "single-asset",
       "archetype": "trend_following",
@@ -6511,7 +6514,9 @@
         "low-turnover",
         "onboarding",
         "let-winners-run",
-        "dsl-only"
+        "dsl-only",
+        "tqqq",
+        "beginner"
       ],
       "group": "single-asset",
       "archetype": "trend_following",

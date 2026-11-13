@@ -29,7 +29,8 @@ catalog:
   assets: ["xyz:SP500"]
   tags: [sp500, s-and-p, spy, us-stocks, index, indices, long-term, trend-following, 200-day,
          moving-average, regime, buy-the-dip, washout, rsi, overbought-filter, long-only,
-         leveraged-index, 3x, single-asset, xyz, slow, low-turnover, let-winners-run, dsl-only]
+         leveraged-index, 3x, single-asset, xyz, slow, low-turnover, let-winners-run, dsl-only,
+         upro, beginner, onboarding]
 
 requires:
   runtime: ">=3.0.0"
