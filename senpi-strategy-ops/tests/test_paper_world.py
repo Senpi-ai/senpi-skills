@@ -41,7 +41,8 @@ PAPER_OUTAGE = ("tool failed: PAPER_UNAVAILABLE: Simulations (paper trading) are
                 "paper-service did not answer within 5000 ms. Retry shortly with the same input.")
 ROUTER_OFF = ("tool failed: PAPER_UNAVAILABLE: Simulations (paper trading) are not available on this "
               "server yet. Nothing was sent; try again later.")
-# The router's answer when paper is switched off on that server: it holds no simulations.
+# The router's answer when paper is switched off on that server. It says "there are none here", but
+# simulations made while paper was on still exist in paper-service, so it is not an answer.
 PAPER_OFF = ("tool failed: PAPER_DISABLED: Simulations (paper trading) are switched off on this server, so "
              "there are none here. Nothing was sent. This error is deterministic. Do not retry with the "
              "same arguments.")
@@ -117,6 +118,12 @@ class ReaderOneWorldPerCall(unittest.TestCase):
         why = []
         self.assertIsNone(_cli.list_strategies_or_none(FakeMCP(unavailable=True), paper=True, why=why))
         self.assertIn("PAPER_UNAVAILABLE", why[0])
+
+    def test_paper_disabled_is_an_unknown_answer_not_an_empty_one(self):
+        why = []
+        self.assertIsNone(_cli.list_strategies_or_none(FakeMCP(unavailable=PAPER_OFF), paper=True, why=why))
+        self.assertIn("PAPER_DISABLED", why[0])
+        self.assertNotIsInstance(why[0], _cli.NoPaperRouter)
 
 
 class RuntimeIds(unittest.TestCase):
@@ -263,13 +270,43 @@ class CloseOneWorld(_CloseHarness):
         self.assertNotIn("simulation", out)
         self.assertNotIn("--live", out)
 
-    def test_plain_close_is_unchanged_when_paper_is_off_on_the_server(self):
+    def test_plain_close_refuses_when_paper_is_off_on_the_server(self):
+        # Switching paper off does not delete the simulations made while it was on.
         self._both()
         self.mcp.unavailable = PAPER_OFF
         out, code = self._run("omega")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(self.mcp.closed, [])
+        self.assertEqual(self.deleted, [])
+        self.assertIn("PAPER_DISABLED", out)
+        self.assertIn("close.py omega --live", out)
+
+    def test_plain_close_of_a_live_only_package_refuses_when_paper_is_off(self):
+        self.mcp.live = [_live_row()]
+        self.mcp.unavailable = PAPER_OFF
+        self.runtimes = [{"name": "omega-main", "wallet": LIVE_WALLET, "status": "running"}]
+        out, code = self._run("omega")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(self.mcp.closed, [])
+        self.assertEqual(self.deleted, [])
+        self.assertIn("close.py omega --live", out)
+
+    def test_live_close_still_works_when_paper_is_off(self):
+        self._both()
+        self.mcp.unavailable = PAPER_OFF
+        _out, code = self._run("omega", "--live")
         self.assertEqual(code, 0)
         self.assertEqual(self.mcp.closed, [{"strategyId": "live-1"}])
-        self.assertNotIn("--live", out)
+        self.assertEqual(self.deleted, ["omega-main"])
+
+    def test_paper_close_refuses_when_paper_is_off(self):
+        self._both()
+        self.mcp.unavailable = PAPER_OFF
+        out, code = self._run("omega", "--paper")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(self.mcp.closed, [])
+        self.assertEqual(self.deleted, [])
+        self.assertIn("Do not re-run without --paper", out)
 
     def test_plain_close_refuses_when_the_simulation_read_is_unknown(self):
         self._both()
@@ -699,10 +736,12 @@ class VerifySeesSimulations(unittest.TestCase):
         _code, err = self._verify()
         self.assertIn("create omega --budget <usd>", err)
 
-    def test_paper_off_on_the_server_keeps_todays_step(self):
+    def test_paper_off_on_the_server_names_no_live_create(self):
+        # A simulation made while paper was on still exists after it is switched off.
         self.mcp.unavailable = PAPER_OFF
         _code, err = self._verify()
-        self.assertIn("create omega --budget <usd>", err)
+        self.assertNotIn("create omega", err)
+        self.assertIn("status.py omega --paper", err)
 
     def test_no_paper_router_keeps_todays_step(self):
         self.mcp.router = False
