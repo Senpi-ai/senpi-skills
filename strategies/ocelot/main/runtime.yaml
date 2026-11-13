@@ -37,7 +37,7 @@ strategy:
   margin_pct: 20                          # baseline %; scan emits marginPct per signal (same number)
   default_leverage: 1                     # fallback only — every signal carries its market's leverage; 1 is
                                           # the LOWEST the recipe uses (SOXL), which is what min_budget must size
-  trading_risk: moderate
+  trading_risk: aggressive
   enabled: true
 
 scanners:
