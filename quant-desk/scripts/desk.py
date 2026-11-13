@@ -50,7 +50,7 @@ BENCH_PATH = os.path.join(HERE, "..", "references", "benchmark.json")
 # render.py but a stale desk.py passed every gate — which is exactly what happened on 2026-09-21: the
 # step-4 progress line still read "senpi-smart-money" where the shipped source says "senpi-market-pulse".
 # Pinned to render.VERSION by a test, and printed by --version so a stale copy is one command away.
-VERSION = "1.50.0"
+VERSION = "1.50.1"
 
 DEFAULT_STATE_DIR = os.path.join(tempfile.gettempdir(), "quant-desk")
 FRESH_S = 600
@@ -130,7 +130,7 @@ def my_wallets(mcp):
         out["senpi_wallets"] = [{"address": str(r["strategyWalletAddress"]).lower(),
                                  "name": r.get("strategyName") or r.get("tradingStrategyName"),
                                  "status": r.get("status"), "skill_name": _skill_name(r)}
-                                for r in rows if r.get("strategyWalletAddress")]
+                                for r in rows if r.get("strategyWalletAddress") and r.get("paper") is not True]
         out["senpi_wallets_status"] = "ok"
     except Exception:  # noqa: BLE001
         pass
@@ -1058,6 +1058,19 @@ def resolve_whose(book, addr, other=False, mine=False, claim=False, saved=()):
     return "mine"
 
 
+def _simulation_refusal(addrs):
+    """The answer for a simulation's wallet, or None. The desk reads Hyperliquid, and a simulation has
+    no Hyperliquid book, so it is refused before any read."""
+    sim = next((str(x).strip().lower() for x in addrs if hl_api.is_paper_address(x)), None)
+    if not sim:
+        return None
+    return {"simulation_wallet": sim,
+            "error": f"{sim[:6]}…{sim[-4:]} is a simulation wallet. It trades simulated money on the "
+                     f"simulated venue, so it has no Hyperliquid book for the desk to read. Nothing was "
+                     f"read.",
+            "what_to_do": "run the desk on the reader's live wallets; leave this one out"}
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Senpi Quant Desk: the desk for any Hyperliquid address")
     ap.add_argument("address", nargs="?", help="the wallet; omit with --compare")
@@ -1134,6 +1147,9 @@ def main(argv=None):
         else:
             mw_client, mw_hl = _mcp_client({}), hl_api.HL(cache_dir=a.cache or None)
         print(json.dumps(my_wallets_listed(mw_client, mw_hl), indent=2)); return 0
+    refusal = _simulation_refusal(list(a.compare or []) + list(a.book or []) + [a.address or ""])
+    if refusal:
+        print(json.dumps(refusal, indent=2)); return 2
     if a.compare:
         rs = []
         for x in a.compare:

@@ -902,6 +902,8 @@ class _FixtureClient:
         self._r = recorded
 
     def mcp_call(self, tool, timeout=12, **kw):
+        if kw.get("paper") is True:
+            return self._r.get(f"{tool}::paper")
         for keyer in ("strategy_wallet", "strategy_wallet_address", "trader_address", "strategyId", "asset"):
             if kw.get(keyer):
                 k = f"{tool}::{str(kw[keyer]).lower()}"
@@ -1352,6 +1354,64 @@ def build_book(embedded, strategies, saved, totals, groups=None, strategies_unre
 
 
 
+def _strategy_rows_of(sl):
+    return sl if isinstance(sl, list) else _field(sl, "strategies", "data", default=[])
+
+
+def _live_rows(sl):
+    """The live `strategy_list` rows, never a simulation's: a row marked `paper: true` belongs to the
+    simulations section, and its money is never live money."""
+    return [s for s in (_strategy_rows_of(sl) or []) if not (isinstance(s, dict) and s.get("paper") is True)]
+
+
+def fetch_simulations(client):
+    """Simulations, read with their OWN `strategy_list {paper: true}` call and kept apart from live:
+    never in `strategies`, the book, the totals or any reconcile. `status` says what the read proved:
+      ok          — the MCP routes simulations; `strategies` holds the rows marked `paper: true`
+      unproven    — the reply carried no `paper_routing: true` (an MCP with no paper router answers
+                    with live rows), so nothing from it is shown
+      unavailable — the call failed (`PAPER_UNAVAILABLE`, transport); `reason` quotes it
+    Neither failure touches the live part. Each simulation's simulated money comes from its own
+    `strategy_get_clearinghouse_state`, which the MCP routes by the paper wallet address."""
+    try:
+        raw = client.mcp_call("strategy_list", status=["ACTIVE"], paper=True, timeout=20)
+    except Exception as e:  # noqa — a failed paper read leaves the live part intact
+        return {"status": "unavailable", "strategies": [], "reason": str(e), "warnings": []}
+    if isinstance(raw, dict) and raw.get("success") is False:
+        err = raw.get("error") or {}
+        reason = f"{err.get('code')}: {err.get('message')}" if isinstance(err, dict) else str(err)
+        return {"status": "unavailable", "strategies": [], "reason": reason, "warnings": []}
+    data = _ok(raw)
+    if not (isinstance(data, dict) and data.get("paper_routing") is True):
+        return {"status": "unproven", "strategies": [], "warnings": [],
+                "reason": "strategy_list {paper: true} was answered without paper_routing: true"}
+    sims, local = [], {"warnings": []}
+    for s in (_field(data, "strategies", default=[]) or []):
+        if not (isinstance(s, dict) and s.get("paper") is True):
+            continue
+        wallet = _field(s, "strategyWalletAddress", "strategy_wallet_address", "walletAddress")
+        if not wallet:
+            continue
+        name, name_source = _strategy_name_and_source(s)
+        meta_obj = _field(s, "strategyMetadata", "metadata")
+        skill_name = _field(meta_obj, "skillName", "skill_name") if isinstance(meta_obj, dict) else None
+        sims.append({"name": name, "name_source": name_source,
+                     "skill_name": skill_name or _field(s, "skillName", "skill_name", "skill"),
+                     "wallet": wallet, "strategy_id": _field(s, "id", "strategyId", "strategy_id"),
+                     "status": _field(s, "status", default="ACTIVE"),
+                     "budget": _f(s, "totalFunded", "total_funded", "initialBudget", default=None)})
+    sims = [_hydrate_money(client, s, local) for s in sims]
+    return {"status": "ok", "strategies": sims, "warnings": sorted(local["warnings"])}
+
+
+def _simulations_from_state(client, state):
+    sims = state.get("simulations")
+    if not (isinstance(sims, dict) and "status" in sims):
+        sims = fetch_simulations(client)
+        state["simulations"] = sims
+    return sims
+
+
 def fetch_strategies(client, meta):
     """Live per-strategy state: enumerate strategies, then clearinghouse state per wallet (real-time,
     both DEXes). withdrawable = free margin idle IN that strategy; positions = deployed."""
@@ -1361,7 +1421,7 @@ def fetch_strategies(client, meta):
         meta.setdefault("warnings", []).append(f"strategy_list failed: {e}")
         meta["strategy_list_failed"] = True     # unknown, never "no strategies" (no_strategy_path, book)
         return []
-    rows = sl if isinstance(sl, list) else _field(sl, "strategies", "data", default=[])
+    rows = _live_rows(sl)
     # UNIVERSAL source of "what it does / how it works": the descriptor the RUNTIME renders for each
     # runtime it has, keyed by wallet — works for user-authored strategies, not just catalog templates.
     # THREE NONES when the read failed: every field below then reports null, never a reassuring value.
@@ -2344,6 +2404,7 @@ def run(client, want_market=True):
     # per-wallet reads run in a thread pool, so warnings land in completion order; sort them so two runs
     # over the same data are byte-identical (the `all` step is compared to run() that way)
     meta["warnings"] = sorted(meta["warnings"])
+    simulations = fetch_simulations(client)
     return {
         "as_of": "live",
         # EVERY wallet in ONE list by value (kind = managed / read-only) + the one book total — present
@@ -2361,6 +2422,7 @@ def run(client, want_market=True):
         "exposure": exposure,
         "signals": signals,
         "meta": meta,
+        "simulations": simulations,
     }
 
 
@@ -2468,7 +2530,7 @@ def fetch_strategy_money(client, meta):
         meta.setdefault("warnings", []).append(f"strategy_list failed: {e}")
         meta["strategy_list_failed"] = True     # unknown, never "no strategies" (no_strategy_path, book)
         return []
-    rows = sl if isinstance(sl, list) else _field(sl, "strategies", "data", default=[])
+    rows = _live_rows(sl)
     strategies = []
     for s in (rows or []):
         wallet = _field(s, "strategyWalletAddress", "strategy_wallet_address", "walletAddress")
@@ -2633,11 +2695,13 @@ def step_money(client, want_market=True, state_path=None):
     state["totals"] = totals
     state["strategy_list_failed"] = bool(meta.get("strategy_list_failed"))
     state["meta_warnings"] = meta.get("warnings", [])
+    state["simulations"] = simulations = fetch_simulations(client)
     _save_state(state_path, state)
     return {"book": build_book(embedded, strategies, saved, totals,
                                strategies_unreadable=bool(meta.get("strategy_list_failed"))),
             "totals": totals,
-            "embedded_wallet": embedded, "external_wallets": saved, "strategies": strategies, "meta": meta}
+            "embedded_wallet": embedded, "external_wallets": saved, "strategies": strategies, "meta": meta,
+            "simulations": simulations}
 
 
 def step_strategies(client, want_market=True, state_path=None):
@@ -2670,9 +2734,10 @@ def step_strategies(client, want_market=True, state_path=None):
     state["strategy_groups"] = strategy_groups
     state["meta_warnings"] = meta.get("warnings", [])
     state["has_multi_wallet_strategy"] = meta.get("has_multi_wallet_strategy", False)
+    simulations = _simulations_from_state(client, state)
     _save_state(state_path, state)
     return {"book": book, "strategies": strategies, "strategy_groups": strategy_groups,
-            "external_wallets": saved, "meta": meta}
+            "external_wallets": saved, "meta": meta, "simulations": simulations}
 
 
 def step_positions(client, want_market=True, state_path=None):
@@ -2710,11 +2775,13 @@ def step_positions(client, want_market=True, state_path=None):
     state["totals"] = totals            # the full totals (incl. unrealized_pnl from positions)
     state["meta_warnings"] = meta.get("warnings", [])
     state["has_multi_wallet_strategy"] = meta.get("has_multi_wallet_strategy", False)
+    simulations = _simulations_from_state(client, state)
     _save_state(state_path, state)
     return {"book": build_book(embedded, strategies, saved, totals, strategy_groups,
                                strategies_unreadable=bool(meta.get("strategy_list_failed"))),
             "strategies": strategies, "strategy_groups": strategy_groups, "external_wallets": saved,
-            "exposure": exposure, "signals": signals, "totals": totals, "meta": meta}
+            "exposure": exposure, "signals": signals, "totals": totals, "meta": meta,
+            "simulations": simulations}
 
 
 # ──────────────────────────────────────────────────────────────── CLI
@@ -2755,6 +2822,7 @@ def _all_and_persist(client, want_market, state_path):
         "profile_source": (result.get("meta") or {}).get("profile_source"),
         "has_multi_wallet_strategy": (result.get("meta") or {}).get("has_multi_wallet_strategy", False),
         "strategy_list_failed": bool((result.get("meta") or {}).get("strategy_list_failed")),
+        "simulations": result.get("simulations"),
     }
     _save_state(state_path, state)
     return result

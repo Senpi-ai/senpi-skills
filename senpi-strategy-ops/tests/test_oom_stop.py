@@ -388,7 +388,7 @@ class StatusOnTheKillPathSteersNothing(_BoxCase):
                  "dir": "/x/spider/main", "package_dir": "/x/spider"}
         saved = status._config_drift
         self.addCleanup(setattr, status, "_config_drift", saved)
-        status._config_drift = lambda pkg_id, rt_name, d: drift if rt_name == "spider-main" else None
+        status._config_drift = lambda pkg_id, rt_name, d, paper=False: drift if rt_name == "spider-main" else None
         table = (0, _runtime_table(("spider-main", WALLET, "running"), ("orphan-x", self.W4, "running")), "")
         answers = {"--version": (0, "openclaw 10.10", ""), "senpi.listRuntimes": table}
         code, out, err, _box = self._drive(["status.py"], answers)
