@@ -76,7 +76,7 @@ class FakeMCP:
 
     def _simulation_call(self, kw):
         return self.router and (kw.get("paper") is True
-                                or str(kw.get("strategyId") or "").startswith("paper-"))
+                                or str(kw.get("strategyId") or kw.get("strategy_id") or "").startswith("paper-"))
 
     def mcp_call(self, name, timeout=None, **kw):
         if name in ("strategy_close", "strategy_get") and self._simulation_call(kw):
@@ -88,8 +88,10 @@ class FakeMCP:
             self.closed.append(kw)
             return {"success": True, "data": {}}
         if name == "strategy_get":
+            if "strategy_id" not in kw:
+                raise MCPError("tool failed: INVALID_ARGUMENT: Invalid arguments — strategy_id: Required")
             rows = self.paper if self._simulation_call(kw) else self.live
-            row = next((r for r in rows if r["id"] == kw.get("strategyId")), None)
+            row = next((r for r in rows if r["id"] == kw.get("strategy_id")), None)
             if row is None:
                 raise MCPError("tool failed: NOT_FOUND: no such strategy")
             return {"success": True, "data": {"strategy": row}}
