@@ -104,6 +104,30 @@ def _refuse_if_simulations_exist(mcp, pkg, targets, instance):
         f"  Close the simulation(s):  {base} --paper")
 
 
+def _submits_close(status):
+    return str(status or "").upper() in ("ACTIVE", "")
+
+
+def _refuse_if_simulation_writes_off(targets, rerun):
+    """With paper switched off, the MCP still lists simulations but refuses `strategy_close` with
+    PAPER_DISABLED. `strategy_get` on a simulation id is refused the same way and writes nothing, so
+    it is asked first."""
+    sid = next((_cli.strategy_id_of(s) for _l, s in targets
+                if _submits_close(_cli.strategy_status(s)) and _cli.strategy_id_of(s)), None)
+    if sid is None:
+        return
+    try:
+        MCPClient().mcp_call("strategy_get", timeout=SUBMIT_TIMEOUT, strategyId=sid)
+    except MCPError as e:
+        if "PAPER_DISABLED" not in str(e):
+            return
+        raise SystemExit(
+            f"error: simulations are switched off on this Senpi MCP (PAPER_DISABLED), so it would refuse "
+            f"strategy_close. NOTHING was closed and no runtime was stopped: the simulation stays open "
+            f"and keeps its runtime.\n  Cause: {e}\n"
+            f"  The close works once simulations are switched back on. Then re-run: {rerun}")
+
+
 def _select_direct_target(rows, target, paper=False):
     """From an UNFILTERED-by-status `strategies_for_or_none()` read, pick the one row addressed by
     `--strategy-id`/`--address`. Refuses on 0 or >1 matches rather than guessing: `--all`/`<package>`
@@ -292,7 +316,7 @@ def close_one(label, strat, runtimes, dry_run, log, rerun=None):
 
     # 2. TRIGGER close (no wait). Only submit while still ACTIVE — once triggered it leaves ACTIVE, so a
     #    re-run won't re-submit. Own MCP client → safe to run instances concurrently.
-    if status0 == "ACTIVE" or not status0:
+    if _submits_close(status0):
         log(f"  [{label}] strategy_close({sid}) — triggered, not waiting")
         try:
             MCPClient().mcp_call("strategy_close", timeout=SUBMIT_TIMEOUT, strategyId=sid)
@@ -511,6 +535,8 @@ def main(argv):
         print(f"{hdr}: no OPEN strategies to close.")
         sys.exit(0)
 
+    if a.paper and not a.dry_run:
+        _refuse_if_simulation_writes_off(targets, rerun)
     # stop runtime + trigger strategy_close per instance — in PARALLEL (each instance uses its own MCP client),
     # then hand off to the agent to poll. The runtime inventory is fetched ONCE and shared (instances target distinct ids).
     # Fail CLOSED. An unreadable inventory used to read as "no runtime", so every target skipped the

@@ -46,6 +46,12 @@ ROUTER_OFF = ("tool failed: PAPER_UNAVAILABLE: Simulations (paper trading) are n
 PAPER_OFF = ("tool failed: PAPER_DISABLED: Simulations (paper trading) are switched off on this server, so "
              "there are none here. Nothing was sent. This error is deterministic. Do not retry with the "
              "same arguments.")
+# Since MCP #336, with paper off `strategy_list {paper: true}` still answers (with the marker); every
+# other simulation call answers this.
+SIM_CALLS_OFF = ("tool failed: PAPER_DISABLED: Simulations (paper trading) are switched off on this server, so "
+              "this call was refused and nothing was sent. Simulations made while they were on still exist: "
+              "strategy_list with paper: true lists them. This error is deterministic. Do not retry with "
+              "the same arguments.")
 
 
 def _live_row(sid="live-1", wallet=LIVE_WALLET, skill="omega", status_="ACTIVE"):
@@ -62,15 +68,31 @@ def _paper_row(sid=PAPER_ID, wallet=PAPER_WALLET, skill="omega", status_="ACTIVE
 
 
 class FakeMCP:
-    def __init__(self, live=(), paper=(), router=True, unavailable=False):
+    def __init__(self, live=(), paper=(), router=True, unavailable=False, writes_off=False):
         self.live, self.paper = list(live), list(paper)
         self.router, self.unavailable = router, unavailable
+        self.writes_off = writes_off
         self.lists, self.closed = [], []
 
+    def _simulation_call(self, kw):
+        return self.router and (kw.get("paper") is True
+                                or str(kw.get("strategyId") or "").startswith("paper-"))
+
     def mcp_call(self, name, timeout=None, **kw):
+        if name in ("strategy_close", "strategy_get") and self._simulation_call(kw):
+            if self.writes_off is True:
+                raise MCPError(SIM_CALLS_OFF)
+            if self.writes_off:
+                raise MCPError(self.writes_off)
         if name == "strategy_close":
             self.closed.append(kw)
             return {"success": True, "data": {}}
+        if name == "strategy_get":
+            rows = self.paper if self._simulation_call(kw) else self.live
+            row = next((r for r in rows if r["id"] == kw.get("strategyId")), None)
+            if row is None:
+                raise MCPError("tool failed: NOT_FOUND: no such strategy")
+            return {"success": True, "data": {"strategy": row}}
         assert name == "strategy_list", name
         self.lists.append(dict(kw))
         want = {str(s).upper() for s in kw.get("status") or []}
@@ -412,6 +434,84 @@ class CloseOneWorld(_CloseHarness):
         self.assertEqual(code, 0)
         self.assertEqual(_journal.read(_journal.key("omega", True))["resolved"], "closed-by-close.py")
         self.assertIsNone(_journal.read(_journal.key("omega", False))["resolved"])
+
+
+class ClosePaperWithWritesOff(_CloseHarness):
+    """The runtime must not be stopped ahead of a refused write."""
+
+    def setUp(self):
+        super().setUp()
+        self.mcp.live = [_live_row()]
+        self.mcp.paper = [_paper_row()]
+        self.runtimes = [{"name": "omega-main", "wallet": LIVE_WALLET, "status": "running"},
+                         {"name": "omega-main-paper", "wallet": PAPER_WALLET, "status": "running"}]
+        self.mcp.writes_off = True
+
+    def _assert_refused_untouched(self, out, code):
+        self.assertNotEqual(code, 0)
+        self.assertEqual(self.deleted, [])
+        self.assertEqual(self.mcp.closed, [])
+        self.assertIn("PAPER_DISABLED", out)
+        self.assertIn("switched back on", out)
+
+    def test_a_package_close_stops_nothing(self):
+        out, code = self._run("omega", "--paper")
+        self._assert_refused_untouched(out, code)
+        self.assertIn("close.py omega --paper", out)
+
+    def test_an_instance_close_stops_nothing(self):
+        out, code = self._run("omega", "--instance", "main", "--paper")
+        self._assert_refused_untouched(out, code)
+
+    def test_close_all_stops_nothing(self):
+        out, code = self._run("--all", "--paper")
+        self._assert_refused_untouched(out, code)
+
+    def test_a_direct_close_stops_nothing(self):
+        for flag, value in (("--strategy-id", PAPER_ID), ("--address", PAPER_WALLET)):
+            out, code = self._run(flag, value, "--paper")
+            self._assert_refused_untouched(out, code)
+
+    def test_the_close_works_once_switched_back_on(self):
+        self._run("omega", "--paper")
+        self.mcp.writes_off = False
+        _out, code = self._run("omega", "--paper")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.deleted, ["omega-main-paper"])
+        self.assertEqual(self.mcp.closed, [{"strategyId": PAPER_ID}])
+
+    def test_a_live_close_is_untouched(self):
+        _out, code = self._run("omega", "--live")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.deleted, ["omega-main"])
+        self.assertEqual(self.mcp.closed, [{"strategyId": "live-1"}])
+
+    def test_a_dry_run_still_plans(self):
+        out, code = self._run("omega", "--paper", "--dry-run")
+        self.assertEqual(code, 0)
+        self.assertIn("planned", out)
+        self.assertEqual(self.deleted, [])
+
+    def test_a_closing_simulation_still_has_its_runtime_stopped(self):
+        self.mcp.paper = [_paper_row(status_="CLOSING_POSITIONS")]
+        _out, code = self._run("omega", "--paper")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.deleted, ["omega-main-paper"])
+        self.assertEqual(self.mcp.closed, [])
+
+    def test_a_probe_that_fails_another_way_does_not_block_the_close(self):
+        self.mcp.writes_off = False
+        orig = self.mcp.mcp_call
+
+        def flaky(name, timeout=None, **kw):
+            if name == "strategy_get":
+                raise MCPError("tool failed: PAPER_UNAVAILABLE: paper-service did not answer")
+            return orig(name, timeout=timeout, **kw)
+        self.mcp.mcp_call = flaky
+        _out, code = self._run("omega", "--paper")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.deleted, ["omega-main-paper"])
+        self.assertEqual(self.mcp.closed, [{"strategyId": PAPER_ID}])
 
 
 class StatusOneWorld(unittest.TestCase):
