@@ -428,7 +428,7 @@ def main(argv):
         sys.exit(0)
 
     if a.paper and not a.dry_run:
-        _refuse_if_simulation_writes_off(targets, rerun)
+        _refuse_if_simulation_writes_off(targets, shlex.join(["python3", str(Path(__file__).resolve())] + list(argv[1:])))
     # stop runtime + trigger strategy_close per instance — in PARALLEL (each instance uses its own MCP client),
     # then hand off to the agent to poll. The runtime inventory is fetched ONCE and shared (instances target distinct ids).
     rc0, _o0, _e0 = _cli.run_cli(["openclaw", "--version"], timeout=15)
