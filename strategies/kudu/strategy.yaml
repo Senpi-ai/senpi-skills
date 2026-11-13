@@ -10,9 +10,9 @@ version: "1.0.0"
 catalog:
   name: "Kudu — Quality Big-Tech Basket"
   emoji: "🦌"
-  tagline: "Holds ten large quality companies — Apple, Microsoft, Alphabet, Amazon, Meta, Nvidia, Broadcom, Oracle, Eli Lilly and Costco on the xyz board — in equal 5% clips at 2x, and times them with the Nasdaq: a name that stops out is bought back at the next daily close unless the Nasdaq 100 is overheated (10-day RSI over 79), and when the Nasdaq is washed out (RSI under 30) it adds the Nasdaq 100 itself at 3x. Long only; a trailing stop on every position does the selling."
+  tagline: "Holds ten large quality companies — Apple, Microsoft, Alphabet, Amazon, Meta, Nvidia, Broadcom, Oracle, Eli Lilly and Costco on the xyz board — in equal 4% clips at 2x, and times them with the Nasdaq: a name that stops out is bought back at the next daily close unless the Nasdaq 100 is overheated (10-day RSI over 79), and when the Nasdaq is washed out (RSI under 30) it adds the Nasdaq 100 itself at 3x. Long only; a trailing stop on every position does the selling."
   belief_plain: "Great companies tend to keep compounding, and the usual mistakes are buying them after a blow-off or selling them in a panic. This keeps ten of them, equally weighted. It only waits to re-buy when the whole tech market has just run up too hard, and when tech is washed out it adds the Nasdaq with extra leverage for the rebound. Each position has its own stop; one that stops out is simply bought back at the next calm close."
-  thesis: "You want to own the biggest quality names rather than trade them, with a simple rule that keeps you from buying into a frenzy and puts extra money to work in a crash. Fully invested it carries about 65% of the account as margin; it trades each name about once every two or three months and holds for weeks to months."
+  thesis: "You want to own the biggest quality names rather than trade them, with a simple rule that keeps you from buying into a frenzy and puts extra money to work in a crash. Fully invested it carries about 52% of the account as margin; it trades each name about once every two or three months and holds for weeks to months."
   group: multi-asset-whitelist
   archetype: trend_following
   sub_style: big_tech

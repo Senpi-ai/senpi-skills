@@ -12,7 +12,7 @@
 # for every hour held (from -1.0% a year on AAPL to 12.3% on LLY, longs paying): 810 trades across the
 # book (about 0.4 a month per name), profit factor 2.07 (1.98 arming on the bar extreme); every name
 # positive (ORCL weakest at 1.30, COST strongest at 5.8); every four-year block positive (2.09 / 3.65 /
-# 1.93 / 1.78); worst book drawdown 34% at these clips. All 486 neighbouring settings (RSI 8/10/12,
+# 1.93 / 1.78); worst book drawdown 28% at these clips. All 486 neighbouring settings (RSI 8/10/12,
 # overheat 75/79/83, washout 28/30/32, stop 21/30/40, three ladders, both arming bounds) cleared, the
 # worst at 1.53 (1.40 with funding stressed to 11% a year). CAVEAT: the ten names are today's winners,
 # so a 2010-2026 replay of them is flattered by hindsight. The same rule with the Nasdaq 100 itself as
@@ -22,17 +22,17 @@ group: kudu
 version: 1.0.0
 description: >
   KUDU — a quality big-tech basket timed by the Nasdaq, long only. It holds ten large companies —
-  xyz:AAPL, MSFT, GOOGL, AMZN, META, NVDA, AVGO, ORCL, LLY, COST — in equal clips of 5% of withdrawable
+  xyz:AAPL, MSFT, GOOGL, AMZN, META, NVDA, AVGO, ORCL, LLY, COST — in equal clips of 4% of withdrawable
   at 2x. At each UTC-midnight daily close any name not held is bought unless the Nasdaq 100's 10-day
   RSI has run over 79; when that RSI closes under 30 it also buys the Nasdaq 100 (xyz:XYZ100) at 3x
-  with 15%. Every position exits only by the DSL — a 30% ROE stop (15% of a name's price, 10% of the
+  with 12%. Every position exits only by the DSL — a 30% ROE stop (15% of a name's price, 10% of the
   index's) and a wide ladder — and a name that stops out is bought back at the next close that is not
-  overheated. No clock closes anything. Fully invested it carries about 65% of the account as margin.
+  overheated. No clock closes anything. Fully invested it carries about 52% of the account as margin.
 
 strategy:
   wallet: "${KUDU_WALLET}"
   slots: 11                               # ten basket names + the washout leg
-  margin_pct: 5                           # the basket clip; the washout clip is washoutMarginPct
+  margin_pct: 4                           # the basket clip; the washout clip is washoutMarginPct
   default_leverage: 2                     # fallback; every signal carries its leg's leverage (2 basket, 3 washout)
   trading_risk: moderate
   enabled: true
@@ -63,8 +63,8 @@ scanners:
       basketLeverage: 2
       washoutLeverage: 3
       stopRoePct: 30                       # MUST equal exit.dsl_preset.phase1.max_loss_pct (tests pin it)
-      marginPct: 5                         # PERCENT of withdrawable per basket name (0,100]
-      washoutMarginPct: 15                 # PERCENT of withdrawable for the washout leg
+      marginPct: 4                         # PERCENT of withdrawable per basket name (0,100]
+      washoutMarginPct: 12                 # PERCENT of withdrawable for the washout leg
       maxSlots: 11
       minNotionalUsd: 12                   # the venue's bumped minimum; the free-margin gate stops emitting below it
     signal_data_schema:
@@ -131,12 +131,12 @@ exit:
 risk:
   data_retention_seconds: 604800           # 7d — positions live for months
   guard_rails:
-    daily_loss_limit_pct: 12               # one name's stop costs 30% x 5% = 1.5%; the washout's 4.5%
+    daily_loss_limit_pct: 12               # one name's stop costs 30% x 4% = 1.2%; the washout's 3.6%
     max_entries_per_day: 12                # the first close fills the book (up to 11 entries)
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 6
     cooldown_seconds: 86400                # a day after six losses in a row
-    drawdown_halt_pct: 35                  # the wallet-wide hard stop; above the replay's 34% worst drawdown
+    drawdown_halt_pct: 35                  # the wallet-wide hard stop; above the replay's 28% worst drawdown (30% at 11% funding)
     drawdown_reset_on_day_rollover: false  # clearing it is a deliberate act (redeploy), not midnight
     per_asset_cooldown_seconds: 300        # the scanner already allows one entry per market per daily close
 

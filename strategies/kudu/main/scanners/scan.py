@@ -122,8 +122,8 @@ def scan(inputs, ctx):
     max_slots = int(inputs.get("maxSlots", len(basket) + 1))
     window = float(inputs.get("entryWindowSeconds", _DEFAULT_ENTRY_WINDOW))
     min_notional = float(inputs.get("minNotionalUsd", _DEFAULT_MIN_NOTIONAL))
-    legs = {"basket": (_pct(inputs.get("marginPct"), 5), int(inputs.get("basketLeverage", 2))),
-            "washout": (_pct(inputs.get("washoutMarginPct"), 15), int(inputs.get("washoutLeverage", 3)))}
+    legs = {"basket": (_pct(inputs.get("marginPct"), 4), int(inputs.get("basketLeverage", 2))),
+            "washout": (_pct(inputs.get("washoutMarginPct"), 12), int(inputs.get("washoutLeverage", 3)))}
 
     account_value, withdrawable, positions = _get_account(ctx)
     if account_value <= 0:

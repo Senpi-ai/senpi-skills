@@ -1,7 +1,7 @@
 """Kudu: the quality basket timed by the Nasdaq, pinned.
 
-1. The inputs ARE the strategy: ten basket names at 2x in 5% clips, the Nasdaq 100 as the timer and
-   the washout leg at 3x with 15%, RSI(10) lines 79 / 30, eleven slots.
+1. The inputs ARE the strategy: ten basket names at 2x in 4% clips, the Nasdaq 100 as the timer and
+   the washout leg at 3x with 12%, RSI(10) lines 79 / 30, eleven slots.
 2. The DSL decides every exit: no clock cut is enabled, the ladder only ever locks a gain.
 3. plan(): the washout leg first, then every basket name not held unless overheated; never a held
    name; at most the open slots.
@@ -35,7 +35,7 @@ def test_the_inputs_are_the_strategy():
     assert INPUTS["timingAsset"] == INPUTS["washoutAsset"] == "xyz:XYZ100"
     assert (INPUTS["rsiPeriod"], INPUTS["overheatRsi"], INPUTS["washoutRsi"]) == (10, 79, 30)
     assert (INPUTS["basketLeverage"], INPUTS["washoutLeverage"]) == (2, 3) == (RUNTIME["strategy"]["default_leverage"], MANIFEST["catalog"]["leverage_max"])
-    assert (INPUTS["marginPct"], INPUTS["washoutMarginPct"]) == (5, 15) and RUNTIME["strategy"]["margin_pct"] == 5
+    assert (INPUTS["marginPct"], INPUTS["washoutMarginPct"]) == (4, 12) and RUNTIME["strategy"]["margin_pct"] == 4
     assert INPUTS["maxSlots"] == RUNTIME["strategy"]["slots"] == MANIFEST["catalog"]["max_slots"] == 11
     assert len(BASKET) * INPUTS["marginPct"] + INPUTS["washoutMarginPct"] <= 100
 
@@ -111,7 +111,7 @@ def test_a_calm_close_fills_the_basket_at_2x(monkeypatch):
     mcp = _MCP(CALM)
     out = _run(monkeypatch, mcp)
     assert [s["asset"] for s in out] == BASKET
-    assert {(s["leverage"], s["marginPct"]) for s in out} == {(2, 5)}
+    assert {(s["leverage"], s["marginPct"]) for s in out} == {(2, 4)}
     assert set(out[0]["data"]) <= set(SIGNALS["signal_data_schema"])
     reads = [a for t, a in mcp.calls if t == "market_get_asset_data"]
     assert [(a["asset"], a["dex"]) for a in reads] == [("xyz:XYZ100", "xyz")]
@@ -119,7 +119,7 @@ def test_a_calm_close_fills_the_basket_at_2x(monkeypatch):
 
 def test_a_washout_adds_the_index_at_3x_and_held_names_are_skipped(monkeypatch):
     out = _run(monkeypatch, _MCP(CRASH, held=("AAPL",)))
-    assert out[0]["asset"] == "xyz:XYZ100" and (out[0]["leverage"], out[0]["marginPct"]) == (3, 15)
+    assert out[0]["asset"] == "xyz:XYZ100" and (out[0]["leverage"], out[0]["marginPct"]) == (3, 12)
     assert "xyz:AAPL" not in [s["asset"] for s in out] and len(out) == 10
 
 
@@ -130,14 +130,16 @@ def test_once_per_close_only_after_the_close_and_the_margin_gate(monkeypatch):
     mcp = _MCP(CALM)
     assert _run(monkeypatch, mcp, at=MIDNIGHT + 2 * 3600) == []
     assert [t for t, _ in mcp.calls] == ["strategy_get_clearinghouse_state"]
-    assert _run(monkeypatch, _MCP(CALM, withdrawable="100")) == []         # 5% of $100 at 2x = $10 < $12
+    assert _run(monkeypatch, _MCP(CALM, withdrawable="100")) == []         # 4% of $100 at 2x = $8 < $12
 
 
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026), US daily bars Jan 2010 - Nov 2026, entry at the signal close, the stop on
     the wick, rungs arming on the close, each market charged its Hyperliquid taker fee both sides, its
     measured spread and funding at its 180-day average rate: 810 trades, profit factor 2.07 (1.98 on the
-    bar extreme), every name positive, blocks 2.09 / 3.65 / 1.93 / 1.78, worst book drawdown 34%. 486
-    neighbouring cells all above 1.0, worst 1.53 (1.40 stressed). Hindsight caveat: the ten names are
-    today's winners; with the Nasdaq 100 itself as the basket the neighbourhood's worst is 1.85."""
+    bar extreme), every name positive, blocks 2.09 / 3.65 / 1.93 / 1.78. 486 neighbouring cells all
+    above 1.0, worst 1.53 (1.40 stressed). Worst book drawdown 28% at 4% clips and a 12% washout (34% at
+    the first build's 5% / 15%; the trades are the same, so the profit factor is too). Hindsight
+    caveat: the ten names are today's winners; with the Nasdaq 100 itself as the basket the
+    neighbourhood's worst is 1.85."""
     assert (INPUTS["overheatRsi"], INPUTS["washoutRsi"], INPUTS["stopRoePct"]) == (79, 30, 30)
