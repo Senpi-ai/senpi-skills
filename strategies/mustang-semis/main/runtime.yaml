@@ -1,0 +1,142 @@
+# ── MUSTANG SEMIS · single instance — Mustang's rule on the 3x chip fund, timed by the Nasdaq's trend ──
+# The Mustang engine (scanners/ are byte-identical to strategies/mustang — tests/test_engine_parity.py
+# pins them). The market traded is xyz:SOXL (a 3x semiconductor fund) at 1x; the regime is the Nasdaq
+# 100's long-term trend (xyz:XYZ100 against its 40-week average), because xyz:SOXL listed in August
+# 2026 and has nowhere near 40 weekly closes. Uptrend: buy at the daily close unless SOXL's 10-day RSI
+# is over 79. Downtrend: buy only when it closed under 30. Long only, one position, Mustang's ladder,
+# which at 1x on a 3x fund sits at the same distance relative to its swings as at 3x on the index.
+#
+# Replayed on US daily bars Mar 2010 - Nov 2026 (SOXL traded, QQQ's 40-week regime), entry at the
+# signal close, the stop on the wick, rungs arming on the close, charged xyz:SOXL's Hyperliquid cost
+# (taker fee both sides, about 0.018% a round trip in growth mode, plus its measured spread) and
+# funding at its 180-day average rate (8.3% a year, longs paying): 131 trades, profit factor 1.96 (1.72
+# arming on the bar extreme); every four-year block positive (2.14 / 3.57 / 1.72 / 1.64); worst
+# drawdown 27% at 20% margin. All 1,458 neighbouring settings cleared, the worst at 1.29 (1.26 with
+# funding stressed to 11% a year). The switcher's two SHORT states (overheated: RSI over 80 -> short;
+# weak: under the trend -> short) lost on their own even receiving funding (21 of 72 and 0 of 72
+# cells above 1) and are not here. Measurement in the commit that added this.
+name: mustang-semis-main
+group: mustang-semis
+version: 1.0.0
+description: >
+  MUSTANG SEMIS — Mustang's rule on the 3x semiconductor fund (xyz:SOXL), long only at 1x, timed by
+  the Nasdaq 100's long-term trend: xyz:XYZ100's latest daily close against the average of its last
+  40 weekly closes. At each UTC-midnight daily close, with nothing held, it buys SOXL in an uptrend
+  unless SOXL's 10-day RSI has run over 79, and in a downtrend only when that RSI closed under 30;
+  otherwise it waits in USDC. One position at 20% of withdrawable as margin. The DSL is the only
+  exit — a 30% ROE stop (30% of SOXL's price at 1x) and a wide ladder; no clock closes anything.
+  Expect about two trades every three months.
+
+strategy:
+  wallet: "${MUSTANG_SEMIS_WALLET}"
+  slots: 1                                # one market, one position
+  margin_pct: 20                          # baseline %; scan emits marginPct per signal (same number)
+  default_leverage: 1                     # fallback; scan emits the same 1x per signal (SOXL is itself 3x)
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: mustang_semis_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # the daily close is the only decision point; 5 min bounds the delay
+    timeout_seconds: 120                   # one account read + two candle reads (regime market, traded market)
+    default_signal_validity_seconds: 600   # 2x tick; rule action, a fresh re-score never re-emits a bar
+    state_history_max_count: 50            # (market, bar) dedup map + per-tick result
+    inputs:
+      allowedAssets: ["xyz:SOXL"]          # the market traded — the xyz: prefix is mandatory
+      regimeAsset: "xyz:XYZ100"            # the Nasdaq 100's trend: xyz:SOXL has < 40 weekly closes
+      regimeWeeks: 40                      # average of the last 40 CLOSED weekly closes = the 200-trading-day average
+      rsiPeriod: 10                        # Wilder RSI on CLOSED daily candles of the traded market
+      overheatRsi: 79                      # uptrend: no entry when RSI closed at or over this
+      dipRsi: 30                           # downtrend: entry only when RSI closed under this
+      entryWindowSeconds: 3600             # buy within the hour after the UTC-midnight close, or wait a day
+      leverage: 1                          # SOXL is a 3x fund: 1x = 3x semiconductors
+      stopRoePct: 30                       # = 30% of SOXL's price at 1x. MUST equal exit.dsl_preset.phase1.max_loss_pct (tests pin it)
+      marginPct: 20                        # PERCENT of withdrawable (0,100]; one slot
+      maxSlots: 1
+      minNotionalUsd: 12                   # the venue's bumped minimum; the free-margin gate stops emitting below it
+    signal_data_schema:
+      leg: { type: string }
+      direction: { type: string }
+      rsi: { type: number }
+      regimeUp: { type: boolean }
+      regimeClose: { type: number }
+      regimeAverage: { type: number }
+      signalBarTime: { type: number }
+      leverage: { type: number }
+      stopPricePct: { type: number }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: mustang_semis_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied the whole rule (regime + RSI + close)
+    scanners: [mustang_semis_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # the buy is AT the close — maker window first, taker fallback
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: mustang_semis_main_signals
+
+# ── EXIT (DSL only) ───────────────────────────────────────────────────────────────────────
+# Mustang's ladder, unchanged in ROE. At 1x the ROE IS SOXL's price move: stop 30%; rungs arm at
+# +15% / +25% / +40% / +60% / +100% and lock 30 / 45 / 60 / 75 / 85% of the best gain — the same
+# distances relative to a 3x fund's swings as Mustang's +5% / +8.3% ... are on the index at 3x.
+# Clock cuts are OFF: of 142 clock-driven closes measured in one fleet week, 110 were in profit.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout: { enabled: false, interval_in_minutes: 4320 }
+    weak_peak_cut: { enabled: false, interval_in_minutes: 360, min_value: 3.0 }
+    dead_weight_cut: { enabled: false, interval_in_minutes: 60 }
+    phase1:
+      # Trailing DISABLED fleet-wide: the phase-1 floor trails HIGH-WATER, so after a small favourable
+      # move it can still sit BELOW entry and close a WINNER at a loss. max_loss_pct is the hard
+      # stop; retrace_threshold is inert while enabled is false.
+      enabled: false
+      max_loss_pct: 30.0   # 30% of SOXL's price at 1x — mirrored by inputs.stopRoePct
+      retrace_threshold: 30
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # trigger / lock, ROE = SOXL's price move at 1x
+        - { trigger_pct: 15, lock_hw_pct: 30 }   # +15% of SOXL's price -> floor +4.5%
+        - { trigger_pct: 25, lock_hw_pct: 45 }   # +25%                 -> floor +11.25%
+        - { trigger_pct: 40, lock_hw_pct: 60 }   # +40%                 -> floor +24%
+        - { trigger_pct: 60, lock_hw_pct: 75 }   # +60%                 -> floor +45%
+        - { trigger_pct: 100, lock_hw_pct: 85 }  # +100%                -> floor +85%
+
+# ── RISK guard rails (one slow book: rare entries, a wide stop, no self-resetting breaker) ──
+risk:
+  data_retention_seconds: 604800           # 7d — a position can live for months
+  guard_rails:
+    daily_loss_limit_pct: 10               # one stop-out is 30% x 20% = 6% of the account
+    max_entries_per_day: 2                 # one per daily close; the second covers a re-entry the next close
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 86400                # a day after three losses in a row
+    drawdown_halt_pct: 35                  # the wallet-wide hard stop; above the replay's 27% worst drawdown
+    drawdown_reset_on_day_rollover: false  # clearing it is a deliberate act (redeploy), not midnight
+    per_asset_cooldown_seconds: 300        # the scanner already allows one entry per daily close
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
