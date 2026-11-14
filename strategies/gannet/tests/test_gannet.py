@@ -274,13 +274,16 @@ def test_a_read_failure_behind_the_winner_does_not_block_it(monkeypatch):
     assert [s["asset"] for s in _run(monkeypatch, _Sp500Down({"xyz:XYZ100": _washed_out()}))] == ["xyz:XYZ100"]
 
 
-def test_two_slots_in_one_tick_are_sized_off_one_balance_read(monkeypatch):
-    """The runtime sizes every signal of a tick as marginPct of the same free balance, and only
-    counts the balance down for its affordability check. At $85 free, 15% is $12.75 for both slots;
-    shrinking the base after the first (to $72.25, so $10.84) would drop the second for nothing."""
+def test_a_second_slot_is_projected_off_the_free_margin_left_by_the_first(monkeypatch):
+    """The runtime opens a scanner's signals one at a time (intake dispatches each separately, one
+    consumer), each as marginPct of the free margin left after the ones before it. At $85 free and
+    15% a slot, the first is $12.75 and the second 15% of $72.25 = $10.84: under the $12 floor at 1x,
+    so the scanner must not emit it."""
     duo_1x = dict(INPUTS, maxSlots=2, marginPct=15, leverageByAsset={"xyz:SOXL": 1, "xyz:XYZ100": 1, "xyz:SP500": 1})
     mcp = _MCP({"xyz:SOXL": _washed_out(), "xyz:XYZ100": _washed_out()}, withdrawable="85")
-    assert [s["asset"] for s in _run(monkeypatch, mcp, inputs=duo_1x)] == ["xyz:SOXL", "xyz:XYZ100"]
+    assert [s["asset"] for s in _run(monkeypatch, mcp, inputs=duo_1x)] == ["xyz:SOXL"]
+    mcp = _MCP({"xyz:SOXL": _washed_out(), "xyz:XYZ100": _washed_out()}, withdrawable="100")
+    assert [s["asset"] for s in _run(monkeypatch, mcp, inputs=duo_1x)] == ["xyz:SOXL", "xyz:XYZ100"]   # $15, then $12.75
 
 
 # ── 5. the measured parameters ───────────────────────────────────────────────────────────

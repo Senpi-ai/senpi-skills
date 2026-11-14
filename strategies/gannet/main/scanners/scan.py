@@ -168,8 +168,10 @@ def scan(inputs, ctx):
     out = []
     remaining = withdrawable
     for key, th in scoring.cascade(candidates, open_slots):
-        margin = withdrawable * margin_pct / 100.0       # the runtime sizes every signal of a tick off one balance read
-        if margin * th["leverage"] < min_notional or margin > remaining:
+        # The runtime opens a scanner's signals one at a time, each as marginPct of the free margin
+        # left after the ones before it, so the projection shrinks the same way.
+        margin = remaining * margin_pct / 100.0
+        if margin * th["leverage"] < min_notional:
             print(f"[gannet.scan] free margin ${remaining:.2f} cannot fund a slot at "
                   f"{margin_pct:g}% x {th['leverage']}x — holding {th['coin']}", file=sys.stderr)
             break
