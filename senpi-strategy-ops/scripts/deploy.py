@@ -18,8 +18,8 @@ see `stale_proof_dirs`, which keys on the gate's structured evidence, never on i
   python3 deploy.py validate <id>                                  # preflight (no money, nothing installed; DOES fetch a bare id)
   python3 deploy.py create   <id> --budget <usd> [--max-wait S]    # run the deploy (create+fund+install+tick)
   python3 deploy.py runtime  <id> [--decision-model M]             # resume/complete the same deploy
-  python3 deploy.py create   <id> --budget <usd> --paper           # the same deploy as a simulation
-                                                                   #   (`senpi.deploy.startPaper`)
+  python3 deploy.py create   <id> --budget <usd> --simulation      # the same deploy as a simulation
+                                                                   #   (`senpi.deploy.startSimulation`)
   python3 deploy.py verify   <id>                                  # READ-ONLY: is it live? (deploys/fetches nothing)
   python3 deploy.py status   [<id>]                                # the last deploy job's status
 
@@ -578,9 +578,9 @@ def _journal_read(pkg_id):
 
 
 def _start_method(a):
-    """`--paper` starts the same job as a simulation through its own gateway method, so a runtime
+    """`--simulation` starts the same job as a simulation through its own gateway method, so a runtime
     that predates simulations answers `unknown_method` instead of deploying live."""
-    return "senpi.deploy.startPaper" if getattr(a, "paper", False) else "senpi.deploy.start"
+    return "senpi.deploy.startSimulation" if getattr(a, "simulation", False) else "senpi.deploy.start"
 
 
 def _journal_write(pkg_id, entry):
@@ -595,10 +595,10 @@ def _params_key(params):
     return {"packageDir": params.get("packageDir"), "budget": params.get("budget")}
 
 
-def _open_entry(pkg, paper=False):
+def _open_entry(pkg, simulation=False):
     """The journal's open entry for this package in this world (a START that never got an answer),
     or None."""
-    entry = _journal_read(_journal.key(pkg.id, paper)) or {}
+    entry = _journal_read(_journal.key(pkg.id, simulation)) or {}
     rid = entry.get("requestId")
     if (entry.get("packageId") == str(pkg.id) and entry.get("resolved") is None
             and isinstance(rid, str) and _REQUEST_ID_SHAPE.match(rid)):
@@ -651,7 +651,7 @@ def resolve_seen_request(snap):
     request id: the START is then accounted for. A different id, or none, leaves the entry open."""
     meta = (snap or {}).get("meta") or {}
     if meta.get("requestId"):
-        _journal.resolve(_journal.key(meta.get("packageId"), meta.get("paper") is True), meta["requestId"],
+        _journal.resolve(_journal.key(meta.get("packageId"), meta.get("simulation") is True), meta["requestId"],
                          meta.get("deployId") or "seen-by-status")
 
 
@@ -676,7 +676,7 @@ def _why_a_job_may_be_running(entry):
     return "the job record could not be read"
 
 
-def _request_id_for(pkg, params, log, caps, verb="create", paper=False):
+def _request_id_for(pkg, params, log, caps, verb="create", simulation=False):
     """`(request id | None, reused, the open entry | None, params changed)` for this START.
 
     An open entry (its START never got an answer) is reused, however old. With other parameters it is
@@ -686,9 +686,9 @@ def _request_id_for(pkg, params, log, caps, verb="create", paper=False):
     False` (a runtime that does not honour ids, and sends no id) when the job record shows no job
     running: that closes the entry and this START goes out. With no open entry a new id is minted
     under True and None (an older runtime ignores it; matching on it stays gated on True) and
-    journaled, unresolved, before this returns. `paper` picks the world's own entry."""
-    jkey = _journal.key(pkg.id, paper)
-    entry = _open_entry(pkg, paper)
+    journaled, unresolved, before this returns. `simulation` picks the world's own entry."""
+    jkey = _journal.key(pkg.id, simulation)
+    entry = _open_entry(pkg, simulation)
     if entry:
         changed = entry.get("paramsKey") is not None and entry["paramsKey"] != _params_key(params)
         if changed and caps is False:
@@ -713,14 +713,14 @@ def _request_id_for(pkg, params, log, caps, verb="create", paper=False):
     rid = f"dpl-req-{datetime.fromtimestamp(now, timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{os.urandom(4).hex()}"
     _journal_write(jkey, {"packageId": str(pkg.id), "requestId": rid, "sentAt": _utc_stamp(now),
                           "verb": verb, "paramsKey": _params_key(params), "resolved": None,
-                          **({"paper": True} if paper else {})})
+                          **({"simulation": True} if simulation else {})})
     return rid, False, None, False
 
 
-def _journal_resolve(pkg, rid, outcome, paper=False):
+def _journal_resolve(pkg, rid, outcome, simulation=False):
     """Close the journal entry for `rid` (only if it is still the open one)."""
     if rid:
-        _journal.resolve(_journal.key(pkg.id, paper), rid, outcome)
+        _journal.resolve(_journal.key(pkg.id, simulation), rid, outcome)
 
 
 def _rid_tag(rid):
@@ -748,7 +748,7 @@ def _poll_steer(pkg_id, rid, deploy_id=None, since=None):
     return "\n".join(lines)
 
 
-def _recover_lost_start(pkg, t0, log, rid=None, paper=False):
+def _recover_lost_start(pkg, t0, log, rid=None, simulation=False):
     """A START whose reply never came back may still have been taken: killing our client does not
     take back a request the gateway already read. Read the job record (`senpi.deploy.status {}`) up
     to RECOVER_READS times. Returns the adopted deployId, or None. Never starts anything, and None
@@ -757,7 +757,7 @@ def _recover_lost_start(pkg, t0, log, rid=None, paper=False):
     With `rid` (a request id the runtime advertised it honours) the match is exact: the job whose
     `meta.requestId` is ours, whenever it started (a retry's job was started by the first attempt).
     Without it the match is a heuristic (this package, started no earlier than RECOVER_SKEW_S before
-    the call, same world: the job's `meta.paper` must match `paper`): a job for the same package
+    the call, same world: the job's `meta.simulation` must match `simulation`): a job for the same package
     and world started by someone else in the same window would be
     adopted. That can only make this script follow and report the wrong job; it never dispatches,
     funds or closes anything."""
@@ -775,7 +775,7 @@ def _recover_lost_start(pkg, t0, log, rid=None, paper=False):
         else:
             started = _iso_ts(meta.get("startedAt"))
             if (str(meta.get("packageId") or "") == str(pkg.id) and started is not None
-                    and (meta.get("paper") is True) == bool(paper)
+                    and (meta.get("simulation") is True) == bool(simulation)
                     and started >= t0 - RECOVER_SKEW_S and meta.get("deployId")):
                 return meta["deployId"]
         if i + 1 < RECOVER_READS:
@@ -794,7 +794,7 @@ def start_deploy(pkg, a, log):
     only a runtime that honours ids says it."""
     params = _start_params(pkg, a)
     method = _start_method(a)
-    paper = getattr(a, "paper", False)
+    simulation = getattr(a, "simulation", False)
     if getattr(a, "dry_run", False):
         print("planned: " + shlex.join(_cli.gateway_argv(method, params, START_RPC_MS)))
         raise SystemExit(0)
@@ -805,7 +805,7 @@ def start_deploy(pkg, a, log):
     else:
         caps = a.request_ids
         verb = getattr(a, "cmd", None) if getattr(a, "cmd", None) in ("create", "runtime") else "create"
-        rid, reused, entry, changed = _request_id_for(pkg, params, log, caps, verb, paper)
+        rid, reused, entry, changed = _request_id_for(pkg, params, log, caps, verb, simulation)
     try:
         a.repeated_terminal = None
         a.repeated_changed = None
@@ -855,7 +855,7 @@ def start_deploy(pkg, a, log):
                         pass
                 if payload.get("next"):
                     print(f"  {payload['next']}", file=sys.stderr)
-            _journal_resolve(pkg, open_rid, deploy_id, paper)
+            _journal_resolve(pkg, open_rid, deploy_id, simulation)
             return deploy_id
         print(f"{method} answered but named no deployId, so this script cannot follow the "
               "job.\n"
@@ -869,7 +869,7 @@ def start_deploy(pkg, a, log):
     # names a job.
     if kind == "budget_spent":
         if not reused:
-            _journal_resolve(pkg, rid, "not-sent", paper)
+            _journal_resolve(pkg, rid, "not-sent", simulation)
         print(f"NOTHING WAS DISPATCHED: less than {START_MIN_WALL_S}s of this command's budget was "
               f"left for START, so it was not sent {_budget_note()}. No job started, no wallet "
               f"created, no funds moved. Re-running this command starts over with a fresh budget.",
@@ -877,21 +877,21 @@ def start_deploy(pkg, a, log):
         raise SystemExit(EXIT_INTERNAL)
     if kind == "refused":
         if not reused:
-            _journal_resolve(pkg, rid, "refused", paper)
+            _journal_resolve(pkg, rid, "refused", simulation)
         print(r["message"], file=sys.stderr)
         raise SystemExit(EXIT_CODES["refused"])
     if kind in ("unknown_method", "cli_parse", "spawn_failed"):
         if not reused:
-            _journal_resolve(pkg, rid, "not-dispatched", paper)
+            _journal_resolve(pkg, rid, "not-dispatched", simulation)
         # Nothing reached a deploy handler: no such method, a command line openclaw rejected, or no
         # openclaw at all. Exit 1, never 2 — no gate said no; this box cannot run the call.
         print(r["message"] or kind, file=sys.stderr)
-        if kind == "unknown_method" and paper:
-            cure = ("  This box's runtime plugin has no simulation deploy (`senpi.deploy.startPaper`): "
+        if kind == "unknown_method" and simulation:
+            cure = ("  This box's runtime plugin has no simulation deploy (`senpi.deploy.startSimulation`): "
                     "it predates simulations. Update the runtime plugin, then re-run this exact "
                     "command:\n"
                     "    openclaw plugins install @senpi-ai/runtime\n"
-                    "  Do not re-run without --paper: that deploys a live strategy with real money.")
+                    "  Do not re-run without --simulation: that deploys a live strategy with real money.")
         elif kind == "unknown_method":
             cure = ("  This box's runtime plugin has no `senpi.deploy.start` gateway method: it predates "
                     "the deploy verb, usually a wedged self-update. Update the runtime plugin, then "
@@ -911,12 +911,12 @@ def start_deploy(pkg, a, log):
         raise SystemExit(EXIT_INTERNAL)
     # timeout / transport / error / unreadable: the gateway may have taken the job.
     print(f"{method}: {kind}: {r['message'] or 'no message'}", file=sys.stderr)
-    adopted = _recover_lost_start(pkg, t0, log, rid_by, paper)
+    adopted = _recover_lost_start(pkg, t0, log, rid_by, simulation)
     if adopted:
         how = (f"the job record shows request id {rid_by} on job {adopted}" if rid_by else
                f"the gateway took job {adopted} for {pkg.id} after this command sent it")
         print(f"note: the START reply was lost, but {how}; following that job.", file=sys.stderr)
-        _journal_resolve(pkg, open_rid, adopted, paper)
+        _journal_resolve(pkg, open_rid, adopted, simulation)
         return adopted
     print(f"  No answer came back for the START call{_rid_tag(rid)}, and the reads of the job record "
           f"found no job for {pkg.id} started by it. That is not a verdict: the gateway may have "
@@ -1186,8 +1186,8 @@ def _unreadable_job(pkg, deploy_id, rid=None):
     return EXIT_INTERNAL
 
 
-def _paper_sfx(a):
-    return " --paper" if getattr(a, "paper", False) else ""
+def _simulation_sfx(a):
+    return " --simulation" if getattr(a, "simulation", False) else ""
 
 
 def run_deploy(pkg, a, log):
@@ -1248,7 +1248,7 @@ def run_deploy(pkg, a, log):
         print(f"\nExit 1: this command's parameters were NOT applied (budget "
               f"{_usd(changed['newBudget'])}). Job {changed['deployId']} is the earlier START sent at "
               f"{changed['sentAt']}, budget {_usd(changed['oldBudget'])}, and that is what deployed.\n"
-              f"  Next: python3 {Path(__file__).with_name('status.py').name} {pkg.id}{_paper_sfx(a)}   — "
+              f"  Next: python3 {Path(__file__).with_name('status.py').name} {pkg.id}{_simulation_sfx(a)}   — "
               f"read what is live now, and report that.", file=sys.stderr)
         return EXIT_INTERNAL
     earlier = getattr(a, "repeated_terminal", None)
@@ -1258,7 +1258,7 @@ def run_deploy(pkg, a, log):
         print(f"\nExit 1: this command started no deploy. Job {earlier['deployId']} is the outcome of "
               f"the earlier START sent at {earlier['sentAt']}, and it ended before this command ran; "
               f"whether that strategy still trades is not checked here.\n"
-              f"  Next: python3 {Path(__file__).with_name('status.py').name} {pkg.id}{_paper_sfx(a)}   — "
+              f"  Next: python3 {Path(__file__).with_name('status.py').name} {pkg.id}{_simulation_sfx(a)}   — "
               f"read what is live now, and report that.", file=sys.stderr)
         return EXIT_INTERNAL
     return code
@@ -1455,17 +1455,17 @@ def package_simulations(pkg):
     """`(simulations, unread)` for the package. `simulations` is its open simulations (a list, empty
     when there are none) or None when the list was not read. `unread` is None unless the read failed
     in a way that leaves the outcome UNKNOWN (a timeout, a transport error, a payload with no list,
-    PAPER_UNAVAILABLE, PAPER_DISABLED): then it is the cause. An MCP with no paper router (no
+    SIMULATION_UNAVAILABLE, SIMULATION_DISABLED): then it is the cause. An MCP with no simulation router (no
     marker) is a clean answer, `(None, None)`: there are no simulations to find. Read-only; used only to keep `verify`
     from naming a live `create` over a package that runs as a simulation."""
     why = []
     try:
         rows = _cli.list_strategies_or_none(MCPClient(), timeout=STATUS_TIMEOUT,
-                                            statuses=_cli.LIVE_STATUSES, why=why, paper=True)
+                                            statuses=_cli.LIVE_STATUSES, why=why, simulation=True)
     except Exception as e:  # noqa: BLE001 — an unexpected failure is an unknown outcome, not "none"
         return None, f"the simulation lookup failed ({e})"
     if rows is None:
-        if why and all(isinstance(w, _cli.NoPaperRouter) for w in why):
+        if why and all(isinstance(w, _cli.NoSimulationRouter) for w in why):
             return None, None
         return None, (why[0] if why else "the simulation lookup produced no answer")
     return [s for s in rows if _cli.strategy_open(s) and _cli.strategy_skill(s) == pkg.id], None
@@ -1606,7 +1606,7 @@ def verify_instance(pkg, inst, strategies, runtimes, hmap, job_running=False, si
             row["issue"] = (f"no live strategy named {want!r} on the backend — and the simulation list "
                             f"could not be read ({sim_unread}), so whether {pkg.id} runs as a "
                             f"SIMULATION is unknown")
-            row["next"] = (f"python3 {Path(__file__).with_name('status.py').name} {pkg.id} --paper   "
+            row["next"] = (f"python3 {Path(__file__).with_name('status.py').name} {pkg.id} --simulation   "
                            f"# read-only: check for a simulation first (or retry verify). Name a live "
                            f"deploy only once that read answers, and only if the user asks for real "
                            f"money")
@@ -1617,7 +1617,7 @@ def verify_instance(pkg, inst, strategies, runtimes, hmap, job_running=False, si
             row["issue"] = (f"no live strategy named {want!r} on the backend — {pkg.id} runs as a "
                             f"SIMULATION ({len(simulations)} simulated strategy(s)), which this check "
                             f"does not verify")
-            row["next"] = (f"python3 {Path(__file__).with_name('status.py').name} {pkg.id} --paper   "
+            row["next"] = (f"python3 {Path(__file__).with_name('status.py').name} {pkg.id} --simulation   "
                            f"# read-only: the simulation. A live deploy funds a REAL wallet: name one "
                            f"only if the user asks for real money")
         else:
@@ -1901,8 +1901,8 @@ def update_target(pkg, runtime_id=None, address=None):
     if runtime_id:
         inst = next((i for i in insts if i.runtime_name == runtime_id), None)
         if inst is None:
-            # A simulation runs the same instance dir under `<id>-<inst>-paper` (what `status.py
-            # --paper` prints for a drifted one): resolve it back to its instance, and keep the id
+            # A simulation runs the same instance dir under `<id>-<inst>-simulation` (what `status.py
+            # --simulation` prints for a drifted one): resolve it back to its instance, and keep the id
             # exactly as given so the verb is pointed at the simulation's runtime, not the live one.
             inst = next((i for i in insts
                          if _cli.runtime_id_for(pkg.id, i.name, True) == runtime_id), None)
@@ -2031,7 +2031,7 @@ def _username():
     return str(_cli.dig(user, "userName") or "").strip() or None
 
 
-def outside_durable_root(pkg, cmd, paper=False):
+def outside_durable_root(pkg, cmd, simulation=False):
     """The refusal for a package that lives outside the durable strategies root, or None.
 
     A runtime keeps reading its scanners from the directory it was installed (or updated) from, and
@@ -2050,7 +2050,7 @@ def outside_durable_root(pkg, cmd, paper=False):
             f"everything outside its volume on restart — the strategy would keep its wallet and lose "
             f"every scanner. Copy the package in and use the copy:\n"
             f"    cp -r {here} {dest}\n"
-            f"    python3 {Path(__file__).name} {cmd} {dest}{' --paper' if paper else ''} ...\n"
+            f"    python3 {Path(__file__).name} {cmd} {dest}{' --simulation' if simulation else ''} ...\n"
             f"  (A catalog strategy can also go by its bare id, which fetches into {root}.) "
             f"Nothing was created, funded, installed or changed.")
 
@@ -2074,7 +2074,7 @@ def _fork_for_deploy(pkg, a, log):
         if not owner:
             print(f"✗ {pkg.id}: a template deploys under the user's name, never as the bare template, and their Senpi "
                   f"username could not be read. Ask what to call it, then re-run with\n"
-                  f"    python3 {Path(__file__).name} create {a.package} --name \"<their words>\" --budget <usd>{_paper_sfx(a)}\n"
+                  f"    python3 {Path(__file__).name} create {a.package} --name \"<their words>\" --budget <usd>{_simulation_sfx(a)}\n"
                   f"  A user ID is never a name. Nothing was created, funded or installed.", file=sys.stderr)
             sys.exit(EXIT_CODES["refused"])
     try:
@@ -2131,9 +2131,9 @@ def cmd_fork(pkg, a, log):
     return 0
 
 
-def _paper_flag(p):
-    p.add_argument("--paper", action="store_true",
-                   help="Run the package as a simulation (gateway method `senpi.deploy.startPaper`): "
+def _simulation_flag(p):
+    p.add_argument("--simulation", action="store_true",
+                   help="Run the package as a simulation (gateway method `senpi.deploy.startSimulation`): "
                         "simulated money, no real funds move.")
 
 
@@ -2158,7 +2158,7 @@ def _main(argv):
     pc.add_argument("--tick-wait", type=int, default=None,
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")
     pc.add_argument("--dry-run", action="store_true")
-    _paper_flag(pc)
+    _simulation_flag(pc)
     _ownership_flags(pc)
 
     pr = sub.add_parser("runtime", help="Resume/complete the same deploy (installs the runtime(s)).")
@@ -2172,7 +2172,7 @@ def _main(argv):
     pr.add_argument("--tick-wait", type=int, default=None,
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")
     pr.add_argument("--dry-run", action="store_true")
-    _paper_flag(pr)
+    _simulation_flag(pr)
     _ownership_flags(pr)
 
     # `fork` makes the user's copy of a template and stops there — no money, nothing installed. It is
@@ -2257,9 +2257,9 @@ def _main(argv):
               f"renders the planned `openclaw gateway call {_start_method(a)}` line as PROSE, and there is no JSON "
               f"rendering of a plan. NOTHING WAS STARTED, planned or resolved here.\n"
               f"  The plan (read-only, nothing runs):  python3 {Path(__file__).name} {a.cmd} "
-              f"{a.package}{_paper_sfx(a)} … --dry-run\n"
+              f"{a.package}{_simulation_sfx(a)} … --dry-run\n"
               f"  A JSON report needs a REAL run:      drop --dry-run"
-              f"{' and keep --paper' if getattr(a, 'paper', False) else ''} — that RUNS THE DEPLOY VERB "
+              f"{' and keep --simulation' if getattr(a, 'simulation', False) else ''} — that RUNS THE DEPLOY VERB "
               f"(creates + funds wallets, installs, starts trading) and its report is what --json "
               f"renders.", file=sys.stderr)
         sys.exit(EXIT_INTERNAL)
@@ -2362,7 +2362,7 @@ def _main(argv):
         sys.exit(cmd_fork(pkg, a, log))
     if a.cmd in ("create", "runtime"):
         pkg = _fork_for_deploy(pkg, a, log)
-        refusal = outside_durable_root(pkg, a.cmd, getattr(a, "paper", False))
+        refusal = outside_durable_root(pkg, a.cmd, getattr(a, "simulation", False))
         if refusal:
             print(refusal, file=sys.stderr)
             sys.exit(EXIT_CODES["refused"])

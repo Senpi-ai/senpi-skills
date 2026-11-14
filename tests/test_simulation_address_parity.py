@@ -1,4 +1,4 @@
-"""Every skill that tells a simulation's wallet from a live one holds the same `PAPER_ADDRESS_RE`.
+"""Every skill that tells a simulation's wallet from a live one holds the same `SIMULATION_ADDRESS_RE`.
 
 Skills install standalone, so each keeps its own copy. When hypaper's address format changes, every
 copy changes on the same day; this test fails while any copy is left behind."""
@@ -8,7 +8,7 @@ import re
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 COPIES = ("senpi-strategy-ops/scripts/_cli.py", "senpi-improve-trades/scripts/review.py",
           "quant-desk/scripts/hl_api.py")
-LINE = re.compile(r'^PAPER_ADDRESS_RE = re\.compile\((r".*")\)$', re.M)
+LINE = re.compile(r'^SIMULATION_ADDRESS_RE = re\.compile\((r".*")\)$', re.M)
 
 
 def _pattern(rel):
@@ -34,7 +34,7 @@ ZERO_ADDRESS = "0x" + "0" * 40
 
 def test_no_copy_reads_the_zero_address_as_a_simulation():
     """The runtime's stand-in wallet (validate's scanner tick, the deploy preflight's facts render) is
-    the zero address. A copy that reads it as a simulation sends live deploys down the paper path.
+    the zero address. A copy that reads it as a simulation sends live deploys down the simulation path.
     hypaper's timestamp is a real ms epoch, so it never starts with 0."""
     for rel in COPIES:
         rx = re.compile(eval(_pattern(rel)))  # noqa: S307 — a raw-string literal read from our own file
