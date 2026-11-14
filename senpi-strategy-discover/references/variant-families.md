@@ -141,9 +141,10 @@ The duo cannot — two slots and that tier do not fit under the same margin cap 
 positions are always 45%. A user who valued the conviction tier should stay on puffin.
 
 `gannet-duo` (2 × 15% vs gannet's 1 × 30%) is the one duo whose parent is usually FLAT: gannet holds
-a position only after a hard daily drop, so most days neither holds anything. The duo differs on the
-closes where two of its three markets are washed out at once — gannet buys the first, the duo buys
-both. One stop-out costs 3.15% of the account instead of 6.3%.
+a position only after a hard daily drop, so most days neither holds anything. Every duo position is
+half the size, so a normal single-market trade makes or loses half as much: one stop-out costs 3.15%
+of the account instead of 6.3%. The duo also holds a second market that washes out on the same close
+or while the first is still open; gannet holds only the first.
 
 ### 3. Leverage sibling — the same ladder at half the leverage
 
@@ -209,9 +210,10 @@ names the S&P 500 or "the whole market"; for the Nasdaq, big tech or "tech", off
 
 `mustang-semis` — the same rule trading the 3x semiconductor fund (xyz:SOXL) at 1x, timed by the
 same Nasdaq 100 regime. At 1x on a 3x fund the stop is 30% of the fund's price and every rung is three
-times wider in price than mustang's on the index — the same distances relative to its swings. It is
-the aggressive member: swings of 20-30% inside one position are normal. Offer it only when the user
-names chips, semis or SOXL.
+times wider in price than mustang's on the index — the same distances relative to its swings. It sizes
+at 20% margin, not mustang's 30%, so a stop-out costs 6% of the account instead of 9%. It is the
+aggressive member: swings of 20-30% inside one position are normal. Offer it only when the user names
+chips, semis or SOXL.
 
 ## Not a family any more: camel
 
