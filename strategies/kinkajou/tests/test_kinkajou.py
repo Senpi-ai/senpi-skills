@@ -211,6 +211,32 @@ def test_the_momentum_reference_is_thirteen_weeks_back_on_any_day():
     assert scoring.close_weeks_back(wk, MIDNIGHT + 4 * D1, 13) == 28.0     # 4 days later the next one is nearer
     assert scoring.close_weeks_back(wk[-12:], MIDNIGHT, 13) is None        # not enough history
 
+
+def test_a_mature_name_missing_its_13_week_reference_waits(monkeypatch):
+    """Ignas's re-review of #979: a name with current closes and enough history, but no weekly close
+    near its 13-week reference, was skipped, so the runner-up was bought. Now the tick waits. A name
+    with too little history is still simply not a candidate."""
+    class _Gap(_MCP):
+        def call_tool(self, tool, args):
+            out = super().call_tool(tool, args)
+            if tool == "market_get_asset_data" and args["asset"] == "xyz:TSLA":
+                w = out["data"]["candles"]["1w"]
+                # drop the weekly closes 12 and 13 weeks back (the fixture's weeks close 3 days before
+                # each midnight), leaving 51 weekly rows and nothing within half a week of the target
+                out["data"]["candles"]["1w"] = w[:-14] + w[-12:]
+            return out
+    names = {"xyz:META": 170.0, "xyz:TSLA": 200.0}
+    assert _run(monkeypatch, _Gap(CALM, 90.0, names)) == []                          # wait, not META
+    assert [s["asset"] for s in _run(monkeypatch, _MCP(CALM, 90.0, names))] == ["xyz:TSLA"]
+
+    class _Young(_MCP):
+        def call_tool(self, tool, args):
+            out = super().call_tool(tool, args)
+            if tool == "market_get_asset_data" and args["asset"] == "xyz:TSLA":
+                out["data"]["candles"]["1w"] = out["data"]["candles"]["1w"][-20:]   # listed 20 weeks ago
+            return out
+    assert [s["asset"] for s in _run(monkeypatch, _Young(CALM, 90.0, names))] == ["xyz:META"]
+
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026), US daily bars Jan 2010 - Nov 2026 (QQQ, AAPL, NVDA, TSLA, META, AMZN),
     entry at the signal close, the stop on the wick, rungs arming on the close, each market charged its

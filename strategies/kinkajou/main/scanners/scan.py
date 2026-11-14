@@ -166,8 +166,17 @@ def scan(inputs, ctx):
                 _persist(ctx, signaled, result)
                 return []
             m = scoring.measure(coin, d, w, inputs)
-            if m is not None:                          # None: too little history to measure yet
-                measures.append(m)
+            if m is None:
+                if len(w) >= max(int(inputs.get("trendWeeks", 40)), int(inputs.get("momentumWeeks", 13))):
+                    # Old enough to rank, yet unmeasurable at this close (e.g. no weekly close near its
+                    # 13-week reference). It may be the strongest name, so no other name is bought in
+                    # its place; nothing is marked sent and the next tick reads again.
+                    print(f"[kinkajou.scan] WAITING on {coin}: it has the history to be ranked but cannot "
+                          f"be measured at this close", file=sys.stderr)
+                    _persist(ctx, signaled, result)
+                    return []
+                continue                               # too little history: not a candidate yet
+            measures.append(m)
         pick = scoring.strongest(measures)
     if not pick:
         print(f"[kinkajou.scan] WAITING — Nasdaq {state} (RSI {rsi}); nothing to buy at this close", file=sys.stderr)
