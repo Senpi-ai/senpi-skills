@@ -14,7 +14,7 @@ catalog:
   varies: mustang
   tagline: "Mustang's rule on the S&P 500 (xyz:SP500) instead of the Nasdaq: at 3x while the Nasdaq 100's long-term trend is up (above its 40-week average) and the S&P's 10-day RSI is not overheated (under 79); in a downtrend only after a washout (RSI under 30). Long only, one position, flat in USDC otherwise, and the same wide trailing stop."
   belief_plain: "The same idea as Mustang, on the broader and calmer S&P 500: own it with leverage while the market's long-term trend is up, skip the moments it has just run up too hard, and in a downtrend wait for a real washout before buying. The trend is read off the Nasdaq 100, whose long history on the exchange is long enough to measure it. It never shorts; one position, a stop 10% below the entry, and a ratchet that locks in the gain as it grows."
-  thesis: "You want leveraged exposure to the whole US market rather than just tech, but only while the trend is on your side. It trades a few times a year, holds for weeks to months, and sits in cash when the trend breaks."
+  thesis: "You want leveraged exposure to the whole US market rather than just tech, but only while the trend is on your side. It trades a few times a year and holds for weeks to months. Once the trend breaks it buys only a washout, and a position already open is closed by its stop or its profit lock, not by the trend turning."
   group: single-asset
   archetype: trend_following
   sub_style: broad_index

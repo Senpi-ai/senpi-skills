@@ -14,7 +14,7 @@ catalog:
   varies: mustang
   tagline: "Mustang's rule on the 3x semiconductor fund (xyz:SOXL) at 1x: buy at the daily close while the Nasdaq 100's long-term trend is up (above its 40-week average) and SOXL's 10-day RSI is under 79; in a downtrend only after a washout (RSI under 30). Long only, one position, flat in USDC otherwise, a 30% stop and a wide trailing ladder."
   belief_plain: "Chip stocks swing three times as hard as the market, and the 3x chip fund swings three times as hard again — so it is only worth owning when the tech trend is behind it. Once a day it checks whether the Nasdaq is above its long-term average; if so it buys the chip fund unless it has just run up too hard, and if not it waits for a real washout. It never shorts, holds one position, and lets a wide trailing stop end it."
-  thesis: "You want the most aggressive way to ride the chip cycle without fighting the tech trend: in the 3x fund while tech is trending up, out of it when the trend breaks, back in on a crash. Swings of 20-30% inside a single position are normal here; size it as a small slice of your money."
+  thesis: "You want the most aggressive way to ride the chip cycle without fighting the tech trend: it buys the 3x fund while tech is trending up and, once the trend breaks, only on a crash. A position already open is closed by its stop or its profit lock, not by the trend turning. Swings of 20-30% inside a single position are normal here; size it as a small slice of your money."
   group: single-asset
   archetype: trend_following
   sub_style: sector_momentum
