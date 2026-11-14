@@ -151,7 +151,12 @@ def scan(inputs, ctx):
     if tech_rsi is not None and tech_rsi >= scoring._f(inputs.get("crashRsi", 30), 30.0):
         for coin in basket:                          # the yardstick is only needed when there was no crash
             rows = _daily(ctx, coin)
-            basket_rsis.append(scoring.last_rsi(scoring.closed_candles(rows, _DAY, now), period) if rows else None)
+            closed = scoring.closed_candles(rows, _DAY, now) if rows else []
+            # A basket market counts only at the Nasdaq's own close. A series whose newest row is
+            # missing reads as no reading, and decide() then allows no tech entry; nothing is marked
+            # sent, so the next tick reads again. (A crash entry never needs the basket.)
+            current = bool(closed) and int(scoring._t(closed[-1])) == bar_t
+            basket_rsis.append(scoring.last_rsi(closed, period) if current else None)
     leg, yard = scoring.decide(tech_rsi, basket_rsis, inputs)
     result.update({"tech_rsi": None if tech_rsi is None else round(tech_rsi, 2),
                    "yardstick": None if yard is None else round(yard, 2), "leg": leg})

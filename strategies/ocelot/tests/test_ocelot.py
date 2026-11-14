@@ -145,6 +145,31 @@ def test_tech_lagging_means_cash_and_one_entry_per_close(monkeypatch):
     assert [t for t, _ in mcp.calls] == ["strategy_get_clearinghouse_state"]
 
 
+
+def _missing_newest_close(series_feed, assets):
+    """The feed with the newest closed row removed for `assets`, as after a dropped row."""
+    class _Stale(_MCP):
+        def call_tool(self, tool, args):
+            out = super().call_tool(tool, args)
+            if tool == "market_get_asset_data" and args["asset"] in assets:
+                rows = out["data"]["candles"]["1d"]
+                out["data"]["candles"]["1d"] = [r for r in rows if r["t"] != (MIDNIGHT - D1) * 1000]
+            return out
+    return _Stale(series_feed)
+
+
+def test_a_stale_basket_market_blocks_a_tech_entry(monkeypatch):
+    """Review #976: only the Nasdaq's close was freshness-checked, so a basket market missing its
+    newest close still produced an RSI and could authorize the 3x Nasdaq entry off yesterday's yardstick."""
+    assert [s["asset"] for s in _run(monkeypatch, _MCP({"xyz:XYZ100": _calm()}))] == ["xyz:XYZ100"]   # all current: tech leads
+    for coin in INPUTS["basketAssets"]:
+        assert _run(monkeypatch, _missing_newest_close({"xyz:XYZ100": _calm()}, {coin})) == [], coin
+
+
+def test_a_crash_still_buys_the_chip_fund_with_a_stale_basket(monkeypatch):
+    out = _run(monkeypatch, _missing_newest_close({"xyz:XYZ100": _crash()}, set(INPUTS["basketAssets"])))
+    assert [s["asset"] for s in out] == ["xyz:SOXL"]
+
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026), US daily bars Jan 2010 - Nov 2026 (QQQ, SOXL; basket GLD, USO, FXE, 1/FXY),
     entry at the signal close, the stop on the wick, rungs arming on the close, each traded market
