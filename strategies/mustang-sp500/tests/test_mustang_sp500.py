@@ -96,6 +96,40 @@ def test_the_scanner_reads_the_regime_and_the_traded_market(monkeypatch):
     assert reads == [("xyz:XYZ100", ("1d", "1w"), "xyz"), ("xyz:SP500", ("1d",), "xyz")]
 
 
+def _regime_feed(downtrend_today=False, drop_today=False, weekly_lag=0):
+    """The fixture with the Nasdaq's newest closed bar edited: a close of 80 is under its 40-week
+    average of 90 (a downtrend), `drop_today` removes that bar as a feed that dropped the row would,
+    and `weekly_lag` removes the newest weekly bars."""
+    class _Feed(_MCP):
+        def call_tool(self, tool, args):
+            out = super().call_tool(tool, args)
+            if tool == "market_get_asset_data" and args["asset"] == "xyz:XYZ100":
+                c = out["data"]["candles"]
+                today = (MIDNIGHT - D1) * 1000
+                for r in c["1d"]:
+                    if downtrend_today and r["t"] == today:
+                        r["c"] = "80"
+                if drop_today:
+                    c["1d"] = [r for r in c["1d"] if r["t"] != today]
+                if weekly_lag:
+                    c["1w"] = c["1w"][:-weekly_lag]
+            return out
+    return _Feed()
+
+
+def test_a_missing_regime_close_waits_instead_of_using_yesterdays(monkeypatch):
+    monkeypatch.setattr(scan.time, "time", lambda: MIDNIGHT + 300)
+    assert scan.scan(dict(INPUTS), _Ctx(_regime_feed(downtrend_today=True))) == []      # today's downtrend: no trend entry
+    # the same close with the Nasdaq's row missing must wait, not fall back to yesterday's uptrend
+    assert scan.scan(dict(INPUTS), _Ctx(_regime_feed(downtrend_today=True, drop_today=True))) == []
+
+
+def test_a_lagging_weekly_feed_waits(monkeypatch):
+    monkeypatch.setattr(scan.time, "time", lambda: MIDNIGHT + 300)
+    assert len(scan.scan(dict(INPUTS), _Ctx(_regime_feed()))) == 1                   # the healthy fixture enters
+    assert scan.scan(dict(INPUTS), _Ctx(_regime_feed(weekly_lag=1))) == []          # last weekly close missing
+
+
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026), US daily bars Mar 2010 - Nov 2026, SPY traded with QQQ's 40-week regime,
     Mustang's exits, charged xyz:SP500's Hyperliquid taker fee both sides, its measured spread and

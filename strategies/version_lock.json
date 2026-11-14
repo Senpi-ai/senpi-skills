@@ -309,18 +309,6 @@
       "behaviour": "d1dede2daa8645ff",
       "version": "1.0.1"
     },
-    "mustang": {
-      "behaviour": "7fb501923050fe94",
-      "version": "1.0.0"
-    },
-    "mustang-semis": {
-      "behaviour": "c802375ef7087d75",
-      "version": "1.0.0"
-    },
-    "mustang-sp500": {
-      "behaviour": "fa98ce38a40fec58",
-      "version": "1.0.0"
-    },
     "octopus": {
       "behaviour": "44ea159a42e07100",
       "version": "1.2.1"

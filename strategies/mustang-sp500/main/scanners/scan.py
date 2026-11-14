@@ -5,7 +5,8 @@ Per tick it:
   - returns early, after that read, when the one slot is full or outside the entry window that opens
     at each UTC-midnight daily close — the strategy buys at the close or not at all,
   - inside the window, reads the regime market's daily + weekly candles and the trade market's daily
-    candles (one read when they are the same market), keeps only CLOSED bars, and asks pure
+    candles (one read when they are the same market), keeps only CLOSED bars, waits unless the
+    regime's latest daily bar is the traded close and its weekly series is current, and asks pure
     `scoring.regime` / `scoring.build_thesis` whether this close is an entry,
   - emits at most one LONG, gated on free margin, and remembers the (market, bar) it emitted, so one
     daily close is one entry at most.
@@ -141,6 +142,20 @@ def scan(inputs, ctx):
     reg_daily = scoring.closed_candles(reg_c.get("1d"), _DAY, now)
     reg_weekly = scoring.closed_candles(reg_c.get("1w"), scoring.WEEK, now)
     trade_daily = scoring.closed_candles(trade_c.get("1d"), _DAY, now)
+    if not reg_daily or not trade_daily:
+        _persist(ctx, signaled, result)
+        return []
+    # The regime is read at the traded close or not at all: the regime market's latest daily bar must
+    # be the traded market's, and its weekly series must include the last weekly close. A row the feed
+    # dropped would otherwise hand the decision yesterday's trend; nothing is marked sent, so the next
+    # tick reads again.
+    decision_close = scoring._t(trade_daily[-1]) / 1000.0 + _DAY
+    if (scoring._t(reg_daily[-1]) != scoring._t(trade_daily[-1]) or not reg_weekly
+            or decision_close - (scoring._t(reg_weekly[-1]) / 1000.0 + scoring.WEEK) >= scoring.WEEK):
+        print(f"[mustang.scan] WAITING — {regime_asset}'s candles are not current at {trade}'s latest "
+              f"close; the regime is read only at that close", file=sys.stderr)
+        _persist(ctx, signaled, result)
+        return []
     reg = scoring.regime(reg_daily, reg_weekly, inputs)
     if reg is None:
         print(f"[mustang.scan] WAITING — {regime_asset} has {len(reg_weekly)} closed weekly candles, "
