@@ -4,7 +4,7 @@
 skip. The expensive way — scheduling the agent to *watch* the strategy — is how an AI-credit balance
 disappears in days while the strategy itself does nothing.
 
-**A simulation is the forward test.** `deploy.py create <id> --budget <usd> --paper` (senpi-strategy-ops) runs
+**A simulation is the forward test.** `deploy.py create <id> --budget <usd> --simulation` (senpi-strategy-ops) runs
 the strategy with the runtime's own code against real market data, on simulated money. Nothing you
 schedule can stand in for that: a scanner re-run on a timer is a model call per tick, not a simulation, and
 it never sees fills, slippage, funding or the DSL. A one-shot offline backtest over historical candles is

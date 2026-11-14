@@ -136,7 +136,7 @@ imply Senpi checked who controls them. The engine adds every one to the review s
 
 ## HARD RULES (never violate — obey these even if you skim the rest)
 
-**A "measurement framework", recurring analytics, or a scheduled review is read on demand, never an agent-turn cron.** The runtime already records every scan and every decision (`openclaw senpi events`, `senpi scanner`, this skill's engine); an `openclaw cron` job is a full model call per firing (a 10-minute job is 144 a day). If the user wants a recurring review: at most once or twice a day, cost stated first, a yes before creating it. A candidate strategy is tested with `senpi validate`, then as a simulation (`deploy.py create <id> --budget <usd> --paper`, simulated money) or live at the $10 floor, not with a scanner on a cron.
+**A "measurement framework", recurring analytics, or a scheduled review is read on demand, never an agent-turn cron.** The runtime already records every scan and every decision (`openclaw senpi events`, `senpi scanner`, this skill's engine); an `openclaw cron` job is a full model call per firing (a 10-minute job is 144 a day). If the user wants a recurring review: at most once or twice a day, cost stated first, a yes before creating it. A candidate strategy is tested with `senpi validate`, then as a simulation (`deploy.py create <id> --budget <usd> --simulation`) or live at the $10 floor, not with a scanner on a cron.
 
 0. **Never quote a $ PnL without saying which side of fees it is on.** `realized` and `total` are HL
    `closedPnl` — **GROSS**. Quote `pnl_summary.realized_net` for the closed book and show the fee line; when
