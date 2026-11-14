@@ -79,6 +79,10 @@ _CASES = [
     ("ibex",    _intent(), "gold breakout"),
     ("ibex",    _intent(), "donchian breakout gold"),
     ("ibex",    _intent(assets=[("class", "commodities")]), "gold xauusd metals"),
+    # ── tech vs the trend basket (2026-11-12): Nasdaq when it leads gold/oil/fx, chips after a crash ──
+    ("ocelot", _intent(), "switch between tech and managed futures trend"),
+    ("ocelot", _intent(), "own tech only when it beats gold oil and currencies"),
+    ("ocelot", _intent(), "tech rotation into cash"),
 ]
 
 
