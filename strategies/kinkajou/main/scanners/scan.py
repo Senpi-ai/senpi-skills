@@ -138,20 +138,35 @@ def scan(inputs, ctx):
     if not daily or (now - (scoring._t(daily[-1]) / 1000.0 + _DAY) > window and not ctx.dry_run):
         _persist(ctx, signaled, result)              # a stale close is not bought late
         return []
+    bar_t = int(scoring._t(daily[-1]))
+    decision_close = bar_t / 1000.0 + _DAY
     state, rsi, avg = scoring.nasdaq_state(daily, weekly, inputs)
     result.update({"state": state, "nasdaq_rsi": None if rsi is None else round(rsi, 2)})
+    if state in ("healthy", "risk") and not scoring.weekly_current(weekly, decision_close):
+        # "healthy" and "risk" rest on the 40-week average; a lagging weekly feed would read last
+        # week's. Nothing is marked sent; the next tick reads again. (A washout needs only the RSI.)
+        print(f"[kinkajou.scan] WAITING — {index}'s weekly candles are not current", file=sys.stderr)
+        _persist(ctx, signaled, result)
+        return []
     pick = None
     if state == "washout":
-        pick = {"coin": index, "signal_bar_t": int(scoring._t(daily[-1])), "momentum": None}
+        pick = {"coin": index, "signal_bar_t": bar_t, "momentum": None}
     elif state == "healthy":
         measures = []
         for coin in names:
             cm = _candles(ctx, coin)
-            if not cm:
-                continue
-            m = scoring.measure(coin, scoring.closed_candles(cm.get("1d"), _DAY, now),
-                                scoring.closed_candles(cm.get("1w"), scoring.WEEK, now), inputs)
-            if m is not None:
+            d = scoring.closed_candles(cm.get("1d"), _DAY, now) if cm else []
+            w = scoring.closed_candles(cm.get("1w"), scoring.WEEK, now) if cm else []
+            if not d or int(scoring._t(d[-1])) != bar_t or not scoring.weekly_current(w, decision_close):
+                # Unreadable, or not current at the Nasdaq's close. It may be the strongest name, so
+                # no other name is bought in its place; nothing is marked sent and the next tick,
+                # inside the same entry hour, reads again.
+                print(f"[kinkajou.scan] WAITING on {coin}: no current close, so no name is ranked at "
+                      f"this tick", file=sys.stderr)
+                _persist(ctx, signaled, result)
+                return []
+            m = scoring.measure(coin, d, w, inputs)
+            if m is not None:                          # None: too little history to measure yet
                 measures.append(m)
         pick = scoring.strongest(measures)
     if not pick:

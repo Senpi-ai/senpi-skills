@@ -138,6 +138,79 @@ def test_risk_means_cash_and_one_entry_per_close(monkeypatch):
     assert _run(monkeypatch, _MCP(CALM, 90.0, {"xyz:META": 170.0}), state) == []
 
 
+
+class _Edited(_MCP):
+    """The fixture with one market's newest daily row dropped, its read failing, or the index's
+    newest weekly row dropped."""
+
+    def __init__(self, *a, drop_daily=None, fail=None, drop_index_weekly=False):
+        super().__init__(*a)
+        self.drop_daily, self.fail, self.drop_index_weekly = drop_daily, fail, drop_index_weekly
+
+    def call_tool(self, tool, args):
+        if tool == "market_get_asset_data" and args["asset"] == self.fail:
+            raise RuntimeError("upstream timeout")
+        out = super().call_tool(tool, args)
+        if tool == "market_get_asset_data":
+            c = out["data"]["candles"]
+            if args["asset"] == self.drop_daily:
+                c["1d"] = [r for r in c["1d"] if r["t"] != (MIDNIGHT - D1) * 1000]
+            if self.drop_index_weekly and args["asset"] == "xyz:XYZ100":
+                c["1w"] = c["1w"][:-1]
+        return out
+
+
+def test_a_stale_single_name_is_not_ranked(monkeypatch):
+    """Review #979: only the index was freshness-checked, so a name missing its newest close could be
+    ranked, and bought, off yesterday's price. Now the tick waits; the next one buys the right name."""
+    state = _State()
+    names = {"xyz:META": 170.0, "xyz:TSLA": 200.0}
+    assert _run(monkeypatch, _Edited(CALM, 90.0, names, drop_daily="xyz:TSLA"), state) == []
+    assert [s["asset"] for s in _run(monkeypatch, _MCP(CALM, 90.0, names), state)] == ["xyz:TSLA"]
+
+
+def test_an_unreadable_name_does_not_hand_the_slot_to_the_next_strongest(monkeypatch):
+    assert _run(monkeypatch, _Edited(CALM, 90.0, {"xyz:META": 170.0, "xyz:TSLA": 200.0}, fail="xyz:TSLA")) == []
+
+
+def test_a_lagging_index_weekly_feed_holds_the_healthy_read(monkeypatch):
+    assert _run(monkeypatch, _Edited(CALM, 90.0, {"xyz:META": 170.0}, drop_index_weekly=True)) == []
+    # a washout needs only the RSI, so it still goes out
+    assert [s["asset"] for s in _run(monkeypatch, _Edited(CRASH, 200.0, {}, drop_index_weekly=True))] == ["xyz:XYZ100"]
+
+
+def test_full_thirteen_week_momentum_selects_the_correct_name(monkeypatch):
+    """Review #979: at a weekly close, `wc[-13]` was only 12 weeks back. TSLA 200 vs 200 thirteen weeks
+    ago is 0% (not a qualifier); META 180 vs 100 is +80%. The 12-week reference made TSLA +100%."""
+    close_time = MIDNIGHT + 4 * D1
+
+    class _WeeklyBoundary(_MCP):
+        def call_tool(self, tool, args):
+            out = super().call_tool(tool, args)
+            if tool != "market_get_asset_data":
+                return out
+            a = args["asset"]
+            daily = CALM if a == "xyz:XYZ100" else [self.name_last.get(a, 90.0)] * 90
+            weekly = [90.0 if a == "xyz:XYZ100" else 100.0] * 40
+            if a == "xyz:TSLA":
+                weekly[-1], weekly[-14], weekly[-13] = 200.0, 200.0, 100.0
+            if a == "xyz:META":
+                weekly[-1] = 180.0
+            out["data"]["candles"] = {"1d": _bars(daily, close_time - D1, D1), "1w": _bars(weekly, close_time - W1, W1)}
+            return out
+
+    monkeypatch.setattr(scan.time, "time", lambda: close_time + 300)
+    out = scan.scan(dict(INPUTS), _Ctx(_WeeklyBoundary(CALM, 90.0, {"xyz:META": 180.0, "xyz:TSLA": 200.0})))
+    assert [s["asset"] for s in out] == ["xyz:META"]
+
+
+def test_the_momentum_reference_is_thirteen_weeks_back_on_any_day():
+    wk = _bars([float(i) for i in range(1, 41)], MIDNIGHT - W1, W1)        # weekly closes 1..40, the last at MIDNIGHT
+    assert scoring.close_weeks_back(wk, MIDNIGHT, 13) == 27.0              # on the weekly close: exactly 13 weeks back
+    assert scoring.close_weeks_back(wk, MIDNIGHT + 3 * D1, 13) == 27.0     # 3 days later the nearest is still that close
+    assert scoring.close_weeks_back(wk, MIDNIGHT + 4 * D1, 13) == 28.0     # 4 days later the next one is nearer
+    assert scoring.close_weeks_back(wk[-12:], MIDNIGHT, 13) is None        # not enough history
+
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026), US daily bars Jan 2010 - Nov 2026 (QQQ, AAPL, NVDA, TSLA, META, AMZN),
     entry at the signal close, the stop on the wick, rungs arming on the close, each market charged its

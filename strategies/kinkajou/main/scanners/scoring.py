@@ -15,6 +15,7 @@ of anything. scan.py does the reads and the state.
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 
 WEEK = 7 * 86400
+DAY = 86400
 
 
 def _f(v, d=0.0):
@@ -79,14 +80,36 @@ def measure(asset, daily_closed, weekly_closed, inputs):
     if len(wc) < max(weeks, mweeks):
         return None
     avg = sum(wc[-weeks:]) / weeks
-    ref = wc[-mweeks]
+    ref = close_weeks_back(weekly_closed, _t(daily_closed[-1]) / 1000.0 + DAY, mweeks)
     close = _close(daily_closed[-1])
-    if avg <= 0 or ref <= 0 or close <= 0:
+    if ref is None or avg <= 0 or ref <= 0 or close <= 0:
         return None
     mom = close / ref - 1.0
     up = close > avg
     return {"coin": asset, "close_px": close, "average": avg, "momentum": mom, "trend_up": up,
             "qualifies": up and mom > 0, "signal_bar_t": int(_t(daily_closed[-1]))}
+
+
+def close_weeks_back(weekly_closed, decision_close_s, weeks):
+    """The close of the weekly candle that closed nearest to `weeks` weeks before the decision close
+    (within half a week), or None. Counting closed weekly rows back from the newest is off by one: on
+    the day a week closes, the newest row IS that close, so `[-13]` reaches back only 12 weeks."""
+    target = decision_close_s - int(weeks) * WEEK
+    best = None
+    for c in weekly_closed or []:
+        closed_at = _t(c) / 1000.0 + WEEK
+        gap = abs(closed_at - target)
+        if gap <= WEEK / 2 and (best is None or gap < best[0]):
+            best = (gap, _close(c))
+    return best[1] if best else None
+
+
+def weekly_current(weekly_closed, decision_close_s):
+    """True when the newest closed weekly candle closed within one week of the decision close, so a
+    40-week average read off it is this week's and not last week's."""
+    if not weekly_closed:
+        return False
+    return decision_close_s - (_t(weekly_closed[-1]) / 1000.0 + WEEK) < WEEK
 
 
 def rsi_wilder(closes, period):
