@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-11-03",
+  "_updated": "2026-11-13",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -4740,6 +4740,151 @@
       "sort_order": 7
     },
     {
+      "id": "gannet-duo",
+      "name": "Gannet Duo — Index Dip Cascade, Two Slots",
+      "emoji": "🐦",
+      "varies": "gannet",
+      "tagline": "Gannet's dip cascade spread over two positions: the same daily check of the 3x chip fund (xyz:SOXL), then the Nasdaq 100 (xyz:XYZ100), then the S&P 500 (xyz:SP500), the same 10-day RSI under 30 at the close, the same 1x on the chip fund and 3x on an index, and the same exits — but when two of them are washed out on the same close it holds both, at 15% margin each, instead of only the first at 30%.",
+      "belief_plain": "The same rule as Gannet: once a day, after the daily close, buy the US stock markets that have fallen unusually hard, chips first, then the Nasdaq, then the S&P 500. Gannet holds only the first; this holds up to two, each half the size. One wrong call costs half as much and one right call pays half as much; in a broad sell-off it is in two markets at once. Cash between signals, a fixed stop on each position, and a ratchet that locks in the rebound.",
+      "version": "1.0.0",
+      "thesis": "You like buying hard dips in US stocks by rule, but one position at a time feels too all-or-nothing: when the chip fund and the Nasdaq both wash out on the same day you would rather own both than bet on the first. It trades a little more often than Gannet, still rarely, and sits in cash most weeks.",
+      "tags": [
+        "dip-buy",
+        "buy-the-dip",
+        "oversold",
+        "rsi",
+        "mean-reversion",
+        "washout",
+        "rebound",
+        "bounce",
+        "cascade",
+        "nasdaq",
+        "xyz100",
+        "sp500",
+        "soxl",
+        "semiconductors",
+        "indices",
+        "us-stocks",
+        "xyz",
+        "long-only",
+        "two-slots",
+        "duo",
+        "spread",
+        "cash-between-signals",
+        "daily-close",
+        "slow",
+        "low-turnover",
+        "dsl-only",
+        "beginner",
+        "onboarding"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "contrarian_fade",
+      "archetype_label": "Contrarian / Fade",
+      "sub_style": "mean_reversion",
+      "sub_style_label": "Buys oversold / sells overbought, betting price reverts to its mean (works in chop, not just trends).",
+      "asset_classes": [
+        "indices",
+        "xyz_equities"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "xyz:SOXL",
+        "xyz:XYZ100",
+        "xyz:SP500"
+      ],
+      "direction": "long_only",
+      "risk_level": "moderate",
+      "tier": "starter",
+      "leverage_max": 3,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "main",
+      "sort_order": 8
+    },
+    {
+      "id": "gannet",
+      "name": "Gannet — Index Dip Cascade",
+      "emoji": "🐦",
+      "varies": null,
+      "tagline": "Buys only the hardest daily drops in US stocks, and only one at a time: at each daily close it checks the 3x chip fund (xyz:SOXL), then the Nasdaq 100 (xyz:XYZ100), then the S&P 500 (xyz:SP500), and buys the first whose 10-day RSI closed under 30 — the chip fund at 1x, an index at 3x. Flat in USDC the rest of the time, which is most of it. A trailing stop that only moves in your favour does all the selling.",
+      "belief_plain": "Sharp sell-offs in big US stock markets tend to bounce within days. Once a day, right after the daily close, it checks the chip fund first, then the Nasdaq, then the S&P 500, and buys the first one that has fallen unusually hard over the last two weeks. It holds one position at a time, never shorts, and sits in cash between signals, so most weeks it does nothing. A fixed stop caps each loss and a ratchet locks in the rebound once it comes.",
+      "version": "1.0.0",
+      "thesis": "You want to buy panic in US stocks with rules instead of nerve: only after a real washout, only in the deepest markets, and with the rest of your money sitting still. The chip fund is asked first because its drops are the deepest and its rebounds the largest; the broad index is the fallback when only it is washed out. It trades rarely, which keeps fees small, and it will sit idle for months in a calm, rising market.",
+      "tags": [
+        "dip-buy",
+        "buy-the-dip",
+        "oversold",
+        "rsi",
+        "mean-reversion",
+        "panic",
+        "washout",
+        "capitulation",
+        "rebound",
+        "bounce",
+        "cascade",
+        "nasdaq",
+        "nasdaq-100",
+        "xyz100",
+        "sp500",
+        "s-and-p",
+        "soxl",
+        "semiconductors",
+        "chips",
+        "indices",
+        "us-stocks",
+        "xyz",
+        "long-only",
+        "one-position",
+        "cash-between-signals",
+        "daily-close",
+        "slow",
+        "low-turnover",
+        "onboarding",
+        "dsl-only",
+        "beginner"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "contrarian_fade",
+      "archetype_label": "Contrarian / Fade",
+      "sub_style": "mean_reversion",
+      "sub_style_label": "Buys oversold / sells overbought, betting price reverts to its mean (works in chop, not just trends).",
+      "asset_classes": [
+        "indices",
+        "xyz_equities"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "xyz:SOXL",
+        "xyz:XYZ100",
+        "xyz:SP500"
+      ],
+      "direction": "long_only",
+      "risk_level": "moderate",
+      "tier": "starter",
+      "leverage_max": 3,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 50,
+      "wallet_count": 1,
+      "min_budget_binding_wallet": "main",
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "main",
+      "sort_order": 9
+    },
+    {
       "id": "kestrel",
       "name": "Kestrel — XYZ Macro Breakout Rider",
       "emoji": "🦅",
@@ -4800,7 +4945,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 8
+      "sort_order": 10
     },
     {
       "id": "kite",
@@ -4856,7 +5001,7 @@
       ],
       "max_slots": 4,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 11
     },
     {
       "id": "lion",
@@ -4947,7 +5092,7 @@
       ],
       "max_slots": 9,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 12
     },
     {
       "id": "manatee",
@@ -5006,7 +5151,7 @@
       ],
       "max_slots": 10,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 13
     },
     {
       "id": "mandate",
@@ -5071,7 +5216,7 @@
       ],
       "max_slots": 8,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 14
     },
     {
       "id": "mongoose",
@@ -5131,7 +5276,7 @@
       ],
       "max_slots": 7,
       "branch": "main",
-      "sort_order": 13
+      "sort_order": 15
     },
     {
       "id": "ox",
@@ -5193,7 +5338,7 @@
       ],
       "max_slots": 14,
       "branch": "main",
-      "sort_order": 14
+      "sort_order": 16
     },
     {
       "id": "rhino",
@@ -5258,7 +5403,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 15
+      "sort_order": 17
     },
     {
       "id": "scorpion",
@@ -5328,7 +5473,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 16
+      "sort_order": 18
     },
     {
       "id": "spider",
@@ -5394,7 +5539,7 @@
       ],
       "max_slots": 7,
       "branch": "main",
-      "sort_order": 17
+      "sort_order": 19
     },
     {
       "id": "thesis-fund",
@@ -5454,7 +5599,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 18
+      "sort_order": 20
     },
     {
       "id": "wolf",
@@ -5517,7 +5662,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 19
+      "sort_order": 21
     },
     {
       "id": "aegis",

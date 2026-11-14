@@ -79,6 +79,10 @@ _CASES = [
     ("ibex",    _intent(), "gold breakout"),
     ("ibex",    _intent(), "donchian breakout gold"),
     ("ibex",    _intent(assets=[("class", "commodities")]), "gold xauusd metals"),
+    # ── the daily dip cascade (2026-11-12): buy the hardest drop in chips / Nasdaq / S&P, else cash ──
+    ("gannet",  _intent(), "buy the dip in the nasdaq"),
+    ("gannet",  _intent(), "buy the crash in us stocks"),
+    ("gannet",  _intent(assets=[("class", "indices")]), "oversold index rsi dip buy"),
 ]
 
 
