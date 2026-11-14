@@ -240,6 +240,49 @@ def test_unreadable_payloads_emit_nothing(monkeypatch):
     assert _run(monkeypatch, _Broken({})) == []
 
 
+def test_a_market_the_cascade_cannot_read_stops_it_there(monkeypatch):
+    """SOXL comes first. If it cannot be read, it may have qualified, so the Nasdaq behind it must not
+    take the slot; nothing is marked sent, and the next tick resumes the cascade in order."""
+    class _SoxlDown(_MCP):
+        def call_tool(self, tool, args):
+            if tool == "market_get_asset_data" and args["asset"] == "xyz:SOXL":
+                raise RuntimeError("upstream timeout")
+            return super().call_tool(tool, args)
+    state = _State()
+    assert _run(monkeypatch, _SoxlDown({"xyz:XYZ100": _washed_out()}), state=state) == []
+    again = _run(monkeypatch, _MCP({"xyz:XYZ100": _washed_out()}), at=MIDNIGHT + 600, state=state)
+    assert [s["asset"] for s in again] == ["xyz:XYZ100"]
+
+
+def test_a_missing_close_earlier_in_the_order_stops_the_cascade(monkeypatch):
+    class _SoxlStale(_MCP):
+        def call_tool(self, tool, args):
+            out = super().call_tool(tool, args)
+            if tool == "market_get_asset_data" and args["asset"] == "xyz:SOXL":
+                rows = out["data"]["candles"]["1d"]
+                out["data"]["candles"]["1d"] = [r for r in rows if r["t"] != (MIDNIGHT - D1) * 1000]
+            return out
+    assert _run(monkeypatch, _SoxlStale({"xyz:SOXL": _washed_out(), "xyz:XYZ100": _washed_out()})) == []
+
+
+def test_a_read_failure_behind_the_winner_does_not_block_it(monkeypatch):
+    class _Sp500Down(_MCP):
+        def call_tool(self, tool, args):
+            if tool == "market_get_asset_data" and args["asset"] == "xyz:SP500":
+                return {"success": False}
+            return super().call_tool(tool, args)
+    assert [s["asset"] for s in _run(monkeypatch, _Sp500Down({"xyz:XYZ100": _washed_out()}))] == ["xyz:XYZ100"]
+
+
+def test_two_slots_in_one_tick_are_sized_off_one_balance_read(monkeypatch):
+    """The runtime sizes every signal of a tick as marginPct of the same free balance, and only
+    counts the balance down for its affordability check. At $85 free, 15% is $12.75 for both slots;
+    shrinking the base after the first (to $72.25, so $10.84) would drop the second for nothing."""
+    duo_1x = dict(INPUTS, maxSlots=2, marginPct=15, leverageByAsset={"xyz:SOXL": 1, "xyz:XYZ100": 1, "xyz:SP500": 1})
+    mcp = _MCP({"xyz:SOXL": _washed_out(), "xyz:XYZ100": _washed_out()}, withdrawable="85")
+    assert [s["asset"] for s in _run(monkeypatch, mcp, inputs=duo_1x)] == ["xyz:SOXL", "xyz:XYZ100"]
+
+
 # ── 5. the measured parameters ───────────────────────────────────────────────────────────
 
 def test_the_measured_parameters_are_the_shipped_ones():

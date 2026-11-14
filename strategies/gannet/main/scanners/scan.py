@@ -140,20 +140,19 @@ def scan(inputs, ctx):
         _persist(ctx, signaled, result)
         return []
 
-    candidates = []
+    candidates, blocked = [], None
     for coin in allowed:
         if scoring.bare(coin) in held:
             continue
         result["scanned"] += 1
         rows = _daily(ctx, coin)
-        if not rows:
-            continue
-        closed = scoring.closed_candles(rows, _DAY, now)
-        if not closed:
-            continue
-        bar_close = scoring._t(closed[-1]) / 1000.0 + _DAY
-        if now - bar_close > window and not ctx.dry_run:
-            continue                                             # a stale close is not bought late
+        closed = scoring.closed_candles(rows, _DAY, now) if rows else []
+        if not closed or (now - (scoring._t(closed[-1]) / 1000.0 + _DAY) > window and not ctx.dry_run):
+            # Unreadable, or its latest close is missing. This market may have qualified, so nothing
+            # after it in the order may take its place: the cascade stops here, nothing is marked
+            # sent, and the next tick asks again.
+            blocked = coin
+            break
         th = scoring.build_thesis(coin, closed, inputs)
         if not th:
             continue
@@ -162,11 +161,15 @@ def scan(inputs, ctx):
             continue                                             # this close already went out
         candidates.append((key, th))
 
+    if blocked:
+        result["blocked_by"] = blocked
+        print(f"[gannet.scan] WAITING on {blocked}: no current close, so nothing behind it in the "
+              f"cascade is bought at this tick", file=sys.stderr)
     out = []
     remaining = withdrawable
     for key, th in scoring.cascade(candidates, open_slots):
-        margin = remaining * margin_pct / 100.0
-        if margin * th["leverage"] < min_notional:
+        margin = withdrawable * margin_pct / 100.0       # the runtime sizes every signal of a tick off one balance read
+        if margin * th["leverage"] < min_notional or margin > remaining:
             print(f"[gannet.scan] free margin ${remaining:.2f} cannot fund a slot at "
                   f"{margin_pct:g}% x {th['leverage']}x — holding {th['coin']}", file=sys.stderr)
             break
