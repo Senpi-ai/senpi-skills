@@ -102,6 +102,18 @@ CALM = [100.0 + (0.5 if i % 2 else -0.4) + 0.05 * i for i in range(90)]
 CRASH = [100.0 + 0.2 * i for i in range(82)] + [116.2 * (1 - 0.03 * (k + 1)) for k in range(8)]
 
 
+def _runtime_margins(signals, free):
+    """What the runtime commits for each signal: it opens a scanner's signals one at a time (intake
+    dispatches each separately; one consumer awaits each open), each as marginPct of the free margin
+    left after the ones before it. Rounded to the cent."""
+    out = []
+    for s in signals:
+        m = s["marginPct"] / 100.0 * free
+        out.append(round(m, 2))
+        free -= m
+    return out
+
+
 def _run(monkeypatch, mcp, at=MIDNIGHT + 300, **kw):
     monkeypatch.setattr(scan.time, "time", lambda: at)
     return scan.scan(dict(INPUTS), _Ctx(mcp, **kw))
@@ -111,7 +123,8 @@ def test_a_calm_close_fills_the_basket_at_2x(monkeypatch):
     mcp = _MCP(CALM)
     out = _run(monkeypatch, mcp)
     assert [s["asset"] for s in out] == BASKET
-    assert {(s["leverage"], s["marginPct"]) for s in out} == {(2, 4)}
+    assert {s["leverage"] for s in out} == {2}
+    assert _runtime_margins(out, 1000.0) == [40.0] * 10              # ten equal clips of 4% of the account
     assert set(out[0]["data"]) <= set(SIGNALS["signal_data_schema"])
     reads = [a for t, a in mcp.calls if t == "market_get_asset_data"]
     assert [(a["asset"], a["dex"]) for a in reads] == [("xyz:XYZ100", "xyz")]
@@ -150,6 +163,15 @@ def test_an_unfundable_washout_does_not_block_the_basket(monkeypatch):
     instead of the scanner stopping at the first miss. Two fit."""
     out = _run(monkeypatch, _MCP(CRASH, withdrawable="20", account="200"))
     assert [s["asset"] for s in out] == BASKET[:2]
+
+
+def test_the_first_close_fills_ten_equal_clips_at_the_200_dollar_minimum(monkeypatch):
+    """Ignas's re-review of #978 (the same contract applies here): converting every clip against one
+    free-margin figure let the runtime's one-at-a-time sizing shrink the later names, the tenth to about
+    $5.54 x 2 = $11 at $200, under the $12 floor. Each clip is now converted against what is left."""
+    out = _run(monkeypatch, _MCP(CALM, withdrawable="200", account="200"))
+    assert [s["asset"] for s in out] == BASKET
+    assert _runtime_margins(out, 200.0) == [8.0] * 10
 
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026), US daily bars Jan 2010 - Nov 2026, entry at the signal close, the stop on

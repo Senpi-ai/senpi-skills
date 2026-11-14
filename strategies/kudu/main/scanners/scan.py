@@ -13,8 +13,9 @@ Per tick it:
 
 Sizing: every position is its leg's percent of ACCOUNT value (4% a name, 12% the washout leg), so the
 ten names are equal clips whatever day they were bought, and a stopped-out name can be re-bought at
-the minimum budget. The runtime sizes a signal as a percent of free margin (one balance read per
-tick), so the scanner emits the percent of free margin that equals the clip. Read-only +
+the minimum budget. The runtime opens a scanner's signals one at a time, each as a percent of the
+free margin left after the ones before it, so for each position in order the scanner emits the
+percent of THAT remaining free margin that equals the clip. Read-only +
 single-pass; the runtime sizes the dollars, owns cooldowns/risk gates, and runs the DSL exit. No daemon, no
 push_signal, no create_position. Candle values are strings keyed o/h/l/c/v with t in epoch ms —
 scoring._f / closed_candles coerce.
@@ -157,6 +158,7 @@ def scan(inputs, ctx):
     rsi = scoring.last_rsi(closed, period)
     result["nasdaq_rsi"] = None if rsi is None else round(rsi, 2)
     out = []
+    free = withdrawable                               # the free margin the runtime will size the next signal off
     allowance = withdrawable * _HEADROOM
     for asset, leg in scoring.plan(rsi, basket, washout_asset, held_assets, open_slots, inputs):
         key = f"{scoring.bare(asset)}|LONG|{bar_t}"
@@ -168,7 +170,8 @@ def scan(inputs, ctx):
             print(f"[kudu.scan] cannot fund {asset}: a ${clip:.2f} clip at {lev}x with ${allowance:.2f} "
                   f"to commit — skipping it, not the names after it", file=sys.stderr)
             continue
-        emit_pct = round(min(100.0, 100.0 * clip / withdrawable), 4)   # the runtime's percent of free margin
+        emit_pct = round(min(100.0, 100.0 * clip / free), 4)   # of the free margin left when it opens
+        free -= clip
         allowance -= clip
         signaled[key] = now
         result["emitted"].append({"coin": asset, "leg": leg})
