@@ -26,7 +26,7 @@ MANIFEST = yaml.safe_load(open(os.path.join(PKG, "strategy.yaml"), encoding="utf
 SIGNALS = next(s for s in RUNTIME["scanners"] if s["name"] == "yak_main_signals")
 INPUTS = dict(SIGNALS["inputs"])
 DSL = RUNTIME["exit"]["dsl_preset"]
-ENGINE = {"scan.py": "f879c5f26de4943cd657d444fb07bae6af0ec7cc6f97e5d0bcaf7d83207c7822",
+ENGINE = {"scan.py": "c75a3f18e53160fe6672dba05a6f2fb991336c332e4677da6e97d7340b5105f3",
           "scoring.py": "5487548c309b9fec2e35242e30a4ad6ef9c4d65d05cf62a85782454e2e25b6de"}
 D1, W1 = 86400, 7 * 86400
 MIDNIGHT = 1794441600
@@ -104,7 +104,8 @@ class _MCP:
 def test_every_trending_sleeve_is_bought_at_one_close(monkeypatch):
     monkeypatch.setattr(scan.time, "time", lambda: MIDNIGHT + 300)
     out = scan.scan(dict(INPUTS), _Ctx(_MCP({"xyz:XYZ100", "xyz:GOLD", "xyz:CL"})))
-    assert sorted((s["asset"], s["leverage"], s["marginPct"]) for s in out) == [("xyz:CL", 1, 15), ("xyz:GOLD", 2, 15), ("xyz:XYZ100", 2, 15)]
+    assert sorted((s["asset"], s["leverage"]) for s in out) == [("xyz:CL", 1), ("xyz:GOLD", 2), ("xyz:XYZ100", 2)]
+    assert _runtime_margins(out, 1000.0) == [150.0] * 3             # 15% of a $1,000 account each, as the runtime sizes them
 
 
 
@@ -134,6 +135,18 @@ class _Account(_MCP):
 ALL = set(INPUTS["allowedAssets"])
 
 
+def _runtime_margins(signals, free):
+    """What the runtime commits for each signal: it opens a scanner's signals one at a time (intake
+    dispatches each separately; one consumer awaits each open), each as marginPct of the free margin
+    left after the ones before it."""
+    out = []
+    for s in signals:
+        m = s["marginPct"] / 100.0 * free
+        out.append(round(m, 2))                                      # to the cent
+        free -= m
+    return out
+
+
 def _scan(monkeypatch, mcp):
     monkeypatch.setattr(scan.time, "time", lambda: MIDNIGHT + 300)
     return scan.scan(dict(INPUTS), _Ctx(mcp))
@@ -144,7 +157,7 @@ def test_every_qualifier_is_funded_at_the_100_dollar_minimum(monkeypatch):
     under the $12 order floor. Each sleeve is now $15 of the account: $15 at 1x clears $12."""
     out = _scan(monkeypatch, _Account(ALL, account="100", withdrawable="100"))
     assert {s["asset"] for s in out} == ALL
-    assert all(s["marginPct"] == 15 for s in out)                   # free margin == account: 15% of it is $15
+    assert _runtime_margins(out, 100.0) == [15.0] * 5                # five equal $15 clips once the runtime sizes them
 
 
 def test_with_sp500_too_young_the_other_four_are_funded(monkeypatch):
@@ -168,7 +181,7 @@ def test_an_unfundable_sleeve_does_not_stop_the_ones_after_it(monkeypatch):
     out = _scan(monkeypatch, _Account({"xyz:CL", "xyz:GOLD"}, account="100", withdrawable="70",
                                       closes={"xyz:CL": 200.0, "xyz:GOLD": 160.0}))
     assert [s["asset"] for s in out] == ["xyz:CL", "xyz:GOLD"]
-    assert [s["marginPct"] for s in out] == [round(100 * 15 / 70, 4)] * 2   # $15 of the account each
+    assert _runtime_margins(out, 70.0) == [15.0, 15.0]               # $15 of the account each, as the runtime sizes them
 
 
 def test_a_weekly_feed_missing_its_newest_close_skips_that_sleeve(monkeypatch):

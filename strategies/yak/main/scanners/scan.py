@@ -13,8 +13,9 @@ Per tick it:
     (market, bar) it emitted, so one daily close is one entry per market at most.
 
 Sizing: every sleeve is `marginPct` of account value, so five sleeves are five equal clips whatever
-order or day they open on. The runtime sizes a signal as a percent of free margin (one balance read
-per tick), so the scanner emits the percent of free margin that equals that clip. Read-only +
+order or day they open on. The runtime opens a scanner's signals one at a time, each as a percent of
+the free margin left after the ones before it, so for each sleeve in order the scanner emits the
+percent of THAT remaining free margin that equals the clip. Read-only +
 single-pass; the runtime sizes the dollars, owns cooldowns/risk gates, and runs the DSL exit. No daemon, no
 push_signal, no create_position. Candle values are strings keyed o/h/l/c/v with t in epoch ms —
 scoring._f / closed_candles coerce.
@@ -171,7 +172,7 @@ def scan(inputs, ctx):
             print(f"[yak.scan] cannot fund {th['coin']}: a ${clip:.2f} clip at {th['leverage']}x with "
                   f"${remaining:.2f} free — skipping it, not the sleeves after it", file=sys.stderr)
             continue
-        emit_pct = round(min(100.0, 100.0 * clip / withdrawable), 4)   # the runtime's percent of free margin
+        emit_pct = round(min(100.0, 100.0 * clip / remaining), 4)   # of the free margin left when it opens
         remaining -= clip
         signaled[f"{scoring.bare(th['coin'])}|LONG|{th['signal_bar_t']}"] = now
         result["emitted"].append({"coin": th["coin"], "momentum": round(th["momentum"], 4)})
