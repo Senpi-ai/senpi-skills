@@ -23,7 +23,7 @@ name: yak-main
 group: yak
 version: 1.0.0
 description: >
-  YAK — all-weather with trend gates, long only. Five sleeves in equal clips of 15% of withdrawable:
+  YAK — all-weather with trend gates, long only. Five sleeves in equal clips of 15% of the account:
   xyz:XYZ100 and xyz:SP500 at 2x, xyz:GOLD at 2x, xyz:CL and xyz:SILVER at 1x. At each UTC-midnight
   daily close any sleeve not held is bought if its market is above its 40-week average and above its
   close 13 weeks earlier; a sleeve that fails waits in USDC. Every position exits only by the DSL — a
@@ -33,7 +33,7 @@ description: >
 strategy:
   wallet: "${YAK_WALLET}"
   slots: 5                                # one per sleeve: every qualifying market is held
-  margin_pct: 15                          # baseline %; scan emits marginPct per signal (same number)
+  margin_pct: 15                          # fallback only: every signal carries its own marginPct
   default_leverage: 1                     # fallback only — every signal carries its market's leverage; 1 is
                                           # the LOWEST the recipe uses (oil, silver), which min_budget must size
   trading_risk: moderate
@@ -60,7 +60,7 @@ scanners:
       leverageDefault: 1                   # a market missing from the table trades at 1x
       leverageMax: 2                       # cap (catalog leverage_max)
       stopRoePct: 30                       # MUST equal exit.dsl_preset.phase1.max_loss_pct (tests pin it)
-      marginPct: 15                        # PERCENT of withdrawable (0,100] per sleeve
+      marginPct: 15                        # PERCENT of the ACCOUNT per sleeve; scan emits the matching % of free margin
       maxSlots: 5
       minNotionalUsd: 12                   # the venue's bumped minimum; the free-margin gate stops emitting below it
     signal_data_schema:
