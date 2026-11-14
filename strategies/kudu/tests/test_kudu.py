@@ -85,13 +85,13 @@ class _Ctx:
 
 
 class _MCP:
-    def __init__(self, closes, held=(), withdrawable="1000"):
-        self.closes, self.held, self.withdrawable, self.calls = closes, held, withdrawable, []
+    def __init__(self, closes, held=(), withdrawable="1000", account="1000"):
+        self.closes, self.held, self.withdrawable, self.account, self.calls = closes, held, withdrawable, account, []
 
     def call_tool(self, tool, args):
         self.calls.append((tool, args))
         if tool == "strategy_get_clearinghouse_state":
-            sec = {"marginSummary": {"accountValue": "1000", "totalMarginUsed": "0", "totalNtlPos": "0"},
+            sec = {"marginSummary": {"accountValue": self.account, "totalMarginUsed": "0", "totalNtlPos": "0"},
                    "withdrawable": self.withdrawable, "assetPositions": []}
             pos = [{"position": {"coin": c, "szi": "1", "marginUsed": "50"}} for c in self.held]
             return {"data": {"main": sec, "xyz": dict(sec, assetPositions=pos)}}
@@ -130,8 +130,26 @@ def test_once_per_close_only_after_the_close_and_the_margin_gate(monkeypatch):
     mcp = _MCP(CALM)
     assert _run(monkeypatch, mcp, at=MIDNIGHT + 2 * 3600) == []
     assert [t for t, _ in mcp.calls] == ["strategy_get_clearinghouse_state"]
-    assert _run(monkeypatch, _MCP(CALM, withdrawable="100")) == []         # 4% of $100 at 2x = $8 < $12
+    assert _run(monkeypatch, _MCP(CALM, withdrawable="100", account="100")) == []   # 4% of a $100 account at 2x = $8 < $12
 
+
+
+def test_a_stopped_out_name_is_re_bought_at_the_200_dollar_minimum(monkeypatch):
+    """Review #977: sized as 4% of FREE margin, a $200 book holding nine names had about $125 free, so
+    a re-buy came to 4% x $125 x 2 = $10 of notional, under the $12 floor, and the basket shrank by one
+    name per stop. Each name is now 4% of the ACCOUNT: $7.90 x 2 = $15.80, from 6.29% of the $125 free."""
+    nine = BASKET[:9]
+    out = _run(monkeypatch, _MCP(CALM, held=nine, withdrawable="125.6", account="197.6"))
+    assert [s["asset"] for s in out] == [BASKET[9]]
+    assert out[0]["marginPct"] == round(100 * 197.6 * 0.04 / 125.6, 4)
+
+
+def test_an_unfundable_washout_does_not_block_the_basket(monkeypatch):
+    """The washout clip ($24: 12% of a $200 account) is the largest. With $20 free, 90% of it ($18) can
+    be committed: the washout does not fit, and the $8 basket clips behind it are still checked
+    instead of the scanner stopping at the first miss. Two fit."""
+    out = _run(monkeypatch, _MCP(CRASH, withdrawable="20", account="200"))
+    assert [s["asset"] for s in out] == BASKET[:2]
 
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026), US daily bars Jan 2010 - Nov 2026, entry at the signal close, the stop on

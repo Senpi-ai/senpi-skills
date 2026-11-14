@@ -22,7 +22,7 @@ group: kudu
 version: 1.0.0
 description: >
   KUDU — a quality big-tech basket timed by the Nasdaq, long only. It holds ten large companies —
-  xyz:AAPL, MSFT, GOOGL, AMZN, META, NVDA, AVGO, ORCL, LLY, COST — in equal clips of 4% of withdrawable
+  xyz:AAPL, MSFT, GOOGL, AMZN, META, NVDA, AVGO, ORCL, LLY, COST — in equal clips of 4% of the account
   at 2x. At each UTC-midnight daily close any name not held is bought unless the Nasdaq 100's 10-day
   RSI has run over 79; when that RSI closes under 30 it also buys the Nasdaq 100 (xyz:XYZ100) at 3x
   with 12%. Every position exits only by the DSL — a 30% ROE stop (15% of a name's price, 10% of the
@@ -32,7 +32,7 @@ description: >
 strategy:
   wallet: "${KUDU_WALLET}"
   slots: 11                               # ten basket names + the washout leg
-  margin_pct: 4                           # the basket clip; the washout clip is washoutMarginPct
+  margin_pct: 4                           # fallback only: every signal carries its own marginPct
   default_leverage: 2                     # fallback; every signal carries its leg's leverage (2 basket, 3 washout)
   trading_risk: moderate
   enabled: true
@@ -63,8 +63,8 @@ scanners:
       basketLeverage: 2
       washoutLeverage: 3
       stopRoePct: 30                       # MUST equal exit.dsl_preset.phase1.max_loss_pct (tests pin it)
-      marginPct: 4                         # PERCENT of withdrawable per basket name (0,100]
-      washoutMarginPct: 12                 # PERCENT of withdrawable for the washout leg
+      marginPct: 4                         # PERCENT of the ACCOUNT per basket name; scan emits the matching % of free margin
+      washoutMarginPct: 12                 # PERCENT of the ACCOUNT for the washout leg
       maxSlots: 11
       minNotionalUsd: 12                   # the venue's bumped minimum; the free-margin gate stops emitting below it
     signal_data_schema:

@@ -7,11 +7,15 @@ Per tick it:
   - inside the window, reads the Nasdaq 100's daily candles (the only market data the rule needs),
     keeps the CLOSED bars, and asks pure `scoring.plan` which names to buy at this close: every
     basket name not held unless the Nasdaq is overheated, plus the Nasdaq 100 itself after a washout,
-  - emits them gated on free margin (one balance read; the tick's total allowance decrements) and
-    remembers each (market, bar) it emitted, so one daily close is one entry per market at most.
+  - emits them gated on free margin (one balance read; the tick's total allowance decrements),
+    skipping a leg it cannot fund without stopping, and remembers each (market, bar) it emitted, so
+    one daily close is one entry per market at most.
 
-Read-only + single-pass. Emits `marginPct` (PERCENT in (0,100]) and `leverage` per leg from the recipe;
-the runtime sizes the dollars, owns cooldowns/risk gates, and runs the DSL exit. No daemon, no
+Sizing: every position is its leg's percent of ACCOUNT value (4% a name, 12% the washout leg), so the
+ten names are equal clips whatever day they were bought, and a stopped-out name can be re-bought at
+the minimum budget. The runtime sizes a signal as a percent of free margin (one balance read per
+tick), so the scanner emits the percent of free margin that equals the clip. Read-only +
+single-pass; the runtime sizes the dollars, owns cooldowns/risk gates, and runs the DSL exit. No daemon, no
 push_signal, no create_position. Candle values are strings keyed o/h/l/c/v with t in epoch ms —
 scoring._f / closed_candles coerce.
 """
@@ -159,14 +163,16 @@ def scan(inputs, ctx):
         if key in signaled:
             continue                                  # this close already went out
         pct, lev = legs[leg]
-        margin = withdrawable * pct / 100.0           # sized off ONE balance read: constant within the tick
-        if margin * lev < min_notional or margin > allowance:
-            print(f"[kudu.scan] free margin cannot fund {asset} at {pct:g}% x {lev}x — stopping here", file=sys.stderr)
-            break
-        allowance -= margin
+        clip = account_value * pct / 100.0            # every position is its leg's percent of the ACCOUNT
+        if clip * lev < min_notional or clip > allowance:
+            print(f"[kudu.scan] cannot fund {asset}: a ${clip:.2f} clip at {lev}x with ${allowance:.2f} "
+                  f"to commit — skipping it, not the names after it", file=sys.stderr)
+            continue
+        emit_pct = round(min(100.0, 100.0 * clip / withdrawable), 4)   # the runtime's percent of free margin
+        allowance -= clip
         signaled[key] = now
         result["emitted"].append({"coin": asset, "leg": leg})
-        out.append({"asset": asset, "direction": "LONG", "marginPct": pct, "leverage": lev, "data": {
+        out.append({"asset": asset, "direction": "LONG", "marginPct": emit_pct, "leverage": lev, "data": {
             "leg": leg, "direction": "LONG", "nasdaqRsi": round(rsi, 2), "signalBarTime": bar_t,
             "leverage": lev, "reasons": [f"Nasdaq 100 RSI({period}) {rsi:.1f} at the close: {leg} entry"]}})
     if out:
