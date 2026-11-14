@@ -560,6 +560,10 @@
     "wolverine": {
       "behaviour": "c8e67d3513f7ab2c",
       "version": "1.1.2"
+    },
+    "yak": {
+      "behaviour": "78665ff8cba31901",
+      "version": "1.0.0"
     }
   }
 }
