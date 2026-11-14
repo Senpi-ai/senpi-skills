@@ -130,7 +130,7 @@ def my_wallets(mcp):
         out["senpi_wallets"] = [{"address": str(r["strategyWalletAddress"]).lower(),
                                  "name": r.get("strategyName") or r.get("tradingStrategyName"),
                                  "status": r.get("status"), "skill_name": _skill_name(r)}
-                                for r in rows if r.get("strategyWalletAddress") and r.get("paper") is not True]
+                                for r in rows if r.get("strategyWalletAddress") and r.get("simulation") is not True]
         out["senpi_wallets_status"] = "ok"
     except Exception:  # noqa: BLE001
         pass
@@ -1061,7 +1061,7 @@ def resolve_whose(book, addr, other=False, mine=False, claim=False, saved=()):
 def _simulation_refusal(addrs):
     """The answer for a simulation's wallet, or None. The desk reads Hyperliquid, and a simulation has
     no Hyperliquid book, so it is refused before any read."""
-    sim = next((str(x).strip().lower() for x in addrs if hl_api.is_paper_address(x)), None)
+    sim = next((str(x).strip().lower() for x in addrs if hl_api.is_simulation_address(x)), None)
     if not sim:
         return None
     return {"simulation_wallet": sim,
