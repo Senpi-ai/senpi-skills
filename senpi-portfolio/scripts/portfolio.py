@@ -2840,8 +2840,18 @@ def main(argv=None):
     except Exception as e:  # noqa
         print(json.dumps({"strategies": [], "meta": {"error": f"engine failure: {e}"}}))
         return 1
-    print(json.dumps(result, ensure_ascii=False))
+    print(json.dumps(_shown(result), ensure_ascii=False))
     return 0
+
+
+def _shown(result):
+    """The printed result carries `simulations` only when the read proved them (`ok`). Until the skill
+    text documents simulations, a failed or unproven read must not name the simulation parameter to the
+    agent: on an MCP with no simulation router that parameter is dropped and the call acts on live money."""
+    sims = result.get("simulations") if isinstance(result, dict) else None
+    if isinstance(sims, dict) and sims.get("status") != "ok":
+        return {k: v for k, v in result.items() if k != "simulations"}
+    return result
 
 
 if __name__ == "__main__":

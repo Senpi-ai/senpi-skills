@@ -110,7 +110,12 @@ def _refuse_if_simulation_writes_off(targets, rerun):
     if sid is None:
         return
     try:
-        MCPClient().mcp_call("strategy_get", timeout=SUBMIT_TIMEOUT, strategy_id=sid)
+        reply = MCPClient().mcp_call("strategy_get", timeout=SUBMIT_TIMEOUT, strategy_id=sid)
+        # An empty or malformed 200 unwraps to None or {} without raising: only a reply that names
+        # the strategy proves the close's route answered.
+        if not (isinstance(reply, dict) and reply.get("success") is not False
+                and str(sid) in json.dumps(reply, default=str)):
+            raise RuntimeError(f"strategy_get answered without the simulation: {str(reply)[:200]}")
     except Exception as e:  # noqa: BLE001
         if "SIMULATION_DISABLED" in str(e):
             raise SystemExit(
@@ -300,7 +305,7 @@ def main(argv):
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv[1:])
-    sfx = " --simulation" if a.simulation else ""
+    sfx = " --simulation" if a.simulation else " --live" if a.live else ""
     direct = a.strategy_id or a.address
     if a.strategy_id and a.address:
         raise SystemExit("error: pass --strategy-id or --address, not both.")
