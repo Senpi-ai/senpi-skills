@@ -104,6 +104,12 @@ _CASES = [
     # ── big-tech momentum, Nasdaq-gated (2026-11-12): strongest name when healthy, the index after a washout ──
     ("kinkajou", _intent(), "leveraged big tech momentum when the market is healthy"),
     ("kinkajou", _intent(), "magnificent seven momentum"),
+    # ── the BTC/ETH dip ladder (2026-11-16): three wallets buy 10 / 20 / 30% under the 60-day high at 1x ──
+    ("squirrel", _intent(), "dca dip ladder buy more as it falls"),
+    ("squirrel", _intent(), "dollar cost average into btc dips"),
+    # ── the same ladder buying only above the 40-week average; roughly half the budget or more in USDC (2026-11-16) ──
+    ("chipmunk", _intent(), "conservative dip buyer keep cash"),
+    ("chipmunk", _intent(), "buy dips but keep half in usdc"),
 ]
 
 
