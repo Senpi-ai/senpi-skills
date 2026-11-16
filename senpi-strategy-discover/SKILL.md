@@ -98,8 +98,9 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
   the picks you present and quote them. Never infer an exit from the entry rule: a trend gate or a
   signal that stops new buys sells nothing unless the card says it closes on it, so "exits when the
   trend breaks" is wrong where the card says a trailing stop sells. Size per position is the card's
-  share of the ACCOUNT ("4% clips" = $20 a name on $500), never budget ÷ slots or ÷ names; a stopped-out
-  position is bought back only as the card says. No figure on the card → say ops shows it in the walkthrough.
+  share of the ACCOUNT as margin ("4% clips at 2x" = $20 of margin, a $40 position, per name on $500),
+  never budget ÷ slots or ÷ names; a stopped-out position is bought back only as the card says. No
+  figure on the card → say ops shows it in the walkthrough.
 - **Offer the concentration choice whenever the family has one.** If a pick's family (follow `varies`
   to the root) holds both a spread and a concentrated member — **fewer `max_slots` and/or higher
   `leverage_max`** — name BOTH, one line each, before the budget question, and quote what one stop-out
@@ -136,7 +137,8 @@ python3 scripts/discover.py
   [--limit <int>]      # default 8; raise only when they ask to see more — never to recommend
   [--no-market]        # skip the live read — use while narrowing/browsing
   [--context-only]     # budget + holdings (Senpi + your saved wallets, read-only) only, no match
-  [--card <csv of ids>]  # the FULL card of each pick you present, offline — how it sells, sizes, re-buys
+  [--card <csv of ids>]  # the FULL card of each pick you present, offline — how it sells, sizes, re-buys;
+                         # ids over the output budget come back in `deferred`: run --card again for those
 ```
 
 `--assets` takes those tags **bare** — `commodities`, not `class:commodities`. A token that is

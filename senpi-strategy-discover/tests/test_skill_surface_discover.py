@@ -98,16 +98,20 @@ def test_skill_forbids_recommending_from_the_unthemed_neutral_order_shortlist():
 def test_exits_size_and_rebuys_are_quoted_from_the_card_in_golden_rules():
     """Blind test, 16 Nov 2026: the agent said Mustang and Yak "exit when the trend breaks" (both cards
     say a trailing stop decides every sale), sized Kudu as $500 ÷ 11 (its card gives each name 4% of the
-    account) and said Kudu never re-buys after a dip (it re-buys a stopped-out name at the next calm
-    close). The shortlist had cut those sentences. The rule sits in Golden rules, where it is read."""
+    account as margin at 2x) and said Kudu never re-buys after a dip (it re-buys a stopped-out name at the
+    next calm close). The shortlist had cut those sentences. The rule sits in Golden rules, where it is
+    read. The size is MARGIN: "$20 a name" read as the position would misprice every move at 2x."""
     g = _golden_rules()
     for needle in ("quote its card, never infer", "run `--card <id,id>`",
                    "Never infer an exit from the entry rule",
-                   "sells nothing unless the card says it closes on it", "share of the ACCOUNT",
+                   "sells nothing unless the card says it closes on it", "share of the ACCOUNT as margin",
+                   '("4% clips at 2x" = $20 of margin, a $40 position, per name on $500)',
                    "never budget ÷ slots or ÷ names", "bought back only as the card says"):
         assert needle in g, f"{needle!r} missing from Golden rules"
+    assert "$20 a name" not in g, "the per-name figure is margin; say the position too"
     usage = " ".join(_body().split("## How to run the engine", 1)[1].split("\n## ", 1)[0].split())
     assert "[--card <csv of ids>]" in usage, "the engine usage block must list --card"
+    assert "come back in `deferred`: run --card again for those" in usage, "say what an over-budget call returns"
 
 
 def _description(skill):

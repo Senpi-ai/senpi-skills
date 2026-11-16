@@ -5,8 +5,8 @@ The shortlist cuts `tagline` / `belief_plain` / `thesis` at 120 characters to fi
 16 Nov 2026). In a blind
 test the agent then described exits from the entry rule ("exits when the trend breaks" for Mustang and
 Yak, whose cards say a trailing stop decides every sale) and sized Kudu as budget ÷ 11 when its card
-gives each name 4% of the account. These tests keep the uncut text one offline call away and keep the
-shortlist saying so.
+gives each name 4% of the account as margin. These tests keep the uncut text one offline call away, inside
+the result budget, and keep the shortlist saying so.
 
     python3 -m pytest senpi-strategy-discover/tests/test_full_card.py -q
 """
@@ -41,6 +41,30 @@ def test_card_returns_the_uncut_text_in_the_order_asked(monkeypatch, capsys):
             assert card[field] == RECORDS[card["id"]][field], f"{card['id']}.{field} was cut"
         assert "market_facts" not in card
         assert card["caveats"] is not None and card["version"] == RECORDS[card["id"]]["version"]
+        assert card["tags"], "an in-budget call keeps everything"
+    assert "deferred" not in out and "note" not in out
+
+
+def test_four_long_cards_stay_in_budget_with_every_shown_card_whole(capsys):
+    """Review of #986: `--card puffin,ibis-concentrated,pelican,penguin` printed 16.4k, over OpenClaw's
+    16,000 exec cap, so the JSON was cut mid-card and the last card's sell / size / re-buy text was lost.
+    Over the budget the tags go, then whole cards are deferred to a second call — text is never cut."""
+    for asked in (["puffin", "ibis-concentrated", "pelican", "penguin"],
+                  ["ibis", "ibis-concentrated", "puffin", "pelican"]):
+        rc = discover.main(["--catalog", CATALOG, "--card", ",".join(asked)])
+        raw = capsys.readouterr().out.strip()
+        out = json.loads(raw)
+        assert rc == 0
+        assert len(raw) <= discover.OUTPUT_BUDGET < 16_000, f"{asked}: {len(raw)} chars"
+        shown = [c["id"] for c in out["cards"]]
+        assert shown + out.get("deferred", []) == asked, "every id is shown or deferred, in order"
+        assert out["deferred"] and ",".join(out["deferred"]) in out["note"], out.get("note")
+        for card in out["cards"]:
+            for field in TEXT:
+                assert card[field] == RECORDS[card["id"]][field], f"{card['id']}.{field} was cut"
+        rc = discover.main(["--catalog", CATALOG, "--card", ",".join(out["deferred"])])
+        rest = json.loads(capsys.readouterr().out)
+        assert [c["id"] for c in rest["cards"]] == out["deferred"] and "deferred" not in rest
 
 
 def test_the_shortlist_says_its_text_is_cut_and_how_to_get_the_rest(monkeypatch, capsys):

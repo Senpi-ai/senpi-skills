@@ -601,6 +601,24 @@ def fit_budget(result, budget):
     return result
 
 
+def fit_cards(out, budget):
+    """Keep `--card` output inside the result budget without cutting a card's text — that text is why
+    `--card` exists. Over budget: drop the ranking-only tags, then defer whole cards from the end (never
+    below one) to a second `--card` call. Four long cards printed 16.4k, over OpenClaw's 16k exec cap."""
+    def size():
+        return len(json.dumps(out, ensure_ascii=False))
+
+    if size() <= budget:
+        return out
+    for card in out["cards"]:
+        card.pop("tags", None)
+        card.pop("tag_labels", None)
+    while len(out["cards"]) > 1 and size() > budget:
+        out["deferred"] = [out["cards"].pop()["id"]] + out.get("deferred", [])
+        out["note"] = f"over the output budget: run --card {','.join(out['deferred'])} for the rest"
+    return out
+
+
 # ---------------------------------------------------------------- data layer (guarded I/O)
 def _fetch_catalog(dest):
     """Fetch the single generated catalog.json from the remote (one request, not per-strategy) and cache
@@ -886,7 +904,8 @@ def main(argv=None):
                     help="return user context only, no match (budget + Senpi holdings + saved-wallet holdings)")
     ap.add_argument("--card", default=None,
                     help="csv of ids: the FULL card of each pick you present (offline, no ranking) — the "
-                         "shortlist cuts tagline/belief_plain/thesis at 120 chars")
+                         "shortlist cuts tagline/belief_plain/thesis at 120 chars. Over the output budget "
+                         "the last ids come back under `deferred`: run --card again for those")
     args = ap.parse_args(argv)
 
     try:
@@ -908,7 +927,7 @@ def main(argv=None):
         out = {"cards": cards}
         if any(i not in by_id for i in ids):
             out["unknown"] = [i for i in ids if i not in by_id]
-        print(json.dumps(out, ensure_ascii=False))
+        print(json.dumps(fit_cards(out, OUTPUT_BUDGET), ensure_ascii=False))
         return 0
 
     if args.context_only:
