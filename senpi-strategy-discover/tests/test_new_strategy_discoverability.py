@@ -97,6 +97,10 @@ _CASES = [
     ("kudu", _intent(), "hold quality big tech stocks basket"),
     ("kudu", _intent(assets=[("class", "xyz_equities")]), "own the magnificent seven megacaps long term"),
     ("kudu", _intent(), "long term stock portfolio"),
+    # ── all-weather with trend gates (2026-11-12): five sleeves, each held only while it trends up ──
+    ("yak", _intent(), "all weather portfolio with trend filter"),
+    ("yak", _intent(), "diversified stocks gold commodities step out of what is falling"),
+    ("yak", _intent(), "all weather portfolio"),
 ]
 
 
