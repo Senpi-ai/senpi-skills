@@ -1742,9 +1742,15 @@ def verify_instance(pkg, inst, strategies, runtimes, hmap, job_running=False, si
             # verify reads live strategies only. A package that runs only as a simulation must not get
             # a live `create` as its next step: that funds a real wallet for a user who meant the
             # simulation.
-            row["issue"] = (f"no live strategy named {want!r} on the backend — {pkg.id} runs as a "
-                            f"SIMULATION ({len(simulations)} simulated strategy(s)), which this check "
-                            f"does not verify")
+            mine = [s for s in simulations if _cli.strategy_name_match(_cli.strategy_name(s), want)]
+            if mine:
+                row["issue"] = (f"no live strategy named {want!r} on the backend — {want!r} runs as a "
+                                f"SIMULATION ({len(mine)} simulated strategy(s)), which this check "
+                                f"does not verify")
+            else:
+                row["issue"] = (f"no live strategy named {want!r} on the backend, and no simulation of "
+                                f"it either — but {pkg.id} has {len(simulations)} other simulated "
+                                f"strategy(s), so the user may mean the simulation")
             row["next"] = (f"python3 {Path(__file__).with_name('status.py').name} {pkg.id} --simulation   "
                            f"# read-only: the simulation. A live deploy funds a REAL wallet: name one "
                            f"only if the user asks for real money")

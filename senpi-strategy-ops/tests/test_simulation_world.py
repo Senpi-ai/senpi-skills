@@ -259,6 +259,16 @@ class CloseOneWorld(_CloseHarness):
         self.assertEqual(self.deleted, ["omega-main"])
         self.assertTrue(all("simulation" not in c for c in self.mcp.lists))
 
+    def test_a_live_close_polls_with_live(self):
+        self._both()
+        out, code = self._run("omega", "--live")
+        self.assertEqual(code, 0)
+        self.assertIn("re-running: close.py omega --live", out)
+        self.mcp.closed.clear()
+        out, code = self._run("omega", "--live")
+        self.assertEqual(code, 0)
+        self.assertNotIn("NOTHING was closed", out)
+
     def test_close_by_name_refuses_when_the_package_also_has_a_simulation(self):
         self._both()
         out, code = self._run("omega")
@@ -524,6 +534,23 @@ class CloseSimulationWithWritesOff(_CloseHarness):
             self.assertEqual(self.deleted, [])
             self.assertEqual(self.mcp.closed, [])
             self.assertIn(str(exc), out)
+            self.assertIn("close.py omega --simulation", out)
+
+
+    def test_an_unusable_probe_reply_stops_nothing(self):
+        orig = self.mcp.mcp_call
+        for reply in (None, {}, {"success": True, "data": {}}, {"success": True, "data": None},
+                      {"success": False, "error": {"code": "INTERNAL", "message": "boom"}}):
+            def empty(name, timeout=None, _r=reply, **kw):
+                if name == "strategy_get":
+                    return _r
+                return orig(name, timeout=timeout, **kw)
+            self.mcp.mcp_call = empty
+            out, code = self._run("omega", "--simulation")
+            self.assertNotEqual(code, 0, reply)
+            self.assertEqual(self.deleted, [], reply)
+            self.assertEqual(self.mcp.closed, [], reply)
+            self.assertIn("could not be read before closing it", out)
             self.assertIn("close.py omega --simulation", out)
 
 
@@ -843,6 +870,21 @@ class VerifySeesSimulations(unittest.TestCase):
         self.assertIn("simulation", err)
         self.assertIn("status.py omega --simulation", err)
         self.assertEqual([c.get("simulation") for c in self.mcp.lists], [True])
+
+    def test_each_instance_row_says_whether_that_instance_is_simulated(self):
+        self.mcp.simulation = [_simulation_row(skill="omega-swing")]
+        self.mcp.simulation[0]["strategyMetadata"] = {"skillName": "omega"}
+        insts = [types.SimpleNamespace(name=n, runtime_name=f"omega-{n}") for n in ("swing", "scalp")]
+        pkg = types.SimpleNamespace(id="omega", instances=insts)
+        sims, unread = deploy.package_simulations(pkg)
+        self.assertIsNone(unread)
+        rows = {i.name: deploy.verify_instance(pkg, i, [], [], {}, simulations=sims) for i in insts}
+        self.assertIn("'omega-swing' runs as a SIMULATION", rows["swing"]["issue"])
+        self.assertIn("no simulation of it either", rows["scalp"]["issue"])
+        self.assertNotIn("runs as a SIMULATION", rows["scalp"]["issue"])
+        for row in rows.values():
+            self.assertNotIn("create omega", row["next"])
+            self.assertIn("status.py omega --simulation", row["next"])
 
     def test_no_simulation_keeps_the_create_step(self):
         self.mcp.simulation = []

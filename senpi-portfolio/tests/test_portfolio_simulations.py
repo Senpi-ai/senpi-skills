@@ -120,6 +120,35 @@ def test_a_reply_without_the_marker_shows_no_simulations():
     assert result["simulations"]["strategies"] == []
 
 
+def _printed(fx, capsys, step=()):
+    path = os.path.join(tempfile.mkdtemp(), "fx.json")
+    with open(path, "w") as fh:
+        json.dump(fx, fh)
+    state = os.path.join(tempfile.mkdtemp(), "state.json")
+    assert portfolio.main([*step, "--fixture", path, "--no-market", "--state", state]) == 0
+    return capsys.readouterr().out
+
+
+def test_the_printed_output_never_names_simulation_unless_simulations_were_read(capsys):
+    live_rows = _fixture()["strategy_list"]
+    for step in ((), ("money",)):
+        out = _printed(_with_simulation(_fixture(), {"success": True, "data": live_rows}), capsys, step)
+        assert "simulations" not in json.loads(out)
+        assert "simulation" not in out.lower()
+        out = _printed(_with_simulation(_fixture(), {"success": False, "error": {
+            "code": "SIMULATION_UNAVAILABLE", "message": "simulations are not available"}}), capsys, step)
+        assert "simulations" not in json.loads(out)
+        assert "simulation" not in out.lower()
+
+
+def test_the_printed_output_carries_simulations_that_were_read(capsys):
+    fx = _with_simulation(_fixture(), {"success": True, "data": {"simulation_routing": True,
+                                                             "strategies": [_simulation_row()]}})
+    out = json.loads(_printed(fx, capsys))
+    assert out["simulations"]["status"] == "ok"
+    assert [s["strategy_id"] for s in out["simulations"]["strategies"]] == [SIMULATION_ID]
+
+
 def test_rows_without_the_simulation_field_are_ignored():
     fx = _with_simulation(_fixture(), {"success": True, "data": {"simulation_routing": True,
                                                              "strategies": [_simulation_row(marked=False)]}})

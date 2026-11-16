@@ -19,7 +19,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.11.0"
+  version: "1.12.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -132,8 +132,17 @@ Never pick the coins yourself and open them here.
 > wallet (`strategy_create_custom_strategy` creates it) or an existing **un-managed** wallet.
 
 ### The interview (one question at a time; pre-fill anything already said)
-1. **Asset & direction** — verify the coin against `market_list_instruments` (exact casing — `kPEPE`
-   not `KPEPE`; XYZ needs the `xyz:` prefix). Reject unknowns; do not retry them.
+1. **Asset & direction** — turn what the user said into a ticker (Nvidia → `NVDA`, gold → `GOLD`), then
+   look it up: `market_list_instruments(query="<ticker>", fields=["max_leverage","only_isolated"])`.
+   **Always pass `query`** — the no-argument list is cut off long before the XYZ rows (stocks, metals,
+   indices), so "not in the list I got" proves nothing. `query` matches tickers only, any case, with or
+   without the prefix; a company name matches nothing. **Copy the returned `name` verbatim into every
+   later call** — the other tools need it exact (`kPEPE` not `KPEPE`, `xyz:NVDA` not `NVDA`). Zero
+   matches → one more lookup with a shorter or alternate ticker; only then say it isn't listed. A row with
+   `is_delisted: true` is not tradeable — say so, never open it. More than one live match and none equal
+   to the ticker → ask which one; never pick for the user. Never
+   call an asset unavailable — or a whole class, like stocks — without a `query` lookup that came back
+   empty. A name a tool rejected as unknown is never retried as-is.
 2. **Size & leverage** — you set `marginAmount` (USD collateral) + `leverage`; the engine derives size
    (`notional = marginAmount × leverage`). Min notional $10 (auto-bumped to $12). Look up `max_leverage`
    per asset — never hardcode. **Never invent the amount — if unstated, ASK; don't default to the balance.**
