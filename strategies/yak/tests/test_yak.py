@@ -177,7 +177,7 @@ def test_an_unfundable_sleeve_does_not_stop_the_ones_after_it(monkeypatch):
     out = _scan(monkeypatch, _Account({"xyz:CL", "xyz:GOLD"}, account="70", withdrawable="70",
                                       closes={"xyz:CL": 200.0, "xyz:GOLD": 160.0}))
     assert [s["asset"] for s in out] == ["xyz:GOLD"]
-    # Ignas's case: $70 free on a $100 account. Both $15 clips fit; gold is not suppressed.
+    # Partly committed account: $70 free on a $100 account. Both $15 clips fit; gold is not suppressed.
     out = _scan(monkeypatch, _Account({"xyz:CL", "xyz:GOLD"}, account="100", withdrawable="70",
                                       closes={"xyz:CL": 200.0, "xyz:GOLD": 160.0}))
     assert [s["asset"] for s in out] == ["xyz:CL", "xyz:GOLD"]
