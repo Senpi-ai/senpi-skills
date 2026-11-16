@@ -166,7 +166,7 @@ def test_an_unfundable_washout_does_not_block_the_basket(monkeypatch):
 
 
 def test_the_first_close_fills_ten_equal_clips_at_the_200_dollar_minimum(monkeypatch):
-    """Ignas's re-review of #978 (the same contract applies here): converting every clip against one
+    """Re-review of #978 (the same contract applies here): converting every clip against one
     free-margin figure let the runtime's one-at-a-time sizing shrink the later names, the tenth to about
     $5.54 x 2 = $11 at $200, under the $12 floor. Each clip is now converted against what is left."""
     out = _run(monkeypatch, _MCP(CALM, withdrawable="200", account="200"))
