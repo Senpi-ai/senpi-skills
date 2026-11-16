@@ -1,0 +1,45 @@
+# Gannet Duo — Gannet's daily dip cascade across two slots at half the size. A single-instance
+# PACKAGE: this manifest + one self-contained runtime.yaml + scanners/ byte-identical to
+# strategies/gannet (tests/test_engine_parity.py pins them). Same markets, same order, same RSI line,
+# same leverage per market, same exits; it holds the first TWO washed-out markets at 15% each instead
+# of the first one at 30%. STARTER tier. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: gannet-duo
+version: "1.0.0"
+
+catalog:
+  name: "Gannet Duo — Index Dip Cascade, Two Slots"
+  emoji: "🐦"
+  varies: gannet
+  tagline: "Gannet's dip cascade spread over two positions: the same daily check of the 3x chip fund (xyz:SOXL), then the Nasdaq 100 (xyz:XYZ100), then the S&P 500 (xyz:SP500), the same 10-day RSI under 30 at the close, the same 1x on the chip fund and 3x on an index, and the same exits — but when two of them are washed out on the same close it holds both, at 15% margin each, instead of only the first at 30%."
+  belief_plain: "The same rule as Gannet: once a day, after the daily close, buy the US stock markets that have fallen unusually hard, chips first, then the Nasdaq, then the S&P 500. Gannet holds only the first; this holds up to two, each half the size. One wrong call costs half as much and one right call pays half as much; in a broad sell-off it is in two markets at once. Cash between signals, a fixed stop on each position, and a ratchet that locks in the rebound."
+  thesis: "You like buying hard dips in US stocks by rule, but one position at a time feels too all-or-nothing: when the chip fund and the Nasdaq both wash out on the same day you would rather own both than bet on the first. It trades a little more often than Gannet, still rarely, and sits in cash most weeks."
+  group: multi-asset-whitelist
+  archetype: contrarian_fade
+  sub_style: mean_reversion
+  asset_classes: [indices, xyz_equities]
+  asset_scope: basket
+  direction: long_only
+  risk_level: moderate
+  tier: starter
+  time_horizon: swing
+  leverage_max: 3
+  max_slots: 2
+  assets: ["xyz:SOXL", "xyz:XYZ100", "xyz:SP500"]
+  tags: [dip-buy, buy-the-dip, oversold, rsi, mean-reversion, washout, rebound, bounce, cascade,
+         nasdaq, xyz100, sp500, soxl, semiconductors, indices, us-stocks, xyz, long-only, two-slots,
+         duo, spread, cash-between-signals, daily-close, slow, low-turnover, dsl-only, beginner,
+         onboarding]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: GANNET_DUO_WALLET
+    funding_share: 1.0

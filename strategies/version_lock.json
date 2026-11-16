@@ -153,6 +153,14 @@
       "behaviour": "84fd230055e731cb",
       "version": "1.1.1"
     },
+    "gannet": {
+      "behaviour": "297f2be993a0bec3",
+      "version": "1.0.0"
+    },
+    "gannet-duo": {
+      "behaviour": "485ee851710ad31d",
+      "version": "1.0.0"
+    },
     "gecko": {
       "behaviour": "69559c099afe6d38",
       "version": "1.2.0"
