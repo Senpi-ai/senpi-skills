@@ -93,6 +93,10 @@ _CASES = [
     ("ocelot", _intent(), "switch between tech and managed futures trend"),
     ("ocelot", _intent(), "own tech only when it beats gold oil and currencies"),
     ("ocelot", _intent(), "tech rotation into cash"),
+    # ── the quality big-tech basket (2026-11-12): ten megacaps at 2x, re-bought unless the Nasdaq is hot ──
+    ("kudu", _intent(), "hold quality big tech stocks basket"),
+    ("kudu", _intent(assets=[("class", "xyz_equities")]), "own the magnificent seven megacaps long term"),
+    ("kudu", _intent(), "long term stock portfolio"),
 ]
 
 
