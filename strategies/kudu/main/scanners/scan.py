@@ -7,15 +7,18 @@ Per tick it:
   - inside the window, reads the Nasdaq 100's daily candles (the only market data the rule needs),
     keeps the CLOSED bars, and asks pure `scoring.plan` which names to buy at this close: every
     basket name not held unless the Nasdaq is overheated, plus the Nasdaq 100 itself after a washout,
-  - emits them gated on free margin (one balance read; the tick's total allowance decrements),
-    skipping a leg it cannot fund without stopping, and remembers each (market, bar) it emitted, so
-    one daily close is one entry per market at most.
+  - emits ONE of them per tick: the first in plan order it can fund from this tick's balance read,
+    skipping a leg it cannot fund without stopping. The next goes out on the next tick, five minutes
+    later, sized off a fresh read. It remembers each (market, bar) it emitted, so one daily close is
+    one entry per market at most.
 
 Sizing: every position is its leg's percent of ACCOUNT value (4% a name, 12% the washout leg), so the
 ten names are equal clips whatever day they were bought, and a stopped-out name can be re-bought at
-the minimum budget. The runtime opens a scanner's signals one at a time, each as a percent of the
-free margin left after the ones before it, so for each position in order the scanner emits the
-percent of THAT remaining free margin that equals the clip. Read-only +
+the minimum budget. The runtime sizes a signal as a percent of the free margin when it opens it, and
+an open it skips (the per-asset cooldown, a risk gate) commits nothing. So the scanner sends one
+signal per tick, as the percent of the free margin it just read that equals the clip. If the runtime
+skips it, the next one is still sized off a real balance, never one that assumed the skipped open
+happened. A full first book (ten names and the washout) takes eleven ticks of the hour. Read-only +
 single-pass; the runtime sizes the dollars, owns cooldowns/risk gates, and runs the DSL exit. No daemon, no
 push_signal, no create_position. Candle values are strings keyed o/h/l/c/v with t in epoch ms —
 scoring._f / closed_candles coerce.
@@ -158,7 +161,6 @@ def scan(inputs, ctx):
     rsi = scoring.last_rsi(closed, period)
     result["nasdaq_rsi"] = None if rsi is None else round(rsi, 2)
     out = []
-    free = withdrawable                               # the free margin the runtime will size the next signal off
     allowance = withdrawable * _HEADROOM
     for asset, leg in scoring.plan(rsi, basket, washout_asset, held_assets, open_slots, inputs):
         key = f"{scoring.bare(asset)}|LONG|{bar_t}"
@@ -170,14 +172,13 @@ def scan(inputs, ctx):
             print(f"[kudu.scan] cannot fund {asset}: a ${clip:.2f} clip at {lev}x with ${allowance:.2f} "
                   f"to commit — skipping it, not the names after it", file=sys.stderr)
             continue
-        emit_pct = round(min(100.0, 100.0 * clip / free), 4)   # of the free margin left when it opens
-        free -= clip
-        allowance -= clip
+        emit_pct = round(min(100.0, 100.0 * clip / withdrawable), 4)   # of the free margin this tick read
         signaled[key] = now
         result["emitted"].append({"coin": asset, "leg": leg})
         out.append({"asset": asset, "direction": "LONG", "marginPct": emit_pct, "leverage": lev, "data": {
             "leg": leg, "direction": "LONG", "nasdaqRsi": round(rsi, 2), "signalBarTime": bar_t,
             "leverage": lev, "reasons": [f"Nasdaq 100 RSI({period}) {rsi:.1f} at the close: {leg} entry"]}})
+        break                                         # one per tick: the next is sized off the next tick's read
     if out:
         print(f"[kudu.scan] EMIT {[(s['asset'], s['data']['leg']) for s in out]} (Nasdaq RSI {rsi:.1f})", file=sys.stderr)
     else:

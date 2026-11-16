@@ -8,14 +8,17 @@ Per tick it:
     each on its own dex), keeps only CLOSED bars that are current at this close, and asks pure
     `scoring.measure` / `scoring.rank` which markets are above their 40-week average with positive
     13-week momentum, strongest first,
-  - emits every qualifier up to the open slots (never a market already held), each sized at
-    `marginPct` of the ACCOUNT, skipping one it cannot fund without stopping, and remembers each
-    (market, bar) it emitted, so one daily close is one entry per market at most.
+  - emits ONE qualifier per tick (never a market already held): the strongest it can fund from this
+    tick's balance read, sized at `marginPct` of the ACCOUNT, skipping one it cannot fund without
+    stopping. The next goes out on the next tick, five minutes later, sized off a fresh read. It
+    remembers each (market, bar) it emitted, so one daily close is one entry per market at most.
 
 Sizing: every sleeve is `marginPct` of account value, so five sleeves are five equal clips whatever
-order or day they open on. The runtime opens a scanner's signals one at a time, each as a percent of
-the free margin left after the ones before it, so for each sleeve in order the scanner emits the
-percent of THAT remaining free margin that equals the clip. Read-only +
+order or day they open on. The runtime sizes a signal as a percent of the free margin when it opens
+it, and an open it skips (the per-asset cooldown, a risk gate) commits nothing. So the scanner sends
+one signal per tick, as the percent of the free margin it just read that equals the clip. If the
+runtime skips it, the next one is still sized off a real balance, never one that assumed the skipped
+open happened. Five sleeves take five ticks of the hour. Read-only +
 single-pass; the runtime sizes the dollars, owns cooldowns/risk gates, and runs the DSL exit. No daemon, no
 push_signal, no create_position. Candle values are strings keyed o/h/l/c/v with t in epoch ms —
 scoring._f / closed_candles coerce.
@@ -164,16 +167,14 @@ def scan(inputs, ctx):
         measures.append(m)
 
     out = []
-    remaining = withdrawable
     clip = account_value * margin_pct / 100.0          # every sleeve is marginPct of the ACCOUNT
     for m in scoring.rank(measures, open_slots):
         th = scoring.thesis(m, inputs)
-        if clip * th["leverage"] < min_notional or clip > remaining:
+        if clip * th["leverage"] < min_notional or clip > withdrawable:
             print(f"[yak.scan] cannot fund {th['coin']}: a ${clip:.2f} clip at {th['leverage']}x with "
-                  f"${remaining:.2f} free — skipping it, not the sleeves after it", file=sys.stderr)
+                  f"${withdrawable:.2f} free — skipping it, not the sleeves after it", file=sys.stderr)
             continue
-        emit_pct = round(min(100.0, 100.0 * clip / remaining), 4)   # of the free margin left when it opens
-        remaining -= clip
+        emit_pct = round(min(100.0, 100.0 * clip / withdrawable), 4)   # of the free margin this tick read
         signaled[f"{scoring.bare(th['coin'])}|LONG|{th['signal_bar_t']}"] = now
         result["emitted"].append({"coin": th["coin"], "momentum": round(th["momentum"], 4)})
         print(f"[yak.scan] EMIT {th['coin']} LONG {th['leverage']}x clip ${clip:.2f} (marginPct={emit_pct:g}%) "
@@ -195,6 +196,7 @@ def scan(inputs, ctx):
                 "heldAssets": held_assets,
             },
         })
+        break                                          # one per tick: the next is sized off the next tick's read
     if not out:
         print(f"[yak.scan] WAITING — nothing above its long-term average with positive momentum "
               f"(measured {sorted(result['measured'])}, held {held_assets})", file=sys.stderr)
