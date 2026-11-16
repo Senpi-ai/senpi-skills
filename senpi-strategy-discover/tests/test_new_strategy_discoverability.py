@@ -83,6 +83,12 @@ _CASES = [
     ("gannet",  _intent(), "buy the dip in the nasdaq"),
     ("gannet",  _intent(), "buy the crash in us stocks"),
     ("gannet",  _intent(assets=[("class", "indices")]), "oversold index rsi dip buy"),
+    # ── the Nasdaq trend rider (2026-11-12): long 3x above the 40-week average, washouts only below it ──
+    ("mustang", _intent(), "leveraged nasdaq trend following 200 day moving average"),
+    ("mustang", _intent(assets=[("class", "indices")]), "long term nasdaq with a trend filter"),
+    ("mustang-sp500", _intent(assets=[("named", "SP500")]), "s&p 500 trend following 200 day average"),
+    ("mustang-semis", _intent(assets=[("named", "SOXL")]), "soxl trend following"),
+    ("mustang", _intent(), "tqqq for the long term"),   # no TQQQ on the venue: its 3x Nasdaq
 ]
 
 
