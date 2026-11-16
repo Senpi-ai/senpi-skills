@@ -213,7 +213,7 @@ def test_the_momentum_reference_is_thirteen_weeks_back_on_any_day():
 
 
 def test_a_mature_name_missing_its_13_week_reference_waits(monkeypatch):
-    """Ignas's re-review of #979: a name with current closes and enough history, but no weekly close
+    """Re-review of #979: a name with current closes and enough history, but no weekly close
     near its 13-week reference, was skipped, so the runner-up was bought. Now the tick waits. A name
     with too little history is still simply not a candidate."""
     class _Gap(_MCP):
