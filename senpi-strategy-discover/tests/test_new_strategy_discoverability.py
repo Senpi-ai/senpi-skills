@@ -101,6 +101,9 @@ _CASES = [
     ("yak", _intent(), "all weather portfolio with trend filter"),
     ("yak", _intent(), "diversified stocks gold commodities step out of what is falling"),
     ("yak", _intent(), "all weather portfolio"),
+    # ── big-tech momentum, Nasdaq-gated (2026-11-12): strongest name when healthy, the index after a washout ──
+    ("kinkajou", _intent(), "leveraged big tech momentum when the market is healthy"),
+    ("kinkajou", _intent(), "magnificent seven momentum"),
 ]
 
 
