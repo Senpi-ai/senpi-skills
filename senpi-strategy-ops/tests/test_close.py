@@ -898,7 +898,8 @@ class StrandedRuntimeSweep(unittest.TestCase):
         _cli.list_runtimes_or_none = lambda *a, **k: list(outer.inventory)
         orig = _cli.list_strategies_or_none
         self.addCleanup(setattr, _cli, "list_strategies_or_none", orig)
-        _cli.list_strategies_or_none = lambda mcp, timeout=15, statuses=None, why=None: list(every)
+        _cli.list_strategies_or_none = (lambda mcp, timeout=15, statuses=None, why=None, paper=False:
+                                         [] if paper else list(every))
 
     def test_close_one_sweep_stops_the_runtime_of_a_closed_strategy_and_sends_nothing(self):
         self._box([{"name": "omega-main", "wallet": "0xabc"}], [])
