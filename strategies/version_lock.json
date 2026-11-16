@@ -153,6 +153,14 @@
       "behaviour": "84fd230055e731cb",
       "version": "1.1.1"
     },
+    "gannet": {
+      "behaviour": "297f2be993a0bec3",
+      "version": "1.0.0"
+    },
+    "gannet-duo": {
+      "behaviour": "485ee851710ad31d",
+      "version": "1.0.0"
+    },
     "gecko": {
       "behaviour": "69559c099afe6d38",
       "version": "1.2.0"
@@ -257,6 +265,10 @@
       "behaviour": "d86969d2a4feceb9",
       "version": "1.1.2"
     },
+    "kudu": {
+      "behaviour": "83de991a81720438",
+      "version": "1.0.0"
+    },
     "lemon": {
       "behaviour": "1dad3c33a5523dad",
       "version": "1.2.3"
@@ -308,6 +320,22 @@
     "moose": {
       "behaviour": "d1dede2daa8645ff",
       "version": "1.0.1"
+    },
+    "mustang": {
+      "behaviour": "60eec761cabfa4f4",
+      "version": "1.0.0"
+    },
+    "mustang-semis": {
+      "behaviour": "9c3a240c718b21b6",
+      "version": "1.0.0"
+    },
+    "mustang-sp500": {
+      "behaviour": "427cc31348f9c6f5",
+      "version": "1.0.0"
+    },
+    "ocelot": {
+      "behaviour": "7ec6b7b0a45fa6c3",
+      "version": "1.0.0"
     },
     "octopus": {
       "behaviour": "44ea159a42e07100",
