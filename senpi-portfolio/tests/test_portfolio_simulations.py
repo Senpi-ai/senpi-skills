@@ -120,6 +120,35 @@ def test_a_reply_without_the_marker_shows_no_simulations():
     assert result["simulations"]["strategies"] == []
 
 
+def _printed(fx, capsys, step=()):
+    path = os.path.join(tempfile.mkdtemp(), "fx.json")
+    with open(path, "w") as fh:
+        json.dump(fx, fh)
+    state = os.path.join(tempfile.mkdtemp(), "state.json")
+    assert portfolio.main([*step, "--fixture", path, "--no-market", "--state", state]) == 0
+    return capsys.readouterr().out
+
+
+def test_the_printed_output_never_names_paper_unless_simulations_were_read(capsys):
+    live_rows = _fixture()["strategy_list"]
+    for step in ((), ("money",)):
+        out = _printed(_with_paper(_fixture(), {"success": True, "data": live_rows}), capsys, step)
+        assert "simulations" not in json.loads(out)
+        assert "paper" not in out.lower()
+        out = _printed(_with_paper(_fixture(), {"success": False, "error": {
+            "code": "PAPER_UNAVAILABLE", "message": "paper trading is not available"}}), capsys, step)
+        assert "simulations" not in json.loads(out)
+        assert "paper" not in out.lower()
+
+
+def test_the_printed_output_carries_simulations_that_were_read(capsys):
+    fx = _with_paper(_fixture(), {"success": True, "data": {"paper_routing": True,
+                                                             "strategies": [_paper_row()]}})
+    out = json.loads(_printed(fx, capsys))
+    assert out["simulations"]["status"] == "ok"
+    assert [s["strategy_id"] for s in out["simulations"]["strategies"]] == [PAPER_ID]
+
+
 def test_rows_without_the_paper_field_are_ignored():
     fx = _with_paper(_fixture(), {"success": True, "data": {"paper_routing": True,
                                                              "strategies": [_paper_row(marked=False)]}})
