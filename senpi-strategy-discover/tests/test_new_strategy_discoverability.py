@@ -79,6 +79,20 @@ _CASES = [
     ("ibex",    _intent(), "gold breakout"),
     ("ibex",    _intent(), "donchian breakout gold"),
     ("ibex",    _intent(assets=[("class", "commodities")]), "gold xauusd metals"),
+    # ── the daily dip cascade (2026-11-12): buy the hardest drop in chips / Nasdaq / S&P, else cash ──
+    ("gannet",  _intent(), "buy the dip in the nasdaq"),
+    ("gannet",  _intent(), "buy the crash in us stocks"),
+    ("gannet",  _intent(assets=[("class", "indices")]), "oversold index rsi dip buy"),
+    # ── the Nasdaq trend rider (2026-11-12): long 3x above the 40-week average, washouts only below it ──
+    ("mustang", _intent(), "leveraged nasdaq trend following 200 day moving average"),
+    ("mustang", _intent(assets=[("class", "indices")]), "long term nasdaq with a trend filter"),
+    ("mustang-sp500", _intent(assets=[("named", "SP500")]), "s&p 500 trend following 200 day average"),
+    ("mustang-semis", _intent(assets=[("named", "SOXL")]), "soxl trend following"),
+    ("mustang", _intent(), "tqqq for the long term"),   # no TQQQ on the venue: its 3x Nasdaq
+    # ── tech vs the trend basket (2026-11-12): Nasdaq when it leads gold/oil/fx, chips after a crash ──
+    ("ocelot", _intent(), "switch between tech and managed futures trend"),
+    ("ocelot", _intent(), "own tech only when it beats gold oil and currencies"),
+    ("ocelot", _intent(), "tech rotation into cash"),
     # ── the quality big-tech basket (2026-11-12): ten megacaps at 2x, re-bought unless the Nasdaq is hot ──
     ("kudu", _intent(), "hold quality big tech stocks basket"),
     ("kudu", _intent(assets=[("class", "xyz_equities")]), "own the magnificent seven megacaps long term"),
