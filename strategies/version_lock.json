@@ -329,6 +329,10 @@
       "behaviour": "427cc31348f9c6f5",
       "version": "1.0.0"
     },
+    "ocelot": {
+      "behaviour": "7ec6b7b0a45fa6c3",
+      "version": "1.0.0"
+    },
     "octopus": {
       "behaviour": "44ea159a42e07100",
       "version": "1.2.1"

@@ -89,6 +89,10 @@ _CASES = [
     ("mustang-sp500", _intent(assets=[("named", "SP500")]), "s&p 500 trend following 200 day average"),
     ("mustang-semis", _intent(assets=[("named", "SOXL")]), "soxl trend following"),
     ("mustang", _intent(), "tqqq for the long term"),   # no TQQQ on the venue: its 3x Nasdaq
+    # ── tech vs the trend basket (2026-11-12): Nasdaq when it leads gold/oil/fx, chips after a crash ──
+    ("ocelot", _intent(), "switch between tech and managed futures trend"),
+    ("ocelot", _intent(), "own tech only when it beats gold oil and currencies"),
+    ("ocelot", _intent(), "tech rotation into cash"),
 ]
 
 
