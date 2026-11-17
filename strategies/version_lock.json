@@ -93,6 +93,10 @@
       "behaviour": "fb57565530b2372c",
       "version": "1.2.1"
     },
+    "chipmunk": {
+      "behaviour": "6c947be1dfc31b62",
+      "version": "1.0.0"
+    },
     "condor": {
       "behaviour": "85595f26ee61b3a5",
       "version": "1.5.1"
@@ -536,6 +540,10 @@
     "squid": {
       "behaviour": "2a00bf05fc9dbf9d",
       "version": "1.0.1"
+    },
+    "squirrel": {
+      "behaviour": "df0b22b88e10133c",
+      "version": "1.0.0"
     },
     "stag": {
       "behaviour": "0adbfee0abc8a6bf",

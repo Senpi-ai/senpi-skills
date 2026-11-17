@@ -1,0 +1,59 @@
+# Squirrel — the BTC/ETH dip ladder. A THREE-instance PACKAGE: this manifest + three self-contained
+# runtime.yaml rungs (rung1 buys 10% under the 60-day high, rung2 20%, rung3 30%) on THREE separate
+# wallets, each with its own scanners/. The runtime cannot add to an open position and has no partial
+# exits, so each step of the ladder is its own wallet. One engine: the six scanners/ copies (these three
+# and strategies/chipmunk's) are byte-identical, pinned by tests/test_engine_parity.py; every difference
+# is an input. Long only, 1x, a quarter of a rung's wallet per coin, DSL-only exits.
+# ADVANCED tier. Install/teardown via senpi-strategy-ops.
+#
+# Chipmunk is the same ladder with a 40-week trend gate on the buys (`regimeWeeks: 40`); it is its own
+# package, not a `varies:` variant, so it surfaces on its own for conservative asks.
+schema_version: 1
+
+id: squirrel
+version: "1.0.0"
+
+catalog:
+  name: "Squirrel — BTC & ETH Dip Ladder"
+  emoji: "🌰"
+  tagline: "A dip ladder for BTC and ETH: it buys in three steps as a coin falls further under its two-month high, with more money in each deeper step, no leverage, and at most roughly half the budget in coins. A wide stop and a profit lock close every position; if the fall goes on, a step whose stop was hit buys again, lower."
+  belief_plain: "Once a day, after the daily close, it checks how far BTC and ETH have closed under their highest close of the previous 60 days. At 10% under, the first step buys; at 20% under, the second; at 30% under, the third. Each step is its own wallet (17%, 33% and 50% of the budget) and holds at most one BTC and one ETH position, each bought with a quarter of that wallet at 1x, so a crash that fills every step has about half the budget in falling coins and the rest in USDC. A position is closed only by its stop, 35% under the entry price (a loss of 35% of that position), or by a profit lock that starts at +35%. If the fall goes on, a step that was stopped out buys again, lower."
+  thesis: "You want to accumulate BTC and ETH in big dips without guessing the bottom and without leverage. Three steps spread the buying through a fall and the deeper steps carry more money, so the average price paid falls as the price does. The stop is wide on purpose: a dip buyer stopped out near the bottom owns nothing for the rebound, so the profit lock does the selling. Rising markets leave it idle for months. In a replay on Binance daily bars from January 2019 to November 2026, charged Hyperliquid's taker fee, the measured spread and each coin's average funding, the ladder took 117 trades with a profit factor of 1.96 and a worst drawdown of 32.5% (51% when 90% of the budget was put in instead of half). It lost money in 2025 and 2026, as BTC and ETH fell from October 2025. A backtest describes one past window and is not a forecast."
+  group: dca
+  archetype: contrarian_fade
+  sub_style: dca
+  asset_classes: [btc_eth]
+  asset_scope: basket
+  direction: long_only
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: position
+  leverage_max: 1
+  max_slots: 2            # per rung wallet: one BTC and one ETH position (three wallets)
+  assets: ["BTC", "ETH"]
+  tags: [dca, dollar-cost-averaging, dollar-cost-average, dip-ladder, ladder, buy-the-dip, buy-the-dips,
+         accumulate, accumulation, scale-in, btc, eth, bitcoin, ethereum, 1x, no-leverage, long-only,
+         daily-close]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+# THREE rungs on THREE wallets, budget split 17% / 33% / 50% (sizes about 1:2:3): the deeper the step,
+# the more it buys. min_budget is set by rung1: its smallest position (a quarter of 17% of the budget,
+# about 1/24) must clear the venue's $12 minimum.
+instances:
+  - name: rung1
+    runtime: rung1/runtime.yaml
+    wallet_env: SQUIRREL_RUNG1_WALLET
+    funding_share: 0.17
+  - name: rung2
+    runtime: rung2/runtime.yaml
+    wallet_env: SQUIRREL_RUNG2_WALLET
+    funding_share: 0.33
+  - name: rung3
+    runtime: rung3/runtime.yaml
+    wallet_env: SQUIRREL_RUNG3_WALLET
+    funding_share: 0.50
