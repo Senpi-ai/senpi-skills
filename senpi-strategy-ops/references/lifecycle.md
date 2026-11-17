@@ -672,3 +672,23 @@ broken tool. Observed on a real box, 2026-09-18, closing two strategies at once.
 
 Invoke by the absolute path (`python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/close.py …`)
 and the cwd cannot matter.
+
+## Flatten — close the trades, keep the strategy
+
+"Close all trades and keep the entry gate shut until I say", "close my BTC short", "flatten it". The user
+wants the **positions** gone and the **strategy** kept: same wallet, runtime, scanners, loggers and history.
+`close.py` is the wrong verb here — it deletes the runtime and offboards the wallet; deploying again makes a
+NEW wallet with empty scanner state.
+1. **Gate first** (all positions, or they asked for no new entries): if any `OPEN_POSITION` action is not
+   already `decision_mode: none`, apply watch-only (§Watch-only, `update --apply`) and read it back. A live
+   scanner would otherwise re-enter the coins you just closed.
+2. **Name the coins.** `strategy_get_clearinghouse_state` on the wallet — main **and** `xyz` — and list
+   every open coin as the exchange spells it (`xyz:NVDA`, never `nvda`).
+3. **`strategy_close_positions` with `coins` = that list.** **Never `coins: []` and never omit `coins`:**
+   an empty or missing list is the close-all, which offboards the wallet exactly like `strategy_close` —
+   status `CLOSED`, funds to main, runtime stranded. A named list (all of them is fine) keeps the strategy
+   `ACTIVE`. It is a trade tool: one approval; an empty result means it did not run.
+4. **Verify, then report.** The clearinghouse shows no positions, `strategy_list` still shows the wallet
+   `ACTIVE`, and `status.py <id>` still shows the runtime ticking (it reconciles the gone positions on its
+   own). Say what closed, at what PnL, and that the strategy is still running in watch-only.
+   "Open the gate again" = revert `decision_mode` with `update --apply`; nothing new is deployed.
