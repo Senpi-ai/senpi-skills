@@ -448,6 +448,48 @@ class CloseOneWorld(_CloseHarness):
         self.assertIsNone(_journal.read(_journal.key("omega", False))["resolved"])
 
 
+class Review953Followups(_CloseHarness):
+    def test_a_plain_close_polls_with_live_so_a_simulation_outage_does_not_refuse_the_poll(self):
+        self.mcp.live = [_live_row()]
+        self.runtimes = [{"name": "omega-main", "wallet": LIVE_WALLET, "status": "running"}]
+        out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertIn("re-running: close.py omega --live", out)
+        self.mcp.live = [_live_row(status_="CLOSING_POSITIONS")]
+        self.mcp.unavailable = True
+        out, code = self._run("omega", "--live")
+        self.assertEqual(code, 0)
+        self.assertNotIn("NOTHING was closed", out)
+
+    def test_a_simulation_sweep_leaves_a_closed_live_strategys_runtime_alone(self):
+        self.mcp.live = [_live_row(status_="CLOSED")]
+        self.mcp.simulation = []
+        self.runtimes = [{"name": "omega-main", "wallet": LIVE_WALLET, "status": "running"}]
+        for args in (("--all", "--simulation"), ("omega", "--simulation")):
+            _out, code = self._run(*args)
+            self.assertEqual(code, 0, args)
+            self.assertEqual(self.deleted, [], args)
+
+    def test_a_simulation_sweep_removes_a_closed_simulations_runtime(self):
+        self.mcp.live = [_live_row(status_="CLOSED")]
+        self.mcp.simulation = [_simulation_row(status_="CLOSED")]
+        self.runtimes = [{"name": "omega-main", "wallet": LIVE_WALLET, "status": "running"},
+                         {"name": "omega-main-simulation", "wallet": SIMULATION_WALLET, "status": "running"}]
+        _out, code = self._run("--all", "--simulation")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.deleted, ["omega-main-simulation"])
+        self.assertEqual(self.mcp.closed, [])
+
+    def test_a_dry_run_plans_the_sweep_the_real_run_does(self):
+        self.mcp.live = [_live_row(status_="CLOSED")]
+        self.runtimes = [{"name": "omega-main", "wallet": LIVE_WALLET, "status": "running"}]
+        for args in (("omega", "--live"), ("--all",)):
+            out, code = self._run(*args, "--dry-run", "--json")
+            self.assertEqual(code, 0, args)
+            self.assertIn('senpi.deleteRuntime {\\"id\\": \\"omega-main\\"}', out, args)
+            self.assertEqual(self.deleted, [], args)
+            self.assertEqual(self.mcp.closed, [], args)
+
 class CloseSimulationWithWritesOff(_CloseHarness):
     """The runtime must not be stopped ahead of a refused write."""
 
