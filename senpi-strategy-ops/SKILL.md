@@ -14,8 +14,7 @@ description: >-
   normal (it was closed, or never fetched) and `deploy.py` fetches it by id.
   "are my positions protected? / do they have a stop-loss (DSL)?",
   "close/uninstall polar", "pause polar" / "stop new trades" / "stop opening positions" (→ watch-only, decision_mode: none; never the MCP strategy_pause),
-  "close my trades / positions" (→ flatten and keep it running: watch-only, then strategy_close_positions with
-  every coin NAMED — close.py is the strategy, not its trades) — and for teardown like "close all strategies",
+  "close my trades / positions" (→ strategy_close_positions, coins named; not close.py) — and for teardown like "close all strategies",
   "return funds to main", "tear everything down" (→ close.py --all). ALWAYS tear
   down via close.py, never a raw strategy_close (that strands the runtime). ops
   deploys / closes / monitors; it does NOT author or edit strategy files — an edit
@@ -78,7 +77,7 @@ lists their fork). VERIFIED = nothing to relaunch; "my edit isn't live" / "it is
 its ✎ / ⏸ rows; healthy but has never traded → its binding gate, threshold and universe count, never "being
 selective" ([`references/liveness-verification.md`](references/liveness-verification.md)). A step verify marks `RUNS THE DEPLOY VERB` needs their yes first: `runtime <id>` starts trading
 the wallet it adopts, `create --budget` funds a NEW one (say the amount). PAUSED has no resume: tell the user,
-run nothing. **What is being closed decides the verb.** "Close my trades / positions / the shorts", "flatten" → **flatten, keep it running**: watch-only first if they asked for it or it is a full flatten, then `strategy_close_positions` naming only the coins they asked for (by side; every open coin, main + `xyz`, only on a full flatten; none match → close nothing) — **never `coins: []`, never omit `coins`** (that is the close-all: it offboards the wallet like `strategy_close`); wallet, runtime and scanners stay ([steps + verify](references/lifecycle.md#flatten--close-the-trades-keep-the-strategy)). Close only on the *strategy* (`close.py`) — "close / tear down / uninstall <strategy>", "withdraw", "return funds", "close everything and stop" — or a yes to your sentence that the strategy shuts down, every position closes at market and the funds return to main. Unsure which → ask that one question.
+run nothing. **What is being closed decides the verb.** Trades ("close my trades", "the shorts", "flatten") → **flatten, keep it running** ([steps](references/lifecycle.md#flatten--close-the-trades-keep-the-strategy)): `strategy_close_positions` naming only the coins they asked for — never `coins: []`, never omit `coins` (that offboards the wallet). Close only on the *strategy* ("close / tear down <strategy>", "withdraw", "return funds") → `close.py`, or a yes to "the strategy shuts down, every position closes at market, funds return to main". Unsure → ask.
 A bare "stop" / "pause" / "stop trading" is ambiguous: ask once, "turn on watch-only (no new entries; open positions keep their DSL stops) or close everything at market?" Watch-only is `decision_mode: none` (below). Never call the MCP `strategy_pause` on a runtime strategy: it is for mirror strategies and has no resume.
 Pass the **strategy `id`** for a CATALOG strategy (what `senpi-strategy-discover` hands over, e.g.
 `spider`), fetched from the remote if not on disk; for a **locally-authored package, pass its DIRECTORY

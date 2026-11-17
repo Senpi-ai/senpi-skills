@@ -681,7 +681,7 @@ wants the **positions** gone and the **strategy** kept: same wallet, runtime, sc
 NEW wallet with empty scanner state.
 1. **Gate first — only when they asked.** "Keep the gate shut", "no new entries", or a full flatten ("close all
    trades", "flatten it"): if any `OPEN_POSITION` action is not already `decision_mode: none`, apply
-   watch-only (§Watch-only, `update --apply`) and read it back, or a live scanner re-enters what you close. A
+   watch-only ([Watch-only](editing-a-live-strategy.md#watch-only-no-new-entries-dsl-keeps-managing-open-positions-stop-new-trades-watch-only), `update --apply`) and read it back, or a live scanner re-enters what you close. A
    partial close ("my BTC short") leaves the gate as it is; say a live scanner may re-enter that coin.
 2. **Select exactly what they asked for.** A **fresh** `strategy_get_clearinghouse_state` on the wallet —
    main **and** `xyz` — read after step 1 returns, never the one you showed the user before it (an entry
@@ -698,11 +698,13 @@ NEW wallet with empty scanner state.
    empty result means it did not run. **Closes are async** — the call returns before the fills land.
    **Every named coin must hold a position:** one already flat fails the WHOLE call (`SERR043`) and
    closes none of the others, so never re-send a coin whose close you already submitted.
-4. **Verify, then report.** Re-read the clearinghouse until the submitted coins are gone (poll a few
-   seconds apart; a coin still listed seconds after the call is usually a fill in flight, not a failure).
-   Anything **new** that appeared (opened before the gate took effect) gets its own call naming only it.
-   Then the clearinghouse no longer shows the selected positions and still shows the
-   rest, `strategy_list` still shows the wallet `ACTIVE`, and `status.py <id>` still shows the runtime
-   ticking (it reconciles the gone positions on its own). Say what closed, at what PnL, what is still open,
-   and whether the gate is shut. "Open the gate again" = revert `decision_mode` with `update --apply`;
-   nothing new is deployed.
+4. **Verify, then report.** Re-read the clearinghouse a few seconds apart, for at most ~60 s, until the
+   submitted coins are gone; a coin still listed seconds after the call is usually a fill in flight, not a
+   failure. Past the deadline, report what is still open as **pending, unverified**, never "closed", and do
+   not resubmit it. A position that **appeared** since step 2 passes the same step-2 filter (coin and side;
+   every new coin only on a full flatten) and, if it matches, gets its own call naming only it; one that
+   does not match stays open and is reported. Then the clearinghouse no longer shows the selected positions
+   and still shows the rest, `strategy_list` still shows the wallet `ACTIVE`, and `status.py <id>` still
+   shows the runtime ticking (it reconciles the gone positions on its own). Say what closed, at what PnL,
+   what is still open, and whether the gate is shut. "Open the gate again" = revert `decision_mode` with
+   `update --apply`; nothing new is deployed.
