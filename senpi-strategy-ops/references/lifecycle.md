@@ -679,16 +679,23 @@ and the cwd cannot matter.
 wants the **positions** gone and the **strategy** kept: same wallet, runtime, scanners, loggers and history.
 `close.py` is the wrong verb here — it deletes the runtime and offboards the wallet; deploying again makes a
 NEW wallet with empty scanner state.
-1. **Gate first** (all positions, or they asked for no new entries): if any `OPEN_POSITION` action is not
-   already `decision_mode: none`, apply watch-only (§Watch-only, `update --apply`) and read it back. A live
-   scanner would otherwise re-enter the coins you just closed.
-2. **Name the coins.** `strategy_get_clearinghouse_state` on the wallet — main **and** `xyz` — and list
-   every open coin as the exchange spells it (`xyz:NVDA`, never `nvda`).
-3. **`strategy_close_positions` with `coins` = that list.** **Never `coins: []` and never omit `coins`:**
+1. **Gate first — only when they asked.** "Keep the gate shut", "no new entries", or a full flatten ("close all
+   trades", "flatten it"): if any `OPEN_POSITION` action is not already `decision_mode: none`, apply
+   watch-only (§Watch-only, `update --apply`) and read it back, or a live scanner re-enters what you close. A
+   partial close ("my BTC short") leaves the gate as it is; say a live scanner may re-enter that coin.
+2. **Select exactly what they asked for.** `strategy_get_clearinghouse_state` on the wallet — main **and**
+   `xyz` — then keep only the requested positions, by coin and by side (`szi` < 0 is a short): "my BTC
+   short" → `["BTC"]` only if BTC is short; "the shorts" → every short coin and no long. Every open coin
+   only on an explicit full flatten. Spell coins as the exchange does (`xyz:NVDA`, never `nvda`). **Nothing
+   matches** (no BTC, or BTC is long) → close nothing and tell the user what is open; never widen the
+   list, never fall back to a close-all.
+3. **`strategy_close_positions` with `coins` = that selection.** **Never `coins: []` and never omit `coins`:**
    an empty or missing list is the close-all, which offboards the wallet exactly like `strategy_close` —
-   status `CLOSED`, funds to main, runtime stranded. A named list (all of them is fine) keeps the strategy
-   `ACTIVE`. It is a trade tool: one approval; an empty result means it did not run.
-4. **Verify, then report.** The clearinghouse shows no positions, `strategy_list` still shows the wallet
-   `ACTIVE`, and `status.py <id>` still shows the runtime ticking (it reconciles the gone positions on its
-   own). Say what closed, at what PnL, and that the strategy is still running in watch-only.
-   "Open the gate again" = revert `decision_mode` with `update --apply`; nothing new is deployed.
+   status `CLOSED`, funds to main, runtime stranded. A named list (even one naming every open coin) keeps
+   the strategy `ACTIVE`. It closes each named coin's whole position. It is a trade tool: one approval; an
+   empty result means it did not run.
+4. **Verify, then report.** The clearinghouse no longer shows the selected positions and still shows the
+   rest, `strategy_list` still shows the wallet `ACTIVE`, and `status.py <id>` still shows the runtime
+   ticking (it reconciles the gone positions on its own). Say what closed, at what PnL, what is still open,
+   and whether the gate is shut. "Open the gate again" = revert `decision_mode` with `update --apply`;
+   nothing new is deployed.

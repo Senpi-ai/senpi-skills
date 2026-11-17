@@ -36,6 +36,13 @@ class FlattenKeepsTheStrategy(unittest.TestCase):
         self.assertIn("xyz", s)
         self.assertIn("`ACTIVE`", s)
 
+    def test_selection_keeps_the_requested_scope(self):
+        s = _section()
+        self.assertIn("by coin and by side", s)
+        self.assertIn("Every open coin\n   only on an explicit full flatten", s)
+        self.assertIn("never widen the\n   list, never fall back to a close-all", s)
+        self.assertIn("naming only the coins they asked for", SKILL)
+
 
 if __name__ == "__main__":
     unittest.main()
