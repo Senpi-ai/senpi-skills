@@ -130,12 +130,33 @@ def fetch_referral(client, meta):
             "wallet": _field(r, "wallet_address", "walletAddress")}
 
 
+def fetch_credits(client, meta):
+    """AI-credit balance from get_account_status; only a numeric `credits.remaining` counts.
+    A dollar-only shape, null credits, a missing tool or any failure is `available: false`."""
+    unavailable = {"available": False}
+    try:
+        data = _ok(client.mcp_call("get_account_status", timeout=15))
+    except Exception as e:  # noqa
+        meta.setdefault("warnings", []).append(f"get_account_status failed: {e}")
+        return unavailable
+    c = data.get("credits") if isinstance(data, dict) else None
+    remaining = _f(c, "remaining")
+    if remaining is None:
+        return unavailable
+    cycle_end = _field(c, "cycle_end")
+    return {"available": True, "remaining": remaining,
+            "burn_per_hour": _f(c, "burn_per_hour"),
+            "hours_left": _f(c, "hours_left"),
+            "cycle_end": cycle_end if isinstance(cycle_end, str) else None}
+
+
 # ──────────────────────────────────────────────────────────────── orchestration
 def run(client):
     meta = {"warnings": []}
     user = resolve_user(client, meta)
     points, fee = fetch_points(client, meta, user.get("wallet"), user.get("senpi_user_id"))
     referral = fetch_referral(client, meta)
+    credits = fetch_credits(client, meta)
     if not user.get("senpi_user_id") and not user.get("wallet"):
         meta["degraded"] = "no user resolved — check the token is USER-scoped"
     return {
@@ -144,6 +165,7 @@ def run(client):
         "points": points,
         "fee": fee,
         "referral": referral,
+        "credits": credits,
         "meta": meta,
     }
 
@@ -151,7 +173,7 @@ def run(client):
 # ──────────────────────────────────────────────────────────────── CLI
 def _dry(client):
     out = {}
-    for tool in ("user_get_me", "user_get_referral_rewards"):
+    for tool in ("user_get_me", "user_get_referral_rewards", "get_account_status"):
         try:
             out[tool] = client.mcp_call(tool, timeout=12)
         except Exception as e:  # noqa

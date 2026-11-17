@@ -55,7 +55,7 @@ class CreditsAreTheUsageMeter(unittest.TestCase):
         body = _flat(_split(SKILL)[1])
         self.assertIn(SECTION, body)
         for needle in (
-            "I can't read it from here",
+            "I can't read your balance from here",
             "the whole conversation is re-sent each turn",
             "cannot be traded, withdrawn, deposited into a strategy, or moved anywhere",
             '"chatting is free"',
@@ -123,7 +123,7 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
             self.assertIn(plan, section, plan)
         for needle in (
             "Every plan includes every model",
-            "no rollover, no top-ups, no overage",
+            "no rollover, no overage",
             "Upgrading is instant",
             "takes effect at the next renewal",
             "Payment is web only",
@@ -202,10 +202,27 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
         self.assertIn('"no subscription is needed"', _flat(_section(_split(SKILL)[1])))  # Never say
         self.assertIn("what happens when my trial ends?", _flat(_split(SKILL)[0]))  # the router finds it
 
-    def test_the_meter_section_still_defers_the_balance_to_the_page(self):
-        # the catalog being quotable must not leak into the balance: "what is left" is still theirs
+    def test_credits_are_answered_in_credits_from_the_engine(self):
         section = _flat(_section(_split(SKILL)[1]))
-        self.assertIn("how much is **left** depends on your plan and your usage", section)
+        for needle in (
+            "answer with `credits.remaining` as a number of credits",
+            "the time left when `hours_left` is present",
+            "Never convert it to dollars",
+            "When `credits.available` is false",
+            "never invent a number",
+            "Credits also pay for running Hyper Simulations",
+        ):
+            self.assertIn(needle, section, needle)
+        self.assertNotIn("You cannot read the balance", section)
+        self.assertIn("how many credits do I have?", _flat(_split(SKILL)[0]))
+
+    def test_no_dollar_framing_or_plan_capacity_and_top_ups_exist(self):
+        body = _flat(_split(SKILL)[1] + _split(SKILL)[0]).lower()
+        for stale in ("plan capacity", "$1 of credit", "no top-ups", "never read"):
+            self.assertNotIn(stale, body, stale)
+        plans = _flat(_section(_split(SKILL)[1], PLANS))
+        self.assertIn("Credits can also be bought on the subscription page", plans)
+        self.assertIn("quote packs only from that page", plans)
 
 
 class FreeCreditMilestonesHaveEnded(unittest.TestCase):
@@ -367,6 +384,13 @@ class TheSkillDocumentsTheEnginesOutput(unittest.TestCase):
     def test_the_documented_sections_are_the_returned_sections_in_order(self):
         documented = re.search(r"Returns `\{([^}]*)\}`", _split(SKILL)[1]).group(1)
         self.assertEqual(documented.split(", "), list(self._engine_output()))
+
+    def test_the_documented_credits_fields_are_the_returned_ones(self):
+        body = _split(SKILL)[1]
+        documented = re.search(r"- `credits` — ([^\n]*(?:\n  [^\n]*)*)", body).group(1)
+        fields = re.findall(r"`(\w+)`", documented)
+        out = self._engine_output()["credits"]
+        self.assertEqual([f for f in fields if f in out], list(out))
 
     def test_the_documented_fee_and_points_fields_are_the_returned_ones(self):
         body = _split(SKILL)[1]
