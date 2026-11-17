@@ -86,3 +86,47 @@ def test_no_note_when_nothing_was_cut():
     long_ = dict(short, tagline="y" * (discover.TEXT_FIELD_LIMIT + 1))
     res = discover.limit_result({"candidates": [long_], "meta": {}}, 8)
     assert res["meta"]["full_card"] == discover.FULL_CARD_NOTE
+
+
+def test_card_quotes_the_defaults_in_dollars_at_the_budget(capsys):
+    """17 Nov 2026 re-test: the agent sized Mustang S&P at "~4% of account" because no card stated a
+    size. With --budget the card now carries the template's defaults in dollars: Mustang S&P opens 30% of
+    free margin at 3x, $150 of margin and a $450 position on $500; Kudu gives each basket name 4% of the
+    ACCOUNT at 2x ($20, a $40 position) and its washout leg 12% at 3x ($60, a $180 position)."""
+    rc, out = _run(["--card", "mustang-sp500,kudu", "--budget", "500"], capsys)
+    assert rc == 0
+    by = {c["id"]: c["defaults"]["wallets"] for c in out["cards"]}
+    (sp,) = by["mustang-sp500"]
+    assert sp["budget_usd"] == 500
+    assert [(c["margin_usd"], c["position_usd"]) for c in sp["size"]] == [(150, 450)]
+    assert "margin_usd_is" not in sp["size"][0], "one position: the dollars are exact"
+    (kudu,) = by["kudu"]
+    assert [(c["margin_usd"], c["position_usd"], c["of"]) for c in kudu["size"]] == [
+        (20, 40, "account"), (60, 180, "account")]
+
+
+def test_card_dollars_follow_each_wallets_share_and_say_when_later_positions_shrink(capsys):
+    rc, out = _run(["--card", "squirrel,penguin", "--budget", "1000"], capsys)
+    by = {c["id"]: c["defaults"]["wallets"] for c in out["cards"]}
+    assert [w["budget_usd"] for w in by["squirrel"]] == [170, 330, 500]
+    rung = by["squirrel"][0]["size"][0]
+    assert rung["of"] == "account" and rung["margin_usd"] == 42.5 and "margin_usd_is" not in rung
+    for w in by["penguin"]:
+        for c in w["size"]:
+            if c["of"] == "free margin" and w["max_positions"] > 1 and c.get("margin_usd") is not None:
+                assert discover.LATER_POSITIONS in c["margin_usd_is"]
+
+
+def test_card_without_a_budget_states_percentages_only(capsys):
+    rc, out = _run(["--card", "mustang-sp500"], capsys)
+    (w,) = out["cards"][0]["defaults"]["wallets"]
+    assert w["size"][0]["margin_pct"] == 30 and "margin_usd" not in w["size"][0] and "budget_usd" not in w
+
+
+def test_a_size_the_card_cannot_state_gets_no_dollars():
+    d = {"wallets": [{"funding_share": 1, "max_positions": 2,
+                      "size": [{"when": "every entry", "margin_pct": None, "of": "free margin",
+                                "leverage": 3, "set_by": "volatility"}]}]}
+    c = discover.with_dollars(d, 500)["wallets"][0]["size"][0]
+    assert "margin_usd" not in c and "position_usd" not in c
+    assert d["wallets"][0]["size"][0].get("margin_usd") is None, "the catalog record is never mutated"

@@ -21,6 +21,7 @@ from collections import defaultdict
 
 import yaml
 
+import card_defaults  # the `defaults` field: how each wallet is set out of the box
 import min_budget  # vendored (byte-identical with senpi-strategy-ops) — the canonical minimum calc
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -34,7 +35,9 @@ INSTRUCTIONS = (
     "(scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, "
     "risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED "
     "fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, "
-    "max_slots) are computed from instances/params. Labels/glosses come from "
+    "max_slots) are computed from instances/params; 'defaults' is each wallet's out-of-the-box "
+    "setting (size per position as the runtime applies it, leverage, max positions, stop, profit locks, "
+    "cadence, funding share, static universe), read from its runtime.yaml by card_defaults.py. Labels/glosses come from "
     "senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum "
     "total budget at which the design functions (min_budget.py) — the smallest budget where every "
     "wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + "
@@ -228,7 +231,8 @@ def build(updated, branch):
         validate_declared(glossary, c, sid)
         pkg_dir = os.path.dirname(man_path)
         cadence = derive_cadence_seconds(instances, pkg_dir)
-        mb = min_budget.strategy_min_budget(m, load_runtimes(instances, pkg_dir))
+        runtimes = load_runtimes(instances, pkg_dir)
+        mb = min_budget.strategy_min_budget(m, runtimes)
         if isinstance(c.get("min_budget"), (int, float)):
             warn(f"{sid}: strategy.yaml still declares min_budget:{c['min_budget']} — it is now "
                  f"COMPUTED and the authored field is ignored; delete it (use min_budget_floor to raise)")
@@ -277,6 +281,8 @@ def build(updated, branch):
             "instance_count": instance_count,
             "funding_split": derive_funding_split(instances),
             "max_slots": derive_max_slots(instances, c),
+            # how each wallet is set out of the box — what discover quotes as the template's defaults
+            "defaults": card_defaults.record_defaults(sid, m, runtimes, pkg_dir),
             # registry
             "branch": branch,
         })

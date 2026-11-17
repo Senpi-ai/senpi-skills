@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.57.0"
+  version: "2.58.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -94,13 +94,15 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
   and worked numbers: `references/trade-frequency.md`.
 - **How a pick sells, how big each position is and when it re-buys: quote its card, never infer.**
   The shortlist cuts `tagline`/`belief_plain`/`thesis` at 120 characters (they end in `…` and
-  `meta.full_card` says so), and the cut drops those sentences on most cards: run `--card <id,id>` for
-  the picks you present and quote them. Never infer an exit from the entry rule: a trend gate or a
-  signal that stops new buys sells nothing unless the card says it closes on it, so "exits when the
-  trend breaks" is wrong where the card says a trailing stop sells. Size per position is the card's
-  share of the ACCOUNT as margin ("4% clips at 2x" = $20 of margin, a $40 position, per name on $500),
-  never budget ÷ slots or ÷ names; a stopped-out position is bought back only as the card says. No
-  figure on the card → say ops shows it in the walkthrough.
+  `meta.full_card` says so) and carries no sizing: run `--card <id,id> --budget <usd>` for the picks
+  you present and quote it. Never infer an exit from the entry rule: a trend gate or a signal that
+  stops new buys sells nothing unless the card says it closes on it, so "exits when the trend breaks"
+  is wrong where the card says a trailing stop sells. Size is the card's `defaults`, each case's
+  `margin_usd` AND `position_usd` (4% of the ACCOUNT as margin at 2x = $20 of margin, a $40 position,
+  per name on $500), never budget ÷ slots or ÷ names; a stopped-out position is bought back only as
+  the card says. Say they are **the template's defaults**, and invite once, without pushing, to change
+  or remix them in their own fork before it goes live (ops' walkthrough §2–§4 offers the levers; a bare
+  "go" runs the defaults). A value the card doesn't state → say so; never estimate it or borrow another template's.
 - **Offer the concentration choice whenever the family has one.** If a pick's family (follow `varies`
   to the root) holds both a spread and a concentrated member — **fewer `max_slots` and/or higher
   `leverage_max`** — name BOTH, one line each, before the budget question, and quote what one stop-out
@@ -137,7 +139,8 @@ python3 scripts/discover.py
   [--limit <int>]      # default 8; raise only when they ask to see more — never to recommend
   [--no-market]        # skip the live read — use while narrowing/browsing
   [--context-only]     # budget + holdings (Senpi + your saved wallets, read-only) only, no match
-  [--card <csv of ids>]  # the FULL card of each pick you present, offline — how it sells, sizes, re-buys;
+  [--card <csv of ids>]  # the FULL card of each pick you present, offline — how it sells, re-buys, and its
+                         # `defaults` (size, stop, locks; with --budget <usd>, in dollars);
                          # ids over the output budget come back in `deferred`: run --card again for those
 ```
 
@@ -188,6 +191,7 @@ Each candidate is a flat record. You rank on the soft fields; you narrate from t
 | `direction`, `wallet_count`, `funding_split` | direction match · `wallet_count` > 1 means it is already a multi-wallet fund (skip stacking); `funding_split` is on every card ([1.0] when single-wallet) |
 | `market_facts` | the live "why now" for your lead |
 | `caveats` | honesty — surface **verbatim** |
+| `defaults` (`--card` only) | each wallet's out-of-the-box setting: size per position case by case (`margin_pct` `of` free margin or the account, at `leverage`; a range is `[low, high]`; no fixed figure → `set_by` says what sets it; `size_note`; with `--budget`, `margin_usd` + `position_usd`), `max_positions`, the stop and `profit_locks` in ROE, any `time_exits`, cadence, `funding_share`, `universe` — quote it as the template's defaults (Golden rules) |
 | `min_budget` | the **computed** minimum to run the design (`min_budget.py`; also carries `wallet_count`) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; NOT a recommendation. Size the actual budget from the user's funds (`meta.user_context.budget`); see Layer 3 |
 | `variants` | ids of the card's eligible variant siblings, folded into it — offer one only per *Variant families* below; the card's `theme_score`/`theme_hits` are the family's best |
 | `varies` | set only when the family's parent was filtered out and this member stands in — name the parent when you offer it |
@@ -356,7 +360,7 @@ They lack the vocabulary; recommend *without* making them self-classify:
 {lead: top pick + why-now from market_facts}.
 🦏  Rhino — Tail-Risk / Crisis-Alpha
     {thesis}.   Minimum ~${min_budget}{ + funding_split if wallet_count > 1}
-    {what sells it · each position's share of the account · when it re-buys — quoted from --card}
+    {what sells it · its default size, $margin and $position at their budget · when it re-buys — from --card}
 {2nd / 3rd card}.   {caveats, verbatim}.
 "You've got ~${user_context.budget} free — start from {top} as the base of your strategy (I'll walk you through how it's set and what's worth changing before we fund it; it deploys as {user}'s {top} — or a name of your own), with a hedge alongside it, or build your own from scratch?"
 ```

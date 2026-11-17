@@ -102,16 +102,38 @@ def test_exits_size_and_rebuys_are_quoted_from_the_card_in_golden_rules():
     next calm close). The shortlist had cut those sentences. The rule sits in Golden rules, where it is
     read. The size is MARGIN: "$20 a name" read as the position would misprice every move at 2x."""
     g = _golden_rules()
-    for needle in ("quote its card, never infer", "run `--card <id,id>`",
+    for needle in ("quote its card, never infer", "run `--card <id,id> --budget <usd>`",
                    "Never infer an exit from the entry rule",
-                   "sells nothing unless the card says it closes on it", "share of the ACCOUNT as margin",
-                   '("4% clips at 2x" = $20 of margin, a $40 position, per name on $500)',
+                   "sells nothing unless the card says it closes on it", "Size is the card's `defaults`",
+                   "`margin_usd` AND `position_usd` (4% of the ACCOUNT as margin at 2x = $20 of margin, "
+                   "a $40 position, per name on $500)",
                    "never budget ÷ slots or ÷ names", "bought back only as the card says"):
         assert needle in g, f"{needle!r} missing from Golden rules"
     assert "$20 a name" not in g, "the per-name figure is margin; say the position too"
     usage = " ".join(_body().split("## How to run the engine", 1)[1].split("\n## ", 1)[0].split())
     assert "[--card <csv of ids>]" in usage, "the engine usage block must list --card"
+    assert "with --budget <usd>, in dollars" in usage, "say that --budget turns the defaults into dollars"
     assert "come back in `deferred`: run --card again for those" in usage, "say what an over-budget call returns"
+
+
+def test_defaults_are_presented_as_the_users_to_change_in_their_fork():
+    """Jason, 17 Nov 2026: "Agents should be directed to inform the user how the strategy defaults are
+    set and encourage the user to change /remix the configs in their own fork of the strategy." The blind
+    re-test that day sized Mustang S&P at "~4% of account" (the package opens 30% of free margin at 3x:
+    $150 of margin, a $450 position on $500) because no card stated a size. The card's `defaults` now
+    does; the rule says to call them defaults, invite (never push) a change in the fork before it goes
+    live, hand the levers to ops' walkthrough instead of repeating it, keep a bare "go" running the
+    defaults, and say "the card doesn't state it" rather than estimate or borrow a number."""
+    g = _golden_rules()
+    for needle in ("Say they are **the template's defaults**", "invite once, without pushing",
+                   "change or remix them in their own fork before it goes live",
+                   "ops' walkthrough §2–§4 offers the levers", 'a bare "go" runs the defaults',
+                   "A value the card doesn't state → say so; never estimate it or borrow another template's"):
+        assert needle in g, f"{needle!r} missing from Golden rules"
+    assert "say ops shows it in the walkthrough" not in g, "a missing value is said as missing, not deferred"
+    body = " ".join(_body().split())
+    assert "| `defaults` (`--card` only) |" in body, "the field table must explain `defaults`"
+    assert "its default size, $margin and $position at their budget" in body, "the card format must show it"
 
 
 def _description(skill):

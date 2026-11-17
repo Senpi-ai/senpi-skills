@@ -46,8 +46,8 @@ MARKET_FACT_LIMIT = 2
 # The 120-character cut lands before the sentences that say how a pick sells, sizes and re-buys on almost
 # every card (16 Nov 2026: 126 of 145 cards state their exit, 10 of them inside the cut). Agents filled the
 # gap from the entry rule ("exits when the trend breaks") and from budget ÷ slots; `--card` has the full text.
-FULL_CARD_NOTE = ("card text is cut at 120 characters: before presenting a pick, run --card <id> and quote "
-                  "how it sells, how big each position is and when it re-buys")
+FULL_CARD_NOTE = ("card text is cut at 120 characters: before presenting a pick, run --card <id> --budget <usd> "
+                  "and quote how it sells, its default size in dollars and when it re-buys")
 
 
 def default_catalog():
@@ -601,6 +601,42 @@ def fit_budget(result, budget):
     return result
 
 
+def _usd(pct, share, budget, lev=1):
+    """Dollars for a percent (or a [low, high] range) of this wallet's slice of the budget."""
+    if pct is None or lev is None:
+        return None
+    if isinstance(pct, list) or isinstance(lev, list):
+        lo_p, hi_p = (pct if isinstance(pct, list) else [pct, pct])
+        lo_l, hi_l = (lev if isinstance(lev, list) else [lev, lev])
+        return [_usd(lo_p, share, budget, lo_l), _usd(hi_p, share, budget, hi_l)]
+    v = round(budget * share * pct / 100.0 * lev, 2)
+    return int(v) if v.is_integer() else v
+
+
+LATER_POSITIONS = "each later position is the same percent of the margin still free, so it is smaller"
+
+
+def with_dollars(defaults, budget):
+    """The card's `defaults` (gen_catalog → card_defaults.py), plus margin and position in dollars at the
+    user's budget: the template's out-of-the-box sizing, worked through once, so the agent quotes it rather
+    than doing the arithmetic. A case the card cannot size (`margin_pct: null`) gets no dollars."""
+    if not defaults or budget is None:
+        return defaults
+    out = json.loads(json.dumps(defaults))
+    for w in out.get("wallets") or []:
+        share = w.get("funding_share") or 1
+        w["budget_usd"] = _usd(100, share, budget)
+        for c in w.get("size") or []:
+            margin = _usd(c.get("margin_pct"), share, budget)
+            if margin is None:
+                continue
+            c["margin_usd"] = margin
+            c["position_usd"] = _usd(c.get("margin_pct"), share, budget, c.get("leverage"))
+            if c.get("of") == "free margin" and (w.get("max_positions") or 1) > 1:
+                c["margin_usd_is"] = "the first position on a fresh wallet; " + LATER_POSITIONS
+    return out
+
+
 def fit_cards(out, budget):
     """Keep `--card` output inside the result budget without cutting a card's text — that text is why
     `--card` exists. Over budget: drop the ranking-only tags, then defer whole cards from the end (never
@@ -904,7 +940,8 @@ def main(argv=None):
                     help="return user context only, no match (budget + Senpi holdings + saved-wallet holdings)")
     ap.add_argument("--card", default=None,
                     help="csv of ids: the FULL card of each pick you present (offline, no ranking) — the "
-                         "shortlist cuts tagline/belief_plain/thesis at 120 chars. Over the output budget "
+                         "shortlist cuts tagline/belief_plain/thesis at 120 chars — with its `defaults` "
+                         "(add --budget for dollars). Over the output budget "
                          "the last ids come back under `deferred`: run --card again for those")
     args = ap.parse_args(argv)
 
@@ -924,6 +961,8 @@ def main(argv=None):
         cards = [_candidate(by_id[i], intent) for i in ids if i in by_id]
         for card in cards:
             card.pop("market_facts", None)   # the shortlist run did the market read
+            # the template's defaults (only here, never on the shortlist); dollars when --budget is given
+            card["defaults"] = with_dollars(by_id[card["id"]].get("defaults"), intent["budget"])
         out = {"cards": cards}
         if any(i not in by_id for i in ids):
             out["unknown"] = [i for i in ids if i not in by_id]
