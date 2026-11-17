@@ -5,19 +5,19 @@ description: >-
   paid plan), referral earnings — and explain the AI-credits usage meter. Use for "how many points
   do I have?", "what's my rank/tier?", "where did my tier go?", "what are my fees?", "my referral
   rewards", "how do referrals work?", and for credits: "what is the bubble/meter in the header?", "why are my credits going
-  down?", "how much did that cost?", "does my strategy use credits?", "can I trade or withdraw my
+  down?", "how many credits do I have?", "how much did that cost?", "does my strategy use credits?", "can I trade or withdraw my
   credits?", and for plans: "what plans are there?", "how much
   does Senpi cost?", "what do I get on Pro/Quant?", "how do I get free credits?", "where are my
   milestone credits?", "do I need a subscription to keep my strategy running?", "what happens when my
   trial ends?", and for strategy limits: "what are my strategy limits?", "when can I start a new
   strategy?", "what are the strategy limits on the paid plans?". Use this instead of calling user_get_senpi_points by hand. A hidden engine
-  (scripts/status.py) pulls points, the fee, referral and strategy limits in one call; the credit
-  BALANCE is explained, never read — no tool returns it — while the plan catalog and the end of the
-  free-credit milestones are published here and may be quoted. Requires a USER-scoped Senpi token.
+  (scripts/status.py) pulls points, the fee, referral, strategy limits and the credit balance (in
+  credits, from get_account_status) in one call; the plan catalog and the end of the free-credit
+  milestones are published here and may be quoted. Requires a USER-scoped Senpi token.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.11.1"
+  version: "1.11.2"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -40,11 +40,13 @@ cleanly**: points and rank, the Senpi fee, referral earnings, and strategy limit
   asks about their tier or where it went, say tiers carry no benefit right now. Points still accrue
   at the plan multiplier and still set leaderboard rank.
 - **Lead with what they asked.** Points question: lead with points + rank. Don't dump every section.
-- **Credits are explained, never read.** No tool returns the AI-credit balance; the meter in the app
-  header is the balance. Rules in "AI credits — the usage meter" below.
-- **Plans and free credits are published; the balance is not.** Quote the catalog and the end of the
+- **Credits are read from the engine, in credits.** Answer "how many credits do I have" with
+  `credits.remaining` as a number of credits, never converted to dollars. Rules in "AI credits — the
+  usage meter" below.
+- **Plans and free credits are published; the balance is read.** Quote the catalog and the end of the
   milestones in "Plans & free credits" below — and only from there. A figure about *this user* (what
-  is left, what they were charged, where their bar sits) comes from their page, never from you.
+  is left, what they were charged) comes from `credits` in the engine output or their page, never
+  from memory.
 
 ## How to run the engine
 
@@ -52,13 +54,15 @@ cleanly**: points and rank, the Senpi fee, referral earnings, and strategy limit
 python3 scripts/status.py
 ```
 
-Returns `{as_of, identity, points, fee, referral, limits, meta}`:
+Returns `{as_of, identity, points, fee, referral, limits, credits, meta}`:
 - `points` — `total`, `base` (Base copy-trading), `perp` (Hyperliquid), `multiplier` (the plan's
   points rate), `rank`, `rank_change`.
 - `fee` — `bps` + `pct`, the Senpi fee this user pays, as the backend reports it: `0` / `0%` on a
   paid plan (`bps` is in tenths of a bp).
 - `referral` — `balance_usdc` (referral earnings not yet claimed).
 - `limits` — MCP `strategy_get_limits` as returned; rules in "Strategy limits" below.
+- `credits` — `available`, and when true `remaining` (credits), `burn_per_hour` and `hours_left`
+  (each may be null), `cycle_end`. `{"available": false}` when the balance could not be read.
 - `meta.warnings` / `meta.degraded` — narrate honestly.
 - Fails open — partial data still returns valid JSON.
 
@@ -136,9 +140,18 @@ Never quote limit numbers from memory or from the plan table.
 
 Senpi agents run on **AI-usage credits that come with the plan** — a trial grant first, then plan
 credits. The app shows what is left as the **meter in the app header** (users call it "the bubble" or
-"my credits"), and their subscription page is the source of truth for the number. What each plan
-includes is published in "Plans & free credits" below and may be quoted; how much is **left** depends
-on your plan and your usage, and only the user's own page shows that.
+"my credits"). What each plan includes is published in "Plans & free credits" below and may be
+quoted; how much is **left** depends on your plan and your usage, and the engine's `credits` section
+reads it.
+
+- **How many credits do I have.** Run the engine. When `credits.available` is true, answer with
+  `credits.remaining` as a number of credits, and the time left when `hours_left` is present. Never
+  convert it to dollars, never say a dollar amount of credit, and never round it into a "roughly".
+- **When `credits.available` is false**, you cannot read the balance: point at the meter in the app
+  header or the subscription page (senpi.ai/settings/subscription) for the exact figure, and never
+  invent a number, a percentage or a "roughly". The in-app indicator surfaces only when credits run
+  low, so a missing indicator is expected, not a lost balance.
+- **What else they pay for.** Credits also pay for running Hyper Simulations. Say so; give no rate.
 
 - **What spends them.** Every message the user sends and every tool turn the agent runs. Long threads
   cost more because the whole conversation is re-sent each turn — a fresh thread is cheaper. A cron that
@@ -152,17 +165,14 @@ on your plan and your usage, and only the user's own page shows that.
 - **Not trading money.** Credits cannot be traded, withdrawn, deposited into a strategy, or moved
   anywhere — they are separate from the funding wallet and from every strategy budget. A shrinking
   meter is usage, never a trading loss; a losing trade never touches the meter.
-- **You cannot read the balance.** No Senpi tool returns it and the engine has no `credits`
-  section. Point at the meter in the app header, or at their subscription page for the exact figure —
-  the in-app indicator surfaces only when credits run low, so a missing one is not a lost balance. Never invent a number, a percentage or a "roughly", and never guess what the meter
-  shows.
 - **Chat is not free of credits.** Every turn spends them — including the turn that asks what a turn
   cost. Say so plainly; never "nothing".
 
 | Say | Never say |
 |---|---|
-| "Chat and tool use spend AI credits from your plan; the meter in the app header is the balance — I can't read it from here. Longer threads cost more because the whole conversation is re-sent each turn." | "chatting is free" / "that cost nothing" |
-| "What each plan includes is published — here's the table. How much is left depends on your plan and your usage; the meter shows that." | Any balance or percentage you did not read from the app, or a plan size you did not read from the table below |
+| "You have N credits left." (N is `credits.remaining`; add the time left when `hours_left` is present) | A dollar figure for credits, or a balance you did not read from `credits.remaining` |
+| "Chat and tool use spend AI credits from your plan. Longer threads cost more because the whole conversation is re-sent each turn." | "chatting is free" / "that cost nothing" |
+| "I can't read your balance from here — the meter in the app header and senpi.ai/settings/subscription show it." (only when `credits.available` is false) | Any balance or percentage you did not read from the engine, or a plan size you did not read from the table below |
 | "Credits aren't money: they can't be traded, withdrawn or put into a strategy — your funding wallet and strategy budgets are separate." | "credits" as a tradable or withdrawable balance |
 | "The meter going down is usage — it moves with messages and tool turns, not with your trades." | Blaming a shrinking meter on trading losses |
 | "Your strategy runs on its own without the AI, so running it doesn't use credits. Chat does, and so does any scheduled check-in I run for you." | "running the strategy costs nothing" while the agent runs a check-in cron on it; a wallet or strategy balance offered as proof about credits |
@@ -172,8 +182,8 @@ on your plan and your usage, and only the user's own page shows that.
 did that cost?", "does my strategy use credits?", "can I trade / withdraw / deposit my credits?" all
 come here, in any language. "Credits" (Ukrainian "кредити", Spanish "créditos") means these AI credits
 unless the user says leverage, a loan or funding; when it is unclear, ask which before answering. A
-credits question is answered from this section alone — no engine run, no number — and closes by
-pointing at the meter. "What plans are there / how much
+"how many credits" question runs the engine and answers from `credits`; every other credits question
+is answered from this section alone. "What plans are there / how much
 does it cost / what do I get on Pro / how do I get free credits / where are my milestone credits /
 do I need a subscription / what happens when my trial ends / what are the strategy limits on the paid plans" are **catalog** questions: answer them from "Plans & free credits" below, still without a figure
 about this user.
@@ -203,8 +213,9 @@ always wins for them.
   what the friend spends on Senpi, not from their trading. A friend on $100 a month earns the referrer
   $15 a month × 12 months = $180. How and when the share is paid out is not announced yet: if asked,
   say so, and never describe a payout schedule, token or threshold for it.
-- **$1 of credit = $1 of AI usage.** Full credits land at the start of the cycle and expire at the end
-  of it: **no rollover, no top-ups, no overage**. Out of credits = upgrade (instant) or wait for renewal.
+- Full plan credits land at the start of the cycle and expire at the end of it: **no rollover, no
+  overage**. Credits can also be bought on the subscription page (senpi.ai/settings/subscription);
+  quote packs only from that page. Out of credits = buy more, upgrade (instant) or wait for renewal.
 - **Upgrading is instant, any day** — the new plan's full credits land immediately, the 30-day cycle
   restarts, and unused credits are credited against the price, so they pay the difference.
   **Downgrading or cancelling takes effect at the next renewal**, never mid-cycle; benefits are kept
