@@ -43,6 +43,12 @@ class FlattenKeepsTheStrategy(unittest.TestCase):
         self.assertIn("never widen the\n   list, never fall back to a close-all", s)
         self.assertIn("naming only the coins they asked for", SKILL)
 
+    def test_async_close_and_flat_coin_rules(self):
+        s = _section()
+        self.assertIn("read after step 1 returns", s)
+        self.assertIn("one already flat fails the WHOLE call (`SERR043`)", s)
+        self.assertIn("never re-send a coin whose close you already submitted", s)
+
 
 if __name__ == "__main__":
     unittest.main()

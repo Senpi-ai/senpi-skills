@@ -683,18 +683,25 @@ NEW wallet with empty scanner state.
    trades", "flatten it"): if any `OPEN_POSITION` action is not already `decision_mode: none`, apply
    watch-only (§Watch-only, `update --apply`) and read it back, or a live scanner re-enters what you close. A
    partial close ("my BTC short") leaves the gate as it is; say a live scanner may re-enter that coin.
-2. **Select exactly what they asked for.** `strategy_get_clearinghouse_state` on the wallet — main **and**
-   `xyz` — then keep only the requested positions, by coin and by side (`szi` < 0 is a short): "my BTC
-   short" → `["BTC"]` only if BTC is short; "the shorts" → every short coin and no long. Every open coin
-   only on an explicit full flatten. Spell coins as the exchange does (`xyz:NVDA`, never `nvda`). **Nothing
-   matches** (no BTC, or BTC is long) → close nothing and tell the user what is open; never widen the
-   list, never fall back to a close-all.
+2. **Select exactly what they asked for.** A **fresh** `strategy_get_clearinghouse_state` on the wallet —
+   main **and** `xyz` — read after step 1 returns, never the one you showed the user before it (an entry
+   already in flight can fill while `update --apply` runs). Keep only the requested positions, by coin and
+   by side (`szi` < 0 is a short, > 0 a long — report the side from `szi`, never from the strategy's name or
+   direction setting): "my BTC short" → `["BTC"]` only if BTC is short; "the shorts" → every short coin and
+   no long. Every open coin only on an explicit full flatten. Spell coins as the exchange does (`xyz:NVDA`,
+   never `nvda`). **Nothing matches** (no BTC, or BTC is long) → close nothing and tell the user what is
+   open; never widen the list, never fall back to a close-all.
 3. **`strategy_close_positions` with `coins` = that selection.** **Never `coins: []` and never omit `coins`:**
    an empty or missing list is the close-all, which offboards the wallet exactly like `strategy_close` —
    status `CLOSED`, funds to main, runtime stranded. A named list (even one naming every open coin) keeps
    the strategy `ACTIVE`. It closes each named coin's whole position. It is a trade tool: one approval; an
-   empty result means it did not run.
-4. **Verify, then report.** The clearinghouse no longer shows the selected positions and still shows the
+   empty result means it did not run. **Closes are async** — the call returns before the fills land.
+   **Every named coin must hold a position:** one already flat fails the WHOLE call (`SERR043`) and
+   closes none of the others, so never re-send a coin whose close you already submitted.
+4. **Verify, then report.** Re-read the clearinghouse until the submitted coins are gone (poll a few
+   seconds apart; a coin still listed seconds after the call is usually a fill in flight, not a failure).
+   Anything **new** that appeared (opened before the gate took effect) gets its own call naming only it.
+   Then the clearinghouse no longer shows the selected positions and still shows the
    rest, `strategy_list` still shows the wallet `ACTIVE`, and `status.py <id>` still shows the runtime
    ticking (it reconciles the gone positions on its own). Say what closed, at what PnL, what is still open,
    and whether the gate is shut. "Open the gate again" = revert `decision_mode` with `update --apply`;
