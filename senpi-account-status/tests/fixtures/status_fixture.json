@@ -75,7 +75,7 @@
     },
     "meta": {"tool": "strategy_get_limits", "action_type": "read", "timestamp": "2026-10-29T16:00:00.000Z", "request_id": "00000000-0000-0000-0000-000000000000"}
   },
-  "get_account_status": {
+  "user_get_credits": {
     "success": true,
     "data": {
       "credits": {"remaining": 1234.5, "burn_per_hour": 10, "hours_left": 123.4, "cycle_end": "2026-12-01T00:00:00.000Z"},

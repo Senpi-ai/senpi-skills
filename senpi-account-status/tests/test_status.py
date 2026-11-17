@@ -123,7 +123,7 @@ def test_the_engine_never_asks_for_the_tier_table():
     status.run(client)
     status._dry(client)
     assert sorted(set(client.tools)) == [
-        "get_account_status", "strategy_get_limits", "user_get_me", "user_get_referral_rewards",
+        "strategy_get_limits", "user_get_credits", "user_get_me", "user_get_referral_rewards",
         "user_get_senpi_points"]
 
 
@@ -231,9 +231,9 @@ def test_a_raised_call_is_a_warning_not_a_failure():
 def _credits_with(status_response, **kw):
     recorded = _recorded()
     if status_response is None:
-        recorded.pop("get_account_status")
+        recorded.pop("user_get_credits")
     else:
-        recorded["get_account_status"] = status_response
+        recorded["user_get_credits"] = status_response
     return status.run(status._FixtureClient(recorded))
 
 
@@ -268,13 +268,13 @@ def test_null_credits_and_a_failed_or_missing_tool_are_unavailable():
 def test_a_raising_credits_call_fails_open_with_a_warning():
     class Boom(status._FixtureClient):
         def mcp_call(self, tool, timeout=12, **kw):
-            if tool == "get_account_status":
+            if tool == "user_get_credits":
                 raise RuntimeError("Unknown tool")
             return super().mcp_call(tool, timeout=timeout, **kw)
 
     r = status.run(Boom(_recorded()))
     assert r["credits"] == {"available": False}
-    assert any("get_account_status failed" in w for w in r["meta"]["warnings"])
+    assert any("user_get_credits failed" in w for w in r["meta"]["warnings"])
     assert r["referral"]["balance_usdc"] == 12.5
 
 

@@ -12,12 +12,12 @@ description: >-
   trial ends?", and for strategy limits: "what are my strategy limits?", "when can I start a new
   strategy?", "what are the strategy limits on the paid plans?". Use this instead of calling user_get_senpi_points by hand. A hidden engine
   (scripts/status.py) pulls points, the fee, referral, strategy limits and the credit balance (in
-  credits, from get_account_status) in one call; the plan catalog and the end of the free-credit
+  credits, from user_get_credits) in one call; the plan catalog and the end of the free-credit
   milestones are published here and may be quoted. Requires a USER-scoped Senpi token.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.11.2"
+  version: "1.11.3"
   platform: senpi
   exchange: hyperliquid
 ---

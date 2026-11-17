@@ -156,13 +156,13 @@ def fetch_limits(client, meta):
 
 
 def fetch_credits(client, meta):
-    """AI-credit balance from get_account_status; only a numeric `credits.remaining` counts.
+    """AI-credit balance from user_get_credits; only a numeric `credits.remaining` counts.
     A dollar-only shape, null credits, a missing tool or any failure is `available: false`."""
     unavailable = {"available": False}
     try:
-        data = _ok(client.mcp_call("get_account_status", timeout=15))
+        data = _ok(client.mcp_call("user_get_credits", timeout=15))
     except Exception as e:  # noqa
-        meta.setdefault("warnings", []).append(f"get_account_status failed: {e}")
+        meta.setdefault("warnings", []).append(f"user_get_credits failed: {e}")
         return unavailable
     c = data.get("credits") if isinstance(data, dict) else None
     remaining = _f(c, "remaining")
@@ -200,7 +200,7 @@ def run(client):
 # ──────────────────────────────────────────────────────────────── CLI
 def _dry(client):
     out = {}
-    for tool in ("user_get_me", "user_get_referral_rewards", "strategy_get_limits", "get_account_status"):
+    for tool in ("user_get_me", "user_get_referral_rewards", "strategy_get_limits", "user_get_credits"):
         try:
             out[tool] = client.mcp_call(tool, timeout=12)
         except Exception as e:  # noqa
