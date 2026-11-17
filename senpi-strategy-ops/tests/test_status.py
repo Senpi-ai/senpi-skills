@@ -58,7 +58,7 @@ def build_rows(payload):
 
     Imports the row-building function directly rather than shelling out to `status.py`, per the
     task brief: monkeypatches the two reads `build()` makes (`_cli.list_strategies_or_none`,
-    `_cli.list_runtimes_or_none`) and `status._openclaw_available`, and runs with `deep=False` so no
+    `_cli.list_runtimes_or_none`) and `status._runtime_cli_available`, and runs with `deep=False` so no
     subprocess for the fleet-wide health map is spawned either."""
     payload = dict(payload)
     runtime_name = payload.pop("_runtime", None)
@@ -67,14 +67,14 @@ def build_rows(payload):
         if runtime_name else []
 
     orig_strats, orig_rts, orig_avail = (
-        _cli.list_strategies_or_none, _cli.list_runtimes_or_none, status._openclaw_available)
+        _cli.list_strategies_or_none, _cli.list_runtimes_or_none, status._runtime_cli_available)
     _cli.list_strategies_or_none = lambda *a, **k: [payload]
     _cli.list_runtimes_or_none = lambda *a, **k: runtimes
-    status._openclaw_available = lambda why=None: bool(runtimes)
+    status._runtime_cli_available = lambda why=None: bool(runtimes)
     try:
         rows, _orphans, _cli_ok = status.build(None, deep=False)
     finally:
-        _cli.list_strategies_or_none, _cli.list_runtimes_or_none, status._openclaw_available = (
+        _cli.list_strategies_or_none, _cli.list_runtimes_or_none, status._runtime_cli_available = (
             orig_strats, orig_rts, orig_avail)
     return rows
 
@@ -154,45 +154,45 @@ class TestStatusTextRender(unittest.TestCase):
 
 class TestUnreadableRuntimeList(unittest.TestCase):
     def test_a_runtime_list_that_cannot_be_read_is_unknown_not_no_runtime(self):
-        orig = (_cli.list_strategies_or_none, _cli.list_runtimes_or_none, status._openclaw_available)
+        orig = (_cli.list_strategies_or_none, _cli.list_runtimes_or_none, status._runtime_cli_available)
         _cli.list_strategies_or_none = lambda *a, **k: [fixture_with()]
         _cli.list_runtimes_or_none = lambda *a, **k: None   # openclaw is here, the read timed out
-        status._openclaw_available = lambda why=None: True
+        status._runtime_cli_available = lambda why=None: True
         try:
             rows, _orphans, cli_ok = status.build(None, deep=False)
         finally:
-            _cli.list_strategies_or_none, _cli.list_runtimes_or_none, status._openclaw_available = orig
+            _cli.list_strategies_or_none, _cli.list_runtimes_or_none, status._runtime_cli_available = orig
         self.assertFalse(cli_ok)
         self.assertEqual(rows[0]["health"], "runtime-unknown")
 
     def test_a_timed_out_list_runtimes_gateway_call_is_unknown_not_no_runtime(self):
         # The real reader, not a stub of it: only the `senpi.listRuntimes` gateway call is faked.
-        orig = (_cli.list_strategies_or_none, _cli.gateway_call, status._openclaw_available)
+        orig = (_cli.list_strategies_or_none, _cli.gateway_call, status._runtime_cli_available)
         _cli.list_strategies_or_none = lambda *a, **k: [fixture_with()]
         _cli.gateway_call = lambda *a, **k: {"kind": "timeout", "payload": None,
                                              "message": "no answer within 25s"}
-        status._openclaw_available = lambda why=None: True
+        status._runtime_cli_available = lambda why=None: True
         try:
             rows, _orphans, cli_ok = status.build(None, deep=False)
         finally:
-            _cli.list_strategies_or_none, _cli.gateway_call, status._openclaw_available = orig
+            _cli.list_strategies_or_none, _cli.gateway_call, status._runtime_cli_available = orig
         self.assertFalse(cli_ok)
         self.assertEqual(rows[0]["health"], "runtime-unknown")
 
     def _main_with_killed_read(self, *args):
         # The real reader and status.main: only the `senpi.listRuntimes` gateway call is a SIGKILL.
-        orig = (_cli.list_strategies_or_none, _cli.gateway_call, status._openclaw_available, status.MCPClient)
+        orig = (_cli.list_strategies_or_none, _cli.gateway_call, status._runtime_cli_available, status.MCPClient)
         _cli.list_strategies_or_none = lambda *a, **k: [fixture_with()]
         _cli.gateway_call = lambda *a, **k: {"kind": "unreadable", "payload": None, "rc": -9,
                                              "message": _cli.killed_note(-9)}
-        status._openclaw_available = lambda why=None: True
+        status._runtime_cli_available = lambda why=None: True
         status.MCPClient = lambda: None
         buf = io.StringIO()
         try:
             with contextlib.redirect_stdout(buf):
                 status.main(["status.py", "--fast", *args])
         finally:
-            (_cli.list_strategies_or_none, _cli.gateway_call, status._openclaw_available,
+            (_cli.list_strategies_or_none, _cli.gateway_call, status._runtime_cli_available,
              status.MCPClient) = orig
         return buf.getvalue()
 

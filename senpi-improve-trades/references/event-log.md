@@ -7,7 +7,7 @@ documented by skills **#393**. The local event log is a per-strategy on-disk rin
 expose the RPCs → the CLI returns `unknown method: senpi.getEvents`; the engine must **fail open to
 discovery** in that case.
 
-## `openclaw senpi events --runtime <id> --json`  (also `--address <wallet>` · `--name <event>` · `--since <iso|ms>` · `--asset <sym>` · `-l <n>`)
+## `senpi events --runtime <id> --json`  (also `--address <wallet>` · `--name <event>` · `--since <iso|ms>` · `--asset <sym>` · `-l <n>`)
 ```json
 { "ok": true, "address": "0x…",
   "entries": [
@@ -18,7 +18,7 @@ discovery** in that case.
 ```
 - `ts` = **epoch ms**. `attrs` keys are dotted `senpi.*`. Every event carries `senpi.asset` (or `senpi.signal.asset`) and, on lifecycle events, `senpi.position.id` (threads the trade).
 
-## `openclaw senpi explain <asset> --runtime <id> --json`
+## `senpi explain <asset> --runtime <id> --json`
 Same `{ok, asset, entries[]}` — the asset's lifecycle events, oldest-first, threaded by `senpi.position.id`.
 
 ## Trade-lifecycle event names → attribute keys (from `event-catalog.ts`)
@@ -36,7 +36,7 @@ Same `{ok, asset, entries[]}` — the asset's lifecycle events, oldest-first, th
 **Exit reason (fixes `exit_reason: UNKNOWN`)** = the `close_reason` on `dsl.closed` (or `position.closed`) for a position id. Native, no reconstruction.
 **"What did I miss"** = `signal.outcome` where `senpi.outcome.result ∈ {rejected, blocked}` — the signals that never became trades, with the granular `reason_code`.
 
-## `openclaw senpi audit --runtime <id> --json`  (`--tool` · `--action-type read|create|update|delete` · `--success` · `--since/--until` · `-l`)
+## `senpi audit --runtime <id> --json`  (`--tool` · `--action-type read|create|update|delete` · `--success` · `--since/--until` · `-l`)
 ```json
 { "ok": true, "strategyId": "…", "result": { "count": 1, "total": 42, "has_more": true,
   "entries": [ { "id": "…", "request_id": "…", "timestamp": "2026-06-30T14:02:11Z", "completed_at": "…",

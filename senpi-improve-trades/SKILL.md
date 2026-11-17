@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.25.0"
+  version: "1.26.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -136,7 +136,7 @@ imply Senpi checked who controls them. The engine adds every one to the review s
 
 ## HARD RULES (never violate — obey these even if you skim the rest)
 
-**A "measurement framework", recurring analytics, or a scheduled review is read on demand, never an agent-turn cron.** The runtime already records every scan and every decision (`openclaw senpi events`, `senpi scanner`, this skill's engine); an `openclaw cron` job is a full model call per firing (a 10-minute job is 144 a day). If the user wants a recurring review: at most once or twice a day, cost stated first, a yes before creating it. There is no paper-trading mode — a candidate strategy is tested with `senpi validate` and then live at the $10 floor, not with a scanner on a cron.
+**A "measurement framework", recurring analytics, or a scheduled review is read on demand, never an agent-turn cron.** The runtime already records every scan and every decision (`senpi events`, `senpi scanner`, this skill's engine); an `openclaw cron` job is a full model call per firing (a 10-minute job is 144 a day). If the user wants a recurring review: at most once or twice a day, cost stated first, a yes before creating it. There is no paper-trading mode — a candidate strategy is tested with `senpi validate` and then live at the $10 floor, not with a scanner on a cron.
 
 0. **Never quote a $ PnL without saying which side of fees it is on.** `realized` and `total` are HL
    `closedPnl` — **GROSS**. Quote `pnl_summary.realized_net` for the closed book and show the fee line; when
@@ -287,14 +287,14 @@ never a rate from memory — the rate is not a constant. A fill keeps the fee it
 runs the native lifecycle command directly (it's not in `review.py` — it's the runtime CLI):
 
 ```sh
-openclaw senpi explain <ASSET> --runtime <id> --json      # e.g. openclaw senpi explain BTC --runtime kodiak-main --json
+senpi explain <ASSET> --runtime <id> --json      # e.g. senpi explain BTC --runtime kodiak-main --json
 ```
 
 You need the
 **runtime id**, which is the key the event log is addressed by. Get it from the runtime registry
 (`installed_runtimes.json`, the same source the engine reads for mandates — each entry's `id`) or from
-`openclaw senpi runtime list`. A closed strategy has no ring → `explain` returns nothing; that's expected,
-say so, don't call it a bug. The output shape: `references/exit-records.md`.
+`senpi runtime list`. A closed strategy has no ring → `explain` returns nothing; that's expected,
+say so, don't call it a bug. The output shape: `references/exit-records.md`. `senpi …` is the runtime's own CLI and works while the agent sleeps; where it answers *not installed on this box yet*, run the same command as `openclaw senpi …` (same flags, output and exit codes).
 
 ## Sources — onchain vs runtime (the split that keeps you honest)
 
