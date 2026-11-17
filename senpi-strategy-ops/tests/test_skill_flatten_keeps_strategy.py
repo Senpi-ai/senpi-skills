@@ -16,7 +16,7 @@ def _section():
     assert start >= 0, "lifecycle.md lost its flatten section"
     rest = LIFECYCLE[start + 3:]
     end = rest.find("\n## ")
-    return rest if end < 0 else rest[:end]
+    return " ".join((rest if end < 0 else rest[:end]).split())
 
 
 class FlattenKeepsTheStrategy(unittest.TestCase):
@@ -39,8 +39,8 @@ class FlattenKeepsTheStrategy(unittest.TestCase):
     def test_selection_keeps_the_requested_scope(self):
         s = _section()
         self.assertIn("by coin and by side", s)
-        self.assertIn("Every open coin\n   only on an explicit full flatten", s)
-        self.assertIn("never widen the\n   list, never fall back to a close-all", s)
+        self.assertIn("Every open coin only on an explicit full flatten", s)
+        self.assertIn("never widen the list, never fall back to a close-all", s)
         self.assertIn("naming only the coins they asked for", SKILL)
 
     def test_async_close_and_flat_coin_rules(self):
