@@ -11,12 +11,12 @@ description: >-
   milestone credits?", "do I need a subscription to keep my strategy running?", "what happens when my
   trial ends?". Use this instead of calling user_get_senpi_points by hand. A hidden engine
   (scripts/status.py) pulls points, the fee, referral and the credit balance (in credits, from
-  get_account_status) in one call; the plan catalog and the end of the free-credit milestones are
+  user_get_credits) in one call; the plan catalog and the end of the free-credit milestones are
   published here and may be quoted. Requires a USER-scoped Senpi token.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.10.1"
+  version: "1.10.2"
   platform: senpi
   exchange: hyperliquid
 ---
