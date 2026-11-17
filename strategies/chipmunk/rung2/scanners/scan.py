@@ -186,8 +186,9 @@ def scan(inputs, ctx):
             continue
         m = scoring.measure(coin, daily, weekly, inputs)
         if m is None:
-            print(f"{_LOG} {coin}: {len(weekly)} closed weekly candles, too little history for the "
-                  f"trend gate — not a candidate", file=sys.stderr)
+            print(f"{_LOG} {coin}: {len(weekly)} closed weekly candles, no complete run of "
+                  f"{scoring.regime_weeks(inputs)} consecutive weeks for the trend gate (too new, or a week "
+                  f"missing from the feed) — not a candidate", file=sys.stderr)
             continue
         result["measured"][coin] = {k: m[k] for k in ("close_px", "high_px", "trigger_px", "regime_average", "qualifies")}
         if not m["qualifies"]:

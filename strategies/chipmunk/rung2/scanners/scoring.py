@@ -95,13 +95,19 @@ def prior_high(daily_closed, days):
 
 
 def weekly_average(weekly_closed, weeks):
-    """Simple average of the last `weeks` closed weekly closes, or None with fewer than that many (a
-    coin listed less than `weeks` weeks ago has no long-term average yet)."""
+    """Simple average of the `weeks` closed weekly closes ending with the newest, or None unless every
+    one of those weeks is there. A coin listed less than `weeks` weeks ago has no long-term average
+    yet. A series with a week missing inside the window has none it can trust: the runtime's numeric
+    cast can drop a row, and counting `weeks` rows back across the gap would average in an older week.
+    So consecutive rows in the window must open one week apart, give or take an hour."""
     weeks = int(weeks)
-    closes = [_close(c) for c in weekly_closed or []]
-    if weeks <= 0 or len(closes) < weeks:
+    rows = weekly_closed or []
+    if weeks <= 0 or len(rows) < weeks:
         return None
-    return sum(closes[-weeks:]) / weeks
+    window = rows[-weeks:]
+    if any(abs(_t(b) - _t(a) - WEEK * 1000.0) > 3600 * 1000.0 for a, b in zip(window, window[1:])):
+        return None
+    return sum(_close(c) for c in window) / weeks
 
 
 def weekly_current(weekly_closed, decision_close_s):
@@ -117,8 +123,9 @@ def weekly_current(weekly_closed, decision_close_s):
 def measure(asset, daily_closed, weekly_closed, inputs):
     """{coin, close_px, high_px, trigger_px, below_high_pct, depth_pct, regime_average, dip, qualifies,
     signal_bar_t} for the latest closed daily bar, or None when there is too little history to judge
-    it: the daily series does not cover `highLookbackDays`, or, with the trend gate on, there are fewer
-    than `regimeWeeks` closed weekly candles. `regime_average` is None when the gate is off.
+    it: the daily series does not cover `highLookbackDays`, or, with the trend gate on, the newest
+    `regimeWeeks` closed weekly candles are not a complete run of consecutive weeks (too few, or one
+    missing). `regime_average` is None when the gate is off.
 
     The rule: close <= (1 - depthPct/100) x the prior high; with the gate on, also close > the average."""
     if not daily_closed:
