@@ -170,7 +170,7 @@ reads it.
 
 | Say | Never say |
 |---|---|
-| "You have N credits left." (N is the number is `credits.remaining`; add the time left when `hours_left` is present) | A dollar figure for credits, or a balance you did not read from `credits.remaining` |
+| "You have N credits left." (N is `credits.remaining`; add the time left when `hours_left` is present) | A dollar figure for credits, or a balance you did not read from `credits.remaining` |
 | "Chat and tool use spend AI credits from your plan. Longer threads cost more because the whole conversation is re-sent each turn." | "chatting is free" / "that cost nothing" |
 | "I can't read your balance from here — the meter in the app header and senpi.ai/settings/subscription show it." (only when `credits.available` is false) | Any balance or percentage you did not read from the engine, or a plan size you did not read from the table below |
 | "Credits aren't money: they can't be traded, withdrawn or put into a strategy — your funding wallet and strategy budgets are separate." | "credits" as a tradable or withdrawable balance |
