@@ -5199,7 +5199,7 @@
       "varies": null,
       "tagline": "Holds ten large quality companies — Apple, Microsoft, Alphabet, Amazon, Meta, Nvidia, Broadcom, Oracle, Eli Lilly and Costco on the xyz board — in equal 4% clips at 2x, and times them with the Nasdaq: a name that stops out is bought back at the next daily close unless the Nasdaq 100 is overheated (10-day RSI over 79), and when the Nasdaq is washed out (RSI under 30) it adds the Nasdaq 100 itself at 3x. Long only; a trailing stop on every position does the selling.",
       "belief_plain": "Great companies tend to keep compounding, and the usual mistakes are buying them after a blow-off or selling them in a panic. This keeps ten of them, equally weighted. It only waits to re-buy when the whole tech market has just run up too hard, and when tech is washed out it adds the Nasdaq with extra leverage for the rebound. Each position has its own stop; one that stops out is simply bought back at the next calm close.",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "thesis": "You want to own the biggest quality names rather than trade them, with a simple rule that keeps you from buying into a frenzy and puts extra money to work in a crash. Fully invested it carries about 52% of the account as margin; it trades each name about once every two or three months and holds for weeks to months.",
       "tags": [
         "quality",
@@ -6013,7 +6013,7 @@
       "varies": null,
       "tagline": "An all-weather book that only buys what is trending: five equal sleeves, each 15% of the account — US tech (xyz:XYZ100), the S&P 500 (xyz:SP500), gold (xyz:GOLD), crude oil (xyz:CL) and silver (xyz:SILVER) — each bought at the daily close only when its market is above its 40-week average and higher than three months ago; a sleeve that does not qualify waits in USDC. Modest leverage (2x on the indices and gold, 1x on oil and silver), and a trailing stop on every sleeve that decides when it sells.",
       "belief_plain": "Spreading money across stocks, gold and commodities smooths the ride, but holding all of them all the time means sitting through every bear market. This buys each one only while its own long-term trend is up. Once bought, a sleeve is sold by its own stop or profit lock, not by its trend turning, so it can stay open for a while below its trend; once sold, it is bought again only when its trend is back up. Most of the time two or three sleeves are trending, so the book is part invested and part in cash.",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "thesis": "You want a diversified, set-and-forget book across stocks, gold and commodities that buys only what is trending and keeps a stop under every sleeve. It trades a few times a year per sleeve and holds for months. Fully invested, its positions add up to about 1.2 times the account, and funding runs on every sleeve for as long as it is held (most charge longs; crude oil has been paying them). There is no bond sleeve, because the venue has no liquid bond market; cash plays that role.",
       "tags": [
         "all-weather",

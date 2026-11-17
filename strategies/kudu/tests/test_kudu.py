@@ -5,7 +5,9 @@
 2. The DSL decides every exit: no clock cut is enabled, the ladder only ever locks a gain.
 3. plan(): the washout leg first, then every basket name not held unless overheated; never a held
    name; at most the open slots.
-4. The scanner reads only the Nasdaq 100's candles, buys at the daily close only, once per close.
+4. The scanner reads only the Nasdaq 100's candles, buys at the daily close only, once per close,
+   one signal per tick, so each is sized off a fresh balance read and a skipped open can't enlarge
+   the next.
 
 Run: python3 -B -m pytest strategies/kudu/tests -q
 """
@@ -102,16 +104,26 @@ CALM = [100.0 + (0.5 if i % 2 else -0.4) + 0.05 * i for i in range(90)]
 CRASH = [100.0 + 0.2 * i for i in range(82)] + [116.2 * (1 - 0.03 * (k + 1)) for k in range(8)]
 
 
-def _runtime_margins(signals, free):
-    """What the runtime commits for each signal: it opens a scanner's signals one at a time (intake
-    dispatches each separately; one consumer awaits each open), each as marginPct of the free margin
-    left after the ones before it. Rounded to the cent."""
-    out = []
-    for s in signals:
-        m = s["marginPct"] / 100.0 * free
-        out.append(round(m, 2))
-        free -= m
-    return out
+def _ticks(monkeypatch, mcp, start=MIDNIGHT + 300, end=MIDNIGHT + 3600, skip=(), state=None):
+    """Every five-minute tick through the entry window, with the runtime opening what each tick emits:
+    marginPct of the free margin at that moment, after which that margin is no longer free and the
+    name shows as held. A name in `skip` is one the runtime does not open (the per-asset cooldown, a
+    risk gate), so nothing is committed. Returns the opens as [(asset, margin to the cent)], in order."""
+    state = state if state is not None else _State()
+    opened, t = [], start
+    while t <= end:
+        monkeypatch.setattr(scan.time, "time", lambda t=t: t)
+        out = scan.scan(dict(INPUTS), _Ctx(mcp, state=state))
+        assert len(out) <= 1, "one signal per tick"
+        for s in out:
+            if s["asset"] in skip:
+                continue
+            free = float(mcp.withdrawable)
+            margin = s["marginPct"] / 100.0 * free
+            opened.append((s["asset"], round(margin, 2)))
+            mcp.withdrawable, mcp.held = str(free - margin), tuple(mcp.held) + (s["asset"],)
+        t += 300
+    return opened
 
 
 def _run(monkeypatch, mcp, at=MIDNIGHT + 300, **kw):
@@ -119,27 +131,27 @@ def _run(monkeypatch, mcp, at=MIDNIGHT + 300, **kw):
     return scan.scan(dict(INPUTS), _Ctx(mcp, **kw))
 
 
-def test_a_calm_close_fills_the_basket_at_2x(monkeypatch):
+def test_a_calm_close_fills_the_basket_at_2x_one_name_a_tick(monkeypatch):
     mcp = _MCP(CALM)
     out = _run(monkeypatch, mcp)
-    assert [s["asset"] for s in out] == BASKET
-    assert {s["leverage"] for s in out} == {2}
-    assert _runtime_margins(out, 1000.0) == [40.0] * 10              # ten equal clips of 4% of the account
+    assert [(s["asset"], s["leverage"], s["marginPct"]) for s in out] == [(BASKET[0], 2, 4.0)]
     assert set(out[0]["data"]) <= set(SIGNALS["signal_data_schema"])
     reads = [a for t, a in mcp.calls if t == "market_get_asset_data"]
     assert [(a["asset"], a["dex"]) for a in reads] == [("xyz:XYZ100", "xyz")]
+    assert _ticks(monkeypatch, _MCP(CALM)) == [(a, 40.0) for a in BASKET]   # ten equal clips of 4% of the account
 
 
 def test_a_washout_adds_the_index_at_3x_and_held_names_are_skipped(monkeypatch):
     out = _run(monkeypatch, _MCP(CRASH, held=("AAPL",)))
     assert out[0]["asset"] == "xyz:XYZ100" and (out[0]["leverage"], out[0]["marginPct"]) == (3, 12)
-    assert "xyz:AAPL" not in [s["asset"] for s in out] and len(out) == 10
+    opened = _ticks(monkeypatch, _MCP(CRASH, held=("AAPL",)))
+    assert opened == [("xyz:XYZ100", 120.0)] + [(a, 40.0) for a in BASKET if a != "xyz:AAPL"]
 
 
 def test_once_per_close_only_after_the_close_and_the_margin_gate(monkeypatch):
     state = _State()
-    assert len(_run(monkeypatch, _MCP(CALM), state=state)) == 10
-    assert _run(monkeypatch, _MCP(CALM), at=MIDNIGHT + 900, state=state) == []
+    assert len(_ticks(monkeypatch, _MCP(CALM), state=state)) == 10
+    assert _run(monkeypatch, _MCP(CALM), at=MIDNIGHT + 3500, state=state) == []   # every name went out at this close
     mcp = _MCP(CALM)
     assert _run(monkeypatch, mcp, at=MIDNIGHT + 2 * 3600) == []
     assert [t for t, _ in mcp.calls] == ["strategy_get_clearinghouse_state"]
@@ -160,18 +172,37 @@ def test_a_stopped_out_name_is_re_bought_at_the_200_dollar_minimum(monkeypatch):
 def test_an_unfundable_washout_does_not_block_the_basket(monkeypatch):
     """The washout clip ($24: 12% of a $200 account) is the largest. With $20 free, 90% of it ($18) can
     be committed: the washout does not fit, and the $8 basket clips behind it are still checked
-    instead of the scanner stopping at the first miss. Two fit."""
+    instead of the scanner stopping at the first miss. Two fit, one a tick."""
     out = _run(monkeypatch, _MCP(CRASH, withdrawable="20", account="200"))
-    assert [s["asset"] for s in out] == BASKET[:2]
+    assert [s["asset"] for s in out] == BASKET[:1]
+    assert _ticks(monkeypatch, _MCP(CRASH, withdrawable="20", account="200")) == [(BASKET[0], 8.0), (BASKET[1], 8.0)]
 
 
 def test_the_first_close_fills_ten_equal_clips_at_the_200_dollar_minimum(monkeypatch):
     """Re-review of #978 (the same contract applies here): converting every clip against one
     free-margin figure let the runtime's one-at-a-time sizing shrink the later names, the tenth to about
-    $5.54 x 2 = $11 at $200, under the $12 floor. Each clip is now converted against what is left."""
-    out = _run(monkeypatch, _MCP(CALM, withdrawable="200", account="200"))
-    assert [s["asset"] for s in out] == BASKET
-    assert _runtime_margins(out, 200.0) == [8.0] * 10
+    $5.54 x 2 = $11 at $200, under the $12 floor. Each name now goes out on its own tick, converted
+    against the free margin that tick read."""
+    assert _ticks(monkeypatch, _MCP(CALM, withdrawable="200", account="200")) == [(a, 8.0) for a in BASKET]
+
+
+def test_an_open_the_runtime_skips_does_not_enlarge_the_next(monkeypatch):
+    """Follow-up to #977/#978. When a close's signals went out in one batch, each converted against
+    the free margin left after the ones before it, an open the runtime skipped left more free margin
+    than the next signal assumed. The skip could be a cooldown on a name stopped out minutes before the
+    close. The next position then opened larger than its clip: on a $200 account after a washout, a
+    skipped $24 index leg would have opened the first name at 8/176 of $200 = $9.09. One signal a tick,
+    sized off that tick's balance read, opens it at $8, and the skipped leg is not retried this close."""
+    opened = _ticks(monkeypatch, _MCP(CRASH, withdrawable="200", account="200"), skip={"xyz:XYZ100"})
+    assert opened == [(a, 8.0) for a in BASKET]
+
+
+def test_a_full_book_fits_in_the_entry_hour(monkeypatch):
+    """Ten names and the washout leg, one a tick from the first tick after the close: eleven opens,
+    all inside the hour the strategy buys in."""
+    opened = _ticks(monkeypatch, _MCP(CRASH), start=MIDNIGHT + 299)
+    assert [a for a, _ in opened] == ["xyz:XYZ100"] + BASKET
+
 
 def test_the_measured_parameters_are_the_shipped_ones():
     """Replay (12 Nov 2026), US daily bars Jan 2010 - Nov 2026, entry at the signal close, the stop on

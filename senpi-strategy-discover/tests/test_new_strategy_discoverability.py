@@ -97,6 +97,12 @@ _CASES = [
     ("kudu", _intent(), "hold quality big tech stocks basket"),
     ("kudu", _intent(assets=[("class", "xyz_equities")]), "own the magnificent seven megacaps long term"),
     ("kudu", _intent(), "long term stock portfolio"),
+    # A strategy ask that names its stocks (blind test, 16 Nov) is still a template ask: the tickers ride
+    # in as --assets or in the theme words, and the basket that holds them leads either way.
+    ("kudu", _intent(assets=[("named", "AAPL"), ("named", "MSFT"), ("named", "NVDA")]),
+     "long-term basket of quality megacap stocks equal amounts"),
+    ("kudu", _intent(), "a long-term basket of quality megacap stocks the likes of apple microsoft and nvidia "
+                        "held in equal amounts"),
     # ── all-weather with trend gates (2026-11-12): five sleeves, each held only while it trends up ──
     ("yak", _intent(), "all weather portfolio with trend filter"),
     ("yak", _intent(), "diversified stocks gold commodities step out of what is falling"),
