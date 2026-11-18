@@ -348,32 +348,3 @@ def _strategy_facts(config, manifest):
         "exit": _exit_facts(config.get("exit")),
         "limits": _limit_facts(config),
     }
-
-
-def all_package_facts(repo_root):
-    """{"<id>/<instance>": facts without lock_tiers} for every package: the runtime's own shape,
-    for diffing against its strategyFacts() (.github/scripts/check_facts_parity.mjs)."""
-    import glob
-    import os
-
-    import yaml
-    out = {}
-    for man_path in sorted(glob.glob(os.path.join(repo_root, "strategies", "*", "strategy.yaml"))):
-        pkg = os.path.dirname(man_path)
-        with open(man_path) as f:
-            man = yaml.safe_load(f) or {}
-        for inst in man.get("instances") or []:
-            with open(os.path.join(pkg, inst["runtime"])) as f:
-                facts = strategy_facts(yaml.safe_load(f) or {}, man)
-            if facts.get("exit"):
-                facts["exit"].pop("lock_tiers", None)
-            out[f"{os.path.basename(pkg)}/{inst['name']}"] = facts
-    return out
-
-
-if __name__ == "__main__":
-    import json
-    import os
-    import sys
-    root = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "..", "..")
-    json.dump(all_package_facts(root), sys.stdout, sort_keys=True)
