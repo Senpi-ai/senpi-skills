@@ -35,6 +35,7 @@ version: "1.0.0"
 
 catalog:
   name: "Ibis Concentrated — One Regime-Matched Trade"
+  descriptor: "Makes one big bet instead of three"
   emoji: "🪶"
   varies: ibis            # a VARIANT of this template — never outrank it
   tagline: "Ibis's regime gate, backed harder and tightened: ONE position at 44-53% margin instead of three at 10-15%. It still decides whether a market is TRENDING or RANGING on the 4-hour chart before choosing a rule — an open-interest-confirmed continuation, or a funding-gated fade of the range edge — but it only takes the single best setup, demands a cleaner trend to take one at all, and closes a position when the regime that justified it flips. The stop is deliberately wider than the parent's: 16% ROE, a 4% price move, because the parent's 2% stop sits inside one ordinary 4-hour bar."

@@ -12,6 +12,7 @@ version: "1.2.1"
 
 catalog:
   name: "Iguana — XYZ Macro Index Trend"
+  descriptor: "Rides multi-day trends in stock indices"
   emoji: "🦎"
   tagline: "A broad-index trend-follower on the XYZ equity indices (xyz:SP500 + xyz:XYZ100): each tick measures the 4-day move of each index, picks the stronger one past the trend floor, and rides it in that direction — no stock-picking, no commodities. The closest thing to an index fund, but 24/7 on Hyperliquid."
   belief_plain: "Trades only the two broad stock-market indices (S&P 500 and the XYZ 100). Every few minutes it checks which index has the bigger 4-day move; if that move is large enough it goes that way (up = long, down = short), bets bigger when the move is strong and volume is rising, and then trails a stop. The simplest stock-market exposure on Hyperliquid — no individual stocks."

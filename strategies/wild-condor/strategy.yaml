@@ -16,6 +16,7 @@ version: "1.2.1"
 catalog:
   varies: condor          # a VARIANT of this template — never outrank it
   name: "Wild Condor — Condor at conviction size (experiment)"
+  descriptor: "Waits for stronger setups, then bets 90%"
   emoji: "🪶"
   tagline: "Condor's detector at a higher score floor and a higher margin: it fires only on a score of 15 out of 19 — condor's own top scoring tier — instead of 12, sizes one position at a flat 90% of the book instead of 20-32% by tier, and drops condor's one-trade-per-day cap so the experiment can build a sample. The two settings move together; everything else is Condor's."
   belief_plain: "Condor with a higher bar and a larger size. Condor waits, doing nothing until one setup has trend, momentum and the proven cohort (>= $1M lifetime realized PnL) all pointing the same way, then takes a single position. This version raises the score it demands before acting, and puts most of the account behind the trade rather than a fifth of it. Nothing else changes: the same universe, the same gates, the same one-position-at-a-time, the same exits. Know the sizing before funding it — 90% margin at 10x is nine times the account in one position, one stop-out is about 10.8% of equity, and there is no second position to offset it. The safety rails stop it opening new trades; they do not close the one that is open."

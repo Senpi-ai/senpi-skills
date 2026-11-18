@@ -11,6 +11,8 @@ version: "1.2.0"
 
 catalog:
   name: "Ram — Gold Specialist"
+  categories: ["gold"]
+  descriptor: "Trades gold, leaning long in risk-off moves"
   emoji: "🐏"
   tagline: "A single-asset gold (xyz:GOLD) specialist: goes long when gold's trend lines up across the 1h and 4h and momentum agrees — and leans in harder when the market turns risk-off and money is looking for a safe haven — and can short a clean downtrend. Holds one position at a time and trails a stop instead of guessing the exit."
   belief_plain: "Trades only gold. It buys when gold is trending up and, especially, when the market gets defensive and flows into safe havens; it can short a clear downtrend. It never picks a top or bottom by hand — a trailing stop does all the exiting. Gold trades around the clock, weekends included."

@@ -10,6 +10,8 @@ version: "1.3.0"
 
 catalog:
   name: "Cougar — U.S. Equity Long/Short"
+  categories: ["single-stocks"]
+  descriptor: "Buys strong US stocks, shorts weak ones"
   emoji: "🐆"
   tagline: "Ranks the tokenized U.S. equity cross-section on Hyperliquid XYZ by 24h relative strength, then LONGS the strongest names (long book) and SHORTS the weakest (short book) — both trend-confirmed — on two equally-funded wallets so the pair is ~market-neutral and harvests equity dispersion."
   belief_plain: "Buys the strongest tokenized U.S. stocks and shorts the weakest at the same time, on two separate wallets, so it makes money on the GAP between winners and losers rather than on the market going up or down."

@@ -15,6 +15,7 @@ version: "1.1.1"
 
 catalog:
   name: "Oxpecker — Elite-Conviction Concentrated Mirror"
+  descriptor: "Follows consistent traders' biggest bets"
   emoji: "🐦"
   tagline: "Maintains a daily-refreshed pool of the most consistent (ELITE/RELIABLE) Hyperliquid traders, reads each one's open book, and mirrors ONLY their single highest-conviction bet — and only when that one position dominates their whole book (e.g. ~98% of capital in one 3x position). Leans hardest when several elite traders independently pile into the same concentrated trade."
   belief_plain: "Looks past the leaderboard noise and keeps a shortlist of the steadiest, most-proven traders on Hyperliquid. Instead of copying everything they do, Oxpecker copies only the trade they're betting their whole book on — the one position that makes up most of their capital. When more than one of those proven traders is all-in on the same trade in the same direction, it bets harder, then trails a wide stop so the conviction can run."

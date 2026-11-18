@@ -13,6 +13,7 @@ version: "1.6.0"
 
 catalog:
   name: "Phalanx — Proven-Cohort Rotation"
+  descriptor: "Rotates with proven traders across markets"
   emoji: "🛡️"
   tagline: "Follows the proven cohort's headcount flow — not the 4h leaderboard's state — with delta-gated entries, divergence boosting, and wide stops that let winners run."
   belief_plain: "The 4h gain leaderboard is a consequence of price moves, not a predictor — by the time 58% of the board is long ETH, ETH already moved. Phalanx instead tracks the proven cohort (traders with >=$1M lifetime realized PnL) and follows where their headcount is shifting: long the assets they're crowding into, short the ones they're fleeing — but only when conviction is growing (delta gate), and with a divergence booster when the cohort disagrees with the 4h crowd. Wide stops and reachable profit locks on 3x leverage let winners run through noise to pay back losers."

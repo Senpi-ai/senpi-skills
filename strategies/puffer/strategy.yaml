@@ -11,6 +11,7 @@ id: puffer
 version: "1.2.0"
 catalog:
   name: "Puffer — Volatility Squeeze"
+  descriptor: "Trades breakouts after quiet spells"
   emoji: "🐡"
   tagline: "Waits for a market to go quiet — unusually quiet for that particular coin — and then trades the move when it finally breaks out. Quiet stretches tend to end in a big move; the trick is being positioned for the break rather than getting chopped up inside the calm. It sits on its hands until the release, then gives the winner a long leash: four positions at 20% of the wallet each at 4x, a stop about 3% of price away, and a profit ratchet that only ever locks gains."
   belief_plain: "When a coin's price action tightens up far more than is normal for it, pressure is building and the next move is usually a big one. Puffer measures how compressed each market is against its own history, ignores the quiet itself, and enters only when price finally breaks out with volume behind it. Then it holds on: a profit ratchet locks gains as they build, and a fixed stop about 3% of price away (12% of margin at 4x) caps the downside if the break fails. Expect more stops than winners — in a 208-day replay on four majors with the earlier, tighter stop (1.6–2% of price) it traded about seven times per coin per month with 28% winners, and 88% of its live closes were the exchange stop. The winners have to run for the ratchet to pay for the stops."

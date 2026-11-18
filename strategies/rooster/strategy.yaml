@@ -7,6 +7,7 @@ id: rooster
 version: "1.2.0"
 catalog:
   name: "Rooster — The Opener"
+  descriptor: "Trades BTC into the opening bell"
   emoji: "🐓"
   tagline: "Trades the clock, not the chart — BTC's reaction to the US stock-market open. In the 45 minutes before the opening bell (default 13:30 UTC, fully configurable) it reads how BTC is setting up: the drift across the window sets direction, expanding volume confirms real positioning, and a break of the prior session's range adds conviction. Carries the position INTO the open, one signal per session, at 2-5x with a session-aware DSL ladder. The asset (BTC by default) and the session time are separate knobs — point it at another market, or another open."
   belief_plain: "When Wall Street opens, the risk-on / risk-off flow spills into crypto — and the move often starts setting up in the 30-60 minutes BEFORE the bell. Rooster's signal is a clock, not a chart: by default it wakes 45 minutes before the US equity open (13:30 UTC), checks whether BTC is actually drifting one way on real volume (not just wandering on thin trade), and takes the position into the open. BTC has no open of its own, so the one it trades is borrowed from the stock market. It fires at most once per session, banks profit early, and lets go if the open comes and goes with nothing happening. Both the asset and the session time are inputs you can change."

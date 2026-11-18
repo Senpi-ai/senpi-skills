@@ -11,6 +11,7 @@ id: hawk
 version: "1.2.2"
 catalog:
   name: "Hawk — Breakout Buyer / Breakdown Seller"
+  descriptor: "Trades weekly breakouts in big coins"
   emoji: "🦅"
   tagline: "An onboarding-grade breakout trader on the liquid majors (BTC/ETH/SOL): goes LONG when price breaks above its 7-day high AND the 4h leaders are net long, SHORT when it breaks below the 7-day low AND the 4h leaders are net short, then cuts failed breakouts fast (tight 8% Phase 1) while letting a real one run on a wide Phase 2 ratchet."
   belief_plain: "Watches BTC, ETH and SOL. When one of them breaks above its highest price of the last week and the traders winning the last four hours are also leaning long, it buys; when one breaks below its weekly low and those winners are leaning short, it sells short. A fake breakout gets cut quickly, but a real one is given lots of room to run."

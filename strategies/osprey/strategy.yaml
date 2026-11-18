@@ -12,6 +12,8 @@ id: osprey
 version: "1.1.4"
 catalog:
   name: "Osprey — Cross-Venue Lag (Crypto -> XYZ Equity)"
+  categories: ["single-stocks"]
+  descriptor: "Bets crypto stocks catch up to BTC"
   emoji: "🦅"
   tagline: "When BTC moves hard, crypto-correlated equities on Hyperliquid XYZ (Coinbase, MicroStrategy) follow late: Osprey self-computes each proxy's catch-up gap (leader move x its beta minus the move it has actually made), and when a proxy still owes a gap in the leader's direction it enters the proxy that way and lets a wide DSL ride the catch-up."
   belief_plain: "When Bitcoin makes a big move, the crypto-flavored stocks on the XYZ exchange (Coinbase, MicroStrategy) usually move the same way — but a beat late, because they are priced on a different venue. Osprey works out how far behind each one is and bets it catches up, then trails a wide stop so the catch-up can run for a day or two."

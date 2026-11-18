@@ -13,6 +13,7 @@ version: "1.2.0"
 
 catalog:
   name: "Thesis Fund — Bet Your Macro View"
+  descriptor: "Trades your macro view as a basket"
   emoji: "🎯"
   tagline: "One wallet expresses a macro view as a long/short basket — but it only presses a name when the market is confirming that direction (4h/1h trend + 24h momentum aligned), and the DSL + drawdown gate de-risk when the thesis stops working. Default preset: risk_off (long gold/silver, short SP500/XYZ100/BTC). Swap the basket inputs to express recovery, war_escalation/war_recovery, hype_vs_market, gold_over_btc/btc_over_gold."
   belief_plain: "You pick what you think will happen — say, a risk-off shock — and the fund holds the basket that expresses it: long the assets that win, short the ones that lose. But it doesn't blindly hold: it only buys a name while the market is actually moving its way, and trails a stop to cut names that stop working."

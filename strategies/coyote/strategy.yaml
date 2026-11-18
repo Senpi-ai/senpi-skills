@@ -12,6 +12,7 @@ version: "1.2.1"
 
 catalog:
   name: "Coyote — Regime Classifier (BTC)"
+  descriptor: "Rides calm BTC climbs and panic crashes"
   emoji: "🐺"
   tagline: "A single-asset BTC bet driven by a macro-regime read: each tick it measures BTC's 7-day trend strength and annualized realized volatility (plus cross-asset dispersion for context) and classifies the market into TREND_UP, TREND_DOWN or CHOP — going long BTC in a calm uptrend, short BTC in a high-vol crash, and staying out otherwise, then letting a balanced DSL ride the regime."
   belief_plain: "Coyote first asks 'what kind of market are we in?' It looks at how far Bitcoin has moved over the last week and how violent that move has been. A steady 5%+ climb with calm volatility means uptrend — it goes long BTC. A sharp 5%+ drop with a volatility spike means a panic crash — it goes short BTC. Anything in between is chop, so it stays out. Real regimes last days, so it trades rarely and lets the trend run."

@@ -9,6 +9,7 @@ version: "1.2.0"
 
 catalog:
   name: "Bloodhound — Chart-Pattern Scanner"
+  descriptor: "Trades chart patterns like double bottoms"
   emoji: "🐕"
   tagline: "Scans the whole liquid market for the patterns traders actually draw and trades whichever way the pattern points. A double bottom goes long once price reclaims the peak between the two lows; a double top goes short on a break of the trough; intact higher-high or lower-low structure is traded as continuation. Every pattern must clear a depth and magnitude floor so noise can't manufacture one, and each coin+pattern fires at most once per 6 hours."
   belief_plain: "Instead of watching one coin, this hunts the entire liquid market for recognisable chart setups — the double bottom (a W), the double top (an M), and clean staircase trends. It doesn't take the pattern on faith: the two lows have to be at genuinely the same level, the shape has to be deep enough to matter, and price has to actually break the confirmation line before it commits. It has no opinion on direction — if the chart says down, it shorts. And it won't keep re-entering the same setup, because a pattern that's on the chart today is still there tomorrow."

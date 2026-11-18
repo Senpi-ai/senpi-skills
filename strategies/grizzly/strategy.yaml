@@ -10,6 +10,7 @@ id: grizzly
 version: "1.1.3"
 catalog:
   name: "Grizzly — BTC Alpha Hunter"
+  descriptor: "Trades BTC, betting bigger as signals agree"
   emoji: "🐻"
   tagline: "A single-asset BTC specialist: enters only when 4h and 1h trend structure agree, 15m momentum confirms, the 4h leaders lean the same way, and a macro V-recovery gate proves the move isn't a fade right off the 24h extreme — then sizes leverage to conviction (7/10/10x) and lets the DSL ride the winner."
   belief_plain: "Trades only BTC. It waits for the 4-hour and 1-hour trend to agree, momentum to confirm, and the traders winning the last four hours to be leaning the same way — and it refuses to short right off a 24h low (or long right off a 24h high) because those fades whipsaw. It goes in harder when more factors line up, and trails a stop instead of guessing the exit."

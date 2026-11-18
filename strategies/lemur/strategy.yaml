@@ -12,6 +12,7 @@ id: lemur
 version: "1.2.0"
 catalog:
   name: "Lemur — Pre-IPO Perpetual Trend Follower"
+  descriptor: "Follows trends in pre-IPO stocks like SpaceX"
   emoji: "🦤"
   tagline: "Trades pre-IPO companies as perpetuals on Hyperliquid XYZ — today just SpaceX (xyz:SPCX). Auto-discovers IPOPs via the trade.xyz funding signature (~100x smaller funding) plus a <=5x pre-listing leverage cap and a $100k liquidity floor, then goes long or short with the 4h trend structure. The 4h leaders' lean is consulted only when their board carries the name — it usually has no row for a pre-IPO perp: a present lean must agree and adds to the score; with no row, the 1h trend has to confirm the 4h. One position at a time, 40% of the wallet at 3x, a 12% ROE stop (4% of price) and a ratchet that locks gains from +20% ROE; no clock cuts, so multi-day theses ride."
   belief_plain: "Hyperliquid XYZ is one of the only places retail can trade private companies (like SpaceX) as perpetuals before they IPO. Lemur watches those pre-IPO names and follows the 4-hour trend. When the traders winning the last four hours hold the name, their side has to agree; most days they do not, and then the 4-hour and 1-hour trends have to point the same way. It takes a single directional position — 40% of the wallet at 3x — behind a stop 4% from entry (12% of margin); once the trade is up 20% on margin, a ratchet starts locking gains. When a company actually goes public it stops qualifying and Lemur drops it automatically."

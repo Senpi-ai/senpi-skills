@@ -12,6 +12,8 @@ version: "1.3.0"
 
 catalog:
   name: "Lion — Two-Speed-Market Cross-Asset L/S"
+  categories: ["single-stocks"]
+  descriptor: "Buys AI stocks and HYPE, shorts laggards"
   emoji: "🦁"
   tagline: "Bets on a K-shaped divergence: LONGS the structural winners (the AI complex on Hyperliquid XYZ + the crypto winners HYPE/SOL) on the 'haves' wallet, and SHORTS the laggards (the broad U.S. market via SP500 + a gated basket of laggard alts) on the 'have-nots' wallet. Both trend-confirmed on absolute structure, with relative strength as a tiebreaker and per-name conviction sizing (HYPE big, SOL small, SP500 core). The edge is the DISPERSION between the two speeds, not market direction."
   belief_plain: "Buys the booming AI stocks and crypto winners while shorting the broad stock market and the alts losing ground, each on its own wallet — so it makes money on the GAP between the world's fast lane and slow lane rather than on the market going up or down. It only buys names actually trending up and only shorts names actually rolling over, and bets bigger on its highest-conviction picks."

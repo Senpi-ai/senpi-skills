@@ -13,6 +13,7 @@ id: camel
 version: "2.1.0"
 catalog:
   name: Camel — Funding Carry, One Bet Per Side
+  descriptor: "Fades funding extremes, one bet per side"
   emoji: 🐪
   tagline: Camel's funding-carry edge taken as ONE position per side at 10x instead of four at 5x. Same ranking, same exhaustion gate, same price-distance exits — the bet is that the most-extreme funding dislocation is worth more than four smaller ones, and that a quarter of the fills keeps a quarter of the fees.
   belief_plain: 'This is Camel with its capital gathered into one trade per side. Camel gets paid to hold the crowded side of a funding dislocation: it shorts the names longs are paying to hold, and buys the names shorts are paying to hold, only when the crowded trade is already running out of steam. Normally it spreads that across four names per side. This version takes the single most extreme name on each side and puts four times the size behind it at twice the leverage. The edge it is testing is partly the signal and partly the bill: In its measured week, exchange fees took about a quarter of its gross profit, and one position costs roughly a quarter of the fees that four do for the same money at work. Concentration here is as much a fee argument as a conviction one.'

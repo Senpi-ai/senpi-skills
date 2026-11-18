@@ -10,6 +10,7 @@ id: badger
 version: "1.1.2"
 catalog:
   name: "Badger — OI-Divergence Breakout Anticipator"
+  descriptor: "Trades breakouts confirmed by new money"
   emoji: "🦡"
   tagline: "Only takes the breakout the order flow confirms: enters a prior-24h range break on BTC/ETH/SOL/HYPE only when open interest is RISING (new money committing) AND the 4h leaderboard's winners sit on the side of the break — then sizes 20% / 5x and lets a wide DSL ratchet ride the move for days."
   belief_plain: "Most price breakouts fail. The single best filter for whether a breakout will follow through is open interest: if price breaks its prior 24-hour high (or low) while open interest is rising, new money is committing and the move has conviction. If open interest is flat or falling, it's just stops and short-covering — a fakeout — and Badger skips it. It also checks which side the last four hours' winners sit on, and only commits when they lean the same way."

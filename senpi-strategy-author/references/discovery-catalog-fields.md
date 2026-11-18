@@ -42,6 +42,35 @@ catalog:
                                  #   all-weather, war, …). No controlled vocab — the LLM reads them.
 ```
 
+## Page copy (author-set; what a strategy page shows)
+
+senpi-web's strategy pages read these straight from `catalog.json`. Each is optional today (the page
+falls back to the name's subtitle, a split `belief_plain` and a generic risk line), but write all
+three for every new strategy. `gen_catalog.py` warns, and `strategies/tests/test_catalog_page_fields.py`
+fails, when a present one breaks its rule.
+
+```yaml
+catalog:
+  descriptor: "Rides BTC while it trends"     # ≤45 characters, plain words, starts with a verb,
+                                              #   no full stop. The line under the name.
+  summary: "Holds BTC through a trend and steps out when it stalls."   # ≤140 characters, one
+                                              #   sentence. The hero's one-liner; belief_plain moves
+                                              #   under "How it works".
+  risks: "A sideways market chops it in and out, paying fees each time."   # one or two sentences
+                                              #   on where THIS strategy goes wrong.
+  categories: [conservative]                  # optional: the category pages it appears on (slugs)
+```
+
+A fork keeps its template's `descriptor`, `summary` and `risks`; rewrite them when the fork changes
+what the strategy does.
+
+`shown_on` is not authored: on a version (a package with `varies`), `gen_catalog.py` sets it to the
+catalog id at the root of the `varies` chain, the page the version sits on. It is null on a root.
+
+To seed one field across many packages from a drafts file (`{id: text}`), run
+`senpi-trading-runtime/scripts/seed_catalog_field.py <descriptor|summary|risks> drafts.json`; it
+edits the YAML as text, so comments survive.
+
 ## Derived for you (do NOT duplicate unless params can't express it)
 
 `gen_catalog.py` computes these from `instances[]/params`:
@@ -53,6 +82,9 @@ catalog:
 | `funding_split` | `instances[].funding_share` (single-instance → `[1.0]`) |
 | `cadence_seconds`, `time_horizon` | `instances[].tick_seconds` (≤60s→scalp, ≤600s→swing, else position) |
 | `instance_count`, `max_slots` | `len(instances)`, `params.maxSlots` |
+| `instances[]` | each manifest instance's `name`, `funding_share` and `facts`: StrategyFacts v1 exactly as senpi-trading-runtime computes it (`scripts/strategy_facts.py` ports `src/strategy/facts.ts`), plus `exit.lock_tiers` — what the strategy page's rules and profit-lock chart show |
+| `added`, `updated`, `updates` | the first commit, the date the current `version` was set, how many times it changed. Seeded once from git, then carried forward: bump `version` and the next `gen_catalog.py` run stamps today and counts one |
+| `categories` | your declared ones, plus `conservative` when `risk_level: conservative`; a version also gets its root's |
 | `min_budget` | **computed** by `min_budget.py` (baked here + carried as `wallet_count` + `min_budget_breakdown`) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; NOT authored |
 
 If your params don't carry the asset/leverage (e.g. it's hardcoded in the scanner), declare a fallback

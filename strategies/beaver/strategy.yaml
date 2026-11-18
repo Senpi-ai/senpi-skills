@@ -9,6 +9,7 @@ id: beaver
 version: "1.1.2"
 catalog:
   name: "Beaver — BTC Trend Follower"
+  descriptor: "Trades BTC trends the leaderboard backs"
   emoji: "🦫"
   tagline: "An onboarding-tier BTC specialist: enters only when the 4h candle structure is trending AND the 4h leaderboard's winners sit on that side — then takes one flat-5x position and lets a wide DSL ladder ride the trend."
   belief_plain: "Trades only BTC. It asks two questions — is BTC trending on the 4-hour chart, and are the traders who won the last four hours leaning the same way? If both are yes it opens one position and trails a stop instead of guessing the exit. Built for first-time users."

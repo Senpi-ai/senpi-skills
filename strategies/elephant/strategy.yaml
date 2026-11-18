@@ -13,6 +13,7 @@ version: "1.2.1"
 
 catalog:
   name: "Elephant — Global-Macro Hedge Fund"
+  descriptor: "Trades global market trends and snap-backs"
   emoji: "🐘"
   tagline: "Trades the cross-asset macro complex — equity indices, precious metals, energy, FX (all on XYZ) plus BTC — on two books and two wallets: the TREND book rides the durable multi-timeframe macro trend (both directions); the FADE book fades short-TF over-extensions back to regime (both directions, with a knife guard). The edge is GLOBAL MACRO — the complex moves on regime, not crypto noise."
   belief_plain: "Trades the big global markets — stock indices, gold/silver/copper, oil and gas, the major currencies, and Bitcoin. One book rides the slow, durable trends (buying things going up, shorting things going down); a second book on a separate wallet bets on stretched moves snapping back. It only fades a snap-back when the bigger trend isn't fighting it."

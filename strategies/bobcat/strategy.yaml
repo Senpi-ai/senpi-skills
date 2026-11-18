@@ -13,6 +13,8 @@ id: bobcat
 version: "1.1.2"
 catalog:
   name: "Bobcat — Big Tech Trend Follower"
+  categories: ["single-stocks"]
+  descriptor: "Trades big-tech trends the leaderboard backs"
   emoji: "🐈"
   tagline: "A big-tech equity-perp trend follower on Hyperliquid XYZ (NVDA/TSLA/AAPL/META/MSFT/GOOGL/AMZN/AMD/MU/INTC/TSM/ORCL): enters the single strongest name when its 4h trend is non-neutral AND the 4h leaders lean the same way (tilt >= 55%), sizes a flat 20% margin at 5x, and lets a wide DSL ratchet ride the move — with a 48h cap so positions don't camp through the weekend pricing gap."
   belief_plain: "Trades the big tech stocks you already know — NVDA, TSLA, AAPL and nine more — as perps on Hyperliquid XYZ, 23/5. It only enters when a stock's 4-hour trend and the traders winning the last four hours are pointing the same way, holds the single strongest setup, and trails a stop so a real move can run — but caps each hold at 48 hours so it never sits through the Friday-to-Sunday gap when these names have no external price."

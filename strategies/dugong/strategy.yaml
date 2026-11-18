@@ -11,6 +11,7 @@ id: dugong
 version: "1.1.0"
 catalog:
   name: "Dugong — Cross-Asset Mean-Reversion at 3x"
+  descriptor: "Runs Manatee's engine at 3x leverage"
   emoji: "🐋"
   varies: manatee          # a VARIANT of this template — never outrank it
   tagline: "Manatee's two-sided mean reversion at 3x: buys a liquid name that closed well below its one-week average and shorts one that closed well above it, across perpetuals and the xyz board's equities, indices and commodities, with a profit lock that arms at +1.4% of price. Up to 10 positions at 3x, each with a stop at 20% of price, inside the venue's liquidation distance, on names the venue allows at 10x or more."

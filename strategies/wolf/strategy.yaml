@@ -13,6 +13,7 @@ version: "1.2.0"
 
 catalog:
   name: "Wolf — Regime-Rotation Hedge Fund"
+  descriptor: "Rotates when markets turn risk-on or risk-off"
   emoji: "🐺"
   tagline: "Two books on two wallets that read one shared cross-asset regime (equities, oil, gold, BTC, the dollar). The RISK-ON book longs beaten-down beta in a confirmed risk-on regime; the RISK-OFF book longs defensives and shorts risk in a confirmed risk-off regime — capital rotates to whichever the macro favors."
   belief_plain: "Watches the whole macro complex — stocks, oil, gold, BTC, the dollar — and waits for them to agree on which way the wind is blowing. When it's risk-on it buys the beaten-down risk assets that are turning up; when it's risk-off it buys safe havens and shorts risk. No single asset can flip it; the whole complex has to lean one way."

@@ -11,6 +11,7 @@ id: lynx
 version: "1.1.2"
 catalog:
   name: "Lynx — Adaptive MIN_SCORE Self-Tuner"
+  descriptor: "Trades big-coin momentum, raising its own bar"
   emoji: "🐯"
   tagline: "A multi-asset momentum holder on liquid majors (BTC/ETH/SOL/HYPE) that learns its own conviction floor: every 6 hours it audits its own closed trades, buckets them by entry score, and ratchets its MIN_SCORE up above any score band that has been losing money — then enters only candidates that clear the learned floor and lets a wide DSL ride the move."
   belief_plain: "Trades the big, liquid coins (BTC, ETH, SOL, HYPE) on a simple momentum score. Every six hours it looks back at its own finished trades, figures out which score levels have actually been making money and which have been losing, and raises its own bar so it stops taking the kinds of trades that bled — it only ever raises the bar, never lowers it. When a coin clears the current bar it bets and trails a wide stop so a real move can run."

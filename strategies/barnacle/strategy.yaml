@@ -14,6 +14,7 @@ version: "1.2.3"
 
 catalog:
   name: "Barnacle — Stealth Accumulation Detector"
+  descriptor: "Rides stocks being quietly bought or sold"
   emoji: "🦪"
   tagline: "An autonomous decoupler on Hyperliquid XYZ equity/commodity/index perps: it finds names quietly DECOUPLING from the broad market — outperforming the xyz index on persistent rising volume with shallow, bought dips (relentless accumulation, not a one-bar spike) — and rides the grind. No calendar, no event feed: the catalyst footprint is read straight from the tape. LONG up-accumulation, SHORT down-distribution; a wide DSL ratchet lets winners run."
   belief_plain: "Big catalysts — a stock getting added to an index, a buyout brewing, a sector run-up — all leave the same tell in the chart before anyone needs to know the news: the name starts beating the broad market on steady, rising volume, and every dip gets bought instead of selling off. That is accumulation, and Barnacle hunts for it automatically across the stocks, commodities and indices on Hyperliquid XYZ. It doesn't need you to feed it a calendar — it reads the footprint itself, goes long the quiet climbers (or short the quiet bleeders), and trails a stop so a real move can run for days."

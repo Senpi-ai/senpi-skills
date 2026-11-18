@@ -11,6 +11,7 @@ version: "1.2.0"
 
 catalog:
   name: "Dog — Contrarian Pup (4h Leader Exhaustion Fader)"
+  descriptor: "Fades crowded runs in big coins"
   emoji: "🐕"
   tagline: "A patient contrarian on BTC/ETH/SOL/HYPE: waits for a major to move 3%+ in 4h while the 4h leaders (the traders winning the last four hours on the board) pile in heavily, then fades the 4h leaders' crowded, exhausted side — but only when the funding regime confirms the unwind and the move is still fresh. Conservative 7-10x leverage, wide DSL to let the reversal develop."
   belief_plain: "When a big coin runs hard and the traders winning the last four hours are all crowded onto the same side, the crowd is maximum exposed and the unwind is the trade. Dog bets against that exhausted consensus on BTC, ETH, SOL and HYPE — but only when the move has genuinely overextended, the crowding is still building, and market-wide funding shows the crowd really is one-sided. Most of the time it waits."

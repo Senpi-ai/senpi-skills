@@ -13,6 +13,8 @@ id: magpie
 version: "1.2.0"
 catalog:
   name: "Magpie — IPO / New-Listing Event Fund"
+  categories: ["single-stocks", "memecoins-new-listings"]
+  descriptor: "Rides pre-IPO stocks through their listing"
   emoji: "🐦"
   tagline: "Trades the full pre-IPO → listing → graduation arc of tokenized equities on Hyperliquid XYZ: a pre-listing book accumulates pre-IPO perpetuals (IPOPs) into the IPO, and a graduation book rides the explosive post-conversion price discovery — the SpaceX $1.4B-day-1 pattern."
   belief_plain: "Auto-finds brand-new pre-IPO contracts (like a SpaceX-before-it-lists perp) by their tell-tale low leverage cap — the venue lists a pre-IPO perpetual at 5x or under and lifts the cap when it graduates — with a floor on daily volume so a market that has not traded is never mistaken for a listing (an optional funding band can be switched on as an extra check), rides the trend into the IPO, then detects the moment they convert to a full equity perp and rides the fireworks of the first few days of free price discovery. Each book runs three slots at 25% margin and 3x: the stop is 10% of margin on the pre-listing book and 12% on the graduation book (about 3.3% and 4% of price), the trailing lock only ever moves in your favour, and no clock closes a trade."

@@ -17,6 +17,7 @@ version: "1.0.1"
 
 catalog:
   name: "Squid — Live-Book Multi-Trader Fresh-Entry Mirror"
+  descriptor: "Joins vetted traders' new trades in minutes"
   emoji: "🦑"
   tagline: "Watches a handful of vetted Hyperliquid traders and mirrors only the positions they NEWLY open, reading their books live off-chain so a mirror lands within two minutes of their fill — with a hard entry-slippage guard so you never chase a move that already ran, plus budget-relative sizing with a min-notional floor."
   belief_plain: "Instead of copying one trader's whole account — and inheriting trades already deep in profit or loss at a worse price than they got — Squid watches up to ten proven traders and only acts when one of them OPENS a brand-new position. It reads their positions directly from the exchange every two minutes, so it sees a new trade almost as soon as they make it. It checks how far price has already moved from their entry and skips the trade if it is too late to get a comparable fill. It sizes each mirror to your budget with a floor so a position is never too small to matter, and it manages its own exit."

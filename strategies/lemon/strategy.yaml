@@ -11,6 +11,7 @@ version: "1.2.3"
 
 catalog:
   name: "Lemon — Degen Fader"
+  descriptor: "Fades the leaderboard crowd once it tires"
   emoji: "🍋"
   tagline: "Watches where the 4h leaders (the traders winning the last four hours on the board) are most crowded across a fixed basket of 12 crypto majors and 4 commodity/index names — and once that one-sided crowd stops following through (its 15-minute momentum rolls over), fades the 4h leaders' crowded side at conviction-scaled leverage and lets a wide ratcheting stop ride the snap-back."
   belief_plain: "When the traders winning the last four hours crowd hard onto one side of a coin and the move starts running out of steam, that crowd usually gets unwound. Lemon waits for the crowding to actually start fading on the 15-minute clock, blocks the trade if it's really a genuine trend (big BTC move or the asset itself ripping), then bets the OPPOSITE direction and trails a wide stop while the over-stretched move mean-reverts."

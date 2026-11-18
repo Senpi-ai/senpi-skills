@@ -10,6 +10,7 @@ version: "1.0.4"
 catalog:
   varies: puffin          # a VARIANT of this template — never outrank it
   name: Puffin Duo — two slots at 45%
+  descriptor: "Holds two smaller Puffin bets at once"
   emoji: 🐦🐦
   tagline: Puffin across two concurrent positions at 45% margin each instead of one at 75%. Same signal, same bar, same exits — the question is whether one deep strike or two shallower ones pays better on the same feed.
   belief_plain: 'This is Puffin with its capital split in two. Puffin waits for a rare, high-scoring signal and then commits most of the wallet to a single name. This version takes the same signals at the same bar, but holds up to two at once and puts 45% of the wallet behind each rather than 75% behind one. Nothing about what it looks for changes. The trade-off is simple: one position concentrates everything on being right once, two spread the same capital across two chances and halve what any single wrong call costs — and also halve what a single right one pays.'

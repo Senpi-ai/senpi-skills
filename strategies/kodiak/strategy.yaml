@@ -9,6 +9,7 @@ version: "1.1.2"
 
 catalog:
   name: "Kodiak — SOL Alpha Hunter"
+  descriptor: "Trades SOL when trend and momentum agree"
   emoji: "🐻"
   tagline: "A single-asset SOL specialist: enters only when 4h and 1h trend structure agree, 15m momentum confirms, and the 4h leaders' lean, funding, and BTC all line up — then sizes leverage to conviction (5/6/7x) and lets the DSL ride the winner."
   belief_plain: "Trades only SOL. It waits for the 4-hour and 1-hour trend to agree, momentum to confirm, and the traders winning the last four hours to be leaning the same way — then goes in harder when more of those line up, and trails a stop instead of guessing the exit."

@@ -9,6 +9,7 @@ id: orangutan
 version: "1.2.1"
 catalog:
   name: "Orangutan — Rotation Rider (Weekly)"
+  descriptor: "Trades sector rotation once a week"
   emoji: "🦧"
   tagline: "The weekly, more-committed sibling of Gibbon. Once a week it ranks the sectors — semis, software, crypto, indices, commodities — and commits to the rotation: long the leaders of the winning sectors, short the laggards of the losing ones, biggest when the rotation is decisive. It never sells manually; a wide trailing stop does all the exiting and lets winners run for weeks, so the book turns over on the market's schedule."
   belief_plain: "Like Gibbon, but slower and more committed. Once a week it decides which sectors are winning and which are losing, then holds fewer, bigger positions — long the strongest names, short the weakest — and only commits when the rotation is decisive. It never manually closes; a wide ratchet stop protects each position and lets the winners run, so the book rotates on the market's schedule, not a scanner's."

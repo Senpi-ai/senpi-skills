@@ -16,6 +16,7 @@ version: "1.0.2"
 catalog:
   varies: cheetah          # a VARIANT of this template — never outrank it
   name: "Wild Cheetah — Confluence Sniper at score 12 (experiment)"
+  descriptor: "Raises the bar, then goes nearly all-in"
   emoji: "🌶️"
   tagline: "Cheetah's confluence detector at a higher score floor and a higher margin: it fires only on a score of 12 out of 15 instead of 10, and sizes one position at 80-90% of the book instead of 18-48%. Leverage stays at 5x; the size changes, not the leverage."
   belief_plain: "Cheetah with a higher bar and a larger size. Cheetah already does nothing most of the time, waiting for a setup where the traders winning the last four hours, the velocity, the acceleration and the price on two timeframes all agree. This version asks for more of that agreement before it acts, and puts most of the account behind the trade in exchange. Leverage stays at 5x deliberately: every exit threshold is measured against your margin, so changing leverage would move every stop and profit floor at the same time. Size changes instead. Know the sizing before funding it — 90% margin at 5x is four and a half times the account in one position, one stop-out is about 9% of equity, and there is no second position to offset it."

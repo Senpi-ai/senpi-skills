@@ -18,6 +18,7 @@ version: "1.3.0"
 
 catalog:
   name: "Hydra — Single-Coin Conviction Fund (cross-asset hedge)"
+  descriptor: "Holds one coin, hedged by shorting others"
   emoji: "🐉"
   tagline: "A long-term conviction book on ONE major (the thesis coin: ETH/SOL/HYPE), ridden through volatility on a wide stop (5% of price), plus a tactical dip-buyer that presses the pullbacks — cushioned by a diversified short of OTHER assets that are actually breaking down, so the hedge protects market risk without ever betting against your thesis."
   belief_plain: "Holds one major you believe in for the long haul and adds on its dips, while shorting a basket of other coins/indices whenever they roll over — so a market selloff that would hurt your coin is offset by profits on the short side, and you never short the coin you're bullish on."

@@ -11,6 +11,7 @@ id: gecko
 version: "1.2.0"
 catalog:
   name: "Gecko — Any-Coin Confluence"
+  descriptor: "Trades your chosen coin when signals agree"
   emoji: "🦎"
   tagline: "Point it at any liquid coin you name and it trades just that one: it scores trend structure, momentum and funding into a single confluence read on that name, goes long or short when enough signals line up — sizing conviction to the strength of the setup — and trails a stop instead of guessing the exit."
   belief_plain: "You pick the coin; Gecko trades only that coin. It waits until the 1-hour and 4-hour trend, momentum and funding all point the same way, then goes in — harder when more of them agree — and never guesses the exit: a trailing stop does all the closing. One coin, one position, done well."

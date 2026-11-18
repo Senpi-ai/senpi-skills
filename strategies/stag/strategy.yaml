@@ -11,6 +11,7 @@ id: stag
 version: "1.1.1"
 catalog:
   name: "Stag — Parabolic-Run Hunter"
+  descriptor: "Buys big coins going parabolic"
   emoji: "🦌"
   tagline: "Watches a small whitelist of large-cap crypto for a real parabolic setup — established uptrend, a 7-day move of 25%+ on surging volume that's still accelerating, with the 4h leaders piled long — then goes long and hands the trade to the widest stop in the catalog so it can ride the whole run through the violent intraday pullbacks."
   belief_plain: "Only buys when a coin is genuinely going parabolic, not just trending. It waits for a big multi-week move that's still speeding up on heavy volume with the last four hours' winners leaning long, then uses a very loose trailing stop so the position survives the 5-8% dips that would shake out a normal trend trade."

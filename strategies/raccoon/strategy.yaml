@@ -10,6 +10,7 @@ version: "1.2.3"
 
 catalog:
   name: "Raccoon — Weekend XYZ Reconciliation"
+  descriptor: "Rides weekend drift in stocks, exits Monday"
   emoji: "🦝"
   tagline: "Trades only the weekend, only on tokenized stocks & commodities (XYZ): while the underlying markets are closed and XYZ runs on an internal oracle, Raccoon positions in the direction sentiment has been pushing the price — and captures the snap-back when real external pricing resumes Monday open. Sizes 15% / 3x and rides a tight DSL with a 48h Monday-exit cap."
   belief_plain: "From Friday evening to Sunday evening the real stock and commodity markets are closed, so tokenized versions on XYZ drift on an internal estimate instead of a live price. When trading resumes Monday, that estimate snaps to the true market price. Raccoon bets in the direction the weekend drift (plus the 4h leaders, the traders winning the last four hours on the board) is leaning, and exits into that Monday snap — and only ever runs on the weekend."

@@ -11,6 +11,7 @@ version: "1.5.0"
 
 catalog:
   name: "Aegis — Regime-Adaptive Dynamic Hedge"
+  descriptor: "Hedges risk-off moves with gold and shorts"
   emoji: "🛡️"
   tagline: "Reads the tape — funding crowding, haven flows, OI velocity — to dynamically hedge across risk-off and risk-on regimes. Opens nothing new in neutral. Built as Phalanx's companion — its signal is independent of Phalanx's cohort read."
   belief_plain: "A hedge that's always long is foolish — it bleeds in risk-off and misses the downside. Aegis reads market structure itself (funding regime, gold and yen haven trends, per-asset OI velocity) to compute a graduated regime score, then positions defensively: shorting risk assets and longing defensives when the tape says risk-off, going long risk when it says risk-on, and opening nothing new when it says neutral. The signal sources are independent of Phalanx's proven-cohort reads — Aegis reads the tape, Phalanx reads the crowd — so when the cohort hasn't rotated yet but the tape has, Aegis is hedging while Phalanx is still long."

@@ -5,6 +5,7 @@ version: "1.2.0"                  # the ONE strategy semver (catalog + MCP attri
 
 catalog:
   name: "Barracuda"
+  descriptor: "Chases the hottest breakouts, long or short"
   emoji: "🦈"
   # Controlled vocabulary (discovery HARD-FILTERS on these — must come from the glossary).
   # NOTE: "breakout_momentum" is the honest closed-set archetype; the strategy's

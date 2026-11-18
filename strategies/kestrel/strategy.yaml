@@ -12,6 +12,7 @@ version: "1.1.2"
 
 catalog:
   name: "Kestrel — XYZ Macro Breakout Rider"
+  descriptor: "Rides oil, gold and big-tech breakouts"
   emoji: "🦅"
   tagline: "A multi-asset non-crypto XYZ breakout rider: scans 12 macro names (oil, gold, S&P/Nasdaq, mega-cap tech) for a >=1.5% 1H breakout, confirms with 4H trend, volume surge, the 4h leaders' lean and funding, then sizes leverage to score (3x/5x) and rides the move with a DSL trailing exit. Holds up to 2 positions; trades 24/7 incl weekends."
   belief_plain: "Watches a basket of macro markets — crude and Brent oil, gold, the S&P and Nasdaq, and the biggest US tech stocks — and pounces when one breaks out more than 1.5% in an hour with volume behind it. It goes in harder (5x vs 3x) on the cleanest breakouts and trails a stop instead of guessing the exit. These markets trade around the clock, weekends included, so there's no market-hours gate."
