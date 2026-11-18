@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.10.0"
+  version: "1.10.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -57,7 +57,7 @@ Returns `{as_of, identity, points, fee, referral, meta}`:
 - `points` — `total`, `base` (Base copy-trading), `perp` (Hyperliquid), `multiplier` (the plan's
   points rate), `rank`, `rank_change`.
 - `fee` — `bps` + `pct`, the Senpi fee this user pays, as the backend reports it: `0` / `0%` on a
-  paid plan (`bps` is in tenths of a bp).
+  paid plan or while the account holds credits (`bps` is in tenths of a bp).
 - `referral` — `balance_usdc` (referral earnings not yet claimed).
 - `meta.warnings` / `meta.degraded` — narrate honestly.
 - Fails open — partial data still returns valid JSON.
@@ -67,7 +67,7 @@ Returns `{as_of, identity, points, fee, referral, meta}`:
 Lead with the section they asked about; otherwise a tight standing card:
 
 1. **Points & rank** — total, base/perp split, multiplier, rank (+ change).
-2. **Fee** — `fee.pct` (`0%` = a paid plan, no Senpi fee).
+2. **Fee** — `fee.pct` (`0%` = a paid plan or credits, no Senpi fee).
 3. **Referral** — pending `balance_usdc` (and that it's claimable if > 0).
 
 Formatting: clean, scannable, numbers from the data; emoji sparingly.
@@ -137,8 +137,9 @@ already on it keep it and can upgrade, but cannot return to it after leaving.
 
 - **Every plan includes every model.** Plans differ on credits and points rate only — never on model
   access, so a cheaper plan never locks anyone out of the better model.
-- **No Senpi trading fee on any paid plan** — only Hyperliquid's own exchange fees. For any other
-  account, quote its own `fee.pct` from the engine; never state a rate from memory.
+- **No Senpi trading fee on any paid plan, or while the account holds credits** (pay as you go, the
+  initial free credits) — only Hyperliquid's own exchange fees. For an account with no plan and no
+  credits, quote its own `fee.pct` from the engine; never state a rate from memory.
 - **Referrals pay 15% of a referred friend's monthly Senpi spend, for their first 12 months** — from
   what the friend spends on Senpi, not from their trading. A friend on $100 a month earns the referrer
   $15 a month × 12 months = $180. How and when the share is paid out is not announced yet: if asked,
