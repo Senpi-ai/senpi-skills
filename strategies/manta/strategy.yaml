@@ -8,6 +8,7 @@ version: "1.2.0"
 
 catalog:
   name: "Manta — Multi-Timeframe Structure (FX)"
+  categories: ["ict-smc", "fx"]
   descriptor: "Trades FX pullbacks in the bigger trend"
   emoji: "🐟"
   tagline: "Top-down structure trading on FX pairs (EUR / GBP / JPY), the way it's taught: the Daily, 4-hour and 1-hour charts must all agree on trend direction, the 4-hour marks the area price is expected to retest, and the 15-minute times the entry off a break of structure inside that zone. If the timeframes disagree, or price isn't at the level, or there's no 15-minute trigger, it does nothing. Long & short, low leverage scaled to how small FX moves are."

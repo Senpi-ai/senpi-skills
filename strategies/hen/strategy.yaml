@@ -7,6 +7,7 @@ id: hen
 version: "1.2.0"
 catalog:
   name: "Hen — The Basket Opener"
+  categories: ["single-stocks"]
   descriptor: "Trades big tech into the opening bell"
   emoji: "🐔"
   tagline: "Rooster's companion, for stocks. In the 45 minutes before the US market opens (default 13:30 UTC, weekdays only) it reads the pre-open setup on a big-tech equity basket — NVDA, TSLA, AAPL and nine more — and positions into the open across the 3-4 strongest names at once, not just one. Per name: the pre-open drift sets direction, expanding volume confirms real positioning, a break of the prior session's range adds conviction. Ranks every qualifier by score and takes the best few, long or short, 2-5x, with a session-aware DSL ladder that banks the open move and is flat before the weekend."

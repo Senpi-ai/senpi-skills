@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Write one page-copy field (descriptor, summary or risks) into many strategy.yaml `catalog:` blocks.
+"""Write one page-copy field (descriptor, summary, risks or categories) into many strategy.yaml
+`catalog:` blocks.
 
     python3 senpi-trading-runtime/scripts/seed_catalog_field.py descriptor drafts.json [--overwrite]
 
-drafts.json maps strategy id -> text. Each value is inserted as one double-quoted line right after
-the block's `name:` line. The file is edited as TEXT, never re-dumped, so comments and layout
+drafts.json maps strategy id -> text (for categories: id -> list of slugs; `conservative` is
+stamped from risk_level by gen_catalog.py, so leave it out). Each value is inserted as one line
+(a double-quoted string, or a flow list) right after the block's `name:` line. The file is edited
+as TEXT, never re-dumped, so comments and layout
 survive (as senpi-strategy-ops/scripts/_fork.py edits). A package that already has the field is
 left alone unless --overwrite; a value that breaks the field's rule (gen_catalog.page_copy_problems)
 is skipped and reported. Run gen_catalog.py afterwards and commit both catalog copies.
@@ -21,7 +24,7 @@ import yaml
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import gen_catalog  # noqa: E402
 
-FIELDS = ("descriptor", "summary", "risks")
+FIELDS = ("descriptor", "summary", "risks", "categories")
 
 
 def seed(text, field, value, overwrite):
@@ -73,9 +76,10 @@ def main():
         path = os.path.join(gen_catalog.REPO_ROOT, "strategies", sid, "strategy.yaml")
         if not os.path.exists(path):
             outcome = "no such package"
-        elif not isinstance(value, str) or (
-                problems := gen_catalog.page_copy_problems({a.field: value})):
-            outcome = f"skipped: {'; '.join(problems) if isinstance(value, str) else 'not a string'}"
+        elif problems := gen_catalog.page_copy_problems({a.field: value}) or (
+                [] if isinstance(value, (list if a.field == "categories" else str))
+                else [f"not a {'list' if a.field == 'categories' else 'string'}"]):
+            outcome = f"skipped: {'; '.join(problems)}"
         else:
             with open(path) as f:
                 text = f.read()

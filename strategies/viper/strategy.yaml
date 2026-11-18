@@ -8,6 +8,7 @@ id: viper
 version: "1.2.1"
 catalog:
   name: "Viper — SMC/ICT Structure Trader"
+  categories: ["ict-smc"]
   descriptor: "Trades breakouts backed by stop hunts"
   emoji: "🐍"
   tagline: "Reads a chart the way a smart-money trader does. It marks the recent peaks and troughs, then waits for price to actually break structure — punch through a prior high (or low) — and only takes the trade when the break is backed by a stop-hunt wick that grabbed liquidity and snapped back, a price gap that shows one-sided pressure, and the bigger-picture 4h trend pointing the same way. A trailing stop does all the exiting; Viper never sells manually."

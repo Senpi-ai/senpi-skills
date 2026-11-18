@@ -11,6 +11,7 @@ version: "2.0.0"
 
 catalog:
   name: "Koala — Trail HODL"
+  categories: ["dca"]
   descriptor: "Buys and holds BTC behind wide stops"
   emoji: "🐨"
   tagline: "The simplest agent in the catalog: pick one asset (default BTC), go long at 2x on 40% of the wallet, and hold behind the widest stop in the catalog — 30% of margin, 15% of price — with a ratchet that only ever locks gains. No scoring, no scheduling; the choice to deploy Koala IS the bet. A week after a hold ends it buys again (set fireOnceMode for a true one-shot). Measured on two years of BTC, ETH and SOL: the median hold ran about three weeks and ended positive two times in three."

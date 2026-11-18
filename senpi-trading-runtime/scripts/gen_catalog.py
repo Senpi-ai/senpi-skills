@@ -67,6 +67,13 @@ DECLARED_REQUIRED = [
 DESCRIPTOR_MAX = 45
 SUMMARY_MAX = 140
 
+# The category pages senpi-web builds (Strategy Pages handoff, section 4). A slug outside this set
+# would put a strategy on a page that doesn't exist; add a new one here when the page ships.
+CATEGORY_SLUGS = {
+    "single-stocks", "stock-index-scalps", "conservative", "gold", "ict-smc", "dca", "vwap", "fx",
+    "memecoins-new-listings",
+}
+
 _WARNINGS = []
 
 
@@ -264,6 +271,10 @@ def page_copy_problems(catalog):
     if cats is not None and not (isinstance(cats, list)
                                  and all(isinstance(x, str) and x for x in cats)):
         problems.append("`categories` must be a list of slugs")
+    elif cats:
+        unknown = [x for x in cats if x not in CATEGORY_SLUGS]
+        if unknown:
+            problems.append(f"`categories` has unknown slug(s) {unknown} (known: {sorted(CATEGORY_SLUGS)})")
     return problems
 
 

@@ -17,6 +17,7 @@ version: "1.0.0"
 
 catalog:
   name: "Ibex — Gold Breakout Trend Follower"
+  categories: ["gold"]
   descriptor: "Trades gold breakouts and holds for days"
   emoji: "🐐"
   tagline: "A gold (xyz:GOLD) specialist on the slow clock: when a closed 4-hour candle breaks above the previous nine days' high with gold above its 50-day average it goes long; on the mirror-image break below, short. One position at a time, leverage 3-5x set from gold's own volatility so the stop sits outside normal noise, and a trailing stop that only ever moves in your favour. No fast trades, no fading — the one trigger on gold that pays its fees."

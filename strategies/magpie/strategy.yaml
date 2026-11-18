@@ -13,6 +13,7 @@ id: magpie
 version: "1.2.0"
 catalog:
   name: "Magpie — IPO / New-Listing Event Fund"
+  categories: ["single-stocks", "memecoins-new-listings"]
   descriptor: "Rides pre-IPO stocks through their listing"
   emoji: "🐦"
   tagline: "Trades the full pre-IPO → listing → graduation arc of tokenized equities on Hyperliquid XYZ: a pre-listing book accumulates pre-IPO perpetuals (IPOPs) into the IPO, and a graduation book rides the explosive post-conversion price discovery — the SpaceX $1.4B-day-1 pattern."

@@ -12,6 +12,7 @@ version: "1.2.1"
 
 catalog:
   name: "Boar — Hard Money vs Paper"
+  categories: ["gold"]
   descriptor: "Buys gold and BTC, shorts US stocks"
   emoji: "🥇"
   tagline: "Bets on currency debasement: LONGS scarce real assets (GOLD, BTC, SILVER, PLATINUM, PALLADIUM) on the hard-money wallet and SHORTS the paper economy (SP500 + rate-sensitive growth RIVN/DKNG/HIMS) on the paper wallet — each leg trend-confirmed and conviction-sized. The P&L is the real-assets-beat-paper-claims spread."

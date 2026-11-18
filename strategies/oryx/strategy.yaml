@@ -8,6 +8,7 @@ id: oryx
 version: "1.0.1"
 catalog:
   name: "Oryx — XYZ Intraday Breakout"
+  categories: ["stock-index-scalps"]
   descriptor: "Day-trades breakouts in gold, oil and indices"
   emoji: "🦌"
   tagline: "Trades gold, crude oil, metals and the stock indices during the day rather than holding for weeks. It waits for a market to settle into an opening range, then takes the break when real volume backs it — and skips it if price has already run too far to be worth chasing. These markets trade around the clock, so there is no waiting for a bell."

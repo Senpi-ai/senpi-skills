@@ -12,6 +12,7 @@ version: "1.2.1"
 
 catalog:
   name: "Mongoose — On-Chain Finance vs Legacy"
+  categories: ["single-stocks"]
   descriptor: "Buys crypto finance, shorts Wall Street"
   emoji: "🪙"
   tagline: "Bets money is migrating on-chain: LONGS the on-chain financial rails (HYPE the venue + Circle/CRCL + Coinbase/COIN + Robinhood/HOOD + BTC treasuries MSTR/PURRDAT) on one wallet and SHORTS legacy finance + broad financial-beta (Blackstone/BX + SP500) on another — both trend-confirmed on absolute 4h/1h structure — so the P&L is the disruptor-vs-incumbent spread."

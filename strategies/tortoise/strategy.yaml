@@ -12,6 +12,7 @@ version: "2.0.0"
 
 catalog:
   name: "Tortoise — Scheduled Buyer"
+  categories: ["dca"]
   descriptor: "Buys and holds BTC, ETH and SOL"
   emoji: "🐢"
   tagline: "A clock, not a chart: holds one long position each in BTC, ETH and SOL, buying a name on its schedule whenever it is flat — on deploy, and again a full interval (24 hours by default) after its position has exited. Not DCA: it never adds to an open position. Predicts nothing; each holding sits behind a wide stop — 30% of margin, 15% of price at 2x — with a ratchet that only locks gains, and nothing is closed for being old."

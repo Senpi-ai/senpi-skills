@@ -38,9 +38,10 @@ def test_page_copy_keeps_its_rules(path):
     ({"summary": "x" * 141}, "`summary` is 141 characters (max 140)"),
     ({"risks": "  "}, "`risks` must be a non-empty string"),
     ({"categories": "conservative"}, "`categories` must be a list of slugs"),
+    ({"categories": ["golds"]}, "`categories` has unknown slug(s) ['golds']"),
 ])
 def test_page_copy_rules_catch(catalog, problem):
-    assert problem in G.page_copy_problems(catalog)
+    assert any(p.startswith(problem) for p in G.page_copy_problems(catalog))
 
 
 def test_page_copy_absent_is_fine():
@@ -94,6 +95,25 @@ def test_conservative_follows_risk_level_and_versions_inherit():
         ("dog-gold", "dog", "moderate", ["gold"]),
         ("owl", None, "aggressive", ["ict-smc"]),
     ]) == {"dog": ["conservative"], "dog-gold": ["gold", "conservative"], "owl": ["ict-smc"]}
+
+
+def test_spec_category_members():
+    # Strategy Pages handoff, section 4: who is on each category page today.
+    skills = {s["id"]: s for s in json.load(open(os.path.join(ROOT, "strategies", "catalog.json")))["skills"]}
+    members = {
+        "single-stocks": ["magpie", "hen", "hornet", "cub", "asia-ai", "cougar", "lion", "mongoose", "bobcat", "osprey"],
+        "stock-index-scalps": ["oryx"],
+        "conservative": ["dog", "pangolin", "tortoise", "hedgehog", "sheep", "armadillo", "mandate", "ox", "koala"],
+        "gold": ["boar", "ibex", "ram"],
+        "ict-smc": ["viper", "kite", "manta"],
+        "dca": ["tortoise", "koala"],
+        "fx": ["manta"],
+        "memecoins-new-listings": ["magpie", "vulture"],
+    }
+    for slug, ids in members.items():
+        for sid in ids:
+            if sid in skills:
+                assert slug in skills[sid]["categories"], f"{sid} should be on {slug}"
 
 
 # ---- added, updated, updates ----
