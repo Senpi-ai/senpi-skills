@@ -159,5 +159,12 @@ class Variations(unittest.TestCase):
                             deploy._params_key({**base, "parentId": "simulation-99999999-2222-4333-8444-555555555555"}))
 
 
+class AFailedVariationIsTheUsersCall(unittest.TestCase):
+    def test_the_skill_asks_before_any_standalone_fallback(self):
+        text = (SCRIPTS.parent / "SKILL.md").read_text()
+        self.assertIn("A variation refused or failed = stop there", text)
+        self.assertIn("Never deploy them without `--variant-of` unasked", text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
