@@ -154,6 +154,8 @@ def _number(v):  # JS Number(): None/missing -> NaN
         return float(v)
     if isinstance(v, (int, float)):
         return v
+    if isinstance(v, str) and not v.strip():
+        return 0  # JS Number("") is 0
     try:
         return float(v)
     except (TypeError, ValueError):
@@ -173,24 +175,32 @@ def _read_phase1_max_loss(phase1, preset_max_loss):  # parse-phase.ts readPhase1
     m = _number(v if v is not None else preset_max_loss)
     if not (m > 0) or m > 100:
         raise _Refused("max_loss_pct")
-    rt = _number(phase1.get("retrace_threshold", phase1.get("retraceThreshold")))
+    rt = _number(_coalesce(phase1, "retrace_threshold", "retraceThreshold"))
     if not (rt > 0):
         raise _Refused("retrace_threshold")
-    br = _number(phase1.get("consecutive_breaches_required", phase1.get("consecutiveBreachesRequired")))
+    br = _number(_coalesce(phase1, "consecutive_breaches_required", "consecutiveBreachesRequired"))
     if not math.isfinite(br) or br < 1 or br != int(br):
         raise _Refused("consecutive_breaches_required")
     return m
+
+
+def _coalesce(m, *keys):
+    """JS `m.a ?? m.b`: the first key whose value is not null/missing."""
+    for k in keys:
+        if m.get(k) is not None:
+            return m[k]
+    return None
 
 
 def _parse_tier(t):  # parse-tiers.ts parseTier
     if not _is_map(t) or t.get("breaches") is not None or t.get("retrace") is not None \
             or t.get("retraceFromHW") is not None:
         raise _Refused("tier")
-    trig = _number(t.get("trigger_pct", t.get("triggerPct")))
-    lock = _number(t.get("lock_hw_pct", t.get("lockHwPct")))
+    trig = _number(_coalesce(t, "trigger_pct", "triggerPct"))
+    lock = _number(_coalesce(t, "lock_hw_pct", "lockHwPct"))
     if not math.isfinite(trig) or trig <= 0 or not math.isfinite(lock) or lock < 0 or lock > 100:
         raise _Refused("tier values")
-    return [t.get("trigger_pct", t.get("triggerPct")), t.get("lock_hw_pct", t.get("lockHwPct"))]
+    return [trig, lock]  # Number()-coerced, as the engine stores them
 
 
 def _parse_cut(raw, min_interval, needs_min_value=False):  # parse-timeouts.ts
@@ -199,7 +209,10 @@ def _parse_cut(raw, min_interval, needs_min_value=False):  # parse-timeouts.ts
     iv = raw.get("interval_in_minutes")
     if not _pos(iv) or not math.isfinite(iv):
         raise _Refused("cut interval")
-    cut = {"after_min": max(iv, min_interval)}
+    after = max(iv, min_interval)
+    if math.isnan(min_interval) or not after > 0:  # JS Math.max with NaN is NaN, then refused
+        raise _Refused("cut interval after clamp")
+    cut = {"after_min": after}
     if needs_min_value:
         mv = raw.get("min_value")
         if not _pos(mv) or not math.isfinite(mv):
@@ -230,7 +243,7 @@ def _engine_preset(exit_block):
             return None
         interval_s = exit_block.get("interval_seconds")
         interval_s = interval_s if interval_s is not None else DEFAULT_EXIT_INTERVAL_S
-        min_interval = interval_s / 60
+        min_interval = _number(interval_s) / 60  # JS coerces `"60" / 60`
 
         phase2 = raw.get("phase2")
         p2_tiers = phase2.get("tiers") if _is_map(phase2) else None
@@ -260,7 +273,7 @@ def _engine_preset(exit_block):
         weak = _parse_cut(raw.get("weak_peak_cut"), min_interval, needs_min_value=True)
         dead = _parse_cut(raw.get("dead_weight_cut"), min_interval)
         return loss_cap, p2_enabled, tiers, hard, weak, dead
-    except _Refused:
+    except Exception:  # noqa: BLE001 — facts.ts enginePreset: any refusal or surprise -> null
         return None
 
 
@@ -335,3 +348,32 @@ def _strategy_facts(config, manifest):
         "exit": _exit_facts(config.get("exit")),
         "limits": _limit_facts(config),
     }
+
+
+def all_package_facts(repo_root):
+    """{"<id>/<instance>": facts without lock_tiers} for every package: the runtime's own shape,
+    for diffing against its strategyFacts() (.github/scripts/check_facts_parity.mjs)."""
+    import glob
+    import os
+
+    import yaml
+    out = {}
+    for man_path in sorted(glob.glob(os.path.join(repo_root, "strategies", "*", "strategy.yaml"))):
+        pkg = os.path.dirname(man_path)
+        with open(man_path) as f:
+            man = yaml.safe_load(f) or {}
+        for inst in man.get("instances") or []:
+            with open(os.path.join(pkg, inst["runtime"])) as f:
+                facts = strategy_facts(yaml.safe_load(f) or {}, man)
+            if facts.get("exit"):
+                facts["exit"].pop("lock_tiers", None)
+            out[f"{os.path.basename(pkg)}/{inst['name']}"] = facts
+    return out
+
+
+if __name__ == "__main__":
+    import json
+    import os
+    import sys
+    root = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "..", "..")
+    json.dump(all_package_facts(root), sys.stdout, sort_keys=True)

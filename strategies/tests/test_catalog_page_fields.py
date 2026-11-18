@@ -89,6 +89,19 @@ def _categories(records):
     return {s["id"]: s["categories"] for s in skills}
 
 
+def test_a_version_of_a_version_inherits_every_ancestor():
+    assert _categories([
+        ("penguin", None, "aggressive", ["single-stocks"]),
+        ("penguins-duo", "penguin", "aggressive", ["gold"]),
+        ("penguins-duo-chase", "penguins-duo", "aggressive", []),
+    ])["penguins-duo-chase"] == ["gold", "single-stocks"]
+
+
+def test_page_copy_keys_are_one_list():
+    import behaviour_hash as BH
+    assert G.PAGE_COPY_KEYS is BH.PAGE_COPY_KEYS
+
+
 def test_conservative_follows_risk_level_and_versions_inherit():
     assert _categories([
         ("dog", None, "conservative", []),
@@ -134,12 +147,13 @@ def test_a_version_change_stamps_the_run_date_and_counts_one():
     assert _dates(prev, "1.3.0") == {"added": "2026-03-16", "updated": "2026-12-01", "updates": 6}
 
 
-def test_barracuda_dates():
-    # Seeded from git through the old top-level barracuda/ folder; matches the spec's fixture.
+def test_a_reused_name_starts_its_own_history():
+    # The old top-level barracuda/ was a different strategy, deleted on 2026-05-13; today's
+    # Barracuda landed on 2026-08-12, past LINEAGE_GAP_DAYS, so its history starts there.
     skills = json.load(open(os.path.join(ROOT, "strategies", "catalog.json")))["skills"]
     b = next(s for s in skills if s["id"] == "barracuda")
     if b["version"] == "1.2.0":
-        assert (b["added"], b["updated"], b["updates"]) == ("2026-03-16", "2026-09-17", 5)
+        assert (b["added"], b["updated"], b["updates"]) == ("2026-08-12", "2026-09-17", 3)
 
 
 # ---- instances[].facts: StrategyFacts v1, as senpi-trading-runtime computes it ----
@@ -256,3 +270,33 @@ def test_short_lists_stay_on_one_line_and_the_data_round_trips():
     assert '"tiers": [[15, 20], [20, 40]]' in text
     assert '"a": [1, 2]' in text
     assert '"rows": [\n' in text  # a list of objects still opens one per line
+
+
+def test_quoted_tier_values_are_numbers_as_the_engine_reads_them():
+    # parse-tiers.ts: Number(raw.trigger_pct ?? raw.triggerPct). A quoted tier is valid, and an
+    # explicit null falls back to the camelCase key.
+    ex = _exit(phase2={"tiers": [{"trigger_pct": "20", "lock_hw_pct": "40"},
+                                 {"trigger_pct": None, "triggerPct": 100, "lock_hw_pct": 90}]})
+    assert ex["lock_tiers"] == [[20, 40], [100, 90]]
+
+
+def test_a_quoted_exit_interval_is_coerced_not_a_crash():
+    rt = {"exit": {"interval_seconds": "600", "dsl_preset": {
+        "phase1": P1, "phase2": {"tiers": TIERS},
+        "dead_weight_cut": {"enabled": True, "interval_in_minutes": 5}}}}
+    assert SF.strategy_facts(rt)["exit"]["dead_weight_cut"] == {"after_min": 10}
+    rt["exit"]["interval_seconds"] = "abc"  # NaN in JS: an enabled cut is refused, so no exit
+    assert SF.strategy_facts(rt)["exit"] is None
+
+
+# ---- seed_catalog_field.py ----
+
+def test_overwrite_replaces_a_multi_line_value_whole():
+    import seed_catalog_field as S
+    text = ('catalog:\n  name: "X"\n  categories:\n    - gold\n    - fx\n\n'
+            '  risks: "long\n    wrapped"\n  tier: starter\n')
+    new, outcome = S.seed(text, "categories", ["dca"], True)
+    new, outcome = S.seed(new, "risks", "Chop.", True)
+    assert outcome == "overwritten"
+    assert yaml.safe_load(new)["catalog"] == {
+        "name": "X", "categories": ["dca"], "risks": "Chop.", "tier": "starter"}

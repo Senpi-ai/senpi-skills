@@ -27,6 +27,7 @@ import yaml
 import subprocess
 
 import strategy_facts  # port of senpi-trading-runtime src/strategy/facts.ts (StrategyFacts v1)
+from behaviour_hash import PAGE_COPY_KEYS  # the one list of page-only catalog: keys
 import min_budget  # vendored (byte-identical with senpi-strategy-ops) — the canonical minimum calc
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -47,7 +48,10 @@ INSTRUCTIONS = (
     "current version was set, and how many times the version has changed (seeded from git, then "
     "carried forward from the committed catalog); DERIVED "
     "fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, "
-    "max_slots) are computed from instances/params. Labels/glosses come from "
+    "max_slots) are computed from instances/params; the top-level 'leverage_max' and "
+    "'cadence_seconds' cover the whole package (any scanner, the declared catalog value), while "
+    "instances[].facts carry what the runtime reads from each instance's entry scanner, so the two "
+    "can differ (a venue cap the runtime doesn't parse, a faster close-out scanner). Labels/glosses come from "
     "senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum "
     "total budget at which the design functions (min_budget.py) — the smallest budget where every "
     "wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + "
@@ -254,7 +258,7 @@ def page_copy_problems(catalog):
     """Rule breaks in the page-copy fields that are present. A missing field is not a problem here:
     senpi-web falls back to what the page shows today. Shared with strategies/tests."""
     problems = []
-    for field in ("descriptor", "summary", "risks"):
+    for field in sorted(PAGE_COPY_KEYS - {"categories"}):
         v = catalog.get(field)
         if v is not None and (not isinstance(v, str) or not v.strip()):
             problems.append(f"`{field}` must be a non-empty string")
@@ -301,9 +305,9 @@ CATEGORY_FROM_RISK = {"conservative": "conservative"}
 
 def stamp_categories(skills):
     """categories = what the author declared, plus the ones a rule implies (Conservative follows
-    risk_level), plus, on a version, its root's: versions inherit their parent's categories.
-    Runs after stamp_shown_on."""
-    own = {}
+    risk_level), plus every ancestor's along its `varies` chain: a version inherits its parent's,
+    and its parent's parent's. Runs after stamp_shown_on."""
+    own, varies = {}, {s["id"]: s.get("varies") for s in skills}
     for s in skills:
         cats = list(s.get("categories") or [])
         implied = CATEGORY_FROM_RISK.get(s.get("risk_level"))
@@ -311,10 +315,11 @@ def stamp_categories(skills):
             cats.append(implied)
         own[s["id"]] = cats
     for s in skills:
-        cats = list(own[s["id"]])
-        for c in own.get(s.get("shown_on"), []):
-            if c not in cats:
-                cats.append(c)
+        cats, node, seen = list(own[s["id"]]), varies.get(s["id"]), {s["id"]}
+        while node in own and node not in seen:
+            seen.add(node)
+            cats += [c for c in own[node] if c not in cats]
+            node = varies.get(node)
         s["categories"] = cats
 
 
@@ -355,13 +360,34 @@ def _version_at(sha, sid):
     return None
 
 
+# A package that appears this long after its id's old top-level folder was last touched is a new
+# strategy reusing the name, not a move: on 2026-05-13 "cleanup: delete dormant agent directories"
+# removed barracuda/, viper/, rhino/ and hydra/, and different strategies took those names 44-91
+# days later. The real moves (the strategy-v2 ports) landed within 21 days of the old folder.
+LINEAGE_GAP_DAYS = 30
+
+
+def _follows_old_folder(sid):
+    """Whether strategies/<id>/ continues the old top-level <id>/ rather than reusing its name."""
+    old_last = (_git("log", "-1", "--format=%cs", "--", f"{sid}/") or "").strip()
+    new_first = (_git("log", "--reverse", "--format=%cs", "--", f"strategies/{sid}/") or "").split()
+    if not old_last or not new_first:
+        return bool(old_last)
+    gap = datetime.date.fromisoformat(new_first[0]) - datetime.date.fromisoformat(old_last)
+    return gap.days <= LINEAGE_GAP_DAYS
+
+
 def git_dates(sid, version, today):
     """{added, updated, updates} from git for one package, following it back through the old
-    top-level <id>/ layout; today's date for work not committed yet."""
-    paths = [f"strategies/{sid}/strategy.yaml", f"{sid}/strategy.yaml", f"{sid}/SKILL.md"]
+    top-level <id>/ layout when that was the same strategy; today's date for uncommitted work."""
+    if _follows_old_folder(sid):
+        paths = [f"strategies/{sid}/strategy.yaml", f"{sid}/strategy.yaml", f"{sid}/SKILL.md"]
+        dirs = [f"{sid}/", f"strategies/{sid}/"]
+    else:
+        paths, dirs = [f"strategies/{sid}/strategy.yaml"], [f"strategies/{sid}/"]
     log = _git("log", "--reverse", "--format=%H %cs", "--", *paths)
     commits = [line.split() for line in (log or "").splitlines() if line.strip()]
-    first = (_git("log", "--reverse", "--format=%cs", "--", f"{sid}/", f"strategies/{sid}/") or "").split()
+    first = (_git("log", "--reverse", "--format=%cs", "--", *dirs) or "").split()
     if not commits or not first:
         return {"added": today, "updated": today, "updates": 0}
     prev, updated, updates = None, first[0], 0
@@ -444,7 +470,8 @@ def build(updated, branch, previous=None, today=None):
             "varies": c.get("varies"),
             "tagline": c.get("tagline"),
             "belief_plain": c.get("belief_plain"),
-            # page copy (declared; optional — senpi-web falls back when absent)
+            # page copy (declared; optional — senpi-web falls back when absent). Every key here is
+            # in behaviour_hash.PAGE_COPY_KEYS, so writing it needs no version bump.
             "descriptor": c.get("descriptor"),
             "summary": c.get("summary"),
             "risks": c.get("risks"),
@@ -532,20 +559,21 @@ def dumps(catalog):
 
 def check(targets, branch):
     """0 when every committed copy equals a fresh build, else 1. `_updated` is the date of the
-    last regeneration, not content, so the fresh build reuses each copy's own."""
-    stale = []
+    last regeneration, not content, so the fresh build reuses the source copy's. One build: the
+    copies must be byte-identical to it anyway."""
+    stale, texts = [], {}
     for t in targets:
-        rel = os.path.relpath(t, REPO_ROOT)
         try:
             with open(t) as f:
-                text = f.read()
-            committed = json.loads(text)
-        except (FileNotFoundError, json.JSONDecodeError) as exc:
-            stale.append(f"{rel}: unreadable ({exc})")
-            continue
-        fresh = dumps(build(committed.get("_updated"), branch))
-        if fresh != text:
-            stale.append(rel)
+                texts[t] = f.read()
+        except FileNotFoundError as exc:
+            stale.append(f"{os.path.relpath(t, REPO_ROOT)}: unreadable ({exc})")
+    try:
+        updated = json.loads(texts.get(targets[0], "")).get("_updated")
+    except json.JSONDecodeError:
+        updated = None
+    fresh = dumps(build(updated, branch))
+    stale += [os.path.relpath(t, REPO_ROOT) for t, text in texts.items() if text != fresh]
     if stale:
         print("catalog.json is stale — run senpi-trading-runtime/scripts/gen_catalog.py and "
               "commit both copies:", file=sys.stderr)
@@ -562,6 +590,9 @@ if __name__ == "__main__":
                     help="catalog _updated date (YYYY-MM-DD); defaults to today so it is a real "
                          "freshness signal, not a frozen string")
     ap.add_argument("--branch", default="main")
+    ap.add_argument("--reseed-dates", action="store_true",
+                    help="recompute added/updated/updates from git instead of carrying them forward "
+                         "(needs full history; use after a change to how dates are derived)")
     ap.add_argument("--check", action="store_true",
                     help="write nothing; exit 1 if a committed catalog.json differs from a fresh run "
                          "(ignoring _updated)")
@@ -574,7 +605,7 @@ if __name__ == "__main__":
     ]
     if a.check:
         sys.exit(check(targets, a.branch))
-    catalog = build(a.updated, a.branch)
+    catalog = build(a.updated, a.branch, previous={} if a.reseed_dates else None)
     blob = dumps(catalog)
     for t in targets:
         with open(t, "w") as f:

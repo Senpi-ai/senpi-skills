@@ -55,9 +55,15 @@ def seed(text, field, value, overwrite):
     if existing is not None:
         if not overwrite:
             return text, "already set"
-        if lines[existing].rstrip().endswith((">", "|", ">-", "|-")):
-            return text, "already set as a block scalar; edit by hand"
-        lines[existing] = line
+        # The old value may run on: a block list or scalar, or a quoted string wrapped over lines.
+        # Everything after the key line that is blank or indented deeper belongs to it.
+        end = existing + 1
+        while end < len(lines) and (not lines[end].strip() or
+                                    len(lines[end]) - len(lines[end].lstrip()) > len(indent)):
+            end += 1
+        while end > existing + 1 and not lines[end - 1].strip():
+            end -= 1  # leave trailing blank lines where they were
+        lines[existing:end] = [line]
         return "".join(lines), "overwritten"
     lines.insert(name_at + 1, line)
     return "".join(lines), "written"
@@ -85,7 +91,10 @@ def main():
                 text = f.read()
             new, outcome = seed(text, a.field, value, a.overwrite)
             if new != text:
-                parsed = (yaml.safe_load(new) or {}).get("catalog") or {}
+                try:
+                    parsed = (yaml.safe_load(new) or {}).get("catalog") or {}
+                except yaml.YAMLError:
+                    parsed = {}
                 if parsed.get(a.field) != value:
                     outcome = "refused: the edit did not parse back to the value"
                 else:
