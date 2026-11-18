@@ -56,7 +56,7 @@ class PlanFieldOnlyWhenLimitsComeFromAPlan(unittest.TestCase):
         for needle in (
             "`limits.plan` is present only when the limits come from a plan (`source: \"plan\"`); "
             "never infer the user's subscription from `limits`.",
-            "A `0%` fee means a paid plan; name no plan you didn't read.",
+            "A `0%` fee means a paid plan or credits; name no plan you didn't read.",
         ):
             self.assertIn(needle, section, needle)
 

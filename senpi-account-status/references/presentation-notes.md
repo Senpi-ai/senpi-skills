@@ -18,8 +18,8 @@ doesn't claim it).
 
 ## Honesty rules
 
-- **The fee from the data, never memory.** Quote `fee.pct` as returned — `0%` on a paid plan, the
-  flat free rate otherwise.
+- **The fee from the data, never memory.** Quote `fee.pct` as returned — `0%` on a paid plan or with
+  credits, the flat rate with neither.
 - **`found: false` on points** means no leaderboard entry yet (base defaults) — present it as
   "you haven't started earning yet," not "0 / error."
 - **Decimals arrive as strings** from several of these tools (e.g. balance_usdc) — the
