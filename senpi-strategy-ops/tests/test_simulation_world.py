@@ -731,6 +731,59 @@ class UpdateFollowsTheDriftCommand(unittest.TestCase):
         self.assertIn("no instance of this package runs as", refusal)
 
 
+class UpdateIdNamingTwoInstances(unittest.TestCase):
+    """Instances `main` and `main-simulation`: `omega-main-simulation` is both main's simulation and
+    main-simulation's live runtime. The box holds one runtime by that id; its wallet says which."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        insts = []
+        for name in ("main", "main-simulation"):
+            (self.tmp / name).mkdir()
+            insts.append(types.SimpleNamespace(name=name, runtime_name=f"omega-{name}",
+                                               runtime_path=self.tmp / name / "runtime.yaml"))
+        self.pkg = types.SimpleNamespace(id="omega", dir=self.tmp, instances=insts)
+        self.inventory = None
+        orig = _cli.list_runtimes_or_none
+        _cli.list_runtimes_or_none = lambda why=None: self.inventory
+        self.addCleanup(setattr, _cli, "list_runtimes_or_none", orig)
+
+    def test_a_simulation_runtime_updates_from_its_own_instance(self):
+        self.inventory = [{"name": "omega-main-simulation", "wallet": SIMULATION_WALLET}]
+        inst, sel, refusal = deploy.update_target(self.pkg, "omega-main-simulation")
+        self.assertIsNone(refusal)
+        self.assertEqual(inst.name, "main")
+        self.assertEqual(sel, ["--id", "omega-main-simulation"])
+
+    def test_a_live_runtime_updates_from_its_own_instance(self):
+        self.inventory = [{"name": "omega-main-simulation", "wallet": LIVE_WALLET}]
+        inst, _sel, refusal = deploy.update_target(self.pkg, "omega-main-simulation")
+        self.assertIsNone(refusal)
+        self.assertEqual(inst.name, "main-simulation")
+
+    def test_an_unreadable_inventory_refuses(self):
+        inst, _sel, refusal = deploy.update_target(self.pkg, "omega-main-simulation")
+        self.assertIsNone(inst)
+        self.assertIn("main", refusal)
+        self.assertIn("main-simulation", refusal)
+        self.assertIn("Nothing was changed", refusal)
+
+    def test_a_runtime_not_on_the_box_refuses(self):
+        self.inventory = [{"name": "omega-main", "wallet": LIVE_WALLET}]
+        inst, _sel, refusal = deploy.update_target(self.pkg, "omega-main-simulation")
+        self.assertIsNone(inst)
+        self.assertIn("Nothing was changed", refusal)
+
+    def test_an_id_only_one_instance_runs_as_reads_no_inventory(self):
+        def boom(why=None):
+            raise AssertionError("inventory read for an unambiguous id")
+        _cli.list_runtimes_or_none = boom
+        inst, _sel, refusal = deploy.update_target(self.pkg, "omega-main-simulation-simulation")
+        self.assertIsNone(refusal)
+        self.assertEqual(inst.name, "main-simulation")
+
+
 class DeploySimulation(unittest.TestCase):
     def setUp(self):
         self._orig = _cli.gateway_call
