@@ -35,7 +35,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.32.2"
+  version: "3.32.3"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -167,9 +167,9 @@ Fund/free USDC or confirm a smaller amount, then re-run — **never lower `--bud
 error**. When the user names a budget per strategy ("$1k on X, $2k on Y"), deploy each with its own
 and **confirm the split before funding**.
 **Taking a simulation live** ("take Puffin v13 live"): deploy the package that simulation ran (its `skillName` in `strategy_list` with simulation results), live, with `create <id> --budget <usd> --from-simulation simulation-<id>` (that simulation's id), and confirm the budget as for any live deploy. Never with `--simulation`.
+**Running variations** ("run 3 variations of Penguin", "try Penguin with a 4% stop"): each variation is its own fork of the package that simulation ran, with its levers changed (`deploy.py fork`, edit, then `create <dir>`), deployed with `--simulation --variant-of simulation-<id>` (the simulation it varies, from `strategy_list`). When several start together, give each the same `--batch <id>`: one fresh id for the batch, e.g. `penguin-<unix seconds>`. Deploy them one after another, never in parallel. They join that simulation's group as the next free vN. Never pass `--variant-of` for a new strategy: it starts its own group.
 
-`deploy.py` polls for ~150s and then **returns** (exec says "Command still running" after 10s: `process
-poll` it until it exits) — with one bounded exception, the stale-proof repair
+`deploy.py` polls for ~150s and then **returns** (exec says "Command still running" after 10s: `process poll` it until it exits) — with one bounded exception, the stale-proof repair
 ([`references/refusal-playbook.md`](references/refusal-playbook.md)), whose note reaches stderr
 *before* validation starts, so **a call killed mid-repair still says nothing was created**: read
 `deploy.py status`, and do NOT re-run `create`. A job still running at the lapse is **exit
