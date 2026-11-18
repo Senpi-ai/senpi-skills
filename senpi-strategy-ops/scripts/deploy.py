@@ -1905,13 +1905,23 @@ def update_target(pkg, runtime_id=None, address=None):
     insts = list(pkg.instances)
     ids = ", ".join(str(i.runtime_name) for i in insts) or "(none)"
     if runtime_id:
-        inst = next((i for i in insts if i.runtime_name == runtime_id), None)
-        if inst is None:
-            # A simulation runs the same instance dir under `<id>-<inst>-simulation` (what `status.py
-            # --simulation` prints for a drifted one): resolve it back to its instance, and keep the id
-            # exactly as given so the verb is pointed at the simulation's runtime, not the live one.
-            inst = next((i for i in insts
-                         if _cli.runtime_id_for(pkg.id, i.name, True) == runtime_id), None)
+        # A simulation runs the same instance dir under `<id>-<inst>-simulation` (what `status.py
+        # --simulation` prints for a drifted one); the id is kept exactly as given so the verb is
+        # pointed at the simulation's runtime, not the live one.
+        live = next((i for i in insts if i.runtime_name == runtime_id), None)
+        simulation = next((i for i in insts
+                           if _cli.runtime_id_for(pkg.id, i.name, True) == runtime_id), None)
+        if live and simulation:
+            # Instances `main` and `main-simulation` both answer to `<id>-main-simulation`. The box
+            # holds one runtime by that id, and its wallet says which world, so which instance, it is.
+            rt = next((r for r in _cli.list_runtimes_or_none() or []
+                       if _cli.runtime_name(r) == runtime_id), None)
+            if rt is None:
+                return None, [], (f"✗ {pkg.id}: {runtime_id!r} is the live runtime of {live.name!r} "
+                                  f"and the simulation of {simulation.name!r}, and no runtime by that "
+                                  f"id could be read on this box to tell which. Nothing was changed.")
+            live = None if _cli.runtime_world_is(rt, True) else live
+        inst = live or simulation
         if inst is None:
             return None, [], (f"✗ {pkg.id}: no instance of this package runs as {runtime_id!r} — its "
                               f"runtime ids are: {ids}. Nothing was changed.")
