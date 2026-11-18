@@ -54,6 +54,12 @@ LOCK_PATH = os.path.join(STRATEGIES, "version_lock.json")
 SKIP_NAMES = {".senpi-proof.json", ".deploy-state.json", ".DS_Store"}
 SKIP_DIRS = {"__pycache__", "tests", ".git"}
 
+# strategy.yaml `catalog:` keys that only the generated catalog.json and the strategy pages read:
+# no runtime, deploy or discover code path does (the runtime's facts take catalog.assets/direction
+# and its copy takes name/tagline/belief_plain — those still count). Excluded so that writing page
+# copy does not demand a version bump, which would refetch the package on every box for prose.
+PAGE_COPY_KEYS = {"descriptor", "summary", "risks", "categories"}
+
 
 def _canon_py(src):
     """Normalise Python TEXTUALLY — deliberately not with a parser.
@@ -92,6 +98,9 @@ def _canon(path):
     if name.endswith((".yaml", ".yml")):
         with open(path, encoding="utf-8") as fh:
             doc = yaml.safe_load(fh)
+        if name == "strategy.yaml" and isinstance(doc, dict) and isinstance(doc.get("catalog"), dict):
+            doc = {**doc, "catalog": {k: v for k, v in doc["catalog"].items()
+                                      if k not in PAGE_COPY_KEYS}}
         # Parsed, so comments, key order and quoting style are all invisible — and `json.dumps`
         # with sorted keys is byte-identical on every Python 3.
         return json.dumps(doc, sort_keys=True, default=str, separators=(",", ":")).encode()

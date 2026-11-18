@@ -64,8 +64,12 @@ catalog:
 A fork keeps its template's `descriptor`, `summary` and `risks`; rewrite them when the fork changes
 what the strategy does.
 
-`shown_on` is not authored: `gen_catalog.py` sets it to the catalog id at the root of the `varies`
-chain (the page a version sits on), or null when that root is not in the catalog.
+`shown_on` is not authored: on a version (a package with `varies`), `gen_catalog.py` sets it to the
+catalog id at the root of the `varies` chain, the page the version sits on. It is null on a root.
+
+To seed one field across many packages from a drafts file (`{id: text}`), run
+`senpi-trading-runtime/scripts/seed_catalog_field.py <descriptor|summary|risks> drafts.json`; it
+edits the YAML as text, so comments survive.
 
 ## Derived for you (do NOT duplicate unless params can't express it)
 
@@ -78,7 +82,9 @@ chain (the page a version sits on), or null when that root is not in the catalog
 | `funding_split` | `instances[].funding_share` (single-instance → `[1.0]`) |
 | `cadence_seconds`, `time_horizon` | `instances[].tick_seconds` (≤60s→scalp, ≤600s→swing, else position) |
 | `instance_count`, `max_slots` | `len(instances)`, `params.maxSlots` |
-| `instances[]` | each manifest instance's `name`, `funding_share` and `facts` (StrategyFacts v1 + `exit.lock_tiers`), read from its `runtime.yaml` — what the strategy page's rules and profit-lock chart show |
+| `instances[]` | each manifest instance's `name`, `funding_share` and `facts`: StrategyFacts v1 exactly as senpi-trading-runtime computes it (`scripts/strategy_facts.py` ports `src/strategy/facts.ts`), plus `exit.lock_tiers` — what the strategy page's rules and profit-lock chart show |
+| `added`, `updated`, `updates` | the first commit, the date the current `version` was set, how many times it changed. Seeded once from git, then carried forward: bump `version` and the next `gen_catalog.py` run stamps today and counts one |
+| `categories` | your declared ones, plus `conservative` when `risk_level: conservative`; a version also gets its root's |
 | `min_budget` | **computed** by `min_budget.py` (baked here + carried as `wallet_count` + `min_budget_breakdown`) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; NOT authored |
 
 If your params don't carry the asset/leverage (e.g. it's hardcoded in the scanner), declare a fallback

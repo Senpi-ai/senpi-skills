@@ -24,6 +24,9 @@ from collections import defaultdict
 
 import yaml
 
+import subprocess
+
+import strategy_facts  # port of senpi-trading-runtime src/strategy/facts.ts (StrategyFacts v1)
 import min_budget  # vendored (byte-identical with senpi-strategy-ops) — the canonical minimum calc
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -37,8 +40,12 @@ INSTRUCTIONS = (
     "(scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, "
     "risk_level, tier, belief_plain, direction, descriptor, summary, risks, categories) are "
     "author-set in strategy.yaml `catalog:`; 'instances' lists each instance's name, funding_share "
-    "and 'facts' (StrategyFacts v1 plus exit.lock_tiers, read from its runtime.yaml); 'shown_on' is the catalog id at the root of the "
-    "'varies' chain (the page a version sits on), null when that root is not in the catalog; DERIVED "
+    "and 'facts' (StrategyFacts v1 as senpi-trading-runtime computes it, plus exit.lock_tiers); "
+    "'shown_on' is set on versions only: the catalog id at the root of the 'varies' chain (the page "
+    "the version sits on); 'categories' adds 'conservative' when risk_level is conservative, and a "
+    "version also takes its root's; 'added', 'updated', 'updates' are the first commit, the date the "
+    "current version was set, and how many times the version has changed (seeded from git, then "
+    "carried forward from the committed catalog); DERIVED "
     "fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, "
     "max_slots) are computed from instances/params. Labels/glosses come from "
     "senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum "
@@ -191,86 +198,9 @@ def load_runtimes(instances, pkg_dir):
     return out
 
 
-# ---- per-instance facts (StrategyFacts v1) ----
-# The shape senpi-trading-runtime records on launch (src/strategy/facts.ts), plus exit.lock_tiers
-# (every phase-2 tier, which the page's profit-lock chart draws). Read straight from runtime.yaml,
-# with the engine's defaults where the file is silent (runtime-yaml.md): phase2 is ON unless
-# `enabled: false`; a time cut runs only with `enabled: true`. A field the file doesn't state is
-# null. Raw values only — how a page words or hides them is the page's business.
-FACTS_VERSION = 1
+# ---- per-instance facts ----
 
-
-def _num(v):
-    return v if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 else None
-
-
-def _is_max_leverage_key(key):
-    k = key.lower().replace("_", "")
-    return "maxleverage" in k or "leveragemax" in k
-
-
-def instance_facts(rt):
-    strat = rt.get("strategy") or {}
-    ext = [s for s in (rt.get("scanners") or [])
-           if isinstance(s, dict) and s.get("type") == "external_scanner"]
-    inputs = [s.get("inputs") or {} for s in ext]
-
-    margin = next((m for i in inputs for m in [_num(i.get("marginPct", i.get("margin_pct")))]
-                   if m), None) or _num(strat.get("margin_pct"))
-    lev_default = _num(strat.get("default_leverage"))
-    levs = [lev_default] if lev_default else []
-    for i in inputs:
-        for k, v in i.items():
-            if _is_max_leverage_key(k) and _num(v):
-                levs.append(v)
-        tiers = i.get("leverageTiers")
-        if isinstance(tiers, list):
-            levs.extend(t["leverage"] for t in tiers if isinstance(t, dict) and _num(t.get("leverage")))
-    intervals = [s["interval_seconds"] for s in ext if _num(s.get("interval_seconds"))]
-
-    preset = ((rt.get("exit") or {}).get("dsl_preset")) or {}
-    phase2 = preset.get("phase2") or {}
-    tiers = []
-    if phase2.get("enabled", True):
-        tiers = [[t["trigger_pct"], t["lock_hw_pct"]] for t in (phase2.get("tiers") or [])
-                 if isinstance(t, dict) and _num(t.get("trigger_pct"))
-                 and isinstance(t.get("lock_hw_pct"), (int, float))]
-    weak = preset.get("weak_peak_cut") or {}
-    dead = preset.get("dead_weight_cut") or {}
-    weak_cut = ({"after_min": weak["interval_in_minutes"], "under_pct": weak["min_value"]}
-                if weak.get("enabled") is True and _num(weak.get("interval_in_minutes"))
-                and _num(weak.get("min_value")) else None)
-    dead_cut = ({"after_min": dead["interval_in_minutes"]}
-                if dead.get("enabled") is True and _num(dead.get("interval_in_minutes")) else None)
-
-    g = (rt.get("risk") or {}).get("guard_rails") or {}
-    streak = _num(g.get("max_consecutive_losses"))
-    pause = _num(g.get("cooldown_seconds"))
-
-    return {
-        "v": FACTS_VERSION,
-        "leverage_default": lev_default,
-        "leverage_max": max(levs) if levs else None,
-        "margin_pct": margin,
-        "slots": _num(strat.get("slots")),
-        "scan_interval_s": min(intervals) if intervals else None,
-        "exit": {
-            "first_lock": tiers[0] if tiers else None,
-            "lock_steps": len(tiers),
-            "lock_tiers": tiers,
-            "weak_peak_cut": weak_cut,
-            "dead_weight_cut": dead_cut,
-        },
-        "limits": {
-            "max_entries_per_day": _num(g.get("max_entries_per_day")),
-            "daily_loss_pct": _num(g.get("daily_loss_limit_pct")),
-            "loss_streak": {"count": streak, "pause_s": pause} if streak and pause else None,
-            "drawdown_halt_pct": _num(g.get("drawdown_halt_pct")),
-        },
-    }
-
-
-def build_instances(instances, runtimes, sid):
+def build_instances(manifest, instances, runtimes, sid):
     out = []
     for inst in instances:
         name = inst.get("name")
@@ -280,7 +210,7 @@ def build_instances(instances, runtimes, sid):
         out.append({
             "name": name,
             "funding_share": inst.get("funding_share"),
-            "facts": instance_facts(rt) if rt is not None else None,
+            "facts": strategy_facts.strategy_facts(rt, manifest) if rt is not None else None,
         })
     return out
 
@@ -338,8 +268,9 @@ def page_copy_problems(catalog):
 
 
 def stamp_shown_on(skills):
-    """shown_on = the root of each record's `varies` chain, set only when that root is in the
-    catalog (a root is its own). Needs every record, so it runs after they all exist."""
+    """shown_on = on a version (a record with `varies`), the root of its `varies` chain: the page it
+    sits on. Null on a root, and when the chain's root is not in the catalog. Needs every record,
+    so it runs after they all exist."""
     ids = {s["id"] for s in skills}
     varies = {s["id"]: s.get("varies") for s in skills}
     for s in skills:
@@ -351,10 +282,114 @@ def stamp_shown_on(skills):
                 node = None
                 break
             seen.add(node)
-        s["shown_on"] = node if node in ids else None
+        s["shown_on"] = node if s.get("varies") and node in ids and node != s["id"] else None
 
 
-def build(updated, branch):
+CATEGORY_FROM_RISK = {"conservative": "conservative"}
+
+
+def stamp_categories(skills):
+    """categories = what the author declared, plus the ones a rule implies (Conservative follows
+    risk_level), plus, on a version, its root's: versions inherit their parent's categories.
+    Runs after stamp_shown_on."""
+    own = {}
+    for s in skills:
+        cats = list(s.get("categories") or [])
+        implied = CATEGORY_FROM_RISK.get(s.get("risk_level"))
+        if implied and implied not in cats:
+            cats.append(implied)
+        own[s["id"]] = cats
+    for s in skills:
+        cats = list(own[s["id"]])
+        for c in own.get(s.get("shown_on"), []):
+            if c not in cats:
+                cats.append(c)
+        s["categories"] = cats
+
+
+# ---- dates: added, updated, updates ----
+# Seeded once from git history, then CARRIED FORWARD from the committed catalog: while a strategy's
+# version is unchanged its dates are copied, and a version change sets `updated` to the run's date
+# and counts one more update. So a fresh run reproduces the committed file (--check stays exact),
+# and nothing depends on commit dates, squash merges or a shallow CI checkout.
+
+def _git(*args):
+    try:
+        return subprocess.run(["git", "-C", REPO_ROOT, *args], capture_output=True, text=True,
+                              check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def _version_at(sha, sid):
+    """The package's version at a commit, wherever it lived then: strategies/<id>/strategy.yaml,
+    the pre-move <id>/strategy.yaml, or the old skill layout's <id>/SKILL.md frontmatter."""
+    for path in (f"strategies/{sid}/strategy.yaml", f"{sid}/strategy.yaml"):
+        text = _git("show", f"{sha}:{path}")
+        if text:
+            try:
+                v = (yaml.safe_load(text) or {}).get("version")
+                if v is not None:
+                    return str(v)
+            except yaml.YAMLError:
+                pass
+    text = _git("show", f"{sha}:{sid}/SKILL.md")
+    if text and text.startswith("---"):
+        try:
+            front = yaml.safe_load(text.split("---", 2)[1]) or {}
+            v = (front.get("metadata") or {}).get("version") or front.get("version")
+            return str(v) if v is not None else None
+        except (yaml.YAMLError, IndexError, AttributeError):
+            return None
+    return None
+
+
+def git_dates(sid, version, today):
+    """{added, updated, updates} from git for one package, following it back through the old
+    top-level <id>/ layout; today's date for work not committed yet."""
+    paths = [f"strategies/{sid}/strategy.yaml", f"{sid}/strategy.yaml", f"{sid}/SKILL.md"]
+    log = _git("log", "--reverse", "--format=%H %cs", "--", *paths)
+    commits = [line.split() for line in (log or "").splitlines() if line.strip()]
+    first = (_git("log", "--reverse", "--format=%cs", "--", f"{sid}/", f"strategies/{sid}/") or "").split()
+    if not commits or not first:
+        return {"added": today, "updated": today, "updates": 0}
+    prev, updated, updates = None, first[0], 0
+    for sha, date in commits:
+        v = _version_at(sha, sid)
+        if v is None or v == prev:
+            continue
+        if prev is not None:
+            updates += 1
+        prev, updated = v, date
+    if str(version) != prev:  # bumped in the working tree, not committed yet
+        updates += 1 if prev is not None else 0
+        updated = today
+    return {"added": first[0], "updated": updated, "updates": updates}
+
+
+def load_previous():
+    """The committed catalog's records by id, for carrying dates forward."""
+    try:
+        with open(os.path.join(REPO_ROOT, "strategies", "catalog.json")) as f:
+            return {s["id"]: s for s in json.load(f).get("skills", [])}
+    except (FileNotFoundError, json.JSONDecodeError, KeyError, TypeError, AttributeError):
+        return {}
+
+
+def stamp_dates(skills, previous, today):
+    for s in skills:
+        prev = previous.get(s["id"]) or {}
+        if all(prev.get(k) is not None for k in ("added", "updated", "updates")):
+            if prev.get("version") == s["version"]:
+                dates = {k: prev[k] for k in ("added", "updated", "updates")}
+            else:
+                dates = {"added": prev["added"], "updated": today, "updates": prev["updates"] + 1}
+        else:
+            dates = git_dates(s["id"], s["version"], today)
+        s.update(dates)
+
+
+def build(updated, branch, previous=None, today=None):
     glossary = load_glossary()
     skills = []
     for man_path in sorted(glob.glob("strategies/*/strategy.yaml")):
@@ -404,6 +439,7 @@ def build(updated, branch):
             "risks": c.get("risks"),
             "categories": c.get("categories") or [],
             "version": m.get("version"),
+            "added": None, "updated": None, "updates": None,  # stamped after all records exist
             # worldview / theme surface (declared free text; no controlled vocab, no validation)
             "thesis": c.get("thesis"),
             "tags": c.get("tags") or [],
@@ -432,12 +468,14 @@ def build(updated, branch):
             "funding_split": derive_funding_split(instances),
             "max_slots": derive_max_slots(instances, c),
             # each instance in manifest order, with what its runtime.yaml says it does
-            "instances": build_instances(instances, runtimes, sid),
+            "instances": build_instances(m, instances, runtimes, sid),
             # registry
             "branch": branch,
         })
 
     stamp_shown_on(skills)
+    stamp_categories(skills)
+    stamp_dates(skills, load_previous() if previous is None else previous, today or updated)
     groups = defaultdict(list)
     for s in skills:
         groups[s["group"]].append(s)
