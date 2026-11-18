@@ -1306,7 +1306,6 @@ def _simulation_sfx(a):
 
 
 def _rerun_sfx(a):
-    """The flags a re-run must keep: the world, or the simulation a live deploy carries."""
     src = getattr(a, "from_simulation", None)
     return _simulation_sfx(a) + (f" --from-simulation {src}" if src else "")
 
