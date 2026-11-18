@@ -50,7 +50,8 @@ multi-instance package; and a clear stop when the box's runtime has no `update` 
 "the edit is on disk and NOT applied" — instead of a Commander parse error that reads like nothing.
 It never deletes or re-creates a runtime: there is no path from this command to a fresh wallet. Its
 exit codes are the verb's (`0` planned/applied · `1` failed during apply · `2` refused, nothing changed
-· `3` bad invocation). `status.py` prints **✎ running recipe ≠ disk** for a runtime whose rendered
+· `3` bad invocation), plus the wrapper's `9`: out of memory (a call was SIGKILLed) — stop, don't retry
+or poll now; safe again when `status.py` exits `0`. `status.py` prints **✎ running recipe ≠ disk** for a runtime whose rendered
 descriptor differs from the package on disk — that is the "did my edit ever land?" check, and its fix
 is this command.
 

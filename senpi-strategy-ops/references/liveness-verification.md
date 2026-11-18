@@ -15,7 +15,8 @@ This is an **agent-side check**. Run the commands yourself; do not ask the user 
 > contract. The deploy report's `overall` carries this verdict at deploy time — re-read it read-only with
 > `python3 deploy.py status`; use this doc for hand triage. `deploy.py verify <id>` is **read-only**
 > too — it composes the surfaces below into a per-instance verdict (`0` verified / `3` not verified /
-> `1` could not check), deploys nothing, and fetches nothing (a package not on disk — or on disk but
+> `1` could not check / `9` out of memory: stop, don't retry or poll now; safe again when `status.py`
+> exits `0`), deploys nothing, and fetches nothing (a package not on disk — or on disk but
 > unparseable — is could-not-check, never a download). It applies the downgrade rule below: an entry
 > with no health field whose run state reads `failed` is **not verified (3)** quoting that state, not
 > could-not-check. It confirms an instance live only on an **ACTIVE** wallet: a
@@ -132,6 +133,13 @@ their money is in a broken thing while it scans.
 > "sat dead" wording: read `lastAliveAt` (or the scaffold tick events), then `health`, for that wallet in
 > the window you are describing. Ticks landing `ok` with no candidates is a strategy that is working and
 > finding nothing — say that instead, and take the question to the gates or the budget.
+>
+> **The events log is not a heartbeat.** `events/events.jsonl` (and `openclaw senpi events`) records
+> errors and state changes — signals, orders, DSL, `scaffold.tick_error`, `mcp.call_failed` — and nothing
+> for an `ok` tick with no candidates. A `tail` of it is therefore all failures with no successes between
+> them, even when nearly every tick succeeded. Never count failures there and call it an outage. When
+> the user asks "is it broken, or just no signal?", answer from `health` + a fresh `lastAliveAt` (above),
+> not from how many errors the log holds.
 
 Failure signatures (**positive** evidence of breakage only — anything else is "not yet confirmed," retry).
 Note what this table structurally cannot tell you: a scanner that runs perfectly and *reads nothing*

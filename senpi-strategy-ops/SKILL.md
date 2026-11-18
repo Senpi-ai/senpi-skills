@@ -3,11 +3,11 @@ name: senpi-strategy-ops
 description: >-
   Deploy / monitor / close a NAMED Senpi trading strategy. Monitoring is on demand:
   never an agent-turn cron to watch a strategy (a model call per firing) — the runtime
-  supervises it at zero model cost. A simulation (`--simulation`, simulated money) is the test before the
-  $10-floor live run.
+  supervises it at zero model cost. Simulations exist; pass `--simulation` only when the user asks for one.
   Use when the user names a strategy to run — "install spider", "deploy polar",
   "set up kodiak", "reinstall athena", "run the spider strategy", "is my strategy live?",
-  "what am I running", "list my strategies" (→ status.py),
+  "what am I running", "list my strategies" (→ status.py), "why isn't polar trading?" /
+  "is it broken or just no signal?" (→ health + lastAliveAt; a tail of events.jsonl lists only errors, never ok ticks),
   A STRATEGY IS A PACKAGE, NEVER A SKILL: "install/reinstall <name>" is
   `deploy.py create <id>` here — never `openclaw skills install`, never clawhub, and
   never a GitHub user or repo named after the strategy. A package missing from disk is
@@ -30,11 +30,12 @@ description: >-
   bullets and plain words, never a config key — and its name: every template deploys
   as the user's own fork, named after their Senpi username (`deploy.py create <template>` → `ignas-phalanx`,
   spoken as "Ignas's Phalanx"; `--name` for their own words), as-is or with levers moved. The id (spider, polar, kodiak) is the package folder. NOT for choosing WHICH strategy
-  (senpi-strategy-discover) or authoring / editing the strategy files themselves (senpi-strategy-author).
+  (senpi-strategy-discover) or authoring / editing the strategy files themselves, nor for a user who
+  wants their own (senpi-strategy-author).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.31.8"
+  version: "3.32.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -67,7 +68,7 @@ report **verbatim**. The wrapper's value is resolution, that structural pass and
 Both call `openclaw gateway call senpi.*` (~1 s; the verbs take 30-160 s on 10.x): read the job with **`deploy.py status`**.
 **Always tear down through `close.py`** (one `<id>` or `--all`) — it deletes the runtime *and* closes
 the strategy. A raw `strategy_close` MCP call closes the strategy but **leaves the runtime
-registered**, which collides on the next deploy. **Simulations: add `--simulation` to `deploy.py create|runtime`, `status.py` and `close.py`.** A simulation runs the same code on simulated money. Each command reads one world: with `--simulation` simulations only, without it live strategies only, so `close.py <id>` never closes a simulation of the same name and `close.py <id> --simulation` never closes a live one. A `--simulation` refusal (`could not read your simulations`, or no `senpi.deploy.startSimulation` on the runtime) means simulations are not available here: relay it, and never re-run without `--simulation` unless the user asks for a live strategy with real money.
+registered**, which collides on the next deploy.
 **`close.py` is never a repair.** It market-exits every position and returns the funds; a deploy after it is a
 NEW wallet whose scanner state starts empty — needed only when `update` refuses `E_UPDATE_WALLET_CHANGED` (below).
 "Relaunch", "restart", "redeploy", "fix it" → the read-only `deploy.py verify` on the id they run (`status.py`
@@ -87,8 +88,7 @@ remote fetch. Mechanics + state machine: [`references/lifecycle.md`](references/
 
 **Say how often it will trade before you fund it.** One line: the number and what makes it go quiet —
 a measured rate if you have one, otherwise the CEILING from `max_entries_per_day`, `slots` and the
-cooldowns, said as a ceiling. A user who is not told reads normal silence as breakage: `shadow` took 10
-installs to 0 fills and every wallet was withdrawn. Never quote a rate off the package NAME. Detail:
+cooldowns, said as a ceiling. A user who is not told reads normal silence as breakage. Never quote a rate off the package NAME. Detail:
 [`trade-frequency.md`](../senpi-strategy-discover/references/trade-frequency.md).
 **A strategy with a concentration sibling: name it once before you fund.** If the requested id's family
 (`catalog.varies`) holds a member with fewer `max_slots` / higher `leverage_max`, say so in ONE line with
@@ -123,9 +123,6 @@ fresh `openclaw senpi validate` before the next `create`. **`UNPROVEN` (exit 2) 
 `deploy.py validate <id>` answers the other question, **is the package well formed**. Do not deploy a
 package that has not returned `PASS`. The proof: [`references/lifecycle.md`](references/lifecycle.md).
 
-**Step 0.6 — strategy limits.** Call MCP `strategy_get_limits`; N = one wallet per `strategy.yaml` instance (a resume counts only the instances with no wallet yet).
-When `enforced` is true and N is above `runningLeft` or `startsLeft` (a `null` left is no limit), the package does not fit: tell the user before creating anything and **do not run `create`**. Quote `summary`, say the package needs N, give the ways forward of [`[STRATEGY_LIMIT_PREFLIGHT]`](references/refusal-playbook.md) — the verb's own exit-2 refusal of it (close their own strategies for the running limit; wait or upgrade for starts; a smaller package or an upgrade when the plan can't hold it). Never cut instances of this package to squeeze under the limit (a different, smaller package the user picks is fine); on a resume never close a sleeve of this package; never limit numbers from memory (their own come from this read; another plan's from the `senpi-account-status` plan table). If the read fails for any reason (`SERR185`, a timeout, `NOT_FOUND`), retry it once at most (never after `NOT_FOUND`), then carry on silently: never block the deploy on it, and mention it only if the user asked about their limits. The runtime and strategy-manager still enforce them.
-
 **Step 0.75 — the walkthrough (REQUIRED before the budget question).** The package is on disk (Step 0.5).
 Read their username first (`user_get_me` → `userName`; none → ask what to call it). Before you ask for a dollar, read `strategy.yaml` (`catalog:`)
 and each instance's `runtime.yaml` and say it **all in bullets — plain words, no YAML, no config keys**:
@@ -135,10 +132,10 @@ it controls, never by its key (*"How picky it is about crowding — now 65% of t
 = more trades and more fees, higher = fewer, stronger ones"*; *"How much of the wallet each position uses —
 15%: about $95 of margin per position on your $635"*), the **fee load and the design budget**, and **the
 name as a fact, never a question**: *"It deploys as **Ignas's Phalanx** (`ignas-phalanx` in your strategy
-list) — say a different name if you want one."* Then one question: *"Run it as-is, or shift one of these
-first? Say **go** and it deploys as-is."* A bare "go" / "deploy" / "yes" = as-is under their name; a status
+list) — say a different name if you want one."* Then one question, leading with the change: *"What do you
+want to make yours — shift one of these, or add a rule of your own? Or say **go** to run it unchanged."* A bare "go" / "deploy" / "yes" = as-is under their name; a status
 check ("did you finish?", "how's it going?") is not a yes. Never a gate, never re-asked; the budget
-question comes after the answer. Cost class is a fact beside the choice, never a discouragement; named
+question comes after the answer. Cost class is a fact said when asked, never a reason to pick a template; named
 installs get the walkthrough too. Below the design budget, a guardrail removed or a threshold lowered:
 the consequence in one line and an explicit yes — never "done". **The fork is the verb's job:**
 `deploy.py create <template> --budget <usd>` reads their username itself, copies the template to
@@ -199,14 +196,15 @@ the scanner row's `lastRunStatus`/`runCount`).
 | `0` | `live` | every instance installed **and** a scanner tick observed | report live + the **How it runs** block. A `[W_BUDGET_*]` warn may ride a `live` report — relay it; it did **not** stop the deploy (see the relay contract below) |
 | `4` | `installed-unobserved` | installed, no tick seen inside `--tick-wait` (or `--tick-wait 0` skipped the check) | say exactly that; check `openclaw senpi scanner -r <runtimeId>` in a few minutes. External scanners legitimately tick on long intervals. **`--tick-wait 0` can never report `live`** — nothing was verified |
 | `6` | `pending` | the job still running when the poll budget ran out, **or** the job ended with a wallet still funding | still running: read `python3 deploy.py status` until it shows the outcome, and do not re-run `create`. Ended `pending` (status shows it done): re-run the same deploy command — it resumes and adopts the wallet |
-| `2` | `refused` | a gate said no (`[E_FUNDS_*]`, `[E_VALIDATE_*]`, `[E_UNIVERSE_NOT_LIVE]`, `[E_STATE_AMBIGUOUS_WALLETS]`, `[E_INSTANCE_BINDING_UNKNOWN]`, `[E_WALLET_OWNED_BY_OTHER_PACKAGE]`, `[INVALID_REQUEST]`, `[STRATEGY_LIMIT_PREFLIGHT]`) | **do what the refusal's code says** — per-code depth in [`references/refusal-playbook.md`](references/refusal-playbook.md); nothing was created past it |
-| `3` | `failed` | a step genuinely failed (backend rejection, install error, scanner erroring) | read the quoted cause, fix it, re-run — **except `[E_INSTALL_INDETERMINATE]`** (an install whose outcome is UNKNOWN — nothing to fix, and the money may still be out: do its read first) **and `[E_WALLET_INSTALL_IN_FLIGHT]`** (a race, not a defect — "fix it" is not "clear the stuck install"; **never** `runtime delete` here) **and a backend `SERR124`** (this account's pool of strategy wallets is empty — a per-account condition, nothing was created or debited: tell the user, route it to Senpi support, one later attempt after they confirm, never a retry loop) **and a backend `SERR183` / `SERR184`** (the user's plan limit on running strategies / new strategies per billing cycle (the last 30 days without a plan); nothing was created: quote the limit, offer closing one themselves (`SERR183` only), waiting until the stated time (`SERR184` only: when the count resets or the next start frees up) or an upgrade; never retry, never close a strategy for them, never split the deploy into smaller creates). All of these: per [`references/refusal-playbook.md`](references/refusal-playbook.md) |
+| `2` | `refused` | a gate said no (`[E_FUNDS_*]`, `[E_VALIDATE_*]`, `[E_UNIVERSE_NOT_LIVE]`, `[E_STATE_AMBIGUOUS_WALLETS]`, `[E_INSTANCE_BINDING_UNKNOWN]`, `[E_WALLET_OWNED_BY_OTHER_PACKAGE]`, `[INVALID_REQUEST]`) | **do what the refusal's code says** — per-code depth in [`references/refusal-playbook.md`](references/refusal-playbook.md); nothing was created past it |
+| `3` | `failed` | a step genuinely failed (backend rejection, install error, scanner erroring) | read the quoted cause, fix it, re-run — **except `[E_INSTALL_INDETERMINATE]`** (an install whose outcome is UNKNOWN — nothing to fix, and the money may still be out: do its read first) **and `[E_WALLET_INSTALL_IN_FLIGHT]`** (a race, not a defect — "fix it" is not "clear the stuck install"; **never** `runtime delete` here) **and a backend `SERR124`** (this account's pool of strategy wallets is empty — a per-account condition, nothing was created or debited: tell the user, route it to Senpi support, one later attempt after they confirm, never a retry loop) **and a backend `SERR183` / `SERR184`** (the user's plan limit on running strategies / new strategies per billing cycle (the last 30 days when there is no billing cycle); nothing was created: quote the limit, offer closing one themselves (`SERR183` only), waiting until the stated time (`SERR184` only: when the count resets or the next start frees up) or an upgrade; never retry, never close a strategy for them, never split the deploy into smaller creates). All of these: per [`references/refusal-playbook.md`](references/refusal-playbook.md) |
 | `5` | `interrupted` | a gateway restart killed the job mid-run | **nothing resumes on its own** — re-run the deploy; it reconciles |
+| `9` | — (no report) | out of memory: a call here was SIGKILLed | stop, don't retry or poll now; tell the user what the stop says; safe again when `status.py` exits `0` |
 
 **`2` is any gate saying no with nothing created past it** — the verb's refusals, and `deploy.py`'s own
 structural preflight when `create`/`runtime` fail it (nothing started; fix what it names and re-run — a
 bare retry refuses identically). **`1` is "could not answer", never an outcome**, and it is also what an
-unrecognised status returns, so a new status can never read as success. Branch on the code.
+unrecognised status returns, so a new status can never read as success. **`9` is the out-of-memory stop** (a call was SIGKILLed; the same code from `close.py`, `status.py`, `verify` and `update`, and `--json` carries `oom: true`): tell the user what it says and run nothing, not even a poll, until the box restarts or memory frees: safe again when `status.py` exits `0` (it does only once it has read the runtime list; `1` or `9` = not yet). Branch on the code.
 
 **Re-running is always safe.** There is **no local deploy-state file**: the backend strategies and the
 runtime registry are the record, so re-running the same command reconciles and adopts whatever already
@@ -288,7 +286,7 @@ one resumes, adopting whatever already exists.
 > this package's; it never re-derives a status or a number. Exit codes are its own: **`0`** verified ·
 > **`3`** not verified (it names, per instance, what is missing and the one non-destructive next step
 > for that state) · **`1`** could not check (a read it needs failed — that is **not** "not live";
-> re-read). **The resume is always `create`/`runtime`, never `verify`.** Where it quotes a wallet's
+> re-read) · **`9`** out of memory: stop, don't retry or poll now; safe again when `status.py` exits `0`. **The resume is always `create`/`runtime`, never `verify`.** Where it quotes a wallet's
 > `skillName` stamp, that is a **quote and never proof of who created the wallet**: any caller of the
 > creation tool can write any stamp, so a raw-MCP create or an older/differently-cased id of your own
 > renders the same row. Mechanics, the states it will and will not steer at, and the codes it can name:
@@ -324,7 +322,7 @@ POST, and `intervalSeconds: 0` / `nextRunAt: null` are the correct values rather
 `lastAliveAt` is the tick. So `runCount: 0` with a fresh `lastAliveAt` is a scanner finding nothing, not one that
 never ran — and the recipe's own `interval_seconds` is the scaffold's POST cadence, so a file saying 60 while the
 runtime reports 0 is not a contradiction either
-— never call a strategy dead without checking its ticks first: never a fault, never a reason to close and recreate (each new strategy wallet costs a real creation fee); the fix for "it isn't trading" is the gates or the budget, applied in place (below). A scanner interval under 60 s on a small book is fee churn — refuse it with the arithmetic (fills × fee against the budget), not a claim about timing. Decision tree: [`references/liveness-verification.md`](references/liveness-verification.md).
+— never call a strategy dead without checking its ticks first (the strategy's `events/events.jsonl` is not a tick log: an `ok` tick with no candidates writes nothing there, so a `tail` of it is only errors by construction — judge ticks by `health` + a fresh `lastAliveAt`): never a fault, never a reason to close and recreate (each new strategy wallet costs a real creation fee); the fix for "it isn't trading" is the gates or the budget, applied in place (below). A scanner interval under 60 s on a small book is fee churn — refuse it with the arithmetic (fills × fee against the budget), not a claim about timing. Decision tree: [`references/liveness-verification.md`](references/liveness-verification.md).
 `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/status.py` (`<id>` filters, `--fast` skips the per-runtime health call, `--json` for
 machine output). It is the single source of truth — live `strategy_list` ∪ `runtime list` (the same runtime-CLI
 read `senpi-portfolio` also quotes — neither surface independently confirms the other), never the
@@ -367,9 +365,8 @@ python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/close.py --strategy-id
 Per strategy: **stop the runtime** (if live) → **trigger `strategy_close`** (flattens **all** positions
 + closes the strategy, funds returned). `strategy_close` is **async**, so the script **does not wait** —
 it returns `closing` and hands polling to you: **re-run `close.py spider`** until it reports `closed`.
-Re-runs are idempotent. **A package with both a live strategy and a simulation refuses a plain `close.py <id>`** and closes nothing: re-run with `--live` for the live one or `--simulation` for the simulation. So does a package whose simulations could not be read (`SIMULATION_UNAVAILABLE`, or `SIMULATION_DISABLED`: switching simulations off keeps the ones already made); `--live` closes the live one only. `close.py --simulation` with simulations switched off (`SIMULATION_DISABLED`) refuses before it stops anything: the simulation stays open with its runtime; re-run once they are switched back on. So does a `--simulation` close whose simulation can't be read just before it; re-run it. **Two refusals close nothing (exit ≠ 0), and neither has an override:** the runtime inventory (`senpi.listRuntimes`) could not be read, so no runtime could be stopped first (a live runtime would re-enter the positions); or nothing is live but a deploy START never got an answer and its job may still be running. Tell the user why it was refused, never call `strategy_close` yourself, and re-run once the gateway answers / once `deploy.py status` shows no job running. A close that triggers while that START's job may still be running also exits ≠ 0 (`NOT torn down yet`): the live strategies are closing, but the job may still fund a wallet, so follow the same wait before re-running and never `deploy.py create` meanwhile. **A subset = one run each, sequential, never backgrounded with `&`** ([lifecycle.md](references/lifecycle.md#closing-several)). `--instance <name>` scopes an instance (needs its live runtime to map; else omit
-to close all). **Starting over on a new wallet** = `openclaw senpi validate` → `close` → `create`, in that order. Discovery
-is strategy-driven: close also cleans up an attributed package's **orphaned** (no-runtime) wallet, and
+Re-runs are idempotent. **A plain `close.py <id>` refuses and closes nothing when the package also has a simulation, or its simulations cannot be read:** re-run with `--live` or `--simulation`. When a `--simulation` close refuses, tell the user and re-run when the refusal says. **Two refusals close nothing (exit ≠ 0), and neither has an override:** the runtime inventory (`senpi.listRuntimes`) could not be read, so no runtime could be stopped first (a live runtime would re-enter the positions); or nothing is live but a deploy START never got an answer and its job may still be running. Tell the user why it was refused, never call `strategy_close` yourself, and re-run once the gateway answers / once `deploy.py status` shows no job running. A close that triggers while that START's job may still be running also exits ≠ 0 (`NOT torn down yet`): the live strategies are closing, but the job may still fund a wallet, so follow the same wait before re-running and never `deploy.py create` meanwhile. **A subset = one run each, sequential, never backgrounded with `&`** ([lifecycle.md](references/lifecycle.md#closing-several)). `--instance <name>` scopes an instance (needs its live runtime to map; else omit
+to close all). **Starting over on a new wallet** = `openclaw senpi validate` → `close` → `create`, in that order. Discovery is strategy-driven: close also cleans up an attributed package's **orphaned** (no-runtime) wallet, and
 `--strategy-id`/`--address` close one with **no package at all** ([`references/lifecycle.md`](references/lifecycle.md)).
 
 ## Applying an edit to a strategy that is already LIVE
@@ -380,7 +377,7 @@ the deployed scanner as it is.
 
 **Apply it in place — `openclaw senpi update`.** No close, no fresh wallet, no market exit; DSL state,
 scanner stores and action history survive. `senpi validate <instance-dir>` writes the proof `--apply`
-needs; `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py update <pkg> --id <runtime_id>` PLANS (the structural preflight, then the verb; add `--apply` to commit — it stops if the box has no `update` verb yet: then STOP too, never a close). **Read the
+needs, and only a run of it may: **never write, edit or copy `.senpi-proof.json` yourself** — matching hashes are not a validation; if validate cannot finish (killed (rc -9, exit 137, or 'Killed')), the edit is saved, **not applied** — tell the user and stop, and try again only after the box restarts or memory frees (`status.py` exits `0`); `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py update <pkg> --id <runtime_id>` PLANS (the structural preflight, then the verb; add `--apply` to commit — it stops if the box has no `update` verb yet: then STOP too, never a close). **Read the
 plan out first**: `dsl_preset` is **forward-only** — new entries only, never one already open (other `exit:`
 fields, e.g. `order_type`, DO reach open positions) — never let "tighter" be heard as "my open trades are tighter".
 **A DSL change has two targets, and the user picks which: (a) future positions — the file, via `update`;
