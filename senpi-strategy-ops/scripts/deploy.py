@@ -20,6 +20,8 @@ see `stale_proof_dirs`, which keys on the gate's structured evidence, never on i
   python3 deploy.py runtime  <id> [--decision-model M]             # resume/complete the same deploy
   python3 deploy.py create   <id> --budget <usd> --simulation      # the same deploy as a simulation
                                                                    #   (`senpi.deploy.startSimulation`)
+  python3 deploy.py create   <id> --budget <usd> --from-simulation simulation-<id>
+                                                                   # live deploy that keeps that simulation's identity
   python3 deploy.py verify   <id>                                  # READ-ONLY: is it live? (deploys/fetches nothing)
   python3 deploy.py status   [<id>]                                # the last deploy job's status
 
@@ -483,6 +485,8 @@ def _start_params(pkg, a):
                   file=sys.stderr)
             raise SystemExit(EXIT_CODES["refused"])
         params["budget"] = round(b, 2)
+    if getattr(a, "from_simulation", None):
+        params["fromSimulationId"] = a.from_simulation
     if getattr(a, "decision_model", None):
         params["decisionModel"] = a.decision_model
     if getattr(a, "tick_wait", None) is not None:
@@ -597,11 +601,13 @@ def _journal_write(pkg_id, entry):
 
 
 _REQUEST_ID_SHAPE = re.compile(r"^dpl-req-\d{8}T\d{6}Z-[0-9a-f]{8}$")
+_SIMULATION_ID_SHAPE = re.compile(r"^simulation-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
 def _params_key(params):
     """What a reused id must agree on: the package dir and the budget the first START asked for."""
-    return {"packageDir": params.get("packageDir"), "budget": params.get("budget")}
+    return {"packageDir": params.get("packageDir"), "budget": params.get("budget"),
+            **({"fromSimulationId": params["fromSimulationId"]} if params.get("fromSimulationId") else {})}
 
 
 def _open_entry(pkg, simulation=False):
@@ -1297,6 +1303,11 @@ def _unreadable_job(pkg, deploy_id, rid=None, why=None, as_json=False):
 
 def _simulation_sfx(a):
     return " --simulation" if getattr(a, "simulation", False) else ""
+
+
+def _rerun_sfx(a):
+    src = getattr(a, "from_simulation", None)
+    return _simulation_sfx(a) + (f" --from-simulation {src}" if src else "")
 
 
 def run_deploy(pkg, a, log):
@@ -2214,7 +2225,7 @@ def _username():
     return str(_cli.dig(user, "userName") or "").strip() or None
 
 
-def outside_durable_root(pkg, cmd, simulation=False):
+def outside_durable_root(pkg, cmd, simulation=False, from_simulation=None):
     """The refusal for a package that lives outside the durable strategies root, or None.
 
     A runtime keeps reading its scanners from the directory it was installed (or updated) from, and
@@ -2233,7 +2244,8 @@ def outside_durable_root(pkg, cmd, simulation=False):
             f"everything outside its volume on restart — the strategy would keep its wallet and lose "
             f"every scanner. Copy the package in and use the copy:\n"
             f"    cp -r {here} {dest}\n"
-            f"    python3 {Path(__file__).name} {cmd} {dest}{' --simulation' if simulation else ''} ...\n"
+            f"    python3 {Path(__file__).name} {cmd} {dest}{' --simulation' if simulation else ''}"
+            f"{f' --from-simulation {from_simulation}' if from_simulation else ''} ...\n"
             f"  (A catalog strategy can also go by its bare id, which fetches into {root}.) "
             f"Nothing was created, funded, installed or changed.")
 
@@ -2257,7 +2269,7 @@ def _fork_for_deploy(pkg, a, log):
         if not owner:
             print(f"✗ {pkg.id}: a template deploys under the user's name, never as the bare template, and their Senpi "
                   f"username could not be read. Ask what to call it, then re-run with\n"
-                  f"    python3 {Path(__file__).name} create {a.package} --name \"<their words>\" --budget <usd>{_simulation_sfx(a)}\n"
+                  f"    python3 {Path(__file__).name} create {a.package} --name \"<their words>\" --budget <usd>{_rerun_sfx(a)}\n"
                   f"  A user ID is never a name. Nothing was created, funded or installed.", file=sys.stderr)
             sys.exit(EXIT_CODES["refused"])
     try:
@@ -2347,6 +2359,9 @@ def _main(argv):
                     help="Seconds the job waits to observe one verified scanner tick (0 skips).")
     pc.add_argument("--dry-run", action="store_true")
     _simulation_flag(pc)
+    pc.add_argument("--from-simulation", dest="from_simulation", default=None, metavar="SIMULATION_ID",
+                    help="Take a simulation live: deploy this package live and keep that simulation's group, "
+                         "variant and settings. Not with --simulation.")
     _ownership_flags(pc)
 
     pr = sub.add_parser("runtime", help="Resume/complete the same deploy (installs the runtime(s)).")
@@ -2422,6 +2437,16 @@ def _main(argv):
     pu.add_argument("--json", action="store_true", help="The verb's report as one JSON document on stdout.")
 
     a = ap.parse_args(argv[1:])
+
+    src = getattr(a, "from_simulation", None)
+    if src is not None:
+        problem = ("it starts a LIVE deploy, so it cannot be combined with --simulation"
+                   if a.simulation else
+                   None if _SIMULATION_ID_SHAPE.match(src) else
+                   f"{src!r} is not a simulation id (expected simulation-<uuid>, as `strategy_list` shows it)")
+        if problem:
+            print(f"[INVALID_REQUEST] --from-simulation: {problem}. Nothing was started.", file=sys.stderr)
+            sys.exit(EXIT_CODES["refused"])
 
     # `where` answers one question — the durable strategies root, the only directory a fork or a
     # fetched package may be written to — and takes no flags, so it is answered before the flag-
@@ -2555,7 +2580,8 @@ def _main(argv):
         sys.exit(cmd_fork(pkg, a, log))
     if a.cmd in ("create", "runtime"):
         pkg = _fork_for_deploy(pkg, a, log)
-        refusal = outside_durable_root(pkg, a.cmd, getattr(a, "simulation", False))
+        refusal = outside_durable_root(pkg, a.cmd, getattr(a, "simulation", False),
+                                       from_simulation=getattr(a, "from_simulation", None))
         if refusal:
             print(refusal, file=sys.stderr)
             sys.exit(EXIT_CODES["refused"])
