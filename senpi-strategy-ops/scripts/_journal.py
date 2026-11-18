@@ -43,6 +43,15 @@ def read(pkg_id):
         return None
     try:
         entry = json.loads(path_for(pkg_id).read_text())
+    except FileNotFoundError:
+        # A simulation journaled while simulations were called paper sits under `<id>.paper`; it
+        # moves to the `.simulation` key on its first read.
+        if not pkg_id.endswith(".simulation"):
+            return None
+        entry = read(pkg_id.removesuffix(".simulation") + ".paper")
+        if entry:
+            write(pkg_id, entry)
+        return entry
     except (OSError, ValueError):
         return None
     return entry if isinstance(entry, dict) else None

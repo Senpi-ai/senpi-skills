@@ -448,6 +448,89 @@ class CloseOneWorld(_CloseHarness):
         self.assertIsNone(_journal.read(_journal.key("omega", False))["resolved"])
 
 
+class SimulationsMadeBeforeTheRename(_CloseHarness):
+    """A simulation made while simulations were called paper runs as `<id>-<inst>-paper` and its
+    deploy request sits under the `<id>.paper` journal key."""
+
+    def setUp(self):
+        super().setUp()
+        self.mcp.simulation = [_simulation_row()]
+        self.runtimes = [{"name": "omega-main-paper", "wallet": SIMULATION_WALLET, "status": "running"}]
+
+    def test_an_instance_close_stops_the_paper_named_runtime(self):
+        _out, code = self._run("omega", "--instance", "main", "--simulation")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.mcp.closed, [{"strategyId": SIMULATION_ID}])
+        self.assertEqual(self.deleted, ["omega-main-paper"])
+
+    def test_a_simulation_runtime_wins_over_a_paper_named_one(self):
+        self.runtimes = [{"name": "omega-main-paper", "wallet": SIMULATION_WALLET[:-1] + "f",
+                          "status": "running"},
+                         {"name": "omega-main-simulation", "wallet": SIMULATION_WALLET, "status": "running"}]
+        _out, code = self._run("omega", "--instance", "main", "--simulation")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.deleted, ["omega-main-simulation"])
+
+    def test_a_live_runtime_named_paper_is_not_taken_for_a_simulation(self):
+        self.runtimes = [{"name": "omega-main-paper", "wallet": LIVE_WALLET, "status": "running"}]
+        _out, code = self._run("omega", "--instance", "main", "--simulation")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(self.mcp.closed, [])
+        self.assertEqual(self.deleted, [])
+
+    def test_a_close_resolves_the_request_journaled_under_paper(self):
+        _journal.write("omega.paper", {"packageId": "omega", "requestId": "dpl-req-20261107T000000Z-cccccccc",
+                                       "sentAt": "2026-11-07T00:00:00Z", "verb": "create",
+                                       "paramsKey": {}, "resolved": None})
+        _out, code = self._run("omega", "--simulation")
+        self.assertEqual(code, 0)
+        entry = _journal.read(_journal.key("omega", True))
+        self.assertEqual(entry["requestId"], "dpl-req-20261107T000000Z-cccccccc")
+        self.assertEqual(entry["resolved"], "closed-by-close.py")
+
+
+class Review953Followups(_CloseHarness):
+    def test_a_plain_close_polls_with_live_so_a_simulation_outage_does_not_refuse_the_poll(self):
+        self.mcp.live = [_live_row()]
+        self.runtimes = [{"name": "omega-main", "wallet": LIVE_WALLET, "status": "running"}]
+        out, code = self._run("omega")
+        self.assertEqual(code, 0)
+        self.assertIn("re-running: close.py omega --live", out)
+        self.mcp.live = [_live_row(status_="CLOSING_POSITIONS")]
+        self.mcp.unavailable = True
+        out, code = self._run("omega", "--live")
+        self.assertEqual(code, 0)
+        self.assertNotIn("NOTHING was closed", out)
+
+    def test_a_simulation_sweep_leaves_a_closed_live_strategys_runtime_alone(self):
+        self.mcp.live = [_live_row(status_="CLOSED")]
+        self.mcp.simulation = []
+        self.runtimes = [{"name": "omega-main", "wallet": LIVE_WALLET, "status": "running"}]
+        for args in (("--all", "--simulation"), ("omega", "--simulation")):
+            _out, code = self._run(*args)
+            self.assertEqual(code, 0, args)
+            self.assertEqual(self.deleted, [], args)
+
+    def test_a_simulation_sweep_removes_a_closed_simulations_runtime(self):
+        self.mcp.live = [_live_row(status_="CLOSED")]
+        self.mcp.simulation = [_simulation_row(status_="CLOSED")]
+        self.runtimes = [{"name": "omega-main", "wallet": LIVE_WALLET, "status": "running"},
+                         {"name": "omega-main-simulation", "wallet": SIMULATION_WALLET, "status": "running"}]
+        _out, code = self._run("--all", "--simulation")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.deleted, ["omega-main-simulation"])
+        self.assertEqual(self.mcp.closed, [])
+
+    def test_a_dry_run_plans_the_sweep_the_real_run_does(self):
+        self.mcp.live = [_live_row(status_="CLOSED")]
+        self.runtimes = [{"name": "omega-main", "wallet": LIVE_WALLET, "status": "running"}]
+        for args in (("omega", "--live"), ("--all",)):
+            out, code = self._run(*args, "--dry-run", "--json")
+            self.assertEqual(code, 0, args)
+            self.assertIn('senpi.deleteRuntime {\\"id\\": \\"omega-main\\"}', out, args)
+            self.assertEqual(self.deleted, [], args)
+            self.assertEqual(self.mcp.closed, [], args)
+
 class CloseSimulationWithWritesOff(_CloseHarness):
     """The runtime must not be stopped ahead of a refused write."""
 
@@ -560,8 +643,8 @@ class StatusOneWorld(unittest.TestCase):
         self.runtimes = [{"name": "omega-main", "wallet": LIVE_WALLET, "status": "running"},
                          {"name": "omega-main-simulation", "wallet": SIMULATION_WALLET, "status": "running"}]
         _cli.list_runtimes_or_none = lambda *a, **k: list(self.runtimes)
-        status._openclaw_available = lambda: True
-        _cli.runtime_health_map = lambda: {}
+        status._openclaw_available = lambda **k: True
+        _cli.runtime_health_map = lambda **k: {}
 
     def tearDown(self):
         _cli.list_runtimes_or_none, status._openclaw_available, _cli.runtime_health_map = self._orig
@@ -882,7 +965,7 @@ class DeploySimulation(unittest.TestCase):
         deploy._fork_for_deploy = lambda p, a, log: p
         deploy.outside_durable_root = lambda p, cmd, simulation=False: None
         deploy.full_validate = lambda p: []
-        deploy.start_request_ids_supported = lambda log: True
+        deploy.start_request_ids_supported = lambda log, as_json=False: True
         try:
             for argv in (["create", "omega", "--budget", "30", "--simulation"], ["runtime", "omega", "--simulation"],
                          ["create", "omega", "--budget", "30"]):
