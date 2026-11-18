@@ -24,6 +24,11 @@ jobs:
       - name: install deps
         run: pip install pyyaml pytest
 
+      # A strategy.yaml edit must ship with its regenerated catalog: senpi-web's strategy pages read
+      # catalog.json on main, so a stale copy shows the old copy until someone re-runs the generator.
+      - name: catalog.json — matches a fresh gen_catalog.py run (both copies)
+        run: python3 senpi-trading-runtime/scripts/gen_catalog.py --check
+
       - name: min_budget — vendor parity (byte-identical across the two skills)
         run: python3 senpi-strategy-ops/tests/test_min_budget_vendor_parity.py
 

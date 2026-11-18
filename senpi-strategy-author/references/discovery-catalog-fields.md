@@ -42,6 +42,31 @@ catalog:
                                  #   all-weather, war, …). No controlled vocab — the LLM reads them.
 ```
 
+## Page copy (author-set; what a strategy page shows)
+
+senpi-web's strategy pages read these straight from `catalog.json`. Each is optional today (the page
+falls back to the name's subtitle, a split `belief_plain` and a generic risk line), but write all
+three for every new strategy. `gen_catalog.py` warns, and `strategies/tests/test_catalog_page_fields.py`
+fails, when a present one breaks its rule.
+
+```yaml
+catalog:
+  descriptor: "Rides BTC while it trends"     # ≤45 characters, plain words, starts with a verb,
+                                              #   no full stop. The line under the name.
+  summary: "Holds BTC through a trend and steps out when it stalls."   # ≤140 characters, one
+                                              #   sentence. The hero's one-liner; belief_plain moves
+                                              #   under "How it works".
+  risks: "A sideways market chops it in and out, paying fees each time."   # one or two sentences
+                                              #   on where THIS strategy goes wrong.
+  categories: [conservative]                  # optional: the category pages it appears on (slugs)
+```
+
+A fork keeps its template's `descriptor`, `summary` and `risks`; rewrite them when the fork changes
+what the strategy does.
+
+`shown_on` is not authored: `gen_catalog.py` sets it to the catalog id at the root of the `varies`
+chain (the page a version sits on), or null when that root is not in the catalog.
+
 ## Derived for you (do NOT duplicate unless params can't express it)
 
 `gen_catalog.py` computes these from `instances[]/params`:

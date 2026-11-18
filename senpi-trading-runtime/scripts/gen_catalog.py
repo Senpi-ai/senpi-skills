@@ -2,7 +2,10 @@
 """Generate strategies/catalog.json (the strategy registry index) from every strategies/*/strategy.yaml.
 
 The catalog is GENERATED — never hand-edit it. Run from the repo root:
-    python3 senpi-trading-runtime/scripts/gen_catalog.py [--updated YYYY-MM-DD] [--branch NAME]
+    python3 senpi-trading-runtime/scripts/gen_catalog.py [--updated YYYY-MM-DD] [--branch NAME] [--check]
+
+`--check` writes nothing: it exits 1 when either committed catalog.json differs from a fresh run
+(ignoring `_updated`), so CI can refuse a strategy.yaml change that ships without its catalog.
 
 Each record carries DECLARED fields (author-set in strategy.yaml `catalog:`) + DERIVED fields
 (computed from `instances[]/params`) + inlined glossary labels (from
@@ -32,7 +35,9 @@ INSTRUCTIONS = (
     "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run "
     "senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover "
     "(scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, "
-    "risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED "
+    "risk_level, tier, belief_plain, direction, descriptor, summary, risks, categories) are "
+    "author-set in strategy.yaml `catalog:`; 'shown_on' is the catalog id at the root of the "
+    "'varies' chain (the page a version sits on), null when that root is not in the catalog; DERIVED "
     "fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, "
     "max_slots) are computed from instances/params. Labels/glosses come from "
     "senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum "
@@ -48,6 +53,11 @@ DECLARED_REQUIRED = [
     "archetype", "sub_style", "asset_classes", "asset_scope",
     "risk_level", "tier", "belief_plain", "direction",
 ]
+
+# Page-copy fields (author-set, optional for now): the line under the name, the hero's one-liner,
+# and where the strategy goes wrong. Limits are what senpi-web's layout holds.
+DESCRIPTOR_MAX = 45
+SUMMARY_MAX = 140
 
 _WARNINGS = []
 
@@ -208,6 +218,47 @@ def validate_declared(glossary, catalog, sid):
             warn(f"{sid}: asset_class '{c}' not in glossary.yaml")
 
 
+def page_copy_problems(catalog):
+    """Rule breaks in the page-copy fields that are present. A missing field is not a problem here:
+    senpi-web falls back to what the page shows today. Shared with strategies/tests."""
+    problems = []
+    for field in ("descriptor", "summary", "risks"):
+        v = catalog.get(field)
+        if v is not None and (not isinstance(v, str) or not v.strip()):
+            problems.append(f"`{field}` must be a non-empty string")
+    d = catalog.get("descriptor")
+    if isinstance(d, str) and d.strip():
+        if len(d) > DESCRIPTOR_MAX:
+            problems.append(f"`descriptor` is {len(d)} characters (max {DESCRIPTOR_MAX})")
+        if d.rstrip().endswith("."):
+            problems.append("`descriptor` ends with a full stop")
+    sm = catalog.get("summary")
+    if isinstance(sm, str) and len(sm) > SUMMARY_MAX:
+        problems.append(f"`summary` is {len(sm)} characters (max {SUMMARY_MAX})")
+    cats = catalog.get("categories")
+    if cats is not None and not (isinstance(cats, list)
+                                 and all(isinstance(x, str) and x for x in cats)):
+        problems.append("`categories` must be a list of slugs")
+    return problems
+
+
+def stamp_shown_on(skills):
+    """shown_on = the root of each record's `varies` chain, set only when that root is in the
+    catalog (a root is its own). Needs every record, so it runs after they all exist."""
+    ids = {s["id"] for s in skills}
+    varies = {s["id"]: s.get("varies") for s in skills}
+    for s in skills:
+        node, seen = s["id"], {s["id"]}
+        while varies.get(node):
+            node = varies[node]
+            if node in seen:  # a cycle is an authoring error; leave the record unplaced
+                warn(f"{s['id']}: `varies` chain loops at {node}")
+                node = None
+                break
+            seen.add(node)
+        s["shown_on"] = node if node in ids else None
+
+
 def build(updated, branch):
     glossary = load_glossary()
     skills = []
@@ -226,6 +277,8 @@ def build(updated, branch):
         instance_count = len(instances)
 
         validate_declared(glossary, c, sid)
+        for problem in page_copy_problems(c):
+            warn(f"{sid}: {problem}")
         pkg_dir = os.path.dirname(man_path)
         cadence = derive_cadence_seconds(instances, pkg_dir)
         mb = min_budget.strategy_min_budget(m, load_runtimes(instances, pkg_dir))
@@ -249,6 +302,11 @@ def build(updated, branch):
             "varies": c.get("varies"),
             "tagline": c.get("tagline"),
             "belief_plain": c.get("belief_plain"),
+            # page copy (declared; optional — senpi-web falls back when absent)
+            "descriptor": c.get("descriptor"),
+            "summary": c.get("summary"),
+            "risks": c.get("risks"),
+            "categories": c.get("categories") or [],
             "version": m.get("version"),
             # worldview / theme surface (declared free text; no controlled vocab, no validation)
             "thesis": c.get("thesis"),
@@ -281,6 +339,7 @@ def build(updated, branch):
             "branch": branch,
         })
 
+    stamp_shown_on(skills)
     groups = defaultdict(list)
     for s in skills:
         groups[s["group"]].append(s)
@@ -297,21 +356,53 @@ def build(updated, branch):
     }
 
 
+def check(targets, branch):
+    """0 when every committed copy equals a fresh build, else 1. `_updated` is the date of the
+    last regeneration, not content, so the fresh build reuses each copy's own."""
+    stale = []
+    for t in targets:
+        rel = os.path.relpath(t, REPO_ROOT)
+        try:
+            with open(t) as f:
+                text = f.read()
+            committed = json.loads(text)
+        except (FileNotFoundError, json.JSONDecodeError) as exc:
+            stale.append(f"{rel}: unreadable ({exc})")
+            continue
+        fresh = json.dumps(build(committed.get("_updated"), branch), ensure_ascii=False,
+                           indent=2) + "\n"
+        if fresh != text:
+            stale.append(rel)
+    if stale:
+        print("catalog.json is stale — run senpi-trading-runtime/scripts/gen_catalog.py and "
+              "commit both copies:", file=sys.stderr)
+        for s in stale:
+            print(f"  ✗ {s}", file=sys.stderr)
+        return 1
+    print(f"catalog.json is fresh ({len(targets)} copies)")
+    return 0
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--updated", default=datetime.date.today().isoformat(),
                     help="catalog _updated date (YYYY-MM-DD); defaults to today so it is a real "
                          "freshness signal, not a frozen string")
     ap.add_argument("--branch", default="main")
+    ap.add_argument("--check", action="store_true",
+                    help="write nothing; exit 1 if a committed catalog.json differs from a fresh run "
+                         "(ignoring _updated)")
     a = ap.parse_args()
-    catalog = build(a.updated, a.branch)
-    blob = json.dumps(catalog, ensure_ascii=False, indent=2) + "\n"
     # Write BOTH: the repo copy (source of truth, next to the packages) AND the discover skill's local
     # copy, so the catalog travels with the skill when it's installed standalone (no ../../strategies/).
     targets = [
         os.path.join(REPO_ROOT, "strategies", "catalog.json"),
         os.path.join(REPO_ROOT, "senpi-strategy-discover", "catalog.json"),
     ]
+    if a.check:
+        sys.exit(check(targets, a.branch))
+    catalog = build(a.updated, a.branch)
+    blob = json.dumps(catalog, ensure_ascii=False, indent=2) + "\n"
     for t in targets:
         with open(t, "w") as f:
             f.write(blob)
