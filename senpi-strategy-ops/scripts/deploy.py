@@ -20,6 +20,8 @@ see `stale_proof_dirs`, which keys on the gate's structured evidence, never on i
   python3 deploy.py runtime  <id> [--decision-model M]             # resume/complete the same deploy
   python3 deploy.py create   <id> --budget <usd> --simulation      # the same deploy as a simulation
                                                                    #   (`senpi.deploy.startSimulation`)
+  python3 deploy.py create   <id> --budget <usd> --simulation --variant-of simulation-<id> [--batch <id>]
+                                                                   # a variation: joins that simulation's group
   python3 deploy.py create   <id> --budget <usd> --from-simulation simulation-<id>
                                                                    # live deploy that keeps that simulation's identity
   python3 deploy.py verify   <id>                                  # READ-ONLY: is it live? (deploys/fetches nothing)
@@ -487,6 +489,10 @@ def _start_params(pkg, a):
         params["budget"] = round(b, 2)
     if getattr(a, "from_simulation", None):
         params["fromSimulationId"] = a.from_simulation
+    if getattr(a, "variant_of", None):
+        params["parentId"] = a.variant_of
+    if getattr(a, "batch", None):
+        params["batchId"] = a.batch
     if getattr(a, "decision_model", None):
         params["decisionModel"] = a.decision_model
     if getattr(a, "tick_wait", None) is not None:
@@ -601,13 +607,14 @@ def _journal_write(pkg_id, entry):
 
 
 _REQUEST_ID_SHAPE = re.compile(r"^dpl-req-\d{8}T\d{6}Z-[0-9a-f]{8}$")
+_BATCH_ID_SHAPE = re.compile(r"^[A-Za-z0-9_-]{1,100}\Z")
 _SIMULATION_ID_SHAPE = re.compile(r"^simulation-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
 def _params_key(params):
     """What a reused id must agree on: the package dir and the budget the first START asked for."""
     return {"packageDir": params.get("packageDir"), "budget": params.get("budget"),
-            **({"fromSimulationId": params["fromSimulationId"]} if params.get("fromSimulationId") else {})}
+            **{k: params[k] for k in ("fromSimulationId", "parentId", "batchId") if params.get(k)}}
 
 
 def _open_entry(pkg, simulation=False):
@@ -1306,8 +1313,14 @@ def _simulation_sfx(a):
 
 
 def _rerun_sfx(a):
-    src = getattr(a, "from_simulation", None)
-    return _simulation_sfx(a) + (f" --from-simulation {src}" if src else "")
+    return _simulation_sfx(a) + _lineage_flags(getattr(a, "from_simulation", None),
+                                               getattr(a, "variant_of", None), getattr(a, "batch", None))
+
+
+def _lineage_flags(from_simulation=None, variant_of=None, batch=None):
+    return ((f" --from-simulation {from_simulation}" if from_simulation else "")
+            + (f" --variant-of {variant_of}" if variant_of else "")
+            + (f" --batch {batch}" if batch else ""))
 
 
 def run_deploy(pkg, a, log):
@@ -2225,7 +2238,7 @@ def _username():
     return str(_cli.dig(user, "userName") or "").strip() or None
 
 
-def outside_durable_root(pkg, cmd, simulation=False, from_simulation=None):
+def outside_durable_root(pkg, cmd, simulation=False, from_simulation=None, variant_of=None, batch=None):
     """The refusal for a package that lives outside the durable strategies root, or None.
 
     A runtime keeps reading its scanners from the directory it was installed (or updated) from, and
@@ -2245,7 +2258,7 @@ def outside_durable_root(pkg, cmd, simulation=False, from_simulation=None):
             f"every scanner. Copy the package in and use the copy:\n"
             f"    cp -r {here} {dest}\n"
             f"    python3 {Path(__file__).name} {cmd} {dest}{' --simulation' if simulation else ''}"
-            f"{f' --from-simulation {from_simulation}' if from_simulation else ''} ...\n"
+            f"{_lineage_flags(from_simulation, variant_of, batch)} ...\n"
             f"  (A catalog strategy can also go by its bare id, which fetches into {root}.) "
             f"Nothing was created, funded, installed or changed.")
 
@@ -2362,6 +2375,12 @@ def _main(argv):
     pc.add_argument("--from-simulation", dest="from_simulation", default=None, metavar="SIMULATION_ID",
                     help="Take a simulation live: deploy this package live and keep that simulation's group, "
                          "variant and settings. Not with --simulation.")
+    pc.add_argument("--variant-of", dest="variant_of", default=None, metavar="SIMULATION_ID",
+                    help="With --simulation: start this as a variation of that simulation, in its group as the "
+                         "next free version. Not for a new strategy, not with --from-simulation.")
+    pc.add_argument("--batch", dest="batch", default=None, metavar="BATCH_ID",
+                    help="With --variant-of: one id shared by every variation started together "
+                         "(1-100 chars of A-Z a-z 0-9 _ -).")
     _ownership_flags(pc)
 
     pr = sub.add_parser("runtime", help="Resume/complete the same deploy (installs the runtime(s)).")
@@ -2437,6 +2456,20 @@ def _main(argv):
     pu.add_argument("--json", action="store_true", help="The verb's report as one JSON document on stdout.")
 
     a = ap.parse_args(argv[1:])
+
+    variant, batch = getattr(a, "variant_of", None), getattr(a, "batch", None)
+    problem = (None if variant is None and batch is None else
+               "--variant-of needs --simulation" if variant is not None and not a.simulation else
+               "--variant-of cannot be combined with --from-simulation"
+               if variant is not None and getattr(a, "from_simulation", None) else
+               f"--variant-of: {variant!r} is not a simulation id (expected simulation-<uuid>, as `strategy_list` shows it)"
+               if variant is not None and not _SIMULATION_ID_SHAPE.match(variant) else
+               "--batch needs --variant-of" if variant is None else
+               f"--batch: {batch!r} is not a batch id (1-100 characters of A-Z a-z 0-9 _ -)"
+               if batch is not None and not _BATCH_ID_SHAPE.match(batch) else None)
+    if problem:
+        print(f"[INVALID_REQUEST] {problem}. Nothing was started.", file=sys.stderr)
+        sys.exit(EXIT_CODES["refused"])
 
     src = getattr(a, "from_simulation", None)
     if src is not None:
@@ -2581,7 +2614,9 @@ def _main(argv):
     if a.cmd in ("create", "runtime"):
         pkg = _fork_for_deploy(pkg, a, log)
         refusal = outside_durable_root(pkg, a.cmd, getattr(a, "simulation", False),
-                                       from_simulation=getattr(a, "from_simulation", None))
+                                       from_simulation=getattr(a, "from_simulation", None),
+                                       variant_of=getattr(a, "variant_of", None),
+                                       batch=getattr(a, "batch", None))
         if refusal:
             print(refusal, file=sys.stderr)
             sys.exit(EXIT_CODES["refused"])
