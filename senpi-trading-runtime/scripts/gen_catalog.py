@@ -36,7 +36,8 @@ INSTRUCTIONS = (
     "senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover "
     "(scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, "
     "risk_level, tier, belief_plain, direction, descriptor, summary, risks, categories) are "
-    "author-set in strategy.yaml `catalog:`; 'shown_on' is the catalog id at the root of the "
+    "author-set in strategy.yaml `catalog:`; 'instances' lists each instance's name, funding_share "
+    "and 'facts' (StrategyFacts v1 plus exit.lock_tiers, read from its runtime.yaml); 'shown_on' is the catalog id at the root of the "
     "'varies' chain (the page a version sits on), null when that root is not in the catalog; DERIVED "
     "fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, "
     "max_slots) are computed from instances/params. Labels/glosses come from "
@@ -190,6 +191,100 @@ def load_runtimes(instances, pkg_dir):
     return out
 
 
+# ---- per-instance facts (StrategyFacts v1) ----
+# The shape senpi-trading-runtime records on launch (src/strategy/facts.ts), plus exit.lock_tiers
+# (every phase-2 tier, which the page's profit-lock chart draws). Read straight from runtime.yaml,
+# with the engine's defaults where the file is silent (runtime-yaml.md): phase2 is ON unless
+# `enabled: false`; a time cut runs only with `enabled: true`. A field the file doesn't state is
+# null. Raw values only — how a page words or hides them is the page's business.
+FACTS_VERSION = 1
+
+
+def _num(v):
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 else None
+
+
+def _is_max_leverage_key(key):
+    k = key.lower().replace("_", "")
+    return "maxleverage" in k or "leveragemax" in k
+
+
+def instance_facts(rt):
+    strat = rt.get("strategy") or {}
+    ext = [s for s in (rt.get("scanners") or [])
+           if isinstance(s, dict) and s.get("type") == "external_scanner"]
+    inputs = [s.get("inputs") or {} for s in ext]
+
+    margin = next((m for i in inputs for m in [_num(i.get("marginPct", i.get("margin_pct")))]
+                   if m), None) or _num(strat.get("margin_pct"))
+    lev_default = _num(strat.get("default_leverage"))
+    levs = [lev_default] if lev_default else []
+    for i in inputs:
+        for k, v in i.items():
+            if _is_max_leverage_key(k) and _num(v):
+                levs.append(v)
+        tiers = i.get("leverageTiers")
+        if isinstance(tiers, list):
+            levs.extend(t["leverage"] for t in tiers if isinstance(t, dict) and _num(t.get("leverage")))
+    intervals = [s["interval_seconds"] for s in ext if _num(s.get("interval_seconds"))]
+
+    preset = ((rt.get("exit") or {}).get("dsl_preset")) or {}
+    phase2 = preset.get("phase2") or {}
+    tiers = []
+    if phase2.get("enabled", True):
+        tiers = [[t["trigger_pct"], t["lock_hw_pct"]] for t in (phase2.get("tiers") or [])
+                 if isinstance(t, dict) and _num(t.get("trigger_pct"))
+                 and isinstance(t.get("lock_hw_pct"), (int, float))]
+    weak = preset.get("weak_peak_cut") or {}
+    dead = preset.get("dead_weight_cut") or {}
+    weak_cut = ({"after_min": weak["interval_in_minutes"], "under_pct": weak["min_value"]}
+                if weak.get("enabled") is True and _num(weak.get("interval_in_minutes"))
+                and _num(weak.get("min_value")) else None)
+    dead_cut = ({"after_min": dead["interval_in_minutes"]}
+                if dead.get("enabled") is True and _num(dead.get("interval_in_minutes")) else None)
+
+    g = (rt.get("risk") or {}).get("guard_rails") or {}
+    streak = _num(g.get("max_consecutive_losses"))
+    pause = _num(g.get("cooldown_seconds"))
+
+    return {
+        "v": FACTS_VERSION,
+        "leverage_default": lev_default,
+        "leverage_max": max(levs) if levs else None,
+        "margin_pct": margin,
+        "slots": _num(strat.get("slots")),
+        "scan_interval_s": min(intervals) if intervals else None,
+        "exit": {
+            "first_lock": tiers[0] if tiers else None,
+            "lock_steps": len(tiers),
+            "lock_tiers": tiers,
+            "weak_peak_cut": weak_cut,
+            "dead_weight_cut": dead_cut,
+        },
+        "limits": {
+            "max_entries_per_day": _num(g.get("max_entries_per_day")),
+            "daily_loss_pct": _num(g.get("daily_loss_limit_pct")),
+            "loss_streak": {"count": streak, "pause_s": pause} if streak and pause else None,
+            "drawdown_halt_pct": _num(g.get("drawdown_halt_pct")),
+        },
+    }
+
+
+def build_instances(instances, runtimes, sid):
+    out = []
+    for inst in instances:
+        name = inst.get("name")
+        rt = runtimes.get(name)
+        if rt is None:
+            warn(f"{sid}: instance {name!r} has no readable runtime.yaml — its facts are null")
+        out.append({
+            "name": name,
+            "funding_share": inst.get("funding_share"),
+            "facts": instance_facts(rt) if rt is not None else None,
+        })
+    return out
+
+
 # ---- glossary label inlining + enum validation ----
 
 def label_for(glossary, kind, value, sid):
@@ -281,7 +376,8 @@ def build(updated, branch):
             warn(f"{sid}: {problem}")
         pkg_dir = os.path.dirname(man_path)
         cadence = derive_cadence_seconds(instances, pkg_dir)
-        mb = min_budget.strategy_min_budget(m, load_runtimes(instances, pkg_dir))
+        runtimes = load_runtimes(instances, pkg_dir)
+        mb = min_budget.strategy_min_budget(m, runtimes)
         if isinstance(c.get("min_budget"), (int, float)):
             warn(f"{sid}: strategy.yaml still declares min_budget:{c['min_budget']} — it is now "
                  f"COMPUTED and the authored field is ignored; delete it (use min_budget_floor to raise)")
@@ -335,6 +431,8 @@ def build(updated, branch):
             "instance_count": instance_count,
             "funding_split": derive_funding_split(instances),
             "max_slots": derive_max_slots(instances, c),
+            # each instance in manifest order, with what its runtime.yaml says it does
+            "instances": build_instances(instances, runtimes, sid),
             # registry
             "branch": branch,
         })
