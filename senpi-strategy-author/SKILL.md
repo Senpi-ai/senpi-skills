@@ -4,12 +4,14 @@ description: >-
   Build or edit the user's OWN Senpi trading strategy — interactively, ONE decision
   at a time. The DEFAULT for every strategy ask: a thesis or an X take, "build a
   strategy", "I have a trading idea", "what should I trade?" (as a strategy ask,
-  not a market read), "recommend a strategy", "set me up", and mandates ("trade for me", "you decide", "be
+  not a market read), "recommend a strategy" (naming stocks or coins keeps it one: "a
+  basket like Apple, Microsoft and Nvidia" gets templates from discover, never stock
+  research), "set me up", and mandates ("trade for me", "you decide", "be
   aggressive": one or two questions make it a thesis, then build). Also ANY
   strategy that needs DSL (stop-loss, trailing stop, profit-lock ladder): raw MCP
   strategy_create* / create_position calls can't carry a DSL and must never stand
   up a named or protected strategy; a strategy built here does. Finds the closest
-  template (senpi-strategy-discover) as the BASE the user forks and makes theirs (a
+  template FIRST (senpi-strategy-discover) as the BASE the user forks and makes theirs (a
   lever shifted, a rule of their own) before it goes live; scratch when nothing fits.
   No paper-trading mode: test with `senpi validate` and a $10-floor live run, never a
   scanner re-run on a timer. Never asks for a budget to build (asked once, at
@@ -18,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.16.0"
+  version: "3.17.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -61,7 +63,7 @@ much risk). Your job is to draw those out, one question at a time, and compile t
 The user is the driver and Senpi is the tool: what goes live is theirs, shaped by them. Every strategy ask
 starts here — a thesis, an X take, "what should I trade?", "recommend a strategy", "set me up".
 
-- **Find a base first.** Hand their idea to `senpi-strategy-discover` (their words as `--theme`). A template
+- **Find a base first.** Hand their idea to `senpi-strategy-discover` (their words as `--theme`, any stocks or coins they name as `--assets`: a named ticker never turns the ask into research on that asset, and checking tickers against `market_list_instruments` is a build step, after the base). A template
   fits only if it trades the same idea (the market, the edge, the horizon), not just the same asset; if
   you'd call it "not a tight fit", it doesn't fit. If one fits, offer it once, by name, as the base of
   *their* strategy (*"**Cougar** is close to what you described — want to start from it and make it

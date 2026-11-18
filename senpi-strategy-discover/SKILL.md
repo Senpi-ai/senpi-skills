@@ -6,7 +6,10 @@ description: >-
   before it goes live. Called by senpi-strategy-author to find a base for a thesis,
   and directly when the user asks to browse ("show me your templates", "a
   ready-made fund") or names a template. Strategy asks ("what should I trade?",
-  "recommend a strategy", "trade for me") start in senpi-strategy-author. Every pick
+  "recommend a strategy", "trade for me") start in senpi-strategy-author, which runs
+  this first; one that names stocks or coins ("a basket like Apple, Microsoft and
+  Nvidia") is still a strategy ask, answered with templates, never with research on
+  the assets. Every pick
   deploys as `<User>'s <Template>` (or a name of their own) after ops walks them
   through it. You talk and RANK (their worldview as `--theme`); a
   hidden engine (scripts/discover.py) fetches data + filters. NOT for installing a
@@ -14,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.55.0"
+  version: "2.57.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -89,6 +92,15 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
   (how many conditions must align at once, and the freshness window in human units). Never read a rate
   off the NAME: condor is called "One Amazing Trade per Day" and nothing in it enforces that. Method
   and worked numbers: `references/trade-frequency.md`.
+- **How a pick sells, how big each position is and when it re-buys: quote its card, never infer.**
+  The shortlist cuts `tagline`/`belief_plain`/`thesis` at 120 characters (they end in `…` and
+  `meta.full_card` says so), and the cut drops those sentences on most cards: run `--card <id,id>` for
+  the picks you present and quote them. Never infer an exit from the entry rule: a trend gate or a
+  signal that stops new buys sells nothing unless the card says it closes on it, so "exits when the
+  trend breaks" is wrong where the card says a trailing stop sells. Size per position is the card's
+  share of the ACCOUNT as margin ("4% clips at 2x" = $20 of margin, a $40 position, per name on $500),
+  never budget ÷ slots or ÷ names; a stopped-out position is bought back only as the card says. No
+  figure on the card → say ops shows it in the walkthrough.
 - **Offer the concentration choice whenever the family has one.** If a pick's family (follow `varies`
   to the root) holds both a spread and a concentrated member — **fewer `max_slots` and/or higher
   `leverage_max`** — name BOTH, one line each, before the budget question, and quote what one stop-out
@@ -125,6 +137,8 @@ python3 scripts/discover.py
   [--limit <int>]      # default 8; raise only when they ask to see more — never to recommend
   [--no-market]        # skip the live read — use while narrowing/browsing
   [--context-only]     # budget + holdings (Senpi + your saved wallets, read-only) only, no match
+  [--card <csv of ids>]  # the FULL card of each pick you present, offline — how it sells, sizes, re-buys;
+                         # ids over the output budget come back in `deferred`: run --card again for those
 ```
 
 `--assets` takes those tags **bare** — `commodities`, not `class:commodities`. A token that is
@@ -194,7 +208,7 @@ follow-up → size & lock in.**
 | "Help me pick" / a vague goal | **Belief spine** ↓ |
 | "What can I even run?" / "how does this work?" | **Orient / browse** — sketch the menu, then they pick a belief, read the market, or build custom |
 | "What's the market doing?" / "what's winning?" | **Read the market** (opt-in), then map the read to a fit |
-| Already stated it ("aggressive NVDA", "something for gold", "an AI fund") | skip ahead — run the engine on what they gave, then rank |
+| Already stated it ("aggressive NVDA", "something for gold", "an AI fund", "a basket like Apple, Microsoft, Nvidia") | skip ahead — run the engine on what they gave, then rank; named stocks or coins never turn it into research on the assets |
 | "Build my own" | hand to **senpi-strategy-author** (first-class, not a fallback) |
 | "I don't know" | **Layer-0 fallback** ↓ |
 
@@ -309,6 +323,9 @@ They lack the vocabulary; recommend *without* making them self-classify:
 - "something safe for BTC, ~$300" → `--assets btc_eth --budget 300 --theme "conservative defensive
   low-risk hedged"`  · rank: conservative
 - "aggressive NVDA play" → `--assets NVDA --theme "aggressive high-leverage momentum breakout"`  · rank: aggressive
+- "a long-term basket of quality megacaps like Apple, Microsoft and Nvidia, equal amounts" → `--assets
+  AAPL,MSFT,NVDA --theme "quality megacap big-tech basket equal-weight long-term position-horizon"` ·
+  rank: basket, position horizon — templates, never a research note on the three stocks
 - "quick in-and-out trades" → `--theme "intraday-horizon scalp-horizon quick short-term"`; "I want to hold
   for weeks" → `--theme "position-horizon long-term patient"`
 - "trade SpaceX / pre-IPO names" → `--assets pre_ipo`
@@ -339,6 +356,7 @@ They lack the vocabulary; recommend *without* making them self-classify:
 {lead: top pick + why-now from market_facts}.
 🦏  Rhino — Tail-Risk / Crisis-Alpha
     {thesis}.   Minimum ~${min_budget}{ + funding_split if wallet_count > 1}
+    {what sells it · each position's share of the account · when it re-buys — quoted from --card}
 {2nd / 3rd card}.   {caveats, verbatim}.
 "You've got ~${user_context.budget} free — start from {top} as the base of your strategy (I'll walk you through how it's set and what's worth changing before we fund it; it deploys as {user}'s {top} — or a name of your own), with a hedge alongside it, or build your own from scratch?"
 ```

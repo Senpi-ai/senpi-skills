@@ -93,6 +93,10 @@
       "behaviour": "fb57565530b2372c",
       "version": "1.2.1"
     },
+    "chipmunk": {
+      "behaviour": "6c947be1dfc31b62",
+      "version": "1.0.0"
+    },
     "condor": {
       "behaviour": "85595f26ee61b3a5",
       "version": "1.5.1"
@@ -270,8 +274,8 @@
       "version": "1.1.2"
     },
     "kudu": {
-      "behaviour": "83de991a81720438",
-      "version": "1.0.0"
+      "behaviour": "5a4c21f3ad44a982",
+      "version": "1.1.0"
     },
     "lemon": {
       "behaviour": "1dad3c33a5523dad",
@@ -537,6 +541,10 @@
       "behaviour": "2a00bf05fc9dbf9d",
       "version": "1.0.1"
     },
+    "squirrel": {
+      "behaviour": "df0b22b88e10133c",
+      "version": "1.0.0"
+    },
     "stag": {
       "behaviour": "0adbfee0abc8a6bf",
       "version": "1.1.1"
@@ -594,8 +602,8 @@
       "version": "1.1.2"
     },
     "yak": {
-      "behaviour": "78665ff8cba31901",
-      "version": "1.0.0"
+      "behaviour": "dfd37b16ee9ecf4a",
+      "version": "1.1.0"
     }
   }
 }

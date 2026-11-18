@@ -1,0 +1,57 @@
+# Chipmunk — the conservative BTC/ETH dip buyer: squirrel's dip ladder, buying only while a coin is
+# above its 40-week average. A THREE-instance PACKAGE: this manifest + three self-contained runtime.yaml
+# rungs (rung1 buys 10% under the 60-day high, rung2 20%, rung3 30%) on THREE separate wallets, each with
+# its own scanners/. The engine is strategies/squirrel's, byte for byte (tests/test_engine_parity.py pins
+# all six copies); the only difference is the input `regimeWeeks: 40`. The trend gate decides BUYS only:
+# the DSL's stop and profit lock close every position. Long only, 1x, a quarter of a rung's wallet per
+# coin. STARTER tier. Install/teardown via senpi-strategy-ops.
+#
+# Not a `varies:` variant of squirrel on purpose: it must surface on its own for "conservative" asks.
+schema_version: 1
+
+id: chipmunk
+version: "1.0.0"
+
+catalog:
+  name: "Chipmunk — Conservative BTC & ETH Dip Buyer"
+  emoji: "🐿️"
+  tagline: "A cautious dip buyer for BTC and ETH: it buys in three steps as a coin falls further under its two-month high, but only while that coin is still above its long-term average, so it does not buy into a bear market. No leverage, at most roughly half the budget in coins and the rest kept in USDC, and a wide stop and a profit lock close every position."
+  belief_plain: "The idea: buy a dip inside a long uptrend, not a fall that has broken the long-term trend. Once a day, after the daily close, it checks BTC and ETH: a coin is bought when it has closed at least 10%, 20% or 30% under its highest close of the previous 60 days (one step each) and is still above the average of its last 40 weekly closes. Each step is its own wallet (17%, 33% and 50% of the budget) and holds at most one BTC and one ETH position, each bought with a quarter of that wallet at 1x, so roughly half the budget or more stays in USDC. The trend check only decides whether to buy: a position is closed by its stop, 35% under the entry price (a loss of 35% of that position), or by a profit lock that starts at +35%, never because the trend turned. It can still lose when a coin bought above its average keeps falling to the stop."
+  thesis: "You want to buy big dips in BTC and ETH without buying all the way down a bear market, with no leverage and roughly half of your money or more in cash. It is Squirrel's three-step ladder with one more rule: no buy while a coin is under its 40-week average, so the dips inside a long decline are skipped and it opens nothing through a bear market. In a replay on Binance daily bars from January 2019 to November 2026, charged Hyperliquid's taker fee, the measured spread and each coin's average funding, it took 59 trades, about half as many as the ungated ladder, with a profit factor of 2.21 and a worst drawdown of 18.4%. It lost money in 2025 and 2026, as BTC and ETH fell from October 2025, and some years it barely traded (2022: one trade, stopped out). A backtest describes one past window and is not a forecast."
+  group: dca
+  archetype: contrarian_fade
+  sub_style: dca
+  asset_classes: [btc_eth]
+  asset_scope: basket
+  direction: long_only
+  risk_level: conservative
+  tier: starter
+  time_horizon: position
+  leverage_max: 1
+  max_slots: 2            # per rung wallet: one BTC and one ETH position (three wallets)
+  assets: ["BTC", "ETH"]
+  tags: [conservative, low-risk, cash-buffer, keeps-cash, half-in-usdc, buy-the-dip, dip-buyer, dca, btc,
+         eth, 1x, no-leverage, long-only, bull-market-dips]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+# THREE rungs on THREE wallets, budget split 17% / 33% / 50% (sizes about 1:2:3): the deeper the step,
+# the more it buys. min_budget is set by rung1: its smallest position (a quarter of 17% of the budget,
+# about 1/24) must clear the venue's $12 minimum.
+instances:
+  - name: rung1
+    runtime: rung1/runtime.yaml
+    wallet_env: CHIPMUNK_RUNG1_WALLET
+    funding_share: 0.17
+  - name: rung2
+    runtime: rung2/runtime.yaml
+    wallet_env: CHIPMUNK_RUNG2_WALLET
+    funding_share: 0.33
+  - name: rung3
+    runtime: rung3/runtime.yaml
+    wallet_env: CHIPMUNK_RUNG3_WALLET
+    funding_share: 0.50
