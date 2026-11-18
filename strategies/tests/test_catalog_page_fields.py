@@ -245,3 +245,14 @@ def test_page_copy_is_outside_the_behaviour_hash(tmp_path):
     assert BH.package_hash(str(tmp_path))[1] == before
     (tmp_path / "strategy.yaml").write_text('version: "1.0.0"\ncatalog:\n  name: "Y"\n')
     assert BH.package_hash(str(tmp_path))[1] != before  # the rest of catalog: still counts
+
+
+# ---- the file's layout ----
+
+def test_short_lists_stay_on_one_line_and_the_data_round_trips():
+    sample = {"a": [1, 2], "tiers": [[15, 20], [20, 40]], "rows": [{"x": [1]}], "e": [], "d": {}}
+    text = G.dumps(sample)
+    assert json.loads(text) == sample
+    assert '"tiers": [[15, 20], [20, 40]]' in text
+    assert '"a": [1, 2]' in text
+    assert '"rows": [\n' in text  # a list of objects still opens one per line

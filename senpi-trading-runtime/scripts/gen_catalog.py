@@ -503,6 +503,33 @@ def build(updated, branch, previous=None, today=None):
     }
 
 
+def _is_leaf_list(v):
+    """A list of scalars, or of lists of scalars: `["BTC", "ETH"]`, `[[15, 20], [20, 40]]`."""
+    return isinstance(v, list) and all(
+        not isinstance(x, (dict, list))
+        or (isinstance(x, list) and all(not isinstance(y, (dict, list)) for y in x))
+        for x in v)
+
+
+def dumps(catalog):
+    """catalog.json as written: indented like `json.dumps(indent=2)`, except that a list of
+    scalars (or of scalar pairs) stays on one line. Same data, about 40% fewer lines, and a diff
+    that changes one tier shows one line, not one per number."""
+    def emit(v, depth):
+        pad = "  " * depth
+        if isinstance(v, dict):
+            if not v:
+                return "{}"
+            body = ",\n".join(f"{pad}  {json.dumps(k, ensure_ascii=False)}: {emit(x, depth + 1)}"
+                              for k, x in v.items())
+            return "{\n" + body + "\n" + pad + "}"
+        if isinstance(v, list) and not _is_leaf_list(v):
+            body = ",\n".join(f"{pad}  {emit(x, depth + 1)}" for x in v)
+            return "[\n" + body + "\n" + pad + "]"
+        return json.dumps(v, ensure_ascii=False, separators=(", ", ": "))
+    return emit(catalog, 0) + "\n"
+
+
 def check(targets, branch):
     """0 when every committed copy equals a fresh build, else 1. `_updated` is the date of the
     last regeneration, not content, so the fresh build reuses each copy's own."""
@@ -516,8 +543,7 @@ def check(targets, branch):
         except (FileNotFoundError, json.JSONDecodeError) as exc:
             stale.append(f"{rel}: unreadable ({exc})")
             continue
-        fresh = json.dumps(build(committed.get("_updated"), branch), ensure_ascii=False,
-                           indent=2) + "\n"
+        fresh = dumps(build(committed.get("_updated"), branch))
         if fresh != text:
             stale.append(rel)
     if stale:
@@ -549,7 +575,7 @@ if __name__ == "__main__":
     if a.check:
         sys.exit(check(targets, a.branch))
     catalog = build(a.updated, a.branch)
-    blob = json.dumps(catalog, ensure_ascii=False, indent=2) + "\n"
+    blob = dumps(catalog)
     for t in targets:
         with open(t, "w") as f:
             f.write(blob)
