@@ -15,9 +15,11 @@ Modeled on the other read skills: guarded I/O, fails open, valid JSON.
 import argparse
 import json
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+_NO_CREDITS_TOOL = re.compile(r"user_get_credits not found|NOT_CONFIGURED")
 
 
 # ──────────────────────────────────────────────────────────────── guarded helpers
@@ -132,19 +134,21 @@ def fetch_referral(client, meta):
 
 def fetch_credits(client, meta):
     """AI-credit balance from user_get_credits; only a numeric `credits.remaining` counts.
-    A dollar-only shape, null credits, a missing tool or any failure is `available: false`."""
+    A dollar-only shape, null credits, a missing tool or any failure is `available: false`.
+    A server without the tool, or without credits configured, is not a failure worth a warning."""
     unavailable = {"available": False}
     try:
         data = _ok(client.mcp_call("user_get_credits", timeout=15))
     except Exception as e:  # noqa
-        meta.setdefault("warnings", []).append(f"user_get_credits failed: {e}")
+        if not _NO_CREDITS_TOOL.search(str(e)):
+            meta.setdefault("warnings", []).append(f"user_get_credits failed: {e}")
         return unavailable
     c = data.get("credits") if isinstance(data, dict) else None
     remaining = _f(c, "remaining")
     if remaining is None:
         return unavailable
     cycle_end = _field(c, "cycle_end")
-    return {"available": True, "remaining": remaining,
+    return {"available": True, "remaining": max(0, int(remaining)),
             "burn_per_hour": _f(c, "burn_per_hour"),
             "hours_left": _f(c, "hours_left"),
             "cycle_end": cycle_end if isinstance(cycle_end, str) else None}

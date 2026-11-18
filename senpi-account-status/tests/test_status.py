@@ -66,7 +66,7 @@ def test_the_output_is_points_fee_and_referral_and_nothing_about_tiers():
                    "rank": 42.0, "rank_change": 3.0, "found": True},
         "fee": {"bps": 30.0, "pct": "0.03%"},
         "referral": {"balance_usdc": 12.5, "wallet": "0xme"},
-        "credits": {"available": True, "remaining": 1234.5, "burn_per_hour": 10.0,
+        "credits": {"available": True, "remaining": 1234, "burn_per_hour": 10.0,
                     "hours_left": 123.4, "cycle_end": "2026-12-01T00:00:00.000Z"},
         "meta": {"warnings": []},
     }
@@ -106,13 +106,14 @@ def _credits_with(status_response, **kw):
 
 def test_credits_available_reports_the_number_of_credits():
     r = _result()
-    assert r["credits"]["available"] is True and r["credits"]["remaining"] == 1234.5
+    assert r["credits"]["available"] is True and r["credits"]["remaining"] == 1234
+    assert isinstance(r["credits"]["remaining"], int)
     assert r["credits"]["hours_left"] == 123.4
 
 
 def test_credits_without_burn_or_hours_keep_them_null():
     r = _credits_with({"success": True, "data": {"credits": {"remaining": "50"}}})
-    assert r["credits"] == {"available": True, "remaining": 50.0, "burn_per_hour": None,
+    assert r["credits"] == {"available": True, "remaining": 50, "burn_per_hour": None,
                             "hours_left": None, "cycle_end": None}
 
 
@@ -130,6 +131,29 @@ def test_null_credits_and_a_failed_or_missing_tool_are_unavailable():
         r = _credits_with(resp)
         assert r["credits"] == {"available": False}, resp
         assert r["points"]["total"] == 15000          # the rest of the standing still returns
+
+
+def test_a_zero_or_negative_balance_reads_as_zero_credits():
+    for remaining in (0, -340, "-340.0"):
+        r = _credits_with({"success": True, "data": {"credits": {"remaining": remaining}}})
+        assert r["credits"]["available"] is True and r["credits"]["remaining"] == 0, remaining
+
+
+def _raising_credits(message):
+    class Raising(status._FixtureClient):
+        def mcp_call(self, tool, timeout=12, **kw):
+            if tool == "user_get_credits":
+                raise RuntimeError(message)
+            return super().mcp_call(tool, timeout=timeout, **kw)
+    return status.run(Raising(_recorded()))
+
+
+def test_a_server_without_the_credits_tool_is_unavailable_without_a_warning():
+    for message in ("JSON-RPC error -32602: Tool user_get_credits not found",
+                    "tool failed: NOT_CONFIGURED: credits are not configured"):
+        r = _raising_credits(message)
+        assert r["credits"] == {"available": False}, message
+        assert r["meta"]["warnings"] == [], message
 
 
 def test_a_raising_credits_call_fails_open_with_a_warning():
