@@ -164,6 +164,8 @@ class AFailedVariationIsTheUsersCall(unittest.TestCase):
         text = (SCRIPTS.parent / "SKILL.md").read_text()
         self.assertIn("A variation refused or failed = stop there", text)
         self.assertIn("Never deploy them without `--variant-of` unasked", text)
+        self.assertIn("run them as standalone simulations", text)
+        self.assertIn("retry, or stop?", text)
 
 
 if __name__ == "__main__":
