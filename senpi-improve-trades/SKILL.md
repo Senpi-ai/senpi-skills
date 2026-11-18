@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.25.3"
+  version: "1.25.4"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -279,7 +279,7 @@ wired, quote the maker ratio as a fee-tier signal, never a fee dollar total. (`p
 trade rows do carry fee $.)
 
 **Fee rate (hard rule 0):** Senpi charges **no builder fee on a paid plan** (Pro, Advanced, Quant, and
-Starter for people already on it); tiers and points no longer change it. Quote fees from the fills,
+Starter for people already on it) **or with credits**; tiers and points no longer change it. Quote fees from the fills,
 never a rate from memory — the rate is not a constant. A fill keeps the fee it was signed with, so an order placed before
 2026-10-26 (a resting stop included) can still carry a builder leg: read it from the fill's own
 `builderFee`.

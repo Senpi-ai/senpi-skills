@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.11.4"
+  version: "1.11.5"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -54,7 +54,7 @@ Returns `{as_of, identity, points, fee, referral, limits, credits, meta}`:
 - `points` — `total`, `base` (Base copy-trading), `perp` (Hyperliquid), `multiplier` (the plan's
   points rate), `rank`, `rank_change`.
 - `fee` — `bps` + `pct`, the Senpi fee this user pays, as the backend reports it: `0` / `0%` on a
-  paid plan (`bps` is in tenths of a bp).
+  paid plan or while the account holds credits (`bps` is in tenths of a bp).
 - `referral` — `balance_usdc` (referral earnings not yet claimed).
 - `limits` — MCP `strategy_get_limits` as returned; rules in "Strategy limits" below.
 - `credits` — `available`, and when true `remaining` (credits), `burn_per_hour` and `hours_left`
@@ -67,7 +67,7 @@ Returns `{as_of, identity, points, fee, referral, limits, credits, meta}`:
 Lead with the section they asked about; otherwise a tight standing card:
 
 1. **Points & rank** — total, base/perp split, multiplier, rank (+ change).
-2. **Fee** — `fee.pct` (`0%` = a paid plan, no Senpi fee).
+2. **Fee** — `fee.pct` (`0%` = a paid plan or credits, no Senpi fee).
 3. **Referral** — pending `balance_usdc` (and that it's claimable if > 0).
 4. **Strategy limits** — only when a limit is enforced: `limits.summary`, usage and the reset time (on a free trial, when it ends). No
    limits apply (grandfathered, or both limits `null`): one line at most, "no strategy limits apply".
@@ -96,7 +96,7 @@ catalog question: quote the "Plans & free credits" table as written, never a num
   limits, so none apply. Both limits `null` (some `source: "override"` accounts): no limits apply to
   their account. Either way the card says "no strategy limits apply" at most. `limits.plan` is present
   only when the limits come from a plan (`source: "plan"`); never infer the user's subscription from
-  `limits`. A `0%` fee means a paid plan; name no plan you didn't read.
+  `limits`. A `0%` fee means a paid plan or credits; name no plan you didn't read.
 - **`enforced: false`**: limits are not enforced right now, whatever the numbers say. Leave limits off
   the card and do not raise them; when asked, say limits are not enforced right now.
 - **How it counts**: every wallet is one strategy (a 3-wallet strategy uses 3); a PAUSED strategy counts
@@ -208,8 +208,9 @@ always wins for them.
 
 - **Every plan includes every model.** Plans differ on credits, points rate and strategy limits — never on model
   access, so a cheaper plan never locks anyone out of the better model.
-- **No Senpi trading fee on any paid plan** — only Hyperliquid's own exchange fees. For any other
-  account, quote its own `fee.pct` from the engine; never state a rate from memory.
+- **No Senpi trading fee on any paid plan, or while the account holds credits** (pay as you go, the
+  initial free credits) — only Hyperliquid's own exchange fees. For an account with no plan and no
+  credits, quote its own `fee.pct` from the engine; never state a rate from memory.
 - **Referrals pay 15% of a referred friend's monthly Senpi spend, for their first 12 months** — from
   what the friend spends on Senpi, not from their trading. A friend on $100 a month earns the referrer
   $15 a month × 12 months = $180. How and when the share is paid out is not announced yet: if asked,
