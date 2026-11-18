@@ -448,6 +448,47 @@ class CloseOneWorld(_CloseHarness):
         self.assertIsNone(_journal.read(_journal.key("omega", False))["resolved"])
 
 
+class SimulationsMadeBeforeTheRename(_CloseHarness):
+    """A simulation made while simulations were called paper runs as `<id>-<inst>-paper` and its
+    deploy request sits under the `<id>.paper` journal key."""
+
+    def setUp(self):
+        super().setUp()
+        self.mcp.simulation = [_simulation_row()]
+        self.runtimes = [{"name": "omega-main-paper", "wallet": SIMULATION_WALLET, "status": "running"}]
+
+    def test_an_instance_close_stops_the_paper_named_runtime(self):
+        _out, code = self._run("omega", "--instance", "main", "--simulation")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.mcp.closed, [{"strategyId": SIMULATION_ID}])
+        self.assertEqual(self.deleted, ["omega-main-paper"])
+
+    def test_a_simulation_runtime_wins_over_a_paper_named_one(self):
+        self.runtimes = [{"name": "omega-main-paper", "wallet": SIMULATION_WALLET[:-1] + "f",
+                          "status": "running"},
+                         {"name": "omega-main-simulation", "wallet": SIMULATION_WALLET, "status": "running"}]
+        _out, code = self._run("omega", "--instance", "main", "--simulation")
+        self.assertEqual(code, 0)
+        self.assertEqual(self.deleted, ["omega-main-simulation"])
+
+    def test_a_live_runtime_named_paper_is_not_taken_for_a_simulation(self):
+        self.runtimes = [{"name": "omega-main-paper", "wallet": LIVE_WALLET, "status": "running"}]
+        _out, code = self._run("omega", "--instance", "main", "--simulation")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(self.mcp.closed, [])
+        self.assertEqual(self.deleted, [])
+
+    def test_a_close_resolves_the_request_journaled_under_paper(self):
+        _journal.write("omega.paper", {"packageId": "omega", "requestId": "dpl-req-20261107T000000Z-cccccccc",
+                                       "sentAt": "2026-11-07T00:00:00Z", "verb": "create",
+                                       "paramsKey": {}, "resolved": None})
+        _out, code = self._run("omega", "--simulation")
+        self.assertEqual(code, 0)
+        entry = _journal.read(_journal.key("omega", True))
+        self.assertEqual(entry["requestId"], "dpl-req-20261107T000000Z-cccccccc")
+        self.assertEqual(entry["resolved"], "closed-by-close.py")
+
+
 class Review953Followups(_CloseHarness):
     def test_a_plain_close_polls_with_live_so_a_simulation_outage_does_not_refuse_the_poll(self):
         self.mcp.live = [_live_row()]

@@ -514,7 +514,7 @@ def main(argv):
             # here, fail-closed: an unreadable read stops the run, never "no runtime".
             runtimes = _inventory_or_stop(rerun, a.json)
             rid = _cli.runtime_id_for(pkg.id, a.instance, a.simulation)
-            rt = next((r for r in runtimes if _cli.runtime_name(r) == rid), None)
+            rt = _cli.instance_runtime(runtimes, pkg.id, a.instance, a.simulation)
             w = _cli.runtime_wallet(rt) if rt else None
             targets = [(a.instance, s) for s in opens if w and _cli.wallet_match(w, _cli.strategy_wallet(s))]
             if not targets:

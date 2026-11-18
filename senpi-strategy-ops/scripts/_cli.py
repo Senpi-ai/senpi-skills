@@ -1205,6 +1205,18 @@ def runtime_id_for(pkg_id, instance, simulation):
     return base + SIMULATION_RUNTIME_SUFFIX if simulation else base
 
 
+def instance_runtime(runtimes, pkg_id, instance, simulation):
+    """The runtime an instance runs as in one world. A simulation made while simulations were called
+    paper runs as `<id>-<instance>-paper`; it answers only when no `-simulation` runtime exists, and
+    only with a simulation wallet, since an instance named `<instance>-paper` runs live by that id."""
+    rid = runtime_id_for(pkg_id, instance, simulation)
+    rt = next((r for r in runtimes if runtime_name(r) == rid), None)
+    if rt is None and simulation:
+        rt = next((r for r in runtimes if runtime_name(r) == f"{pkg_id}-{instance}-paper"
+                   and runtime_world_is(r, True)), None)
+    return rt
+
+
 def runtime_world_is(rt, simulation):
     """Whether a runtime belongs to the world being read, by its wallet."""
     return is_simulation_address(runtime_wallet(rt)) == bool(simulation)
