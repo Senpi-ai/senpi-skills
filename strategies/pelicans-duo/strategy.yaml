@@ -10,6 +10,7 @@ version: "1.1.0"
 catalog:
   varies: pelican          # a VARIANT of this template — never outrank it
   name: "Pelicans Duo — Pelican across two slots"
+  descriptor: "Trims Pelican's bet, splits it in two"
   emoji: "🌊"
   tagline: "Pelican's signal spread over two positions instead of one: the same rank-jump detector over the same universe — including the XYZ markets penguin bans, so equities, commodities, indices and pre-IPO are in scope — at the same score floor, the same pre-move gate and the same exits, but taking the best TWO candidates at 40% margin each rather than the single best at 90%. Combined margin is 80%, which is lower than Pelican's 90%: this is both more diversified and smaller."
   belief_plain: "This is Pelican with the book split in two. Pelican finds the strongest coin rocketing up the leaderboard of what winning traders are piling into — across the widest market list, including equities and commodities — and commits the whole account to that one name. This version takes the top two instead, at 40% each. Note that this is not simply the same money spread wider: two slots at 40% is 80% committed against Pelican's 90%, so it is both more diversified and slightly smaller. One stop-out costs about 6% of the account instead of 13.5%, but two positions can be open at once."

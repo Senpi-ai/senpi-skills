@@ -10,6 +10,7 @@ version: "1.1.0"
 
 catalog:
   name: "Dire — BRENTOIL Oil Specialist"
+  descriptor: "Trades Brent oil when every timeframe agrees"
   emoji: "🦡"
   tagline: "A single-asset Brent crude (xyz:BRENTOIL) specialist: enters only when 5m/15m/1h/4h trend all agree AND smart-money (mark/oracle premium) leans the same way, then stacks OI velocity, volume spikes and price cleanliness into a conviction score — sizing leverage to conviction (3/5/7/10x) and letting the DSL ride the news move."
   belief_plain: "Trades only Brent crude oil. It waits until every timeframe from 5 minutes to 4 hours is pointing the same way and order flow agrees, then goes in harder when more signals line up — and trails a stop instead of guessing the exit. Oil trades around the clock, weekends included."

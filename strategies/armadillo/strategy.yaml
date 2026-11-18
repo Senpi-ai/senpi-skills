@@ -11,6 +11,7 @@ version: "1.2.1"
 
 catalog:
   name: "Armadillo — Capital Preservation"
+  descriptor: "Trades strong big-coin trends at low leverage"
   emoji: "🛡️"
   tagline: "A sleep-at-night strategy that trades only the biggest, most liquid coins, at low leverage (1-2x), with small position sizes and a high bar for entering — so it makes few, careful trades and protects your money first. Tight stops cut losers fast and lock in gains early, and a hard drawdown halt is the backstop. Built to NOT lose money, not to swing for the fences."
   belief_plain: "This is the conservative, capital-preservation option. It sticks to the majors (the deepest, most liquid markets), uses low leverage and small sizes, and only opens a position when a real, strong trend lines up — so most of the time it's patient and does nothing. When it is in a trade, a tight trailing stop protects it: it cuts losers quickly and starts locking in profit early instead of giving gains back. A hard 10% drawdown halt stops everything if things go wrong. It won't shoot the lights out — that's the point."

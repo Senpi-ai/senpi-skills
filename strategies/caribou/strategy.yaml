@@ -12,6 +12,7 @@ version: "1.2.0"
 
 catalog:
   name: "Caribou — Cross-Asset Trend Fund"
+  descriptor: "Follows trends across every market at once"
   emoji: "🦌"
   tagline: "Trend-follows the WHOLE Hyperliquid board across every asset class (crypto, tokenized stocks, indices, metals, energy): longs the confirmed uptrends and shorts the confirmed downtrends on two separate wallets, sizes every position to EQUAL RISK by volatility parity, and caps each asset class at 40% of equity so the book stays diversified. Managed futures, on-chain."
   belief_plain: "Follows the trend everywhere at once — crypto, stocks, gold, oil, indices — buying what's going up and shorting what's going down, on two separate wallets. It bets the SAME risk on each position (smaller on wild assets, bigger on calm ones) and never lets any one type of market take over the book, so the curve stays smooth and it can make money even when stocks are crashing."

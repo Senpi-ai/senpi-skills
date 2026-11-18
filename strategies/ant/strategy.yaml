@@ -9,6 +9,7 @@ id: ant
 version: "1.3.1"
 catalog:
   name: "Ant — Funding Harvester"
+  descriptor: "Shorts crowded longs to collect funding"
   emoji: "🐜"
   tagline: "Finds the most heavily-traded perps where longs are paying shorts a rich funding rate, and — only when that crowd of longs looks tired (overbought and rolling over, not still charging) — shorts them to collect the funding, hour after hour. Low leverage, a tight stop in case of a squeeze, and it rotates daily, dropping names once the funding dries up."
   belief_plain: "When too many traders pile long into a perp, the funding rate turns positive — longs literally pay shorts every hour to hold. Ant gets on the receiving side of that payment by shorting those names, but it's careful: it only shorts when the long crowd is already exhausted, so it's fading a tired move rather than standing in front of a freight train. It keeps size and leverage modest because the money is in the funding, not in calling the direction, and a tight trailing stop caps the damage if a name squeezes."

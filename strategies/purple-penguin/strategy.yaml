@@ -15,6 +15,7 @@ version: "1.2.0"
 catalog:
   varies: penguin          # a VARIANT of this template — never outrank it
   name: "Purple Penguin — Striker at score 8"
+  descriptor: "Loosens Penguin's entry bar one notch"
   emoji: "🟣"
   tagline: "Penguin with the conviction bar one notch lower: the same rank-jump detector, the same hard gates, the same whole-book commitment at 10x — but it will take a score of 8 where Penguin insists on 9. An experiment in whether that floor is set too high, and the only thing in this package that differs."
   belief_plain: "This is Penguin with one number changed. Penguin only acts when its signal scores 9 or better out of a possible 12, and almost half of everything it trades sits at exactly 9 — right on the line. The score is built from a handful of all-or-nothing bonuses, so an 8 is not a weak signal so much as one that missed a single bonus, and there was no record of how those traded because the old code discarded them without keeping one. Purple Penguin keeps every structural filter Penguin has: the coin must still have jumped at least 15 places from a deep starting rank, the 4-hour trend must still agree with the direction, and the volume spike must still confirm. It loosens only how much conviction it asks for on top of those. Everything about the risk is Penguin's, which means one stop-out is about 13.5% of the account before fees, and there is no second position to offset it."

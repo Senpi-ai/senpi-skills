@@ -24,6 +24,7 @@ version: "1.0.1"
 
 catalog:
   name: "Condor Concentrated — One Concentrated Trade per Day"
+  descriptor: "Bets 80% on one trade, stocks included"
   emoji: "🦅"
   varies: condor          # a VARIANT of this template — never outrank it
   tagline: "Condor's apex sniper, concentrated: ONE position at 80% margin and 10x instead of 20-32%, across crypto AND XYZ equities — and its directional confirmation comes from the traders with >= $1M lifetime realized PnL rather than the 4h gain board. Fires only when 24h, 4h, 1h and 15m momentum all align behind them. No time cuts."

@@ -11,6 +11,7 @@ version: "2.0.0"
 catalog:
   varies: athena          # a VARIANT of this template — never outrank it
   name: Athena Concentrated — two large phalanx bets
+  descriptor: "Runs two bigger proven-trader bets, not three"
   emoji: 🏛️
   tagline: Athena with the phalanx arm concentrated into two larger positions instead of three smaller ones — the same capital at risk, carried by fewer, bigger bets. The aegis hedge and the 65/35 split are unchanged.
   belief_plain: 'This is Athena with one change on its attacking side. Athena runs two arms: phalanx, which follows what proven smart-money traders are buying, and aegis, which hedges. Normally phalanx spreads its share across three positions. This version holds two instead, each half again as large, with exactly the same total amount of money at work. The hedge is untouched. The question is whether the phalanx signal is strong enough that backing fewer names harder beats spreading across more — concentration pays when the top signal is genuinely better than the third, and costs when it is not.'

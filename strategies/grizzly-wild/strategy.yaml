@@ -10,6 +10,7 @@ version: "1.0.1"
 catalog:
   varies: grizzly          # a VARIANT of this template — never outrank it
   name: "Grizzly-Wild — Grizzly at conviction size (experiment)"
+  descriptor: "Goes 90% in on rarer BTC setups"
   emoji: "🪓"
   tagline: "Grizzly's BTC thesis at a higher score floor and a higher margin: it fires only on a score of 14 out of 22 — grizzly's own apex tier — instead of 12, and commits 90% of the book instead of 50%. Leverage is 10x either way; the size changes, not the leverage."
   belief_plain: "Grizzly with a higher bar and a larger size. Grizzly trades only BTC, and waits for the 4-hour and 1-hour trend to agree, momentum to confirm, and the traders winning the last four hours to be leaning the same way — refusing to short right off a 24h low or long right off a 24h high, because those fades whipsaw. This version asks for more of that agreement before it acts, and puts most of the account behind the trade instead of half. Nothing else changes: the same gates, the same one position at a time, the same trailing exit. Know the sizing before funding it — 90% margin at 10x is nine times the account in one BTC position, one stop-out is about 7.2% of equity, and there is no second position to offset it."

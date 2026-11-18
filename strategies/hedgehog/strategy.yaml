@@ -10,6 +10,7 @@ id: hedgehog
 version: "1.1.2"
 catalog:
   name: "Hedgehog — Major Crypto Basket"
+  descriptor: "Trades BTC, ETH and SOL trends independently"
   emoji: "🦔"
   tagline: "Equal-weight BTC + ETH + SOL, each leg independently directional: every asset gets its own 4h-trend signal confirmed by the 4h leaders' side (long OR short), so it can hold BTC long and ETH short at the same time — three slots, three independent positions, each with its own per-position stop."
   belief_plain: "Trades only the three biggest crypto majors (BTC, ETH, SOL), one position per coin. For each coin it waits until the 4-hour trend and the traders winning the last four hours agree on the same direction before entering — going long if they're bullish, short if they're bearish — and manages each position on its own, so one coin going wrong doesn't drag the others down."

@@ -10,6 +10,7 @@ id: polar
 version: "1.1.1"
 catalog:
   name: "Polar — ETH Alpha Hunter"
+  descriptor: "Trades ETH when trend and leaderboard agree"
   emoji: "🧊"
   tagline: "A single-asset ETH specialist: 4h leader momentum (how concentrated the last four hours' winners are on ETH) picks the side first, then 4h and 1h trend structure must agree, 15m momentum confirms, and funding, open interest, BTC and RSI all add conviction — then sizes leverage to score (5/7/10x) and lets the DSL ride the winner."
   belief_plain: "Trades only ETH. It first looks at which way the traders leading the last four hours are leaning hard, then only takes it if the 4-hour and 1-hour trend agree and momentum confirms — going in harder when more factors line up, and trailing a stop instead of guessing the exit."

@@ -13,6 +13,7 @@ version: "1.1.2"
 
 catalog:
   name: "Roach — Striker Rank-Jump Sniper"
+  descriptor: "Trades leaderboard climbers backed by volume"
   emoji: "🪳"
   tagline: "A patient striker that trades jumps in the 4h leaderboard: watches its top-50 rows and fires only on violent FIRST_JUMP / IMMEDIATE_MOVER rank explosions confirmed by 4h trend, 1h price, fresh 15m velocity, and a 1.5x volume spike — then sizes one bet and lets a tight ratchet ride it. Long silences are expected and correct."
   belief_plain: "Cockroaches survive by not moving when there's nothing to chase. Roach watches which coins the traders winning the last four hours are suddenly piling into — a coin violently jumping up the leaderboard — and only buys when that rank-jump is backed by the 4-hour trend, the last hour's price, fresh momentum, and a real volume spike all agreeing. Most of the time it does nothing; the patience is the edge."

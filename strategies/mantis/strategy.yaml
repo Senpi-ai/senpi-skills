@@ -12,6 +12,7 @@ version: "1.1.2"
 
 catalog:
   name: "Mantis — Cross-Asset Catchup Hunter"
+  descriptor: "Trades alts lagging a big BTC move"
   emoji: "🦎"
   tagline: "Watches BTC's 4-hour move via market_get_cross_asset_flows and strikes the highest-confidence correlated alt that historically follows BTC but hasn't caught up yet — entering the alt in BTC's direction, sized to the tool's confidence score, with a stop that trails the catchup."
   belief_plain: "When Bitcoin makes a big 4-hour move, certain alts that usually follow it lag behind for a while before catching up. Mantis spots those laggards (only the ones that follow Bitcoin reliably, with smart money already starting to rotate in) and buys the gap, betting it closes — bigger when it's more confident, with a stop that trails the move."

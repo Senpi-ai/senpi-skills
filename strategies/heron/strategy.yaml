@@ -11,6 +11,7 @@ id: heron
 version: "1.1.1"
 catalog:
   name: "Heron — ETH Trend Follower"
+  descriptor: "Rides ETH trends the leaderboard agrees with"
   emoji: "🐦"
   tagline: "An onboarding-tier single-asset ETH trend follower: enters only when the 4h candle structure is trending AND the 4h leaderboard's winners sit on that side — then holds one position at a fixed 5x and lets a wide DSL ladder ride the trend for multi-day moves."
   belief_plain: "Trades only ETH. It asks two simple questions — is ETH trending on the 4-hour chart, and are the traders who won the last four hours on that side? If both say yes it opens one position and trails a stop instead of guessing the exit. Built for first-time users."

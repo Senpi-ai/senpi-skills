@@ -11,6 +11,7 @@ id: marlin
 version: "1.1.2"
 catalog:
   name: "Marlin — Order-Book Imbalance Momentum"
+  descriptor: "Trades order-book pressure in big coins"
   emoji: "🐟"
   tagline: "Reads the L2 order book on BTC/ETH/SOL/HYPE — when resting depth is lopsided (bids far heavier than asks, or the reverse) that's directional pressure, but it only fires when 15m momentum and 4h leader momentum (which side the last four hours' winners sit on) agree, then hands the position to a wide DSL and lets the move run (it does not scalp)."
   belief_plain: "Looks at how much resting buy vs sell interest is stacked in the order book of the big, liquid coins. A heavily one-sided book signals pressure in that direction — but a lopsided book alone is noise, so it only acts when short-term price momentum and the traders leading the last four hours are pointing the same way. Then it holds the trade with a wide trailing stop instead of flipping in and out."

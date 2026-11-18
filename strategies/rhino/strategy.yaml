@@ -10,6 +10,7 @@ version: "1.2.0"
 
 catalog:
   name: "Rhino — Tail-Risk / Crisis-Alpha Hedge Fund"
+  descriptor: "Hedges against crises with gold and oil"
   emoji: "🦏"
   tagline: "Carries cheap convexity across two books: an always-on small LONG carry in the crisis-beneficiary complex (gold / oil / dollar / yen), plus a dormant, stress-gated leveraged add that goes LONG the spiking crisis assets and SHORT the cratering risk assets the moment a shared cross-asset stress detector confirms a shock — then banks the spike."
   belief_plain: "Built to lose a little in calm and win big in a crisis. One book quietly holds gold/oil/dollar/yen as standing insurance whenever they're trending up. The other sits in cash until a shock hits — oil spiking, stocks breaking down, Bitcoin rolling over — then piles into the crisis winners and shorts the risky stuff, and takes profit fast because crises reverse hard."

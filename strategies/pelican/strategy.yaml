@@ -29,6 +29,7 @@ version: "1.4.0"
 
 catalog:
   name: "Pelican — Concentrated Striker, All Markets"
+  descriptor: "Goes all-in on climbers in every market"
   emoji: "🌊"
   tagline: "A penguin only eats what swims through its own patch of ocean; a pelican takes whatever is in the water. Same rank-jump detector as Penguin, same one slot at 90% of the wallet and 10x — but it scores equities, commodities, indices and pre-IPO alongside crypto perps instead of dropping them. One strike at a time, chosen from everything Hyperliquid lists."
   belief_plain: "It looks for the same thing Orca and Penguin do — a name suddenly rocketing up the leaderboard of what winning traders are piling into, young enough to still be moving and backed by a real volume spike — then commits the whole account to that one name at 10x with no clock on the hold. What is different is where it looks. Penguin only ever sees crypto perps; Pelican also sees the equities, commodities, indices and pre-IPO markets on the venue, which is a large and busy part of it: 109 of those instruments traded in the last week, the most active carrying hundreds of distinct traders, around the clock. Know the honest caveat before funding. The detector was built on crypto, where a leaderboard jump means someone rotated into a name. Equities all move together when the US market opens, so on any given weekday this may fire on whichever stock jumped at the open rather than on a rotation — and with one slot, that is the whole book. Bigger opportunity set, and a real chance the signal means something different in half of it."

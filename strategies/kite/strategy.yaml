@@ -9,6 +9,7 @@ version: "1.3.0"
 
 catalog:
   name: "Kite — Market Structure & Divergence (SMC)"
+  descriptor: "Trades Fibonacci pullbacks after breakouts"
   emoji: "🪁"
   tagline: "Trades the ICT/SMC playbook on BTC, ETH, SOL and FARTCOIN: it maps 3-bar fractal swings, waits for a break of structure, then enters on the 0.618 fibonacci retracement of that move with invalidation behind 0.786 — only when an RSI divergence confirms. Every entry carries its stop and 1R/2R/3R targets."
   belief_plain: "This speaks the language of smart-money-concept traders. It watches for the market to break its own structure — taking out a prior swing high or low — which signals a real shift. Then, instead of chasing, it waits for price to pull back to the 0.618 fibonacci level of that move, checks that momentum (RSI) is diverging in its favour, and enters there with a clear invalidation just beyond the 0.786 level. It works out its 1x, 2x and 3x reward targets up front and manages the trade with a ladder that locks in gains in thirds as each target is reached."

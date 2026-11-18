@@ -9,6 +9,7 @@ id: raven
 version: "1.2.2"
 catalog:
   name: "Raven — Self-Calibrating Momentum"
+  descriptor: "Trades momentum, adapting to its own results"
   emoji: "🐦‍⬛"
   tagline: "Runs a momentum book across the most liquid names and gets smarter about ITSELF: twice a day it reads its own closed trades, and if it's been losing it becomes more selective and trades smaller, while if it's been winning it loosens up and presses. You don't tune it — it tunes itself, inside guardrails, and a trailing stop does all the exiting."
   belief_plain: "A momentum strategy's edge drifts with the regime — what worked last week can bleed this week. Raven opens positions on the same proven momentum signal every time, but it watches its OWN results: after a cold streak it raises the bar for what it'll trade and cuts its size; after a hot streak it leans back in. It never manually closes — a ratchet stop protects and exits every position — and a hard drawdown halt is the backstop if the self-tuning isn't enough."

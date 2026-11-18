@@ -13,6 +13,7 @@ version: "1.2.1"
 
 catalog:
   name: "Cuckoo — Copy-the-Copiers"
+  descriptor: "Trades where other Senpi strategies agree"
   emoji: "🐦"
   tagline: "Auto-discovers the platform's top-performing strategies, then trades the asset + direction they agree on most — performance-weighted, so a stronger strategy gets more say (capped so one outlier can't dominate)."
   belief_plain: "Lets the best strategies on the platform do the work. Every few minutes it finds the top performers, looks at what they're holding right now, and copies whatever the most (and best) of them are piling into together — going long what they're long and short what they're short."

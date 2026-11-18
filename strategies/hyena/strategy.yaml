@@ -14,6 +14,7 @@ version: "1.2.2"
 
 catalog:
   name: "Hyena — Risk-Off Crypto Short (Hedge Sleeve)"
+  descriptor: "Shorts crowded crypto longs in risk-off moves"
   emoji: "🐺"
   tagline: "A short-only crypto defense sleeve on majors (BTC/ETH/SOL/HYPE) plus crypto-proxy equities (xyz:MSTR/COIN/CRCL): shorts the block ONLY when risk-off confirms — the market-wide funding regime is LONG_CROWDED (crowded longs = squeeze fuel), the 4h leaders are rotating OUT of the name, and the 4h trend is breaking down. Conservative 4x, tight short-side DSL, 30h cap because squeezes resolve fast. CAVEAT: this is a hedge that pairs with long crypto exposure — it idles and emits nothing whenever risk-off conditions are not met."
   belief_plain: "Most of the time the safe trade on crypto is no trade. But when funding shows the crowd all long, the traders who won the last four hours start rotating out of a name, and its price begins rolling over, that crowded long is fuel for a squeeze to the downside. Hyena bets against that exhausted crowd — short only — on Bitcoin, Ether, Solana, HYPE, and the crypto-proxy stocks MicroStrategy, Coinbase and Circle. It is a defense sleeve you run alongside your long crypto bets to cushion a downturn; when the risk-off picture is not there, it does nothing and waits."

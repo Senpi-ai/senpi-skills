@@ -11,6 +11,7 @@ version: "1.3.1"
 
 catalog:
   name: "Pangolin — Funding-Rate Fader"
+  descriptor: "Fades crowds paying steep funding for hours"
   emoji: "🦔"
   tagline: "Scans every liquid perp for funding that has stayed extreme for hours — the crowd piled onto one side and is paying to hold it — then fades that crowd at exhaustion, collecting funding while the over-stretched position mean-reverts."
   belief_plain: "When everyone crowds the same side of a trade and keeps paying a steep funding fee to stay there for hours, that crowd usually unwinds. Pangolin waits for the crowding to actually persist, checks the 4h leaders (the last four hours' winners) aren't on the crowd's side, then takes the OTHER side and gets paid funding while it waits for the snap-back."

@@ -10,6 +10,7 @@ version: "1.1.1"
 
 catalog:
   name: "Scorpion — Multi-Market Momentum Trader"
+  descriptor: "Rides crypto and oil with the leaderboard"
   emoji: "🦂"
   tagline: "Hunts trend-following entries across a curated crypto + XYZ basket (BTC/ETH/majors, mid-caps, plus crude oil, Brent, gold and the S&P): enters only when the 4h leaders (the traders winning the last four hours on the board) are concentrated in a direction AND 4h price agrees, rides the 4h leaders' side, scores leader dominance + multi-timeframe momentum, and rides maker-optimized exits with a let-winners-run trailing ladder."
   belief_plain: "Trades a hand-picked set of coins and commodities/indices. It only acts when the traders winning the last four hours are crowded on one side and the 4-hour price is already moving that way, then trails a profit-locking stop and pays cheaper maker fees on the way out."

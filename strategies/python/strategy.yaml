@@ -11,6 +11,7 @@ version: "1.1.2"
 
 catalog:
   name: "Python — The Patience Hunter"
+  descriptor: "Rides rare multi-day trends, mostly long"
   emoji: "🐍"
   tagline: "Scans the top 50 Hyperliquid crypto assets by volume and waits for one multi-day setup — 4h trend with macro direction, 1h agreeing, 15m confirming, the 4h leaders not opposing, RSI not extreme — then takes a single LONG-biased swing at 3-7x, sizes margin to conviction (25/30/40%), and holds for days behind a wide DSL (96h cap)."
   belief_plain: "Watches every liquid coin on Hyperliquid and does nothing until one setup lines up across the 4-hour, 1-hour and 15-minute timeframes with the last four hours' winners on the same side. Then it takes one well-sized, mostly-long swing and holds it for days behind a wide trailing stop, because the money is in the rare multi-day winner — not in trading often."

@@ -9,6 +9,7 @@ id: bison
 version: "1.3.0"
 catalog:
   name: "Bison — Conviction Momentum Holder"
+  descriptor: "Holds big-coin trends when signals agree"
   emoji: "🦬"
   tagline: "A patient multi-asset momentum holder on liquid majors (BTC/ETH/SOL): enters only when a 9-factor composite (4h/1h trend structure, 1h/4h momentum, 4h-leader lean, funding, volume, OI proxy, RSI) clears a high conviction floor, then sizes margin to conviction (25/31/37%) and lets a wide DSL ratchet ride the move for days."
   belief_plain: "Trades only the big, liquid coins (BTC, ETH, SOL). It waits until the 4-hour and 1-hour trend, momentum, the last four hours' winners, and funding all line up the same way before entering, bets bigger when more of them agree, and then trails a wide stop so a real move can run for days instead of getting chopped out early."

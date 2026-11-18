@@ -8,6 +8,7 @@ version: "1.1.0"
 
 catalog:
   name: "Asia AI — Hedged Sector Long"
+  descriptor: "Buys Asian chip stocks, shorts US indices"
   emoji: "🌏"
   tagline: "Long the Asian AI/semiconductor complex (TSMC, Samsung, SK Hynix, ARM, ASML) with a broad/US-tech short hedge that strips out market beta."
   belief_plain: "Buys the Asian AI chipmakers while they're trending up, and shorts the broad US/tech index when it rolls over — so the bet is on Asia AI outperforming, not just the market going up."

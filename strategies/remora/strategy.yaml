@@ -16,6 +16,7 @@ version: "1.3.1"
 
 catalog:
   name: "Remora — Autonomous Smart-Money Whale Mirror"
+  descriptor: "Backs proven traders' strongest bets"
   emoji: "🐟"
   tagline: "Autonomous smart-money whale mirror — auto-builds a top-trader cohort and mirrors their highest-conviction positions; optionally mirror specific whales you name via inputs.whales. Like a remora fish riding a shark, it leans hardest when several whales pile into the same trade (consensus) or when a whale is ELITE/RELIABLE tier."
   belief_plain: "Out of the box, Remora finds the most proven traders on Hyperliquid, watches their open positions, and copies the strongest bets — betting bigger when several of them are in the same trade and one has an elite track record. Prefer to ride specific traders you trust? Name them and Remora mirrors exactly those instead. Either way it trails a wide stop so the trade can run."

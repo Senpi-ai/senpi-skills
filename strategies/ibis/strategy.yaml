@@ -7,6 +7,7 @@ id: ibis
 version: "1.2.0"
 catalog:
   name: "Ibis — Trend/Range Regime-Switcher"
+  descriptor: "Rides trends or fades range edges"
   emoji: "🦤"
   tagline: "Two strategies behind one gate. It first decides whether a market is TRENDING or RANGING on the 4-hour chart (Kaufman efficiency ratio + structure), then applies the entry rule that belongs to that regime: a continuation entry when trending — confirmed by RISING open interest, so it only joins moves new money is committing to — or a fade of the range edge when ranging, skipped outright when funding is extreme. In between the two is a deliberate no-trade band. Long & short, 2-5x."
   belief_plain: "Most strategies only work in one kind of market: trend-followers get chopped to pieces in a sideways market, and mean-reverters get run over when a real trend starts. Ibis checks which kind of market it's in before deciding what to do. If price is genuinely travelling in one direction it joins the move — but only if open interest is rising, meaning new money is actually backing it. If price is just bouncing in a range it buys the bottom and sells the top instead — unless funding has gotten extreme, which usually means the range is about to break, in which case it stays out. When it can't tell which regime it's in, it does nothing."

@@ -11,6 +11,7 @@ version: "1.2.1"
 
 catalog:
   name: "Cheetah — Multi-Signal Confluence Sniper"
+  descriptor: "Waits for everything to agree, then strikes"
   emoji: "🐆"
   tagline: "A patient universe sniper: scans the top-100 markets on the 4h leader board every tick and refuses to fire unless the 4h leaders' consensus (which side the last four hours' winners sit on), velocity, acceleration, dual-price confirmation, volume, quality-trader alignment, and rank-climb all line up — then takes ONE position at a flat 5x, sized 30-48% of the book by conviction, and lets the DSL ride the winner."
   belief_plain: "Watches which side the last four hours' winners are crowding across the whole market, but waits for everything to agree at once — the 4h leaders' side, the price, the volume, the speed of the move — before taking a single, high-conviction bet. Most of the time it does nothing; that patience is the point."

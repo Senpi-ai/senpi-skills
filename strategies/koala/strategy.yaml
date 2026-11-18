@@ -11,6 +11,7 @@ version: "2.0.0"
 
 catalog:
   name: "Koala — Trail HODL"
+  descriptor: "Buys and holds BTC behind wide stops"
   emoji: "🐨"
   tagline: "The simplest agent in the catalog: pick one asset (default BTC), go long at 2x on 40% of the wallet, and hold behind the widest stop in the catalog — 30% of margin, 15% of price — with a ratchet that only ever locks gains. No scoring, no scheduling; the choice to deploy Koala IS the bet. A week after a hold ends it buys again (set fireOnceMode for a true one-shot). Measured on two years of BTC, ETH and SOL: the median hold ran about three weeks and ended positive two times in three."
   belief_plain: "Trades only the one coin you pick (BTC by default). It buys when you turn it on and holds — never adding, never trading around it — behind a wide safety stop that only releases on a 15% fall from your entry, and a trailing lock that banks part of a big run. When a hold ends, it waits a week and buys again, so the wallet stays invested; turn that off if you want one shot and nothing more. An entry only counts once it has actually filled, so a refused first order never leaves the wallet silent."

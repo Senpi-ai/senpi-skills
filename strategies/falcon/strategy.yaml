@@ -10,6 +10,7 @@ id: falcon
 version: "1.1.1"
 catalog:
   name: "Falcon — Conversion-Event Momentum"
+  descriptor: "Rides pre-IPO stocks as they go public"
   emoji: "🦅"
   tagline: "Watches every Hyperliquid XYZ pre-IPO perpetual and fires the moment one converts to a normal equity perp — when the company IPOs, funding jumps ~100x, the leverage cap lifts and the price throttle comes off, opening a window of free price discovery. Falcon catches that flip and rides the post-conversion momentum with a wide let-winners-run stop (7d)."
   belief_plain: "A pre-IPO name on Hyperliquid is deliberately pinned — its price can barely move. The instant the company goes public the brakes come off all at once and the name often trends hard for days. Falcon detects that exact handover from a tell in the funding rate, then takes a single position in the direction it's already running and trails a wide stop so a real move can run."

@@ -8,6 +8,7 @@ id: swift
 version: "1.0.1"
 catalog:
   name: "Swift — Fee-Aware Crypto Scalper"
+  descriptor: "Trades quick big-coin moves that cover fees"
   emoji: "🐦"
   tagline: "Trades the fast money on the most liquid crypto names — but only when the market is actually moving enough to be worth the fees. Before it even looks at a setup it asks a blunt question: will this move pay for the cost of trading it? If not, it doesn't trade. Most scalpers lose to their own costs; this one refuses the trades that would."
   belief_plain: "Short bursts of momentum on big crypto names are tradeable, but at this speed you pay a fee every single time you go in and out — so the only setups worth taking are the ones moving enough to cover that cost several times over. Swift measures how much a market is actually moving, compares it to what a round trip costs, and skips everything that doesn't clear the bar. It never sells manually — a profit ratchet locks gains and a fixed stop caps the downside."

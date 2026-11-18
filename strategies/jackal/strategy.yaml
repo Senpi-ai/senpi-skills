@@ -13,6 +13,7 @@ version: "1.1.2"
 
 catalog:
   name: "Jackal — The Smart Stalker"
+  descriptor: "Follows traders' new trades when charts agree"
   emoji: "🐺"
   tagline: "Maintains a daily-refreshed pool of the top-ROI Hyperliquid traders (win-rate + age + 30d-ROI filtered, quality-scored toward tail-winner trend-followers), watches for the moment a pool member opens a fresh position, and mirrors only the freshest entries (< 10 min old) when pool consensus and independent TA confirm — sized to the source trader's quality and ridden on its own wide DSL."
   belief_plain: "Keeps a shortlist of the most profitable traders on Hyperliquid and refreshes it every day. The instant one of them opens a new trade, Jackal copies that trade in the same direction — but only if the entry is brand new, other shortlisted traders are leaning the same way, and the chart agrees. It bets a bit more behind the highest-quality traders and then trails a wide stop so a good copy can run for days."

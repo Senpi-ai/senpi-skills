@@ -14,6 +14,7 @@ version: "1.0.2"
 catalog:
   varies: penguin          # a VARIANT of this template — never outrank it
   name: Penguin Chase 1.5% — pre-move cap arm
+  descriptor: "Goes all-in, won't chase past 1.5%"
   emoji: 🐧
   tagline: 'penguin with one number changed: an entry is rejected once the price has already moved 1.5% in the signal''s own direction over the last hour. One of six arms (penguin and penguins-duo at 1.5 / 2.0 / 3.0) measuring how late is too late.'
   belief_plain: 'This is penguin with a single number changed. The strategy still looks for the same thing — a coin suddenly climbing the leaderboard of what winning traders are piling into, confirmed by trend and a volume spike — and it still commits the same way once it fires. What differs is how much of the move it will tolerate having already happened. If the price has already run 1.5% in the hour before the signal, in the direction the trade would take, this arm skips it and waits for the next one. Buying after a fall, or selling after a rally, still passes: there the move is ahead of the trade rather than behind it. Six arms run this test at three different tolerances across one and two slots, and they are only meaningful compared with each other.'

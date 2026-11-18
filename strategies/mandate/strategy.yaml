@@ -10,6 +10,7 @@ version: "1.3.0"
 
 catalog:
   name: "Mandate — Capital-Preservation Portfolio (Crypto + RWA)"
+  descriptor: "Buys trending blue chips with no leverage"
   emoji: "🏛️"
   tagline: "A diversified, long-only, NO-LEVERAGE basket across crypto blue chips, equity indices and blue-chip names, metals, and energy — sized to a hard per-position cap, gated by a fee hurdle so it only trades when the expected move beats the cost, and diversified with a per-class limit. Capital preservation first."
   belief_plain: "This is a conservative, institution-style portfolio, not a punt. It holds a diversified spread of blue-chip crypto and real-world assets (stock indices, big-cap names, gold, silver, oil), never uses leverage, and never puts more than a small capped slice into any one position. It only opens a position when the trend is genuinely there on both the 4-hour and daily view AND the expected move is large enough to be worth the trading cost — otherwise it does nothing. Doing nothing is a valid decision."

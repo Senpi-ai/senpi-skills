@@ -12,6 +12,7 @@ version: "1.2.1"
 
 catalog:
   name: "Caracal — Volatility Hedge Fund"
+  descriptor: "Trades breakouts from quiet crypto and stocks"
   emoji: "🐱"
   tagline: "Two volatility books on two wallets — one scans liquid crypto, the other scans tokenized stocks/commodities/indices (XYZ) — for names coiled in a low-volatility squeeze that break their recent range with an expansion surge, then rides the break direction (LONG up / SHORT down). It trades MOVEMENT, not a view: the edge is that compression precedes expansion."
   belief_plain: "Watches the market for coins and stocks that have gone quiet (price barely moving), then pounces the moment one breaks out of its quiet range with a big jump — going long if it breaks up, short if it breaks down. It runs two separate pots: one for crypto, one for tokenized stocks and commodities. The bet is on the size of the move, not its direction."

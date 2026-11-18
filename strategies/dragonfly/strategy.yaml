@@ -15,6 +15,7 @@ version: "1.2.2"            # single source for catalog + MCP attribution (skill
 
 catalog:                    # discovery surface
   name: "Dragonfly — BTC + HYPE Composite Momentum"
+  descriptor: "Trades BTC and HYPE when signals agree"
   emoji: "🐉"
   tagline: "A two-leg BTC + HYPE book that fuses a dozen weighted signals — trend, volume, OI, funding crowding, the 4h leaders' lean, cross-asset flow — into one 0-10 conviction score per asset, and only strikes when the composite is loud."
   belief_plain: "No single indicator is trustworthy, but when many independent ones agree — price trend, volume, open interest, funding, which side the last four hours' winners sit on, and BTC pulling HYPE — that agreement is the signal. Bet bigger the louder the agreement, protect every position with a ratchet stop, and stand aside when the picture is mixed."

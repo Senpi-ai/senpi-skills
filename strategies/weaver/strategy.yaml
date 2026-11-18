@@ -8,6 +8,7 @@ id: weaver
 version: "1.1.0"
 catalog:
   name: "Weaver — Range Harvester"
+  descriptor: "Trades range edges in sideways markets"
   emoji: "🕸️"
   tagline: "Built for the sideways market, which is when most strategies have nothing to do. It finds coins stuck in a well-defined band, buys near the bottom of it and sells near the top, and takes small, quick profits. Crucially, it refuses to touch anything that has started trending — that is the one market that turns a range trader into a bagholder."
   belief_plain: "Plenty of the time a market isn't going anywhere — it just swings between a floor and a ceiling. Weaver measures whether a coin is genuinely range-bound or quietly trending, and only trades the ones that are truly stuck: buying near the low end, selling near the high end, banking the bounce quickly. If a range starts to break into a trend, it stops trading that name rather than averaging into the move."

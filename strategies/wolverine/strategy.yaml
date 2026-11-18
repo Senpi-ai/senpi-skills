@@ -10,6 +10,7 @@ id: wolverine
 version: "1.1.2"
 catalog:
   name: "Wolverine — HYPE Alpha Hunter"
+  descriptor: "Rides HYPE trends, skipping crowded setups"
   emoji: "🦡"
   tagline: "A single-asset HYPE specialist: six-gate trend entry (4h structure, 1h non-opposition, 15m momentum, base-tech floor, 4h magnitude) layered with a market-wide funding-regime + funding-persistence macro gate and a HARD BLOCK when 4h leader momentum (which side the last four hours' winners sit on) opposes — then sizes leverage to conviction (3/5x) and lets the DSL ride the winner."
   belief_plain: "Trades only HYPE. It waits for the 4-hour trend to be strong, the 1-hour to not be fighting it, and short-term momentum to confirm — then checks the broader funding 'crowding' regime and refuses to trade when the traders leading the last four hours are leaning the other way. It goes in harder when more factors line up, and trails a stop instead of guessing the exit."

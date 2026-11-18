@@ -11,6 +11,7 @@ version: "1.2.1"
 
 catalog:
   name: "Octopus — Market-Neutral Crypto Long/Short"
+  descriptor: "Buys strong coins and shorts weak ones"
   emoji: "🐙"
   tagline: "Ranks the live liquid main-DEX crypto cross-section by 24h relative strength every tick, then LONGS the strongest names (long book) and SHORTS the weakest (short book) — both trend-confirmed — on two equally-funded wallets so the pair is ~market-neutral and harvests crypto dispersion."
   belief_plain: "Buys the strongest crypto coins and shorts the weakest at the same time, on two separate wallets, so it makes money on the GAP between winners and losers instead of betting on the whole market going up or down."

@@ -12,6 +12,7 @@ version: "1.2.0"
 
 catalog:
   name: "Sailfish — Relative-Strength Rotator"
+  descriptor: "Rotates into the strongest big coin"
   emoji: "🐠"
   tagline: "Always hold the strongest major: ranks BTC/ETH/SOL/HYPE by ~2.7-day relative strength each tick and longs the leader, with a leader-RS floor and a margin-vs-runner-up gate to avoid whipsaw on tight races. Single-position; when the held leader exits via the DSL trail, the next tick re-evaluates and enters the new leader — that's the rotation."
   belief_plain: "Trades only the big, liquid coins (BTC, ETH, SOL, HYPE). Each cycle it measures which one has been strongest over the last few days and buys that one — but only if it is clearly ahead of the next-best, not in a photo finish. It never sells on its own; a trailing stop manages the exit, and when one leader is done, the next-strongest takes its place."

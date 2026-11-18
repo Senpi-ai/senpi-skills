@@ -16,6 +16,7 @@ version: "1.3.1"
 
 catalog:
   name: "Cub — Two-Speed-Market Long/Short + Pre-IPO"
+  descriptor: "Buys AI and pre-IPO stocks, shorts laggards"
   emoji: "🐅"
   tagline: "Longs the structural winners of a K-shaped world (the AI complex on Hyperliquid XYZ + crypto winners HYPE/SOL) and shorts the laggards (the broad U.S. market via SP500 + a gated basket of laggard alts) — both trend-confirmed on separate wallets — plus a ~10% pre-IPO ramp satellite that auto-discovers pre-IPO perpetuals (IPOPs) and rides them into their listing."
   belief_plain: "The world is splitting into haves and have-nots: AI companies and crypto's winners keep booming while the broad economy and the rest of crypto struggle. Cub buys the booming side and shorts the struggling side at the same time on separate wallets, so it makes money on the GAP between the two — and keeps a small slice aimed at the next SpaceX before it goes public."

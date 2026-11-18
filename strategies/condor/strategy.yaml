@@ -10,6 +10,7 @@ version: "1.5.1"
 
 catalog:
   name: "Condor — One Amazing Trade per Day"
+  descriptor: "Rides one trend that proven traders back"
   emoji: "🦅"
   tagline: "Scans the top 50 Hyperliquid crypto assets by volume and fires at most one position at a time — only when 4h, 1h and 15m momentum all align, the proven cohort (the wallets with >= $1M lifetime realized PnL) is holding that same side, by headcount, and the move isn't a runaway counter-trend. Sizes margin to conviction (20/28/32%) at 10x, then rides a wide DSL."
   belief_plain: "Watches every liquid coin on Hyperliquid and waits, doing nothing until ONE setup is near-perfect: the trend, the momentum and the traders with the best lifetime track records all pointing the same direction at once. Then it rides that side with a single, well-sized swing and trails a stop instead of guessing the top."
