@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.11.3"
+  version: "1.11.4"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -40,13 +40,9 @@ cleanly**: points and rank, the Senpi fee, referral earnings, and strategy limit
   asks about their tier or where it went, say tiers carry no benefit right now. Points still accrue
   at the plan multiplier and still set leaderboard rank.
 - **Lead with what they asked.** Points question: lead with points + rank. Don't dump every section.
-- **Credits are read from the engine, in credits.** Answer "how many credits do I have" with
-  `credits.remaining` as a number of credits, never converted to dollars. Rules in "AI credits — the
-  usage meter" below.
-- **Plans and free credits are published; the balance is read.** Quote the catalog and the end of the
-  milestones in "Plans & free credits" below — and only from there. A figure about *this user* (what
-  is left, what they were charged) comes from `credits` in the engine output or their page, never
-  from memory.
+- **Credits:** see "AI credits — the usage meter" below.
+- **Plans and free credits are published.** Quote the catalog and the end of the milestones in
+  "Plans & free credits" below, and only from there.
 
 ## How to run the engine
 
@@ -147,6 +143,8 @@ reads it.
 - **How many credits do I have.** Run the engine. When `credits.available` is true, answer with
   `credits.remaining` as a number of credits, and the time left when `hours_left` is present. Never
   convert it to dollars, never say a dollar amount of credit, and never round it into a "roughly".
+- **When `credits.remaining` is 0**, the user is out of credits: the AI stops and simulations pause,
+  but their live strategies keep running. Buying credits, upgrading or the renewal brings the AI back.
 - **When `credits.available` is false**, you cannot read the balance: point at the meter in the app
   header or the subscription page (senpi.ai/settings/subscription) for the exact figure, and never
   invent a number, a percentage or a "roughly". The in-app indicator surfaces only when credits run
@@ -162,6 +160,7 @@ reads it.
   A cron the agent set up to check on a strategy does move the meter (each firing is a full model
   call), so name any the agent runs for this user. Using no credits is not the same as needing no
   plan: the strategy runs on the agent, and a lapsed plan pauses both (see "Plans & free credits").
+  Running out of credits does not: live strategies keep running.
 - **Not trading money.** Credits cannot be traded, withdrawn, deposited into a strategy, or moved
   anywhere — they are separate from the funding wallet and from every strategy budget. A shrinking
   meter is usage, never a trading loss; a losing trade never touches the meter.
@@ -172,18 +171,18 @@ reads it.
 |---|---|
 | "You have N credits left." (N is `credits.remaining`; add the time left when `hours_left` is present) | A dollar figure for credits, or a balance you did not read from `credits.remaining` |
 | "Chat and tool use spend AI credits from your plan. Longer threads cost more because the whole conversation is re-sent each turn." | "chatting is free" / "that cost nothing" |
-| "I can't read your balance from here — the meter in the app header and senpi.ai/settings/subscription show it." (only when `credits.available` is false) | Any balance or percentage you did not read from the engine, or a plan size you did not read from the table below |
+| "I can't read your balance from here — the meter in the app header and senpi.ai/settings/subscription show it." (only when `credits.available` is false) | Any balance or percentage you did not read from the engine, or a plan size you did not read from the subscription page |
 | "Credits aren't money: they can't be traded, withdrawn or put into a strategy — your funding wallet and strategy budgets are separate." | "credits" as a tradable or withdrawable balance |
 | "The meter going down is usage — it moves with messages and tool turns, not with your trades." | Blaming a shrinking meter on trading losses |
 | "Your strategy runs on its own without the AI, so running it doesn't use credits. Chat does, and so does any scheduled check-in I run for you." | "running the strategy costs nothing" while the agent runs a check-in cron on it; a wallet or strategy balance offered as proof about credits |
-| "Your strategy doesn't use credits, but it runs on your agent, and the agent needs an active plan. If the trial ends, a renewal fails or the credits run out, the agent and your strategies pause until you subscribe or credits return." | "no subscription is needed" / "your strategy keeps running without a plan" |
+| "If the credits run out, the AI stops and simulations pause, but your live strategies keep running." | "your strategies stop when the credits run out" |
+| "Your strategy doesn't use credits, but it runs on your agent, and the agent needs an active plan or credits left. If the plan lapses with no credits left, the agent and your strategies pause until you subscribe or buy credits." | "no subscription is needed" / "your strategy keeps running without a plan" |
 
 **Routing.** "What is the bubble / meter in the header?", "why are my credits going down?", "how much
 did that cost?", "does my strategy use credits?", "can I trade / withdraw / deposit my credits?" all
 come here, in any language. "Credits" (Ukrainian "кредити", Spanish "créditos") means these AI credits
-unless the user says leverage, a loan or funding; when it is unclear, ask which before answering. A
-"how many credits" question runs the engine and answers from `credits`; every other credits question
-is answered from this section alone. "What plans are there / how much
+unless the user says leverage, a loan or funding; when it is unclear, ask which before answering.
+"What plans are there / how much
 does it cost / what do I get on Pro / how do I get free credits / where are my milestone credits /
 do I need a subscription / what happens when my trial ends / what are the strategy limits on the paid plans" are **catalog** questions: answer them from "Plans & free credits" below, still without a figure
 about this user.
@@ -193,17 +192,19 @@ about this user.
 Published facts — quote them. Billed per **30-day cycle, rolling from the user's own start date**,
 never a calendar month.
 
-| Plan | Price | Credits | Points per $1 volume | Running at once | New strategies per cycle |
-|---|---|---|---|---|---|
-| Pro (default) | $50 | $55 (+10%) | 1.5 | 10 | 40 |
-| Advanced | $100 | $115 (+15%) | 2 | 25 | 100 |
-| Quant | $200 | $240 (+20%) | 3 | no limit | no limit |
+| Plan | Price | Points per $1 volume | Running at once | New strategies per cycle |
+|---|---|---|---|---|
+| Pro (default) | $50 | 1.5 | 10 | 40 |
+| Advanced | $100 | 2 | 25 | 100 |
+| Quant | $200 | 3 | no limit | no limit |
 
-Free trial: 1 running at once, 3 new strategies during the 14-day trial. Starter ($25 a month, $25
-credits, 1 point per $1 volume, 3 running at once, 8 new per cycle) is closed to new subscribers; people
+Free trial: 1 running at once, 3 new strategies during the 14-day trial. Starter ($25 a month, 1 point per $1 volume, 3 running at once, 8 new per cycle) is closed to new subscribers; people
 already on it keep it and can upgrade, but cannot return to it after leaving. Accounts that predate
 strategy limits (`source: "grandfathered"`) have none on any plan, and the user's own `limits` read
 always wins for them.
+
+- **The credits each plan includes:** quote them only from the subscription page
+  (senpi.ai/settings/subscription), in credits, never as a dollar amount.
 
 - **Every plan includes every model.** Plans differ on credits, points rate and strategy limits — never on model
   access, so a cheaper plan never locks anyone out of the better model.
@@ -223,10 +224,12 @@ always wins for them.
 - **Payment is web only** (Stripe, senpi.ai/settings/subscription); the app links out to change anything.
 - **Free trial:** activates when the user **deploys their agent**, is one-time, and expires **14 days
   after activation**. Always "free trial", never "Pro trial" or a plan beside it. **Never quote a trial credit figure** — the starting
-  amount has changed more than once; their subscription page is the only source of truth. On expiry or exhaustion the agent stops until
+  amount has changed more than once; their subscription page is the only source of truth. When it expires with no credits left, the agent stops until
   they subscribe: active strategies pause, **open positions are NOT auto-closed**, funds untouched.
+- **Out of credits is not a lapse.** When the credits run out, the AI stops and simulations pause,
+  but live strategies keep running.
 - **A lapsed plan pauses everything, not just chat.** Strategies run on the agent. When a trial or
-  plan expires, a renewal payment fails, or the cycle's credits run out, Senpi pauses the agent and
+  plan expires or a renewal payment fails and no credits are left, Senpi pauses the agent and
   every strategy on it stops with it: no scans, no new entries, no stop moves. Open positions stay
   open, and a stop-loss already resting on the exchange still triggers. Funds stay in their wallets,
   withdrawable in the app. Subscribing, a successful renewal or an upgrade brings the agent and its

@@ -143,16 +143,23 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
 
     def test_the_plan_table_carries_the_published_prices(self):
         # the figures are the point of the section: an agent is told to quote this table, so a price
-        # that drifts is quoted at the user. Names and prose rules are locked above; these are the
-        # numbers (credits from 2026-10-26: Pro $55, Advanced $115, Quant $240).
+        # that drifts is quoted at the user. A plan's credits are not in it: they come from the
+        # subscription page, in credits, never as a dollar amount.
         section = _section(_split(SKILL)[1], PLANS)
         for row in (
-            "| Plan | Price | Credits | Points per $1 volume | Running at once | New strategies per cycle |",
-            "| Pro (default) | $50 | $55 (+10%) | 1.5 | 10 | 40 |",
-            "| Advanced | $100 | $115 (+15%) | 2 | 25 | 100 |",
-            "| Quant | $200 | $240 (+20%) | 3 | no limit | no limit |",
+            "| Plan | Price | Points per $1 volume | Running at once | New strategies per cycle |",
+            "| Pro (default) | $50 | 1.5 | 10 | 40 |",
+            "| Advanced | $100 | 2 | 25 | 100 |",
+            "| Quant | $200 | 3 | no limit | no limit |",
         ):
             self.assertIn(row, section, row)
+        self.assertIn("quote them only from the subscription page", _flat(section))
+
+    def test_no_dollar_amount_of_credit_anywhere(self):
+        text = _flat(SKILL.read_text(encoding="utf-8"))
+        for stale in re.findall(r"\$\d+ (?:\(\+\d+%\) )?credits?|\| \$\d+ \(\+\d+%\) \|", text):
+            self.fail(f"a dollar amount of credit: {stale!r}")
+        self.assertNotIn("$25 credits", text)
 
     def test_starter_is_closed_to_new_subscribers_not_offered(self):
         # Starter ($25) is closed to new subscribers: the table offers only open plans, and one
@@ -166,7 +173,7 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
         )
         self.assertNotIn("$25 |", section)
         self.assertIn(
-            "Starter ($25 a month, $25 credits, 1 point per $1 volume, 3 running at once, 8 new per cycle) "
+            "Starter ($25 a month, 1 point per $1 volume, 3 running at once, 8 new per cycle) "
             "is closed to new subscribers; people already on it keep it and can upgrade, but cannot "
             "return to it after leaving.",
             _flat(section),
@@ -182,16 +189,6 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
         if README.is_file():
             self.assertNotIn("Starter/Pro/Advanced/Quant", README.read_text(encoding="utf-8"))
 
-    def test_the_advertised_bonus_matches_the_credits_it_grants(self):
-        # "$100 -> $130 (+30%)" has to be arithmetic, not decoration
-        section = _section(_split(SKILL)[1], PLANS)
-        priced = re.findall(r"\|\s*\$(\d+)\s*\|\s*\$(\d+)\s*\(\+(\d+)%\)", section)
-        self.assertTrue(priced, "no bonus-rate plan row found")
-        for price, credits, pct in priced:
-            self.assertEqual(int(credits), round(int(price) * (1 + int(pct) / 100)),
-                             f"${price} at +{pct}% is ${round(int(price) * (1 + int(pct) / 100))}, "
-                             f"not ${credits}")
-
     def test_the_trial_figure_stays_unpublished(self):
         # plan prices are fixed and quotable; the trial grant has moved more than once, so the
         # catalog may carry every plan number and still no trial number
@@ -206,7 +203,7 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
         section = _flat(_section(_split(SKILL)[1], PLANS))
         for needle in (
             "A lapsed plan pauses everything, not just chat",
-            "a renewal payment fails",
+            "a renewal payment fails and no credits are left",
             "every strategy on it stops",
             "a stop-loss already resting on the exchange still triggers",
             "never tell them a subscription is not needed",
@@ -214,6 +211,30 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
             self.assertIn(needle, section, needle)
         self.assertIn('"no subscription is needed"', _flat(_section(_split(SKILL)[1])))  # Never say
         self.assertIn("what happens when my trial ends?", _flat(_split(SKILL)[0]))  # the router finds it
+
+    def test_running_out_of_credits_never_pauses_live_strategies(self):
+        # out of credits, the AI stops and simulations pause; live strategies keep trading. Telling a
+        # user their strategies stop at zero has them walk away or panic-close real positions
+        text = _flat(_split(SKILL)[1]).lower()
+        for stale in (
+            "or the credits run out, the agent and your strategies pause",
+            "on expiry or exhaustion",
+            "or the cycle's credits run out, senpi pauses",
+            "credits run out, the agent",
+        ):
+            self.assertNotIn(stale, text, stale)
+        for needle in (
+            "if the credits run out, the ai stops and simulations pause, but your live strategies keep running",
+            "out of credits is not a lapse",
+            "when `credits.remaining` is 0",
+        ):
+            self.assertIn(needle, text, needle)
+
+    def test_the_balance_rule_is_written_once(self):
+        body = _flat(_split(SKILL)[1])
+        self.assertEqual(body.count("answer with `credits.remaining` as a number of credits"), 1)
+        self.assertNotIn("the balance is read", body)
+        self.assertNotIn('question runs the engine and answers from `credits`', body)
 
     def test_credits_are_answered_in_credits_from_the_engine(self):
         section = _flat(_section(_split(SKILL)[1]))
