@@ -36,7 +36,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.32.3"
+  version: "3.32.10"
   platform: senpi
   exchange: hyperliquid
   requires:
