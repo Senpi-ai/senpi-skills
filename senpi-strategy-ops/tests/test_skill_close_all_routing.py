@@ -32,6 +32,11 @@ class CloseAllRoutesByTheUsersWords(unittest.TestCase):
         self.assertIn("ask once", body)
         self.assertIn("close.py --all --dry-run", body)
 
+    def test_the_not_closed_note_is_relayed_as_it_says(self):
+        body = _flat(SKILL)
+        self.assertIn("tell the user what it says about their simulations", body)
+        self.assertNotIn("tell the user their simulations are still open and charged", body)
+
     def test_the_lifecycle_reference_no_longer_sends_return_funds_to_plain_all(self):
         self.assertNotIn('(for "close all strategies / return funds")', _flat(LIFECYCLE))
         self.assertIn('"return funds" is `--all --live`', _flat(LIFECYCLE))
