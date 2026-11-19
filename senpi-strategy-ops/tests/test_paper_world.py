@@ -726,12 +726,21 @@ class UpdateFollowsTheDriftCommand(unittest.TestCase):
         self.assertEqual(self.calls, [["openclaw", "senpi", "update", str(self.tmp / "main"),
                                        "--id", "omega-main-paper"]])
 
-    def _apply(self, runtime_id):
+    def test_an_applied_update_by_simulation_wallet_says_to_read_the_simulation(self):
+        err = self._apply(PAPER_WALLET, selector="--address")
+        self.assertIn("status.py omega --paper", err)
+
+    def test_an_applied_update_by_live_wallet_says_to_read_the_live_strategy(self):
+        err = self._apply(LIVE_WALLET, selector="--address")
+        self.assertIn("status.py omega ", err)
+        self.assertNotIn("--paper", err)
+
+    def _apply(self, runtime_id, selector="--id"):
         (self.tmp / "main" / deploy.PROOF_FILE).write_text("{}")
         err = io.StringIO()
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
             with self.assertRaises(SystemExit) as raised:
-                deploy.main(["deploy.py", "update", str(self.tmp), "--id", runtime_id, "--apply"])
+                deploy.main(["deploy.py", "update", str(self.tmp), selector, runtime_id, "--apply"])
         self.assertEqual(raised.exception.code, 0, err.getvalue())
         return err.getvalue()
 

@@ -2127,10 +2127,13 @@ def cmd_update(a):
         print(refusal, file=sys.stderr)
         return EXIT_CODES["refused"]
     target = inst.runtime_path.parent
-    # `--id` names the simulation's runtime when it is not the instance's live one: every follow-up
-    # read must then be `status.py --paper`, or it reads the live world.
-    read = (f"python3 {_cli.STATUS_PY} {pkg.id}"
-            + (" --paper" if getattr(a, "runtime_id", None) not in (None, inst.runtime_name) else ""))
+    # `--id` names the simulation's runtime when it is not the instance's live one, and `--address`
+    # names it with a simulation wallet: every follow-up read must then be `status.py --paper`, or it
+    # reads the live world.
+    address = getattr(a, "address", None)
+    simulated = (getattr(a, "runtime_id", None) not in (None, inst.runtime_name)
+                 or (bool(address) and _cli.is_paper_address(address)))
+    read = f"python3 {_cli.STATUS_PY} {pkg.id}" + (" --paper" if simulated else "")
     if a.apply and not (target / PROOF_FILE).is_file():
         # The verb refuses this too (`E_UPDATE_PROOF_REQUIRED`); saying it here saves the round-trip
         # and names the exact command. A STALE proof is the verb's call, not ours — it knows the bytes.
