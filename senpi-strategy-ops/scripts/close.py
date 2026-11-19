@@ -153,17 +153,20 @@ def _open_simulations_or_skip(mcp, dry_run):
     """The open simulations a plain `--all` closes beside the live strategies: `(rows, None)`, or
     `([], why)` when they cannot be closed now. The live close still runs then, and the reply says the
     simulations were NOT closed and exits 2: a sim outage must not keep real money open, and the user
-    must not be told everything closed. An MCP with no simulation router has none."""
+    must not be told everything closed. An MCP with no simulation router has no simulation world:
+    `(None, None)`."""
     why = []
     rows = _cli.list_strategies_or_none(mcp, statuses=LIVE_STATUSES, why=why, simulation=True)
     if rows is None:
         if why and isinstance(why[0], _cli.NoSimulationRouter):
-            return [], None
-        return [], f"they could not be read ({why[0] if why else 'no cause reported'})"
+            return None, None
+        return [], (f"they could not be read ({why[0] if why else 'no cause reported'}). Any you have "
+                    f"may still be open and charged")
     rows = [s for s in rows if _cli.strategy_open(s)]
     blocked = None if dry_run else _simulation_close_blocked([(None, s) for s in rows])
     if blocked:
-        return [], f"strategy_close would be refused for them ({blocked[1]})"
+        return [], (f"strategy_close would be refused for them ({blocked[1]}). They keep running and keep "
+                    f"being charged")
     return rows, None
 
 
@@ -175,8 +178,8 @@ def _all_label(s):
 
 
 def _skipped_simulations_note(why):
-    return (f"\nYour simulations were NOT closed: {why}. They keep running and keep being charged. "
-            f"Close them once they can be read: close.py --all --simulation")
+    return (f"\nYour simulations were NOT closed: {why}. Close them once they can be read: "
+            f"close.py --all --simulation")
 
 
 def _select_direct_target(rows, target, simulation=False):
@@ -293,14 +296,16 @@ def _inventory_or_stop(rerun, as_json, soft=False):
 _FLATTENED = ("CLOSED", "CLOSING_DONE")
 
 
-def _sweep_targets(mcp, pkg, why, rerun, as_json, simulation=False):
+def _sweep_targets(mcp, pkg, why, rerun, as_json, simulation=False, runtimes=None):
     """`(targets, runtimes)` for the terminal strategies (of `pkg`, or any with `pkg=None`) whose runtime
     still runs: closed outside close.py (the app, a raw strategy_close), they drop out of the LIVE read
     while the runtime keeps ticking against the emptied wallet. Only a wallet no open strategy uses, in
     any package: a runtime there may belong to the live one. An unreadable inventory sweeps nothing
     and returns `runtimes=None`: no runtime is deleted off it, and the strategies are still closed.
-    One world, `simulation`'s: a `--simulation` close never deletes a closed live strategy's runtime."""
-    runtimes = _inventory_or_stop(rerun, as_json, soft=True)
+    One world, `simulation`'s: a `--simulation` close never deletes a closed live strategy's runtime.
+    `runtimes` is an inventory this run already read."""
+    if runtimes is None:
+        runtimes = _inventory_or_stop(rerun, as_json, soft=True)
     if not runtimes:
         return [], runtimes
     every = _read_or_refuse(_cli.list_strategies_or_none(mcp, why=why, simulation=simulation), why,
@@ -503,10 +508,11 @@ def main(argv):
     runtimes = None   # the inventory, read once (`--instance` reads it before targeting)
 
     both = a.all and not a.simulation and not a.live
+    sims = None      # a plain --all's open simulations; None when the MCP has no simulation router
     skipped = None   # why a plain --all closed no simulations
     if a.all:
-        # Close every OPEN strategy across all packages — for "close all strategies / return funds".
-        # Plain --all closes the simulations too; --live or --simulation keeps it to one world.
+        # Close every OPEN strategy across all packages. Plain --all ("close everything") closes the
+        # simulations too; --live ("return funds") or --simulation keeps it to one world.
         # sid + wallet come from each strategy record; close_one stops the matching runtime (by wallet)
         # and triggers strategy_close, so package runtimes are never stranded.
         rows = _read_or_refuse(_cli.list_strategies_or_none(mcp, statuses=LIVE_STATUSES, why=why,
@@ -515,7 +521,7 @@ def main(argv):
         opens = [s for s in rows if _cli.strategy_open(s)]
         if both:
             sims, skipped = _open_simulations_or_skip(mcp, a.dry_run)
-            opens += sims
+            opens += sims or []
         targets = [(_all_label(s), s) for s in opens]
         hdr = ("all open strategies and simulations" if both else
                "all open simulations" if a.simulation else "all open strategies")
@@ -625,8 +631,8 @@ def main(argv):
                 unchecked = runtimes is None
         elif a.all:
             targets, runtimes = _sweep_targets(mcp, None, why, rerun, a.json, a.simulation)
-            if both and skipped is None and runtimes:
-                targets += _sweep_targets(mcp, None, why, rerun, a.json, True)[0]
+            if sims is not None and skipped is None and runtimes:
+                targets += _sweep_targets(mcp, None, why, rerun, a.json, True, runtimes)[0]
             unchecked = runtimes is None
         sweep = bool(targets)
     if not targets and not a.dry_run:
@@ -651,6 +657,10 @@ def main(argv):
             # open START request is accounted for here too, not only after a triggered close (P2-03).
             _close_open_request(pkg, a, checked=True)
             sys.exit(0)
+        if skipped and a.json:
+            print(json.dumps({"strategy": strategy_label, "status": "partial", "instances": [],
+                              "simulationsNotClosed": skipped, "runtimesNotChecked": unchecked}, indent=2))
+            sys.exit(2)
         what = "strategies or simulations" if both and not skipped else "strategies"
         print(f"{hdr}: no OPEN {what} to close.{note}" + (_skipped_simulations_note(skipped) if skipped else ""))
         sys.exit(2 if unchecked or skipped else 0)
