@@ -4,9 +4,10 @@
    average and above its close 13 weeks back; five slots so every qualifier is held; modest leverage.
 2. The engine is pinned (SHA-256). It began as strategies/pronghorn's and now differs: it sizes each
    sleeve on the account, keeps going past a sleeve it cannot fund, reads the 13-week reference at
-   the decision close, and needs current weekly candles (review #978).
+   the decision close, needs current weekly candles (review #978), and sends one sleeve per tick, so
+   each is sized off a fresh balance read and a skipped open can't enlarge the next.
 3. The DSL decides every exit: no clock cut is enabled, the ladder only ever locks a gain.
-4. Every qualifier is bought at one close (not just the strongest).
+4. Every qualifier is bought at one close (not just the strongest), one a tick inside its entry hour.
 
 Run: python3 -B -m pytest strategies/yak/tests -q
 """
@@ -26,7 +27,7 @@ MANIFEST = yaml.safe_load(open(os.path.join(PKG, "strategy.yaml"), encoding="utf
 SIGNALS = next(s for s in RUNTIME["scanners"] if s["name"] == "yak_main_signals")
 INPUTS = dict(SIGNALS["inputs"])
 DSL = RUNTIME["exit"]["dsl_preset"]
-ENGINE = {"scan.py": "c75a3f18e53160fe6672dba05a6f2fb991336c332e4677da6e97d7340b5105f3",
+ENGINE = {"scan.py": "717192c7d7cb2f1a4a395d9e16493f5e058c9104fa20d5bb7ad49b7499373939",
           "scoring.py": "5487548c309b9fec2e35242e30a4ad6ef9c4d65d05cf62a85782454e2e25b6de"}
 D1, W1 = 86400, 7 * 86400
 MIDNIGHT = 1794441600
@@ -104,8 +105,10 @@ class _MCP:
 def test_every_trending_sleeve_is_bought_at_one_close(monkeypatch):
     monkeypatch.setattr(scan.time, "time", lambda: MIDNIGHT + 300)
     out = scan.scan(dict(INPUTS), _Ctx(_MCP({"xyz:XYZ100", "xyz:GOLD", "xyz:CL"})))
-    assert sorted((s["asset"], s["leverage"]) for s in out) == [("xyz:CL", 1), ("xyz:GOLD", 2), ("xyz:XYZ100", 2)]
-    assert _runtime_margins(out, 1000.0) == [150.0] * 3             # 15% of a $1,000 account each, as the runtime sizes them
+    assert len(out) == 1                                             # one a tick, the strongest first
+    mcp = _Account({"xyz:XYZ100", "xyz:GOLD", "xyz:CL"})
+    assert sorted(_ticks(monkeypatch, mcp)) == [("xyz:CL", 150.0), ("xyz:GOLD", 150.0), ("xyz:XYZ100", 150.0)]
+    assert sorted((s["asset"], s["leverage"]) for s in mcp.sent) == [("xyz:CL", 1), ("xyz:GOLD", 2), ("xyz:XYZ100", 2)]
 
 
 
@@ -116,12 +119,15 @@ class _Account(_MCP):
     def __init__(self, trending, account="1000", withdrawable="1000", closes=None, weekly_rows=None):
         super().__init__(trending)
         self.account, self.free, self.closes, self.weekly_rows = account, withdrawable, closes or {}, weekly_rows or {}
+        self.held, self.sent = [], []
 
     def call_tool(self, tool, args):
         out = super().call_tool(tool, args)
         if tool == "strategy_get_clearinghouse_state":
             for sec in out["data"].values():
                 sec["marginSummary"]["accountValue"], sec["withdrawable"] = self.account, self.free
+            out["data"]["xyz"] = dict(out["data"]["xyz"], assetPositions=[
+                {"position": {"coin": c, "szi": "1", "marginUsed": "15"}} for c in self.held])
         else:
             c = out["data"]["candles"]
             if args["asset"] in self.closes:
@@ -135,16 +141,27 @@ class _Account(_MCP):
 ALL = set(INPUTS["allowedAssets"])
 
 
-def _runtime_margins(signals, free):
-    """What the runtime commits for each signal: it opens a scanner's signals one at a time (intake
-    dispatches each separately; one consumer awaits each open), each as marginPct of the free margin
-    left after the ones before it."""
-    out = []
-    for s in signals:
-        m = s["marginPct"] / 100.0 * free
-        out.append(round(m, 2))                                      # to the cent
-        free -= m
-    return out
+def _ticks(monkeypatch, mcp, start=MIDNIGHT + 300, end=MIDNIGHT + 3600, skip=()):
+    """Every five-minute tick through the entry window, with the runtime opening what each tick emits:
+    marginPct of the free margin at that moment, after which that margin is no longer free and the
+    market shows as held. A market in `skip` is one the runtime does not open (the per-asset
+    cooldown, a risk gate), so nothing is committed. Returns the opens as [(asset, margin to the
+    cent)], in order; every signal sent is kept in `mcp.sent`."""
+    ctx, opened, t = _Ctx(mcp), [], start
+    while t <= end:
+        monkeypatch.setattr(scan.time, "time", lambda t=t: t)
+        out = scan.scan(dict(INPUTS), ctx)
+        assert len(out) <= 1, "one signal per tick"
+        mcp.sent.extend(out)
+        for s in out:
+            if s["asset"] in skip:
+                continue
+            free = float(mcp.free)
+            margin = s["marginPct"] / 100.0 * free
+            opened.append((s["asset"], round(margin, 2)))
+            mcp.free, mcp.held = str(free - margin), mcp.held + [s["asset"]]
+        t += 300
+    return opened
 
 
 def _scan(monkeypatch, mcp):
@@ -155,33 +172,41 @@ def _scan(monkeypatch, mcp):
 def test_every_qualifier_is_funded_at_the_100_dollar_minimum(monkeypatch):
     """Review #978: at the $100 minimum, sizing 15% of a shrinking free balance dropped oil and silver
     under the $12 order floor. Each sleeve is now $15 of the account: $15 at 1x clears $12."""
-    out = _scan(monkeypatch, _Account(ALL, account="100", withdrawable="100"))
-    assert {s["asset"] for s in out} == ALL
-    assert _runtime_margins(out, 100.0) == [15.0] * 5                # five equal $15 clips once the runtime sizes them
+    opened = _ticks(monkeypatch, _Account(ALL, account="100", withdrawable="100"))
+    assert {a for a, _ in opened} == ALL
+    assert [m for _, m in opened] == [15.0] * 5                      # five equal $15 clips, one a tick
 
 
 def test_with_sp500_too_young_the_other_four_are_funded(monkeypatch):
-    out = _scan(monkeypatch, _Account(ALL, account="100", withdrawable="100", weekly_rows={"xyz:SP500": 34}))
-    assert {s["asset"] for s in out} == ALL - {"xyz:SP500"}
+    opened = _ticks(monkeypatch, _Account(ALL, account="100", withdrawable="100", weekly_rows={"xyz:SP500": 34}))
+    assert {a for a, _ in opened} == ALL - {"xyz:SP500"}
 
 
 def test_an_unfundable_sleeve_does_not_stop_the_ones_after_it(monkeypatch):
     """Review #978: with $20 free on a $100 account, one $15 clip fits; the scanner used to stop at the
-    first sleeve it could not fund. The strongest goes out, the rest are skipped one by one, never
-    by a `break`, and a later 2x sleeve is still checked after a 1x sleeve that failed."""
-    out = _scan(monkeypatch, _Account({"xyz:CL", "xyz:GOLD"}, account="100", withdrawable="20",
-                                      closes={"xyz:CL": 200.0, "xyz:GOLD": 160.0}))
-    assert [s["asset"] for s in out] == ["xyz:CL"]
+    first sleeve it could not fund. The strongest goes out; a sleeve it cannot fund is skipped, not
+    ended on, so a later 2x sleeve is still checked after a 1x sleeve that failed."""
+    two = {"xyz:CL": 200.0, "xyz:GOLD": 160.0}
+    assert _ticks(monkeypatch, _Account(set(two), account="100", withdrawable="20", closes=two)) == [("xyz:CL", 15.0)]
     # a $70 account: each clip is $10.50. Oil ranks first (stronger momentum) but at 1x it is under the
     # $12 floor; gold at 2x is $21 and must still go out.
-    out = _scan(monkeypatch, _Account({"xyz:CL", "xyz:GOLD"}, account="70", withdrawable="70",
-                                      closes={"xyz:CL": 200.0, "xyz:GOLD": 160.0}))
+    out = _scan(monkeypatch, _Account(set(two), account="70", withdrawable="70", closes=two))
     assert [s["asset"] for s in out] == ["xyz:GOLD"]
     # Partly committed account: $70 free on a $100 account. Both $15 clips fit; gold is not suppressed.
-    out = _scan(monkeypatch, _Account({"xyz:CL", "xyz:GOLD"}, account="100", withdrawable="70",
-                                      closes={"xyz:CL": 200.0, "xyz:GOLD": 160.0}))
-    assert [s["asset"] for s in out] == ["xyz:CL", "xyz:GOLD"]
-    assert _runtime_margins(out, 70.0) == [15.0, 15.0]               # $15 of the account each, as the runtime sizes them
+    assert _ticks(monkeypatch, _Account(set(two), account="100", withdrawable="70", closes=two)) == [
+        ("xyz:CL", 15.0), ("xyz:GOLD", 15.0)]                       # $15 of the account each, one a tick
+
+
+def test_an_open_the_runtime_skips_does_not_enlarge_the_next(monkeypatch):
+    """Follow-up to #978. When a close's sleeves went out in one batch, each converted against the
+    free margin left after the ones before it, an open the runtime skipped left more free margin than
+    the next signal assumed. The skip could be a cooldown on a market stopped out minutes before the
+    close. The next sleeve then opened larger than its clip: on a $100 account with all five trending,
+    a skipped first sleeve would have opened the second at 15/85 of $100 = $17.65. One sleeve a tick,
+    sized off that tick's balance read, opens each at $15, and the skipped one is not retried this close."""
+    first = _scan(monkeypatch, _Account(ALL, account="100", withdrawable="100"))[0]["asset"]
+    opened = _ticks(monkeypatch, _Account(ALL, account="100", withdrawable="100"), skip={first})
+    assert {a for a, _ in opened} == ALL - {first} and [m for _, m in opened] == [15.0] * 4
 
 
 def test_a_weekly_feed_missing_its_newest_close_skips_that_sleeve(monkeypatch):

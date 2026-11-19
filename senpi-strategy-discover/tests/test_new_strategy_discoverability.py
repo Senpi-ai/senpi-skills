@@ -97,6 +97,12 @@ _CASES = [
     ("kudu", _intent(), "hold quality big tech stocks basket"),
     ("kudu", _intent(assets=[("class", "xyz_equities")]), "own the magnificent seven megacaps long term"),
     ("kudu", _intent(), "long term stock portfolio"),
+    # A strategy ask that names its stocks (blind test, 16 Nov) is still a template ask: the tickers ride
+    # in as --assets or in the theme words, and the basket that holds them leads either way.
+    ("kudu", _intent(assets=[("named", "AAPL"), ("named", "MSFT"), ("named", "NVDA")]),
+     "long-term basket of quality megacap stocks equal amounts"),
+    ("kudu", _intent(), "a long-term basket of quality megacap stocks the likes of apple microsoft and nvidia "
+                        "held in equal amounts"),
     # ── all-weather with trend gates (2026-11-12): five sleeves, each held only while it trends up ──
     ("yak", _intent(), "all weather portfolio with trend filter"),
     ("yak", _intent(), "diversified stocks gold commodities step out of what is falling"),
@@ -104,6 +110,12 @@ _CASES = [
     # ── big-tech momentum, Nasdaq-gated (2026-11-12): strongest name when healthy, the index after a washout ──
     ("kinkajou", _intent(), "leveraged big tech momentum when the market is healthy"),
     ("kinkajou", _intent(), "magnificent seven momentum"),
+    # ── the BTC/ETH dip ladder (2026-11-16): three wallets buy 10 / 20 / 30% under the 60-day high at 1x ──
+    ("squirrel", _intent(), "dca dip ladder buy more as it falls"),
+    ("squirrel", _intent(), "dollar cost average into btc dips"),
+    # ── the same ladder buying only above the 40-week average; roughly half the budget or more in USDC (2026-11-16) ──
+    ("chipmunk", _intent(), "conservative dip buyer keep cash"),
+    ("chipmunk", _intent(), "buy dips but keep half in usdc"),
 ]
 
 

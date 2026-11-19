@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-11-13",
+  "_updated": "2026-11-16",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -645,6 +645,124 @@
       "sort_order": 2
     },
     {
+      "id": "chipmunk",
+      "name": "Chipmunk — Conservative BTC & ETH Dip Buyer",
+      "emoji": "🐿️",
+      "varies": null,
+      "tagline": "A cautious dip buyer for BTC and ETH: it buys in three steps as a coin falls further under its two-month high, but only while that coin is still above its long-term average, so it does not buy into a bear market. No leverage, at most roughly half the budget in coins and the rest kept in USDC, and a wide stop and a profit lock close every position.",
+      "belief_plain": "The idea: buy a dip inside a long uptrend, not a fall that has broken the long-term trend. Once a day, after the daily close, it checks BTC and ETH: a coin is bought when it has closed at least 10%, 20% or 30% under its highest close of the previous 60 days (one step each) and is still above the average of its last 40 weekly closes. Each step is its own wallet (17%, 33% and 50% of the budget) and holds at most one BTC and one ETH position, each bought with a quarter of that wallet at 1x, so roughly half the budget or more stays in USDC. The trend check only decides whether to buy: a position is closed by its stop, 35% under the entry price (a loss of 35% of that position), or by a profit lock that starts at +35%, never because the trend turned. It can still lose when a coin bought above its average keeps falling to the stop.",
+      "version": "1.0.0",
+      "thesis": "You want to buy big dips in BTC and ETH without buying all the way down a bear market, with no leverage and roughly half of your money or more in cash. It is Squirrel's three-step ladder with one more rule: no buy while a coin is under its 40-week average, so the dips inside a long decline are skipped and it opens nothing through a bear market. In a replay on Binance daily bars from January 2019 to November 2026, charged Hyperliquid's taker fee, the measured spread and each coin's average funding, it took 59 trades, about half as many as the ungated ladder, with a profit factor of 2.21 and a worst drawdown of 18.4%. It lost money in 2025 and 2026, as BTC and ETH fell from October 2025, and some years it barely traded (2022: one trade, stopped out). A backtest describes one past window and is not a forecast.",
+      "tags": [
+        "conservative",
+        "low-risk",
+        "cash-buffer",
+        "keeps-cash",
+        "half-in-usdc",
+        "buy-the-dip",
+        "dip-buyer",
+        "dca",
+        "btc",
+        "eth",
+        "1x",
+        "no-leverage",
+        "long-only",
+        "bull-market-dips"
+      ],
+      "group": "dca",
+      "archetype": "contrarian_fade",
+      "archetype_label": "Contrarian / Fade",
+      "sub_style": "dca",
+      "sub_style_label": "Dollar-cost-averages on a schedule; predicts nothing.",
+      "asset_classes": [
+        "btc_eth"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "ETH"
+      ],
+      "direction": "long_only",
+      "risk_level": "conservative",
+      "tier": "starter",
+      "leverage_max": 1,
+      "time_horizon": "position",
+      "cadence_seconds": 300,
+      "min_budget": 300,
+      "wallet_count": 3,
+      "min_budget_binding_wallet": "rung1",
+      "instance_count": 3,
+      "funding_split": [
+        0.17,
+        0.33,
+        0.5
+      ],
+      "max_slots": 2,
+      "branch": "main",
+      "sort_order": 1
+    },
+    {
+      "id": "squirrel",
+      "name": "Squirrel — BTC & ETH Dip Ladder",
+      "emoji": "🌰",
+      "varies": null,
+      "tagline": "A dip ladder for BTC and ETH: it buys in three steps as a coin falls further under its two-month high, with more money in each deeper step, no leverage, and at most roughly half the budget in coins. A wide stop and a profit lock close every position; if the fall goes on, a step whose stop was hit buys again, lower.",
+      "belief_plain": "Once a day, after the daily close, it checks how far BTC and ETH have closed under their highest close of the previous 60 days. At 10% under, the first step buys; at 20% under, the second; at 30% under, the third. Each step is its own wallet (17%, 33% and 50% of the budget) and holds at most one BTC and one ETH position, each bought with a quarter of that wallet at 1x, so a crash that fills every step has about half the budget in falling coins and the rest in USDC. A position is closed only by its stop, 35% under the entry price (a loss of 35% of that position), or by a profit lock that starts at +35%. If the fall goes on, a step that was stopped out buys again, lower.",
+      "version": "1.0.0",
+      "thesis": "You want to accumulate BTC and ETH in big dips without guessing the bottom and without leverage. Three steps spread the buying through a fall and the deeper steps carry more money, so the average price paid falls as the price does. The stop is wide on purpose: a dip buyer stopped out near the bottom owns nothing for the rebound, so the profit lock does the selling. Rising markets leave it idle for months. In a replay on Binance daily bars from January 2019 to November 2026, charged Hyperliquid's taker fee, the measured spread and each coin's average funding, the ladder took 117 trades with a profit factor of 1.96 and a worst drawdown of 32.5% (51% when 90% of the budget was put in instead of half). It lost money in 2025 and 2026, as BTC and ETH fell from October 2025. A backtest describes one past window and is not a forecast.",
+      "tags": [
+        "dca",
+        "dollar-cost-averaging",
+        "dollar-cost-average",
+        "dip-ladder",
+        "ladder",
+        "buy-the-dip",
+        "buy-the-dips",
+        "accumulate",
+        "accumulation",
+        "scale-in",
+        "btc",
+        "eth",
+        "bitcoin",
+        "ethereum",
+        "1x",
+        "no-leverage",
+        "long-only",
+        "daily-close"
+      ],
+      "group": "dca",
+      "archetype": "contrarian_fade",
+      "archetype_label": "Contrarian / Fade",
+      "sub_style": "dca",
+      "sub_style_label": "Dollar-cost-averages on a schedule; predicts nothing.",
+      "asset_classes": [
+        "btc_eth"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "ETH"
+      ],
+      "direction": "long_only",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 1,
+      "time_horizon": "position",
+      "cadence_seconds": 300,
+      "min_budget": 300,
+      "wallet_count": 3,
+      "min_budget_binding_wallet": "rung1",
+      "instance_count": 3,
+      "funding_split": [
+        0.17,
+        0.33,
+        0.5
+      ],
+      "max_slots": 2,
+      "branch": "main",
+      "sort_order": 2
+    },
+    {
       "id": "tortoise",
       "name": "Tortoise — Scheduled Buyer",
       "emoji": "🐢",
@@ -697,7 +815,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 1
+      "sort_order": 3
     },
     {
       "id": "magpie",
@@ -5081,7 +5199,7 @@
       "varies": null,
       "tagline": "Holds ten large quality companies — Apple, Microsoft, Alphabet, Amazon, Meta, Nvidia, Broadcom, Oracle, Eli Lilly and Costco on the xyz board — in equal 4% clips at 2x, and times them with the Nasdaq: a name that stops out is bought back at the next daily close unless the Nasdaq 100 is overheated (10-day RSI over 79), and when the Nasdaq is washed out (RSI under 30) it adds the Nasdaq 100 itself at 3x. Long only; a trailing stop on every position does the selling.",
       "belief_plain": "Great companies tend to keep compounding, and the usual mistakes are buying them after a blow-off or selling them in a panic. This keeps ten of them, equally weighted. It only waits to re-buy when the whole tech market has just run up too hard, and when tech is washed out it adds the Nasdaq with extra leverage for the rebound. Each position has its own stop; one that stops out is simply bought back at the next calm close.",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "thesis": "You want to own the biggest quality names rather than trade them, with a simple rule that keeps you from buying into a frenzy and puts extra money to work in a crash. Fully invested it carries about 52% of the account as margin; it trades each name about once every two or three months and holds for weeks to months.",
       "tags": [
         "quality",
@@ -5895,7 +6013,7 @@
       "varies": null,
       "tagline": "An all-weather book that only buys what is trending: five equal sleeves, each 15% of the account — US tech (xyz:XYZ100), the S&P 500 (xyz:SP500), gold (xyz:GOLD), crude oil (xyz:CL) and silver (xyz:SILVER) — each bought at the daily close only when its market is above its 40-week average and higher than three months ago; a sleeve that does not qualify waits in USDC. Modest leverage (2x on the indices and gold, 1x on oil and silver), and a trailing stop on every sleeve that decides when it sells.",
       "belief_plain": "Spreading money across stocks, gold and commodities smooths the ride, but holding all of them all the time means sitting through every bear market. This buys each one only while its own long-term trend is up. Once bought, a sleeve is sold by its own stop or profit lock, not by its trend turning, so it can stay open for a while below its trend; once sold, it is bought again only when its trend is back up. Most of the time two or three sleeves are trending, so the book is part invested and part in cash.",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "thesis": "You want a diversified, set-and-forget book across stocks, gold and commodities that buys only what is trending and keeps a stop under every sleeve. It trades a few times a year per sleeve and holds for months. Fully invested, its positions add up to about 1.2 times the account, and funding runs on every sleeve for as long as it is held (most charge longs; crude oil has been paying them). There is no bond sleeve, because the venue has no liquid bond market; cash plays that role.",
       "tags": [
         "all-weather",
