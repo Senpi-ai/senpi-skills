@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 SKILL = re.sub(r"\s+", " ", (ROOT / "senpi-market-pulse" / "SKILL.md").read_text(encoding="utf-8"))
 START = "- **Positions → positions read: the Senpi strategies plus the wallets the user added.**"
-END = "- **Strategy → Penguin or Pelican first"
+END = "- **Strategy → build one for this market.**"
 COHORT = "with or against today's structure"
 
 

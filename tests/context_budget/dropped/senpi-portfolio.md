@@ -1,4 +1,4 @@
-# senpi-portfolio 1.35.2 — dropped, reworded and moved sentences
+# senpi-portfolio 1.36.0 — dropped, reworded and moved sentences
 
 Restructure of `senpi-portfolio/SKILL.md` for the 10.4 size limit: base `b1916b12` 90,344 est chars,
 1.35.0 55,735, 1.35.1 55,469, 1.35.2 55,499. No sentence was deleted: every old sentence is in SKILL.md or a
@@ -23,6 +23,14 @@ The 5.7 follow-up table (last section) says where each base-replayed rule is on 
 
 1.35.2 (Box A live test, 2026-10-22) only widens the liveness router row with "it looks stuck / restart
 it": "restart it, it looks stuck" had gone to a raw `strategy_list` read. No sentence moved.
+
+1.35.3 (#919) rewords the `runtime_reason` bullet in place: the reason is a crash-loop cause or the
+scanner's last tick error. SKILL.md is at 55,529 est chars. No sentence moved.
+
+1.36.0 corrects one premise ("Reworded in 1.36.0 — the sub-Tier-1 premise corrected", below): a
+sub-Tier-1 position may have a ratchet record at tier -1 with a null floor, not only no record. It also
+reverses one rule ("Reworded in 1.36.0 — a named-string preset", below): a named-string preset is no
+longer "still protected". SKILL.md is at 55,528 est chars. No rule moved out of SKILL.md.
 
 ## Re-pointed cross-references
 
@@ -268,3 +276,95 @@ Where each base-replayed rule is on a follow-up turn now:
 | Install: "**Install the whole `scripts/` directory** — copying `portfolio.py` alone fails with `No module named 'mcp_client'`. Stdlib only, no other runtime dependencies." | Not on a follow-up: an install note for whoever installs the skill, not a rule for a chat turn. |
 | The persona ("You are a sharp portfolio analyst…", "The bar is high: … is a failure. The user wants a read.") | `references/output-contract.md` ("The analyst's bar"), router row "analyze my portfolio / how am I doing". Its rule replays as "do **not** answer with a positions dump" ("Strategy-first"). |
 | Explanations that were in the base head (the phantom-wallet clause, "a bare number read by eye…", "Those return un-bucketed dumps…", the `ratchet_stop_list` detail, "A strategy is doing its job when…", the trap's restatements, the no-no heading's "(this is a real failure…)") | Not rules: in `rationale.md`, `dsl.md`, `mandate.md` and `analysis-framework.md` (quoted under "Imperatives that left core"); each rule they explain replays. |
+
+## Reworded in 1.36.0 — the sub-Tier-1 premise corrected
+
+The base said `ratchet_stop_list` returns a record only once a position crosses Tier 1. That is false
+for a strategy with `phase1.enabled: false`: it starts in phase 2, the backend holds its record from
+open, and the record reads `currentTierIndex: -1`, `tierFloorPrice: null`, no SL order, while the
+runtime's max-loss stop rests on the venue. Each sentence below was reworded in place to say "no record,
+or a record at tier -1 — both sub-Tier-1"; the rule ("never call it unprotected / no DSL") is unchanged.
+The raw-position bullet gained one sentence (a raw position's tier -1 record is no downside stop until
+Tier 1) and keeps the rest word for word. The golden-rule pointer to the DSL section is shortened to
+the section's first words to keep SKILL.md net-neutral.
+
+- SKILL.md: "DSL — how it works per strategy, and which position is in which tier" below. **Never call a live position "unprotected" just because it has no ratchet record — sub-Tier-1 positions have none by design.** For a raw position with no runtime, `false` means **no ratchet** — see the HARD rule below.
+- SKILL.md and `dsl.md`: never infer "no stop" from the absence of a resting stop order (DSL exits are runtime-managed, not resting orders) or from a missing ratchet record (sub-Tier-1 positions have none).
+- SKILL.md and `dsl.md` (HARD rule): An **empty ratchet record on a sub-Tier-1 position is NOT "unprotected"** … Say **"protected; profit-ratchet arms at Tier 1 (+X%)"** — never "unprotected / unmonitored / no stop." (The engine already frames every `armed: false` position this way in `dsl.note`; do not override it with an "unprotected" reading.)
+- SKILL.md: - **A raw position (no runtime, `protected: false`) is "no ratchet," not "no stop."** A one-off position the user placed by hand carries its protection as resting orders, which this engine does not read.
+- `dsl.md`: - **`armed: true`** → the position has crossed Tier 1; report **"Tier N, locked at L% of peak, high-water +H% ROE"**
+- `dsl.md`: - **`armed: false`** → the position is **sub-Tier-1**: the profit-ratchet hasn't armed yet, but it is **still protected from entry by the phase1 hard stop.** Report it that way — `note` already phrases it
+- `output-fields.md`: **`dsl`** — this position's live DSL/ratchet state. **`armed: true`** → `tier_index`, `high_water_roe`, `status`, `locked` (= `lock_hw_pct` at the active tier). **`armed: false`** (no ratchet record — the position is sub-Tier-1) → `hard_stop_roe_pct`, `arm_at_roe_pct`, `roe`, and a `note` … **`armed: false` means the profit-ratchet hasn't ARMED yet, NOT that the position is unprotected** — the phase1 hard stop protects it from entry.
+
+### Reworded in 1.36.0 review — "Tier N" from the 1-based `tier`
+
+`currentTierIndex` is 0-based (index 0 = Tier 1), so "Tier N" read straight off `tier_index` named the
+first tier "Tier 0". The engine now emits a 1-based `tier` beside `tier_index`, and these two sentences
+name it. The rule (report the live tier, never "no DSL") is unchanged.
+
+- `dsl.md`: report **"Tier N, locked at L% of peak, high-water +H% ROE"** from `tier_index` / `locked` / `high_water_roe` (`status` = `ACTIVE`/`PAUSED`/…).
+- `output-contract.md`: **each open position's live tier** from `positions[].dsl` — "armed at Tier N, locked L% of peak" or, for a sub-Tier-1 position, "protected from entry, ratchet arms at +X% — currently +Y%."
+
+## Reworded in 1.36.0 — a named-string preset is not "protected"
+
+The base called a named-string preset "still protected". The runtime installs no ladder for a string
+preset (`runtime-descriptor.ts`: "string preset — unsupported by this runtime; no ladder installed"),
+and the engine reports such a position as `preset_unenforced`, `downside_stop: false`. The bullet now
+defers to the engine's `note` and never says "protected", as `dsl.md` already does. The rule changed
+on purpose; the old wording is quoted here.
+
+- SKILL.md: - **Named-string preset** (some strategies ship `dsl_preset: conviction`): `profile.dsl` is `{preset_name, note}` — say "DSL preset: `conviction` (ladder managed by the runtime, not inlined)." Still protected — never call a named preset "no DSL."
+
+# senpi-portfolio 1.37.0 — fork-first routing: dropped and reworded sentences
+
+Strategy conversations now start in `senpi-strategy-author`: the closest template is the base the user
+forks and makes their own (a lever shifted, a rule of their own); scratch when nothing fits. No skill
+pitches a template by name outside that match. Each quote below is base text that left SKILL.md, with why.
+
+> | a yes to CTA 1 / CTA 2, or a digit (after the CTAs: that CTA; after the idle menu: that option), or a question about a menu option or its numbers | the levers / the ready options | `references/output-contract.md` (the menu) |
+
+Why: Reworded in place for fork-first routing; the new wording is in SKILL.md.
+
+>   (The menu and its numbers: `references/output-contract.md`.)
+
+Why: Reworded in place for fork-first routing; the new wording is in SKILL.md.
+
+>   deploy), name the ready options rather than opening a blank picker. One per line, so it
+>   can be answered with a digit:
+
+Why: Reworded in place for fork-first routing; the new wording is in SKILL.md.
+
+>   > **What should the idle go into?**
+
+Why: Reworded in place for fork-first routing; the new wording is in SKILL.md.
+
+>   > 1. **Penguin** — the Hyperfeed striker, crypto only: one position at up to 10x, 90% margin, on the
+>   >    strongest live rotation, with a DSL floor that ratchets up to lock gains. High risk, high reward,
+
+Why: A hardcoded template pitch. A template is now offered only as a fit for the user's own idea (senpi-strategy-author, via the discover ranking, once), never from a fixed list.
+
+>   > 2. **Pelican** — the same striker across all assets: crypto plus stocks, commodities, indices
+
+Why: A hardcoded template pitch. A template is now offered only as a fit for the user's own idea (senpi-strategy-author, via the discover ranking, once), never from a fixed list.
+
+>   > 3. **Puffin** — the smart-money signal feed, concentrated into one position at a time at high
+
+Why: A hardcoded template pitch. A template is now offered only as a fit for the user's own idea (senpi-strategy-author, via the discover ranking, once), never from a fixed list.
+
+>   > 4. **Signals Hunter** — that same feed traded on a clock, spread across several slots.
+>   > 5. **Athena** — a smart-money hedge fund, forked under your name.
+>   > 6. Or **something else** — tell me how you want to trade and we'll find or build it.
+
+Why: A hardcoded template pitch. A template is now offered only as a fit for the user's own idea (senpi-strategy-author, via the discover ranking, once), never from a fixed list.
+
+>   Penguin and Pelican are the two most people start with, because a live rotation shows up fast and
+>   they are built to be forked and modified. Be able to unpack the numbers: **-15% SL is 15% ROE, not a
+>   15% price move** — at 10x that is a **1.5%** move, so answer in price when asked. On 90% margin it is
+>   **~13.5% of that wallet per stop-out**, and say **per stop-out** — their risk guard rails are off, so
+>   stops compound. **Up to 10x**, never a flat 10x: the per-name venue cap clamps many instruments, which
+>   moves the price behind every number, not the wallet cost. Say **rotations**, never "pumps".
+>   Routes 1-5 hand to **senpi-strategy-ops**;
+>   route 6 to **senpi-strategy-discover** (find one) or **senpi-strategy-author** (build one). Topping up
+
+Why: A hardcoded template pitch. A template is now offered only as a fit for the user's own idea (senpi-strategy-author, via the discover ranking, once), never from a fixed list.
+

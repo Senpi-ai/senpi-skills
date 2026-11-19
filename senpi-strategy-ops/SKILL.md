@@ -13,7 +13,8 @@ description: >-
   never a GitHub user or repo named after the strategy. A package missing from disk is
   normal (it was closed, or never fetched) and `deploy.py` fetches it by id.
   "are my positions protected? / do they have a stop-loss (DSL)?",
-  "close/uninstall polar", "pause polar" / "stop new trades" / "stop opening positions" (→ watch-only, decision_mode: none; never the MCP strategy_pause) — and for teardown like "close all strategies",
+  "close/uninstall polar", "pause polar" / "stop new trades" / "stop opening positions" (→ watch-only, decision_mode: none; never the MCP strategy_pause),
+  "close my trades / positions" (→ strategy_close_positions, coins named; not close.py) — and for teardown like "close all strategies",
   "return funds to main", "tear everything down" (→ close.py --all). ALWAYS tear
   down via close.py, never a raw strategy_close (that strands the runtime). ops
   deploys / closes / monitors; it does NOT author or edit strategy files — an edit
@@ -35,7 +36,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.32.9"
+  version: "3.32.3"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -76,7 +77,7 @@ lists their fork). VERIFIED = nothing to relaunch; "my edit isn't live" / "it is
 its ✎ / ⏸ rows; healthy but has never traded → its binding gate, threshold and universe count, never "being
 selective" ([`references/liveness-verification.md`](references/liveness-verification.md)). A step verify marks `RUNS THE DEPLOY VERB` needs their yes first: `runtime <id>` starts trading
 the wallet it adopts, `create --budget` funds a NEW one (say the amount). PAUSED has no resume: tell the user,
-run nothing. Close only on "close" / "tear down" / "withdraw" in their own words, or a yes to your sentence that every position closes at market.
+run nothing. **What is being closed decides the verb.** Trades ("close my trades", "the shorts", "flatten") → **flatten, keep it running** ([steps](references/lifecycle.md#flatten--close-the-trades-keep-the-strategy)): `strategy_close_positions` naming only the coins they asked for — never `coins: []`, never omit `coins` (that offboards the wallet). Close only on the *strategy* ("close / tear down <strategy>", "withdraw", "return funds") → `close.py`, or a yes to "the strategy shuts down, every position closes at market, funds return to main". Unsure → ask.
 A bare "stop" / "pause" / "stop trading" is ambiguous: ask once, "turn on watch-only (no new entries; open positions keep their DSL stops) or close everything at market?" Watch-only is `decision_mode: none` (below). Never call the MCP `strategy_pause` on a runtime strategy: it is for mirror strategies and has no resume.
 Pass the **strategy `id`** for a CATALOG strategy (what `senpi-strategy-discover` hands over, e.g.
 `spider`), fetched from the remote if not on disk; for a **locally-authored package, pass its DIRECTORY
@@ -169,7 +170,8 @@ and **confirm the split before funding**.
 **Taking a simulation live** ("take Puffin v13 live"): deploy the package that simulation ran (its `skillName` in `strategy_list` with simulation results), live, with `create <id> --budget <usd> --from-simulation simulation-<id>`. Its budget was virtual: ask the user for a real-money amount and confirm it as for any live deploy; never reuse the simulation's.
 **Running variations** ("run 3 variations of Penguin", "try Penguin with a 4% stop"): each variation is its own copy of the package that simulation ran, with its levers changed: `deploy.py fork <that package> --name "<variation name>"` (a package that is already the user's fork is copied with its edits; never deploy or edit the parent's own directory), edit the copy, then `create <dir>`, deployed with `--simulation --variant-of simulation-<id>` (the simulation it varies, from `strategy_list`). When several start together, give each the same `--batch <id>`: one fresh id for the batch, e.g. `penguin-<unix seconds>`. Before the first create, tell the user how many simulations this starts, that each runs on virtual money (never call a simulation real), and that each one is billed by the hour until it is stopped (quote a cost only as a simulation's record shows it, never an estimate), and get a yes. Deploy them one after another, never in parallel. They join that simulation's group as the next free vN. Never pass `--variant-of` for a new strategy: it starts its own group. **A variation refused or failed = stop there**: deploy none of the rest and ask exactly these three, nothing else: *"<name> failed: <the refusal's own words, including what it says exists>. Should I run them as standalone simulations (each its own strategy, not a variation of <parent>), retry, or stop?"* Never say nothing was created unless the refusal says so: after `E_VARIANT_ALREADY_RUNNING` that variation exists and is billed. Never deploy them without `--variant-of` unasked.
 
-`deploy.py` polls for ~150s and then **returns** (exec says "Command still running" after 10s: `process poll` it until it exits) — with one bounded exception, the stale-proof repair
+`deploy.py` polls for ~150s and then **returns** (exec says "Command still running" after 10s: `process
+poll` it until it exits) — with one bounded exception, the stale-proof repair
 ([`references/refusal-playbook.md`](references/refusal-playbook.md)), whose note reaches stderr
 *before* validation starts, so **a call killed mid-repair still says nothing was created**: read
 `deploy.py status`, and do NOT re-run `create`. A job still running at the lapse is **exit

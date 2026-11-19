@@ -54,7 +54,7 @@ book total, or verdicts and figures already shown unless the user asks for them 
 | a read failed: `meta.degraded`, `meta.warnings`, `reconciles: false`, a `null` figure | re-run that step | `references/output-contract.md` ("Resilience") |
 | run this on a schedule | — | say the cost first: every firing is a full model call; at most twice a day, after a yes ("Run it in steps") |
 | close / pause / keep / top up ONE wallet of a strategy | — | the no-no below: whole strategy only |
-| a yes to CTA 1 / CTA 2, or a digit (after the CTAs: that CTA; after the idle menu: that option), or a question about a menu option or its numbers | the levers / the ready options | `references/output-contract.md` (the menu) |
+| a yes to CTA 1 / CTA 2, or a digit after the CTAs | the levers / build for the idle (author) | `references/output-contract.md` |
 
 **Still true on every follow-up** (in full further down):
 - **A failed read is not $0 or flat.** App-scoped token → can't read the account; failed clearinghouse
@@ -63,8 +63,7 @@ book total, or verdicts and figures already shown unless the user asks for them 
   wallet or the CTAs. A `timeout` open may have filled: check positions, never suggest a retry.
   ("Resilience")
 - **Acting on a CTA:** Confirm before any change; never trade unprompted. Propose; never deploy without
-  confirmation. CTA 2: -15% SL is 15% ROE; up to 10x, never a flat 10x; say rotations, never "pumps".
-  (The menu and its numbers: `references/output-contract.md`.)
+  confirmation. CTA 2: build their own (author, forking the closest template when one fits); name none here.
 - **There is no restart verb; close → redeploy is a last resort, asked first.** ("Liveness")
 
 > **Source of truth for position facts — read before you answer, even mid-trade.** This engine is the
@@ -313,9 +312,9 @@ question needs before you answer. These hold always:
   with this skill's. Its **`degraded`** is this skill's **`recovering`** (one errored tick); its
   **`unhealthy`** is this skill's **`degraded`** (the real fault). Reference the right tool to *confirm* —
   never re-derive its analysis here.
-- **Before the ladder: if the row carries `runtime_reason`, say it.** Quote it in those words: a scanner
-  that cannot stay up is why it has not traded. No `runtime_reason` means the runtime gave none — never
-  invent one; the ladder finds it.
+- **Before the ladder: if the row carries `runtime_reason`, say it.** Quote it in those words: it is why
+  the scanner has not traded. Call it a crash loop only when it says crashes. No `runtime_reason` means the
+  runtime gave none — never invent one; the ladder finds it.
 - **When it IS genuinely broken, act — don't hand the user a to-do.** For `degraded` corroborated by no
   activity, or `not_running`, work the ladder yourself and report what you found (the ladder:
   `references/runtime-health.md`). Its step 3: **Re-run the deploy** — a deploy interrupted by a gateway
@@ -348,7 +347,9 @@ question needs before you answer. These hold always:
 
 **Fees are read, never estimated.** A P&L claim about a strategy — "it is up", "it is not losing" —
 quotes the wallet's **signed** fees from its fills (`totalFees` / the closed-trade history), net of
-them, with the fee figure beside the PnL. If the fee read fails, say the number is gross and why.
+them, with the fee figure beside the PnL. Those fees are Hyperliquid's exchange fees — say so: Senpi
+charges no trading fee on a paid plan, and any Senpi part shows as the fills' `builderFee`, never a rate
+from memory. If the fee read fails, say the number is gross and why.
 
 **Paper is not live.** A `senpi validate` tick, a scanner signal, a simulation or an estimate is not a
 trade; only a fill on the strategy wallet (`positions`, `closed`) is. Never narrate a shadow run as
@@ -454,9 +455,9 @@ directly.)
   command that failed — quote it rather than inventing a cause. State a `true` posture as ("deployed with
   a DSL exit"), then give the **ladder** (`profile.dsl`: hard stop + arm-at + tiers) and each **open
   position's live tier** (`positions[].dsl`). This config-level field is NOT the per-position tier — see
-  "DSL — how it works per strategy, and which position is in which tier" below. **Never call a live
-  position "unprotected" just because it has no ratchet record — sub-Tier-1 positions have none by
-  design.** For a raw position with no runtime, `false` means **no ratchet** — see the HARD rule below.
+  "DSL — how it works per strategy" below. **Never call a live position "unprotected" for lacking an
+  armed ratchet tier.** For a raw position with no runtime, `false` means **no ratchet** —
+  see the HARD rule below.
 - **Don't infer "wiped out" from a low balance.** Check `total_funded` / `total_withdrawn` — a
   strategy can show a small balance because profits were withdrawn (`netFunded` can be negative). That
   is not a loss.
@@ -490,7 +491,7 @@ directly.)
   strategy — it already has one. To *verify* protection, read `profile.dsl` (the ladder) + each
   `positions[].dsl` (the live tier) — see "DSL — how it works per strategy, and which position is in
   which tier"; never infer "no stop" from the absence of a resting stop order (DSL exits are
-  runtime-managed, not resting orders) or from a missing ratchet record (sub-Tier-1 positions have none).
+  runtime-managed, not resting orders) or from a missing or tier -1 ratchet record.
 - **Always end with the closing** (below), verbatim — the deep-dive question when offered, then the two
   CTAs.
 
@@ -505,17 +506,17 @@ hold always:
 
 - `has_phase2` — `false`/empty `tiers` ⟹ **phase1-only** (a hard stop, no profit ratchet). Say
   "hard-stop protected, no profit-lock ratchet," not "unprotected."
-- **Named-string preset** (some strategies ship `dsl_preset: conviction`): `profile.dsl` is
-  `{preset_name, note}` — say "DSL preset: `conviction` (ladder managed by the runtime, not inlined)."
-  Still protected — never call a named preset "no DSL."
+- **Named-string preset** (`dsl_preset: conviction`): `profile.dsl` is `{preset_name, note}`. The
+  runtime cannot install a string preset, so `positions[].dsl` has `downside_stop: false`: quote its
+  `note` (`references/dsl.md`), never "protected."
 
 ### HARD rule — NEVER say a live position has "no active DSL / no monitoring"
 
-An **empty ratchet record on a sub-Tier-1 position is NOT "unprotected"** (why: `references/dsl.md`).
-**Never read "no
-ratchet record" as "no DSL."** Say **"protected; profit-ratchet arms at Tier 1 (+X%)"** — never
-"unprotected / unmonitored / no stop." (The engine already frames every `armed: false` position this way
-in `dsl.note`; do not override it with an "unprotected" reading.)
+**No ratchet record, or a tier -1 one, is sub-Tier-1, NOT "unprotected"**: a runtime strategy's
+max-loss stop is on from entry (`references/dsl.md`). **Never read "no ratchet record" as "no
+DSL."** Say **"protected; profit-ratchet arms at Tier 1 (+X%)"** — never "unprotected / unmonitored /
+no stop." (The engine frames every `armed: false` position in `dsl.note`; never override it with an
+"unprotected" reading.)
 
 - **An ERRORED or empty DSL query is "unknown," never "unprotected."** That
   is a **data gap**, not evidence of missing protection — treat it exactly like `dsl:null`. Never turn a failed read into
@@ -527,9 +528,10 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
 - **Only `name_source: "strategyName"` means `name` is really its name.** (The other values:
   `references/output-fields.md`.) When `name_source != "strategyName"`, call it by `strategy_id` + wallet and say which package it came from —
   never "the cub strategy", and never tell one sleeve from another by that string.
-- **A raw position (no runtime, `protected: false`) is "no ratchet," not "no stop."** A one-off
-  position the user placed by hand carries its protection as resting orders, which this engine does not
-  read. Before saying it has no stop, read them — `strategy_get_open_orders` on that wallet; a
+- **A raw position (no runtime, `protected: false`) is "no ratchet," not "no stop."** A tier -1
+  record (`downside_stop: false`): no downside stop until Tier 1. A one-off position the user placed
+  by hand carries its protection as resting orders, which this engine does not read. Before saying it
+  has no stop, read them — `strategy_get_open_orders` on that wallet; a
   reduce-only trigger order (`isTrigger`, `triggerPx`) whose `orderType` is a Stop (`Stop Market` /
   `Stop Limit`) is its stop, a Take Profit order is not — and say what you found: "no ratchet;
   a static stop rests at $X" or "no ratchet and no stop order." The direct question ("do I have a
@@ -683,32 +685,10 @@ first-class".
 - **CTA 2 → deploy idle.** If there's meaningful **truly-free** idle capital (lead from
   `signals.idle_drag_pct` and `idle_in_embedded` — NOT a flat sleeve of a live multi-wallet strategy,
   which is committed, and never `book.totals.read_only_usd` or any read-only row, which Senpi cannot
-  deploy), name the ready options rather than opening a blank picker. One per line, so it
-  can be answered with a digit:
-
-  > **What should the idle go into?**
-  >
-  > 1. **Penguin** — the Hyperfeed striker, crypto only: one position at up to 10x, 90% margin, on the
-  >    strongest live rotation, with a DSL floor that ratchets up to lock gains. High risk, high reward,
-  >    with -15% SL.
-  > 2. **Pelican** — the same striker across all assets: crypto plus stocks, commodities, indices
-  >    and pre-IPO.
-  > 3. **Puffin** — the smart-money signal feed, concentrated into one position at a time at high
-  >    leverage.
-  > 4. **Signals Hunter** — that same feed traded on a clock, spread across several slots.
-  > 5. **Athena** — a smart-money hedge fund, forked under your name.
-  > 6. Or **something else** — tell me how you want to trade and we'll find or build it.
-
-  Penguin and Pelican are the two most people start with, because a live rotation shows up fast and
-  they are built to be forked and modified. Be able to unpack the numbers: **-15% SL is 15% ROE, not a
-  15% price move** — at 10x that is a **1.5%** move, so answer in price when asked. On 90% margin it is
-  **~13.5% of that wallet per stop-out**, and say **per stop-out** — their risk guard rails are off, so
-  stops compound. **Up to 10x**, never a flat 10x: the per-name venue cap clamps many instruments, which
-  moves the price behind every number, not the wallet cost. Say **rotations**, never "pumps".
-  Routes 1-5 hand to **senpi-strategy-ops**;
-  route 6 to **senpi-strategy-discover** (find one) or **senpi-strategy-author** (build one). Topping up
-  an existing *whole* strategy via `strategy_top_up` stays available whenever that fits better.
-  Propose; never deploy without confirmation.
+  deploy), offer to **build a strategy for the idle** with them (**senpi-strategy-author**) — name no
+  template here; author forks the closest one when it fits. Topping up an existing
+  *whole* strategy via `strategy_top_up` stays available whenever that fits better. Propose; never
+  deploy without confirmation.
 
 ## Reference index (`references/`)
 

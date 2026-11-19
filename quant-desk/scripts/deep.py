@@ -129,7 +129,7 @@ def rules(r):
     risk = "hard stop on every position; a trailing lock at 50% of the peak once +2 ATR; daily entry cap at your median day"
     fams = r.get("families") or ["trend_following"]
     return dict(entries=ent, entry_rule=entry_rule, hold_rule=hold, size_rule=size, risk_rule=risk, families=fams,
-                handoff=f"senpi-strategy-discover: closest templates in the {' / '.join(f.replace('_', ' ') for f in fams)} families; senpi-strategy-author to write these rules from scratch, deployed as your strategy")
+                handoff=f"senpi-strategy-author: code these rules into your strategy ({' / '.join(f.replace('_', ' ') for f in fams)} shape), deployed as your strategy")
 
 
 def regime(r):

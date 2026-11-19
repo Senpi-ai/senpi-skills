@@ -95,6 +95,46 @@ def test_skill_forbids_recommending_from_the_unthemed_neutral_order_shortlist():
     assert "Keep risk, belief, horizon, and worldview in your head" not in text
 
 
+def test_exits_size_and_rebuys_are_quoted_from_the_card_in_golden_rules():
+    """Blind test, 16 Nov 2026: the agent said Mustang and Yak "exit when the trend breaks" (both cards
+    say a trailing stop decides every sale), sized Kudu as $500 ÷ 11 (its card gives each name 4% of the
+    account as margin at 2x) and said Kudu never re-buys after a dip (it re-buys a stopped-out name at the
+    next calm close). The shortlist had cut those sentences. The rule sits in Golden rules, where it is
+    read. The size is MARGIN: "$20 a name" read as the position would misprice every move at 2x."""
+    g = _golden_rules()
+    for needle in ("quote its card, never infer", "run `--card <id,id>`",
+                   "Never infer an exit from the entry rule",
+                   "sells nothing unless the card says it closes on it", "share of the ACCOUNT as margin",
+                   '("4% clips at 2x" = $20 of margin, a $40 position, per name on $500)',
+                   "never budget ÷ slots or ÷ names", "bought back only as the card says"):
+        assert needle in g, f"{needle!r} missing from Golden rules"
+    assert "$20 a name" not in g, "the per-name figure is margin; say the position too"
+    usage = " ".join(_body().split("## How to run the engine", 1)[1].split("\n## ", 1)[0].split())
+    assert "[--card <csv of ids>]" in usage, "the engine usage block must list --card"
+    assert "come back in `deferred`: run --card again for those" in usage, "say what an over-budget call returns"
+
+
+def _description(skill):
+    path = os.path.join(os.path.dirname(SKILL), "..", skill, "SKILL.md")
+    fm = re.match(r"^---\n(.*?)\n---\n", open(path, encoding="utf-8").read(), re.S).group(1)
+    return " ".join(fm.split("description:", 1)[1].split("license:", 1)[0].split())
+
+
+def test_a_strategy_ask_that_names_stocks_still_routes_to_templates():
+    """Blind test, 16 Nov 2026: "a long-term basket of quality megacap stocks, the likes of Apple,
+    Microsoft and Nvidia" never reached discover; the agent listed instruments 13 times and wrote a
+    stock-research note. The same ask without tickers ran discover and picked Kudu. Routing is read
+    from the descriptions before any file is opened, so both strategy skills say it there."""
+    author, disc = _description("senpi-strategy-author"), _description("senpi-strategy-discover")
+    assert "naming stocks or coins keeps it one" in author and "never stock research" in author
+    assert "Finds the closest template FIRST" in author
+    assert "is still a strategy ask" in disc and "never with research on the assets" in disc
+    body = " ".join(open(os.path.join(os.path.dirname(SKILL), "..", "senpi-strategy-author", "SKILL.md"),
+                         encoding="utf-8").read().split())
+    assert "a named ticker never turns the ask into research on that asset" in body
+    assert "checking tickers against `market_list_instruments` is a build step, after the base" in body
+
+
 def test_card_format_never_prints_the_raw_tier_field():
     """The card example once ended in a `[{tier}]` placeholder, so every template line came out as a raw
     `[{tier: advanced}]` tag. The badge is the literal `[STARTER]`, only for `tier == "starter"`."""

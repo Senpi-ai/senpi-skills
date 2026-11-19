@@ -5,6 +5,8 @@
     python3 -m pytest senpi-smart-money/tests/   # or: python3 tests/test_smartmoney.py
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import contextlib
+import io
 import json
 import os
 import sys
@@ -274,6 +276,186 @@ def test_step_cohorts_unavailable_flag_offline():
     assert ec["smart_leaning"] == [] and ec["divergences"] == []
     en = smartmoney.step_near_term(smartmoney._FixtureClient({}), want_near=True, state_path=statep)
     assert en["meta"].get("cohorts_unavailable")   # propagated through the shared state
+
+
+# ──────────────────────────────────────────────────────────── flow step (what the cohorts did)
+ALL_KEYS = {"as_of", "cohorts", "smart_leaning", "divergences", "near_term", "meta"}
+
+
+def _intents(**usd):
+    names = ("NEW", "PRESSING", "AVERAGING_DOWN", "TAKING_PROFIT", "CUTTING_LOSS", "LIQUIDATED", "UNKNOWN")
+    return {n: {"count": 1 if usd.get(n) else 0, "usd": usd.get(n, 0)} for n in names}
+
+
+def _flow_row(asset, cohort, net, adding, cutting, **intent_usd):
+    return {"asset": asset, "cohort": cohort, "net_usd": net, "long_added_usd": max(net, 0),
+            "long_cut_usd": 0, "short_added_usd": 0, "short_cut_usd": max(-net, 0) + 0.4,
+            "changes_adding": adding, "changes_cutting": cutting, "opens": 1, "closes": 1, "flips": 0,
+            "likely_liquidated": 0, "intents": _intents(**intent_usd),
+            "wallets_adding": adding, "wallets_cutting": cutting}
+
+
+def _flow_body(rows):
+    """The MCP envelope smart_money_flow returns: {success, data: {flow}}, flow per the worker's /flow."""
+    return {"success": True, "data": {"flow": {
+        "as_of_ts": 1793408222, "age_s": 652,
+        "window": {"name": "1h", "from_ts": 1793404622, "to_ts": 1793408222, "snapshots": 5,
+                   "max_gap_s": 713, "gaps": []},
+        "cohorts": {"proven": {"size": 370}, "crowd": {"size": 7560}, "apex": {"size": 210},
+                    "whale": {"size": 740}, "as_of_ts": 1793405000},
+        "assets": rows,
+        "divergences": [{"asset": "ETH", "proven_net_usd": 14000000, "crowd_net_usd": -3000000}],
+        "quality": {"markets_skipped": 0, "snapshots_skipped": 0}}}}
+
+
+def _flow_responses():
+    proven = [_flow_row(f"P{i}", "proven", 1000 * (12 - i), 6, 2, PRESSING=5000.4, CUTTING_LOSS=1200)
+              for i in range(12)]
+    proven.insert(1, _flow_row("P0", "all", 99, 50, 50))           # other-cohort rows are dropped
+    crowd = [_flow_row("ETH", "crowd", -3000000, 40, 90, CUTTING_LOSS=2500000)]
+    apex = [_flow_row("BTC", "apex", 5000000, 14, 20, PRESSING=4000000)]
+    whale = [_flow_row("BTC", "whale", -4800000, 14, 21, CUTTING_LOSS=5200000)]
+    return {"smart_money_flow::proven": _flow_body(proven),
+            "smart_money_flow::crowd": _flow_body(crowd),
+            "smart_money_flow::apex": _flow_body(apex),
+            "smart_money_flow::whale": _flow_body(whale)}
+
+
+class _RecordingClient(smartmoney._FixtureClient):
+    """The fixture client, recording every call; a recorded Exception is raised."""
+    def __init__(self, responses):
+        super().__init__(responses)
+        self.calls = []
+
+    def mcp_call(self, tool, timeout=12, **kw):
+        self.calls.append((tool, kw))
+        r = super().mcp_call(tool, timeout, **kw)
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+
+def _main_out(argv):
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        rc = smartmoney.main(argv)
+    return rc, buf.getvalue()
+
+
+def test_flow_happy_path_slice_shape():
+    res = smartmoney.step_flow(_RecordingClient(_flow_responses()))
+    assert set(res) == {"flow"}
+    f = res["flow"]
+    assert set(f) == {"as_of_ts", "age_s", "window", "cohort_sizes", "proven", "crowd", "apex", "whale",
+                      "divergences", "quality", "warnings"}
+    assert (f["as_of_ts"], f["age_s"]) == (1793408222, 652)
+    assert f["window"] == {"name": "1h", "from_ts": 1793404622, "to_ts": 1793408222,
+                           "snapshots": 5, "max_gap_s": 713}
+    assert f["cohort_sizes"] == {"proven": 370, "crowd": 7560, "apex": 210, "whale": 740}
+    assert f["apex"] == [{"asset": "BTC", "net_usd": 5000000, "wallets_adding": 14, "wallets_cutting": 20,
+                          "long_added_usd": 5000000, "long_cut_usd": 0, "short_added_usd": 0,
+                          "short_cut_usd": 0, "intent_usd": {"PRESSING": 4000000}}]
+    assert [r["net_usd"] for r in f["whale"]] == [-4800000]
+    assert len(f["proven"]) == smartmoney.FLOW_ASSET_LIMIT
+    assert [r["asset"] for r in f["proven"][:2]] == ["P0", "P1"]
+    assert f["proven"][0] == {"asset": "P0", "net_usd": 12000, "wallets_adding": 6, "wallets_cutting": 2,
+                              "long_added_usd": 12000, "long_cut_usd": 0, "short_added_usd": 0,
+                              "short_cut_usd": 0, "intent_usd": {"PRESSING": 5000, "CUTTING_LOSS": 1200}}
+    assert f["crowd"] == [{"asset": "ETH", "net_usd": -3000000, "wallets_adding": 40, "wallets_cutting": 90,
+                           "long_added_usd": 0, "long_cut_usd": 0, "short_added_usd": 0,
+                           "short_cut_usd": 3000000, "intent_usd": {"CUTTING_LOSS": 2500000}}]
+    assert f["divergences"] == [{"asset": "ETH", "proven_net_usd": 14000000, "crowd_net_usd": -3000000}]
+    assert f["quality"] == {"markets_skipped": 0, "snapshots_skipped": 0}
+    assert f["warnings"] == []
+
+
+def test_flow_tool_unavailable_is_null_and_exit_0():
+    """Tool missing (JSON-RPC error) or UNAVAILABLE (success: false) → flow null with the reason, exit 0."""
+    for failure in (RuntimeError("JSON-RPC error -32602: Unknown tool: smart_money_flow"),
+                    {"success": False, "error": {"code": "UNAVAILABLE"}}):
+        res = smartmoney.step_flow(_RecordingClient({"smart_money_flow": failure}))
+        assert res["flow"] is None and res["flow_unavailable"].startswith("smart_money_flow failed")
+        assert set(res) == {"flow", "flow_unavailable"}
+    fixture = os.path.join(tempfile.mkdtemp(), "empty.json")
+    with open(fixture, "w") as fh:
+        json.dump({}, fh)
+    rc, out = _main_out(["flow", "--fixture", fixture])
+    assert rc == 0
+    assert json.loads(out) == {"flow": None,
+                               "flow_unavailable": "smart_money_flow failed: response has no `flow.assets` list"}
+
+
+def test_flow_unavailable_quotes_the_tool_error_message():
+    unavailable = {"success": False, "error": {
+        "code": "UNAVAILABLE", "message": "Smart money flow data unavailable: Flow API error ECONNREFUSED."}}
+    res = smartmoney.step_flow(_RecordingClient({"smart_money_flow": unavailable}))
+    assert res == {"flow": None, "flow_unavailable":
+                   "smart_money_flow failed: Smart money flow data unavailable: Flow API error ECONNREFUSED."}
+    res = smartmoney.step_flow(_RecordingClient({"smart_money_flow": {"success": False, "error": {"code": "UNAVAILABLE"}}}))
+    assert res["flow_unavailable"] == "smart_money_flow failed: UNAVAILABLE"
+
+
+def test_flow_proven_call_failure_keeps_the_other_cohorts():
+    responses = _flow_responses()
+    responses["smart_money_flow::proven"] = {"success": False, "error": {"message": "proven read failed"}}
+    f = smartmoney.step_flow(_RecordingClient(responses))["flow"]
+    assert f["proven"] is None and f["crowd"] and f["apex"] and f["whale"]
+    assert f["age_s"] == 652
+    assert f["warnings"] == ["smart_money_flow (proven) failed: proven read failed"]
+
+
+def test_flow_crowd_call_failure_keeps_proven():
+    responses = _flow_responses()
+    responses["smart_money_flow::crowd"] = TimeoutError("timed out")
+    f = smartmoney.step_flow(_RecordingClient(responses))["flow"]
+    assert f["proven"] and f["crowd"] is None
+    assert f["warnings"] == ["smart_money_flow (crowd) failed: timed out"]
+
+
+def test_flow_passes_window_and_asset_through():
+    client = _RecordingClient(_flow_responses())
+    smartmoney.step_flow(client, window="4h", asset="ETH")
+    limit = smartmoney.FLOW_ASSET_LIMIT
+    assert client.calls == [
+        ("smart_money_flow", {"window": "4h", "cohort": "proven", "limit": limit, "asset": "ETH"}),
+        ("smart_money_flow", {"window": "4h", "cohort": "crowd", "limit": limit, "asset": "ETH"}),
+        ("smart_money_flow", {"window": "4h", "cohort": "apex", "limit": limit, "asset": "ETH"}),
+        ("smart_money_flow", {"window": "4h", "cohort": "whale", "limit": limit, "asset": "ETH"}),
+    ]
+    # the CLI flags reach the call; no --asset sends no asset, and the window defaults to 1h
+    fixture = os.path.join(tempfile.mkdtemp(), "flow.json")
+    with open(fixture, "w") as fh:
+        json.dump(_flow_responses(), fh)
+    seen = []
+    real = smartmoney._FixtureClient.mcp_call
+
+    def spy(self, tool, timeout=12, **kw):
+        seen.append(kw)
+        return real(self, tool, timeout, **kw)
+
+    smartmoney._FixtureClient.mcp_call = spy
+    try:
+        rc, out = _main_out(["flow", "--window", "24h", "--asset", "xyz:TSLA", "--fixture", fixture])
+        assert rc == 0 and json.loads(out)["flow"]["proven"]
+        assert _main_out(["flow", "--fixture", fixture])[0] == 0
+    finally:
+        smartmoney._FixtureClient.mcp_call = real
+    assert [(k["window"], k.get("asset")) for k in seen] == [("24h", "xyz:TSLA")] * 4 + [("1h", None)] * 4
+
+
+def test_all_output_unchanged_by_flow():
+    """`all` keeps its keys and never calls smart_money_flow, even when the tool is there."""
+    with open(FIXTURE) as fh:
+        responses = json.load(fh)
+    responses.update(_flow_responses())
+    client = _RecordingClient(responses)
+    res = smartmoney._all_and_persist(client, True, _tmp_state())
+    assert set(res) == ALL_KEYS
+    assert "smart_money_flow" not in {t for t, _ in client.calls}
+    assert _canon(res) == _canon(_result())
+    for argv in (["--fixture", FIXTURE], ["all", "--fixture", FIXTURE]):
+        rc, out = _main_out(argv + ["--state", _tmp_state()])
+        assert rc == 0 and set(json.loads(out)) == ALL_KEYS
 
 
 if __name__ == "__main__":

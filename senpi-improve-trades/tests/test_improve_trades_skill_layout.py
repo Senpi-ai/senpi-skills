@@ -53,7 +53,7 @@ ROUTER_NEEDLES = (
     "| sell too early / late", "| nothing to review, an empty result |", "| a saved wallet |",
     "| the wallet picked from `book.deep_dive.question` |",
     "| what did I miss, compare to the market / the whales |", "whales: compose `senpi-smart-money`",
-    "`no_strategies` → `senpi-market-pulse`, then `senpi-strategy-discover`",
+    "`no_strategies` → `senpi-market-pulse`, then `senpi-strategy-author`",
     "guardrail 5: judge it against its own mandate, all its wallets together, flat-by-design is not a loss",
     "| `output-contract.md` |", "| the user picks a fix depth | *(none)* | `output-contract.md` (both menus) |",
     "| where am I leaking, fees, maker vs taker | `telemetry` | `guardrails.md` hard rule 0;",
@@ -487,6 +487,18 @@ def test_moved_examples_live_in_their_reference():
     o = ref("one-book.md")
     assert "`min_closes` (8)" in o and "an empty $0 wallet stays in the table, never in the question" in o
     assert "a wallet with no package stamp is its own row" in o
+
+
+def test_the_fee_evidence_in_guardrails_says_the_fee_follows_the_plan():
+    """From 2026-10-26 Senpi charges no builder fee on a paid plan; an older fill's builder leg is only
+    how that fill reads. No nonzero Senpi rate is quoted."""
+    with open(os.path.join(SKILL_DIR, "references", "guardrails.md"), encoding="utf-8") as f:
+        g = " ".join(f.read().split())
+    assert ("Senpi charges no builder fee on a paid plan, and the fee is not a constant: read it from the "
+            "fills.") in g
+    assert "per tier" not in g
+    for rate in ("0.03%", "0.05%", "5.00 bps"):
+        assert rate not in g, rate
 
 
 # senpi-portfolio/tests/test_your_wallets_wording.py, SECTION_BANNED + its "own book" ban, read whole here.
