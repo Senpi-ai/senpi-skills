@@ -2129,11 +2129,14 @@ def cmd_update(a):
     target = inst.runtime_path.parent
     # The follow-up read matches the selector actually sent: `--id` naming a runtime other than the
     # instance's live one, or `--address` with a simulation wallet, targets the simulation, so every
-    # follow-up read must be `status.py --paper`, or it reads the live world.
+    # follow-up read must name the simulation, or it reads the live world. The world is `--paper` on
+    # a tree that predates the simulation rename and `--simulation` after it; `_cli` says which.
+    renamed = hasattr(_cli, "is_simulation_address")
+    is_simulation_wallet = _cli.is_simulation_address if renamed else _cli.is_paper_address
     flag, value = selector[0], selector[1]
     simulated = ((flag == "--id" and value != inst.runtime_name)
-                 or (flag == "--address" and _cli.is_paper_address(value)))
-    read = f"python3 {_cli.STATUS_PY} {pkg.id}" + (" --paper" if simulated else "")
+                 or (flag == "--address" and is_simulation_wallet(value)))
+    read = f"python3 {_cli.STATUS_PY} {pkg.id}" + ((" --simulation" if renamed else " --paper") if simulated else "")
     if a.apply and not (target / PROOF_FILE).is_file():
         # The verb refuses this too (`E_UPDATE_PROOF_REQUIRED`); saying it here saves the round-trip
         # and names the exact command. A STALE proof is the verb's call, not ours — it knows the bytes.
