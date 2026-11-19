@@ -1,0 +1,154 @@
+# ── CHIPMUNK · rung 1 of 3 — the conservative BTC/ETH dip ladder's first step: buys 10% under the
+#    60-day high, and only while the coin is above its 40-week average ──
+# The ladder is three wallets running one engine (scanners/ is byte-identical in all three and in
+# squirrel's; it trades differently from squirrel only through `regimeWeeks: 40`): rung1 buys at 10%
+# under the high, rung2 at 20%, rung3 at 30%, funded 17% / 33% / 50% of the budget (sizes about 1:2:3).
+# The runtime cannot add to an open position and has no partial exits, so each step of the ladder is
+# its own wallet.
+# At each UTC-midnight daily close, for BTC and ETH (main dex), a coin this wallet does not hold is
+# bought at 1x when its latest closed daily close is at least 10% under the highest close of the 60
+# completed days before it AND above the average close of its last 40 CLOSED weekly candles (1w feed).
+# The trend gate decides buys only — it never closes anything. Each position is a quarter of this
+# wallet's account value, one per coin; the rest stays in USDC. Flat in a coin and the rule holds at a
+# later close: it buys again. The DSL is the ONLY exit: a 35% stop (35% of price at 1x) and a profit
+# lock from +35%. No clocks.
+#
+# Replay, as approved for this build. Method: Binance BTC/USDT + ETH/USDT daily bars (Jan 2019 - Nov
+# 2026) for decisions, 4h bars for the exit path; entry at the daily close; the stop on the wick; rungs
+# arming on the close (extreme as the upper bound); each rung trade weighted by its rung's share
+# (1:2:3) x 25% per position (half the budget at most); Hyperliquid main-dex taker fee 4.5 bps a side +
+# measured spread; funding at each coin's 180-day average (BTC 8.0%, ETH 7.6% a year, longs paying) for
+# every hour held; stress = 11% a year always paid.
+# CHIPMUNK (40-week gate): 59 trades, profit factor 2.21 (2.12 stressed, 2.21 free/trial), worst
+# drawdown 18.4%. Neighbourhood worst 1.21 (1.15 stressed); drawdown worst 23.4%, median 16.0%. By
+# year: 2019 0.00 (4 trades), 2020 8.67, 2021 1.92, 2022 one trade (stopped), 2023 5 trades (all won),
+# 2024 0.85, 2025 0.22, 2026 0.00 (2). It lost money in 2025-26: BTC and ETH fell from Oct 2025.
+name: chipmunk-rung1
+group: chipmunk
+version: 1.0.0
+description: >
+  CHIPMUNK rung 1 of 3 — the first step of a BTC/ETH dip ladder that buys only in an uptrend, long
+  only, 1x. At each UTC-midnight daily close it buys BTC or ETH (main dex), whichever this wallet
+  does not already hold, when that coin's daily close is at least 10% under its highest close of the
+  previous 60 days AND above the average of its last 40 weekly closes; under that average it buys
+  nothing. Each position is bought with a quarter of this wallet's account value, one per coin, so
+  about half the wallet or more stays in USDC. The other steps are separate wallets: rung 2 buys
+  from 20% under with about twice this rung's budget, rung 3 from 30% under with about three times.
+  The trend check gates buys only: the DSL is the only exit — a 35% stop (35% of price) and a profit
+  lock that starts at +35% — and no clock or trend change closes anything. Expect it to buy nothing
+  through bear markets and long rallies alike.
+
+strategy:
+  wallet: "${CHIPMUNK_RUNG1_WALLET}"
+  slots: 2                                # one BTC position and one ETH position at most
+  margin_pct: 25                          # a quarter of the account per coin; scan emits the matching marginPct
+  default_leverage: 1                     # every signal carries 1x too; min_budget sizes the smallest position at it
+  trading_risk: conservative
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: chipmunk_rung1_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # the daily close is the only decision point; 5 min bounds the delay
+    timeout_seconds: 120                   # one account read + at most two candle reads (1d + 1w each)
+    default_signal_validity_seconds: 600   # 2x tick; rule action, a fresh re-score never re-emits a bar
+    state_history_max_count: 50            # (coin, bar) dedup map + per-tick result
+    inputs:
+      allowedAssets: ["BTC", "ETH"]        # main dex, bare symbols; one position per coin
+      depthPct: 10                         # THIS RUNG: buy at a close >= 10% under the 60-day high (rungs 10 / 20 / 30)
+      highLookbackDays: 60                 # the high = highest close of the 60 completed days before the latest close (the 1d feed holds ~90)
+      regimeWeeks: 40                      # buy only above the average of the last 40 CLOSED weekly closes (the 1w feed holds ~54; squirrel: 0)
+      entryWindowSeconds: 3600             # buy within the hour after the UTC-midnight close, or wait a day
+      leverage: 1
+      stopRoePct: 35                       # MUST equal exit.dsl_preset.phase1.max_loss_pct (tests pin it)
+      marginPct: 25                        # PERCENT of the ACCOUNT per coin (the equal clip); scan converts it to % of free margin
+      maxSlots: 2
+      minNotionalUsd: 12                   # the venue's bumped minimum; a clip under it is skipped, never shrunk
+    signal_data_schema:
+      direction: { type: string }
+      depthPct: { type: number }
+      closePx: { type: number }
+      highPx: { type: number }
+      triggerPx: { type: number }
+      belowHighPct: { type: number }
+      regimeAverage: { type: number, required: false }   # only with the trend gate on
+      signalBarTime: { type: number }
+      leverage: { type: number }
+      stopPricePct: { type: number }
+      clipUsd: { type: number }
+      reasons: { type: array, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: chipmunk_rung1_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied the whole rule (close + depth + trend)
+    scanners: [chipmunk_rung1_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # the buy is AT the close — maker window first, taker fallback
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: chipmunk_rung1_signals
+
+# ── EXIT (DSL only) ───────────────────────────────────────────────────────────────────────
+# At 1x every ROE threshold is the same distance in PRICE. Stop 35% under entry; rungs arm at +35% /
+# +70% / +122% / +210% and lock 40 / 50 / 65 / 80% of the best gain (floors +14% / +35% / +79.3% /
+# +168%). Wide on purpose: the ladder buys 10-30% under the high and holds through deeper drops.
+# Clock cuts are OFF: of 142 clock-driven closes measured in one fleet week, 110 were in profit.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout: { enabled: false, interval_in_minutes: 4320 }
+    weak_peak_cut: { enabled: false, interval_in_minutes: 360, min_value: 3.0 }
+    dead_weight_cut: { enabled: false, interval_in_minutes: 60 }
+    phase1:
+      # Trailing DISABLED fleet-wide: the phase-1 floor trails HIGH-WATER, so after a small favourable
+      # move it can still sit BELOW entry and close a WINNER at a loss. max_loss_pct is the hard
+      # stop; retrace_threshold is inert while enabled is false.
+      enabled: false
+      max_loss_pct: 35.0   # 35% of price at 1x — mirrored by inputs.stopRoePct
+      retrace_threshold: 35
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # trigger / lock, ROE = price at 1x
+        - { trigger_pct: 35, lock_hw_pct: 40 }     # +35%  -> floor +14%
+        - { trigger_pct: 70, lock_hw_pct: 50 }     # +70%  -> floor +35%
+        - { trigger_pct: 122, lock_hw_pct: 65 }    # +122% -> floor +79.3%
+        - { trigger_pct: 210, lock_hw_pct: 80 }    # +210% -> floor +168%
+
+# ── RISK guard rails (per rung wallet; rare entries, a wide stop, no self-resetting breaker) ──
+risk:
+  data_retention_seconds: 604800           # 7d, the maximum — a position can live for months
+  guard_rails:
+    daily_loss_limit_pct: 20               # one stop-out is 35% x 25% = 8.75% of the wallet; both coins 17.5%
+    max_entries_per_day: 2                 # one BTC + one ETH at a daily close
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 86400                # a day after four losses in a row
+    drawdown_halt_pct: 60                  # a disaster brake only: a tight latched halt would switch the deep
+                                           # rung off exactly when it is meant to buy
+    drawdown_reset_on_day_rollover: false  # clearing it is a deliberate act (redeploy), not midnight
+    per_asset_cooldown_seconds: 300        # the scanner already allows one entry per coin per daily close
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
