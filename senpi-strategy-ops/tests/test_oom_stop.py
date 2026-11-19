@@ -66,8 +66,12 @@ class Box:
 
     def __call__(self, args, timeout=60):
         self.calls.append(list(args))
-        if list(args[:3]) == ["openclaw", "gateway", "call"]:
+        if list(args[:2]) == ["senpi", "call"]:
+            key = args[2]
+        elif list(args[:3]) == ["openclaw", "gateway", "call"]:
             key = args[3]
+        elif args[0] == "senpi":      # `senpi --version`, `senpi validate …`, `senpi update …`
+            key = args[1] if args[1].startswith("--") else f"senpi {args[1]}"
         else:
             key = args[1] if args[1].startswith("--") else " ".join(args[1:3])
         a = self.answers.get(key)
@@ -78,7 +82,8 @@ class Box:
         return tuple(a) if len(a) == 5 else (*a, False, None)
 
     def sent(self, method):
-        return [c for c in self.calls if c[:4] == ["openclaw", "gateway", "call", method]]
+        return [c for c in self.calls if c[:3] == ["senpi", "call", method]
+                or c[:4] == ["openclaw", "gateway", "call", method]]
 
 
 class FakeMCP:
@@ -231,7 +236,7 @@ class StartKilledWithNoReadMade(_BoxCase):
                 box = Box({"senpi.getHealthStatus": HEALTH_PLAIN})
 
                 def spawn(args, timeout=60, box=box, started=started):
-                    if args[:4] == ["openclaw", "gateway", "call", "senpi.deploy.start"]:
+                    if args[:3] == ["senpi", "call", "senpi.deploy.start"]:
                         started.append(True)
                     return box(args, timeout)
                 deploy._budget_spent = lambda started=started: bool(started)
@@ -368,8 +373,8 @@ class StatusOnTheKillPathSteersNothing(_BoxCase):
         text = out + err
         self.assertEqual(code, _cli.EXIT_OOM, text)
         self.assertIn("stop here", text)
-        for steer in ("deploy.py runtime", "runtime delete", "update --apply", "openclaw senpi status -r",
-                      "openclaw senpi scanner", "close.py polar"):
+        for steer in ("deploy.py runtime", "runtime delete", "update --apply", "senpi status -r",
+                      "senpi scanner", "close.py polar"):
             self.assertNotIn(steer, text)
         self.assertNotIn("✅", text)                     # health was never read
         self.assertRegex(text, r"❔ unknown\s+spider-main")
@@ -425,16 +430,16 @@ class StatusHealthReadFailureIsNeverRunning(_BoxCase):
 
     def test_an_unread_health_is_not_a_scanner_verdict_and_names_no_per_row_command(self):
         # The rows are unknown because health was not READ, not because a scanner is unproven; and
-        # every per-row `openclaw senpi ... -r` loads the full CLI on a box that may be short of memory.
+        # every per-row `senpi ... -r` loads the full CLI on a box that may be short of memory.
         code, out, err, _box = self._drive(["status.py"], dict(self._ANSWERS))
         text = out + err
         self.assertNotIn("scanner not yet proven by a tick", text)
-        for cmd in ("openclaw senpi scanner -r", "openclaw senpi status -r spider-main", "deploy.py status"):
+        for cmd in ("senpi scanner -r", "senpi status -r spider-main", "deploy.py status"):
             self.assertNotIn(cmd, text)
         self.assertIn("1 running runtime(s) unknown: runtime health couldn't be read (see the health "
                       "line above).", text)
         # One generic pointer, so the wedged runtime can still be found; never one per row.
-        pointer = "To read one runtime's health: `openclaw senpi status -r <runtime> --json`"
+        pointer = "To read one runtime's health: `senpi status -r <runtime> --json`"
         self.assertEqual(text.count(pointer), 1, text)
         # The header names the same cause as the block: unread, not a scanner verdict.
         self.assertIn("1 unknown (health unread)", text)

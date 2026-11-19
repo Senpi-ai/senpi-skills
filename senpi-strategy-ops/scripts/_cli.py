@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Shared helpers for the lifecycle scripts: openclaw CLI runner, direct gateway calls
-(`gateway_call`), tolerant JSON digging and runtime/strategy lookups. Used by deploy.py, close.py
+"""Shared helpers for the lifecycle scripts: CLI runner, direct runtime calls (`gateway_call`:
+`senpi call`, `openclaw gateway call` only when senpi sent nothing), tolerant JSON digging and runtime/strategy lookups. Used by deploy.py, close.py
 and status.py.
 
 The openclaw/MCP JSON shapes are not strictly pinned, so every extractor tries a few key
@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -234,22 +235,79 @@ def cause_fact(cause):
     return str(cause).replace(read_killed_hint(-signal.SIGKILL), "")
 
 
-def openclaw_available(why=None):
-    """`openclaw --version` answered rc 0. A SIGKILLed probe is openclaw running out of memory, never
-    openclaw missing: `why` receives its `Cause` (rc -9) so the caller says stop, not "no openclaw"."""
+def runtime_cli_available(why=None):
+    """A runtime CLI answers here: `senpi --version` (the runtime daemon's CLI) rc 0, else — no daemon
+    on this box — `openclaw --version` rc 0. A SIGKILLed probe is the box running out of memory,
+    never a missing CLI: `why` receives its `Cause` (rc -9) so the caller says stop, not "no CLI"."""
+    rc, out, err = run_cli(["senpi", "--version"], timeout=15)
+    if rc == 0:
+        return True
+    senpi_said = f"senpi --version: {error_tail(err, out) or f'exited {rc}'}"
+    if is_sigkill(rc):
+        if why is not None:
+            why.append(Cause(senpi_said + read_killed_hint(rc), rc))
+        return False
     rc, out, err = run_cli(["openclaw", "--version"], timeout=15)
     if rc != 0 and why is not None:
-        why.append(Cause(f"openclaw --version: {error_tail(err, out) or f'exited {rc}'}"
+        why.append(Cause(f"openclaw --version: {error_tail(err, out) or f'exited {rc}'} ({senpi_said})"
                          + read_killed_hint(rc), rc))
     return rc == 0
 
 
-# ---- direct gateway calls (`openclaw gateway call <method> --json`) ----
+# ---- runtime CLI verbs (`senpi <verb>`, `openclaw senpi <verb>` on a box without the daemon) ----
 #
-# The `openclaw senpi …` verbs are thin wrappers over one gateway method each, but on OpenClaw 10.x
-# every verb first copies and hashes the runtime's whole dependency tree (a "plugin generation
-# capture", 30-160 s), and its refusal text is lost (RT566-17). `gateway call` loads no plugins
-# (`loadPlugins: "never"`), takes about 1 s, and sends the same request with the same credentials.
+# `senpi` and `openclaw senpi` are ONE implementation (OpenClaw's verb passes straight through to
+# `senpi` on a daemon box), so the fallback is only for a box where `senpi` itself cannot run: no
+# binary, or the box launcher's "not installed on this box yet". Any other senpi answer is THE answer.
+SENPI_NOT_INSTALLED = re.compile(r"not installed on this box yet")
+
+
+def runtime_verb_argv(args):
+    """The `senpi <args>` argv (also what a hint shows the agent)."""
+    return ["senpi", *args]
+
+
+def run_runtime_cli(args, timeout=60):
+    """`senpi <args>` → (rc, stdout, stderr), as `run_cli`. Falls back to `openclaw senpi <args>`
+    within the same wall clock only when senpi never ran or the launcher says the daemon is not
+    installed here: nothing reached a runtime, so the verb (an `update --apply` included) runs once."""
+    t0 = time.time()
+    rc, out, err = run_cli(runtime_verb_argv(args), timeout)
+    never_ran = rc == -1 and err.startswith(SPAWN_FAILED_PREFIX)
+    if not (never_ran or (rc == 1 and SENPI_NOT_INSTALLED.search(err or ""))):
+        return rc, out, err
+    left = timeout - (time.time() - t0)
+    if left < 1:
+        return rc, out, err
+    rc2, out2, err2 = run_cli(["openclaw", "senpi", *args], left)
+    if rc2 == -1 and err2.startswith(SPAWN_FAILED_PREFIX) and not never_ran:
+        return rc, out, err
+    return rc2, out2, err2
+
+
+def runtime_cli_json(args, timeout=60):
+    """`cli_json` for a runtime verb (`run_runtime_cli`): the parsed stdout object, or None."""
+    _rc, out, _err = run_runtime_cli(args, timeout)
+    if not out.strip():
+        return None
+    return _extract_json(out)
+
+
+def runtime_call_hint(method, params=None, rpc_timeout_ms=None):
+    """A runtime call the agent may be told to run by hand: the `senpi call` line, and the
+    `openclaw gateway call` line for a box without the runtime daemon."""
+    rpc_timeout_ms = READ_RPC_MS if rpc_timeout_ms is None else rpc_timeout_ms
+    return (f"`{shlex.join(gateway_argv(method, params, rpc_timeout_ms))}` (on a box without the "
+            f"runtime daemon: `{shlex.join(openclaw_gateway_argv(method, params, rpc_timeout_ms))}`)")
+
+
+# ---- direct runtime calls (`senpi call <method> --json`, fallback `openclaw gateway call`) ----
+#
+# The runtime verbs are thin wrappers over one method each. `senpi call` (the runtime daemon's CLI)
+# reaches the daemon over its local API, so it answers while the OpenClaw gateway sleeps, and prints
+# exactly what `openclaw gateway call --json` prints on 10.x, plus `sent: "nothing" | "maybe"` in
+# every error. On a box without the daemon the same call goes to `openclaw gateway call` (no plugin
+# load, about 1 s) — but only when senpi provably sent nothing (`senpi_sent_nothing`).
 
 # A gateway refusal is a message that OPENS with a bracketed taxonomy code; `W_` codes are warnings.
 # Mirrors the runtime's `isRefusalMessage` (`src/deploy/taxonomy.ts`).
@@ -280,45 +338,112 @@ READ_RPC_MS, READ_WALL_S = 15000, 25
 
 
 def gateway_argv(method, params=None, rpc_timeout_ms=READ_RPC_MS):
-    """The exact `openclaw gateway call` argv for one method (also what `--dry-run` prints). Every
-    call passes its own `--timeout`: the CLI default is 10 s on 5.7, 5.12 and 10.x. Params are JSON
+    """The exact `senpi call` argv for one runtime method (also what `--dry-run` prints). `senpi` is
+    the runtime daemon's CLI: it answers with the gateway's own payload and error envelope (plus
+    `sent`), with OpenClaw asleep or awake. Every call passes its own `--timeout`. Params are JSON
     with `allow_nan=False`, so a non-finite number raises ValueError here, before anything runs."""
+    return ["senpi", "call", method, "--json", "--timeout", str(int(rpc_timeout_ms)),
+            "--params", json.dumps(params or {}, allow_nan=False)]
+
+
+def openclaw_gateway_argv(method, params=None, rpc_timeout_ms=READ_RPC_MS):
+    """The `openclaw gateway call` argv for the same call: the fallback on a box without the runtime
+    daemon (see `senpi_sent_nothing`). The OpenClaw CLI default timeout is 10 s, so it is always passed."""
     return ["openclaw", "gateway", "call", method, "--json", "--timeout", str(int(rpc_timeout_ms)),
             "--params", json.dumps(params or {}, allow_nan=False)]
 
 
-def gateway_call(method, params=None, rpc_timeout_ms=READ_RPC_MS, timeout_s=READ_WALL_S):
-    """Call one gateway method directly. Returns a dict, never raises:
+# `senpi` speaking for itself before anything reached the runtime: the box launcher on a box without
+# the daemon, the CLI's API-version check, or its own command-line parser (an older `senpi`).
+_SENPI_SENT_NOTHING = re.compile(
+    r"not installed on this box yet|^senpi: this CLI speaks runtime API|"
+    r"^senpi: the runtime daemon did not report an API version|"
+    r"^\s*error: (?:unknown command|unknown option|too many arguments|required option|"
+    r"missing required argument|option '[^']*' argument missing)", re.M)
 
-      {"kind", "payload", "code", "message", "rc", "stderr", "argv", "elapsed", "transport"}
+
+def senpi_sent_nothing(rc, out, err, spawn_error=None):
+    """True ONLY when a `senpi call` provably reached no runtime handler: `senpi` never ran, it
+    refused before calling (`_SENPI_SENT_NOTHING`), or its envelope says `"sent": "nothing"` for no
+    answer (daemon unreachable), a command-line error, or `unknown method`. This is the one gate for
+    falling back to `openclaw gateway call`. An answered refusal is THE answer even though the daemon
+    marks it `sent: nothing` (nothing applied): a fallback would swap it for whatever a sleeping
+    gateway says. Everything else — a timeout, a kill, an envelope without `sent`, unreadable output —
+    may have reached the runtime, and a fallback then could send a write (a deploy START) twice."""
+    if spawn_error is not None:
+        return True
+    if not isinstance(rc, int) or rc <= 0:
+        return False
+    try:
+        doc = json.loads((out or "").strip())
+    except ValueError:
+        doc = None
+    if isinstance(doc, dict) and doc.get("ok") is False and isinstance(doc.get("error"), dict):
+        e = doc["error"]
+        if e.get("sent") != "nothing":
+            return False
+        if e.get("type") == "gateway_request_error":
+            return str(e.get("message") or "").startswith("unknown method: ")
+        return e.get("type") in ("gateway_transport_error", "cli_error")
+    return bool(_SENPI_SENT_NOTHING.search(err or ""))
+
+
+def gateway_call(method, params=None, rpc_timeout_ms=READ_RPC_MS, timeout_s=READ_WALL_S):
+    """Call one runtime method directly: `senpi call` first (the runtime daemon's CLI, which works
+    while OpenClaw sleeps), then `openclaw gateway call` ONLY when `senpi_sent_nothing` says the
+    senpi attempt reached nothing (no daemon on this box, daemon down, unknown method). Never after
+    an answer, a timeout, a kill or anything unreadable: that call may have been sent, and a second
+    one could start a deploy twice. Returns a dict, never raises:
+
+      {"kind", "payload", "code", "message", "rc", "stderr", "argv", "elapsed", "transport",
+       "via", "sent", "fallback_from"}
 
     `kind` is one of:
       ok              rc 0 and stdout parsed: `payload` is the handler's raw answer
-      refused         the gateway answered no, with a taxonomy message (`[E_…]`, `[NOT_FOUND]` …)
-      unknown_method  the gateway has no such method (a runtime without it)
-      error           the gateway answered no, without a taxonomy code
-      transport       no answer came back (closed, gateway timeout); the request MAY have been sent
+      refused         the runtime answered no, with a taxonomy message (`[E_…]`, `[NOT_FOUND]` …)
+      unknown_method  the runtime has no such method (a runtime without it)
+      error           the runtime answered no, without a taxonomy code
+      transport       no answer came back (closed, timeout); the request MAY have been sent
       timeout         this script's wall clock fired; the request MAY have been sent
-      cli_parse       openclaw rejected the command line: nothing was sent
-      spawn_failed    openclaw never ran: nothing was sent
+      cli_parse       the CLI rejected the command line: nothing was sent
+      spawn_failed    neither senpi nor openclaw ran: nothing was sent
       unreadable      anything else
 
-    Handles both error contracts: 5.x writes the error to stderr as text; 10.x writes a JSON envelope
-    `{"ok": false, "error": {"type", "code", "message", …}}` to stdout."""
+    `via` is the CLI whose answer this is ("senpi" | "openclaw"); `fallback_from` is what senpi said
+    when the answer is openclaw's; `sent` is the envelope's own `sent` when it carried one.
+
+    Handles every error contract: openclaw 5.x writes the error to stderr as text; openclaw 10.x and
+    senpi write a JSON envelope `{"ok": false, "error": {"type", "code", "message", …}}` to stdout."""
     r = {"kind": None, "payload": None, "code": None, "message": None, "rc": None, "stderr": "",
-         "argv": None, "elapsed": None, "transport": None}
+         "argv": None, "elapsed": None, "transport": None, "via": None, "sent": None,
+         "fallback_from": None}
     try:
         argv = gateway_argv(method, params, rpc_timeout_ms)
+        openclaw_argv = openclaw_gateway_argv(method, params, rpc_timeout_ms)
     except (TypeError, ValueError) as e:
         r.update(kind="cli_parse", message=f"params are not valid JSON: {e}")
         return r
-    r["argv"] = argv
+    r["argv"], r["via"] = argv, "senpi"
     t0 = time.time()
     rc, out, err, timed_out, spawn_error = _spawn(argv, timeout_s)
+    if not timed_out and senpi_sent_nothing(rc, out, err, spawn_error):
+        senpi_said = (f"{SPAWN_FAILED_PREFIX}senpi ({spawn_error})" if spawn_error is not None
+                      else error_tail(err, out, 300) or f"senpi exited {rc}")
+        left = timeout_s - (time.time() - t0)
+        if left >= 1:
+            rpc = min(int(rpc_timeout_ms), max(500, int((left - 1) * 1000)))
+            fb_argv = openclaw_argv if rpc == int(rpc_timeout_ms) else openclaw_gateway_argv(method, params, rpc)
+            fb = _spawn(fb_argv, left)
+            # openclaw missing too: keep senpi's own answer, unless senpi never ran either.
+            if fb[4] is None or spawn_error is not None:
+                rc, out, err, timed_out, spawn_error = fb
+                r.update(argv=fb_argv, via="openclaw", fallback_from=senpi_said)
     r["elapsed"] = round(time.time() - t0, 3)
     r["rc"], r["stderr"] = rc, (err or "")[-4000:]
     if spawn_error is not None:
-        r.update(kind="spawn_failed", message=f"{SPAWN_FAILED_PREFIX}openclaw ({spawn_error})")
+        r.update(kind="spawn_failed",
+                 message=f"{SPAWN_FAILED_PREFIX}{r['via']} ({spawn_error})"
+                         + (f"; before it: {r['fallback_from']}" if r["fallback_from"] else ""))
         return r
     if timed_out:
         r.update(kind="timeout", message=f"no answer within {timeout_s}s; the process group was killed")
@@ -333,7 +458,7 @@ def gateway_call(method, params=None, rpc_timeout_ms=READ_RPC_MS, timeout_s=READ
     if isinstance(obj, dict) and obj.get("ok") is False and isinstance(obj.get("error"), dict):
         e = obj["error"]
         etype, msg = e.get("type"), str(e.get("message") or "")
-        r.update(code=e.get("code"), message=msg)
+        r.update(code=e.get("code"), message=msg, sent=e.get("sent"))
         if etype == "gateway_request_error":
             r["kind"] = _classify_gateway_message(method, msg)
         elif etype == "gateway_transport_error":
@@ -646,24 +771,24 @@ def _deep_first(obj, keys):
     return None
 
 
-# The few reads still on an `openclaw senpi …` verb (not `gateway call`) share one budget: the
-# openclaw CLI alone can take over a minute to start on a loaded box.
+# The few reads still on a runtime CLI verb (`senpi status|state -r`, not `senpi call`) share one
+# budget: the openclaw fallback alone can take over a minute to start on a loaded box.
 OPENCLAW_READ_TIMEOUT_S = 120
 
 
 def runtime_status(name, timeout=OPENCLAW_READ_TIMEOUT_S):
-    """`openclaw senpi status -r <name> --json` — lightweight per-runtime health (or None).
+    """`senpi status -r <name> --json` (`run_runtime_cli`) — lightweight per-runtime health (or None).
 
     Single fast read, no in-call retry. `_check_live` prefers the batched `runtime_health_map` (which
     already retries) and only falls here when a runtime is missing from that map; retry across reads is
-    the caller's job (re-run `verify`, or its `--max-wait` poll loop) — NOT per call. Each openclaw
+    the caller's job (re-run `verify`, or its `--max-wait` poll loop) — NOT per call. Each CLI
     invocation pays ~2-3s startup, so a per-call retry loop silently blows verify's fast-single-check
     budget (regression seen live: 2× retries here + on `state` pushed one pass past verify's single-pass budget)."""
-    return cli_json(["openclaw", "senpi", "status", "-r", name, "--json"], timeout)
+    return runtime_cli_json(["status", "-r", name, "--json"], timeout)
 
 
 def runtime_state(name, timeout=OPENCLAW_READ_TIMEOUT_S):
-    """`openclaw senpi state -r <name> --json` → parsed state, or None.
+    """`senpi state -r <name> --json` (`run_runtime_cli`) → parsed state, or None.
 
     Single fast read — do NOT retry in-call. `senpi.getSystemState` transiently THROWS for minutes
     after a runtime starts (external-scanner subprocesses still launching); a throw exits non-zero
@@ -671,7 +796,7 @@ def runtime_state(name, timeout=OPENCLAW_READ_TIMEOUT_S):
     falls straight through to `senpi status` (see deploy.py `_scanner_verdict`), which answers while
     `state` is still throwing. Waiting/retrying on `state` here just burns the caller's budget for a
     read we already know how to do without — retry belongs in the poll loop, not this call."""
-    return cli_json(["openclaw", "senpi", "state", "-r", name, "--json"], timeout)
+    return runtime_cli_json(["state", "-r", name, "--json"], timeout)
 
 
 def scanner_health_in_status(status_entry, scanner_name):

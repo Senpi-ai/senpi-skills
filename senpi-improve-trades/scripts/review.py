@@ -55,24 +55,73 @@ HL_FILLS_CAP = 2000          # userFills returns the most recent N fills; ample 
 # verbatim in spirit from senpi-portfolio (the extractions there are already correct).
 STATE_DIR_ENV = "SENPI_STATE_DIR"
 REGISTRY_FILENAME = "installed_runtimes.json"
+# On a box running the runtime daemon the trading files live in the daemon's own folder, and OpenClaw's
+# $SENPI_STATE_DIR no longer holds the registry (the state was moved, never copied).
+DAEMON_STATE_DIR_ENV = "SENPI_DAEMON_STATE_DIR"
+DAEMON_STATE_DIR = "/data/runtime/state"
 
 # ── Telemetry (the runtime event log) — ENRICHES discovery trades, never becomes the trade list ──
 # Onchain data → discovery (the trade list, prices, realized PnL, fees, timing, direction). Runtime/agent
 # events → telemetry (the per-strategy on-disk event ring, read via `openclaw senpi events`). Telemetry
 # fills each discovery trade's EXIT REASON and, as a standalone stream, the blocked/rejected signal cohort
 # ("what did I miss"). It NEVER reconstructs a trade or re-derives a price/PnL — discovery OWNS those.
-# The `openclaw senpi …` verbs wrap one gateway method each, but on OpenClaw 10.x every verb first
-# copies and hashes the runtime's dependency tree (30-160 s). `gateway call` loads no plugins and takes
-# about 1 s. Vendored from senpi-strategy-ops/scripts/_cli.py (test_name_reader_parity.py pins the copy).
+# The event read goes through `senpi call` (the runtime daemon's CLI: answers while OpenClaw sleeps),
+# and through `openclaw gateway call` only when senpi provably sent nothing (no daemon on this box).
+# The `openclaw senpi …` verbs are avoided: on OpenClaw 10.x each one first copies and hashes the
+# runtime's dependency tree (30-160 s). Vendored from senpi-strategy-ops/scripts/_cli.py
+# (test_name_reader_parity.py pins the copy).
 READ_RPC_MS = 15000
 
 
 def gateway_argv(method, params=None, rpc_timeout_ms=READ_RPC_MS):
-    """The exact `openclaw gateway call` argv for one method (also what `--dry-run` prints). Every
-    call passes its own `--timeout`: the CLI default is 10 s on 5.7, 5.12 and 10.x. Params are JSON
+    """The exact `senpi call` argv for one runtime method (also what `--dry-run` prints). `senpi` is
+    the runtime daemon's CLI: it answers with the gateway's own payload and error envelope (plus
+    `sent`), with OpenClaw asleep or awake. Every call passes its own `--timeout`. Params are JSON
     with `allow_nan=False`, so a non-finite number raises ValueError here, before anything runs."""
+    return ["senpi", "call", method, "--json", "--timeout", str(int(rpc_timeout_ms)),
+            "--params", json.dumps(params or {}, allow_nan=False)]
+
+
+def openclaw_gateway_argv(method, params=None, rpc_timeout_ms=READ_RPC_MS):
+    """The `openclaw gateway call` argv for the same call: the fallback on a box without the runtime
+    daemon (see `senpi_sent_nothing`). The OpenClaw CLI default timeout is 10 s, so it is always passed."""
     return ["openclaw", "gateway", "call", method, "--json", "--timeout", str(int(rpc_timeout_ms)),
             "--params", json.dumps(params or {}, allow_nan=False)]
+
+
+# `senpi` speaking for itself before anything reached the runtime: the box launcher on a box without
+# the daemon, the CLI's API-version check, or its own command-line parser (an older `senpi`).
+_SENPI_SENT_NOTHING = re.compile(
+    r"not installed on this box yet|^senpi: this CLI speaks runtime API|"
+    r"^senpi: the runtime daemon did not report an API version|"
+    r"^\s*error: (?:unknown command|unknown option|too many arguments|required option|"
+    r"missing required argument|option '[^']*' argument missing)", re.M)
+
+
+def senpi_sent_nothing(rc, out, err, spawn_error=None):
+    """True ONLY when a `senpi call` provably reached no runtime handler: `senpi` never ran, it
+    refused before calling (`_SENPI_SENT_NOTHING`), or its envelope says `"sent": "nothing"` for no
+    answer (daemon unreachable), a command-line error, or `unknown method`. This is the one gate for
+    falling back to `openclaw gateway call`. An answered refusal is THE answer even though the daemon
+    marks it `sent: nothing` (nothing applied): a fallback would swap it for whatever a sleeping
+    gateway says. Everything else — a timeout, a kill, an envelope without `sent`, unreadable output —
+    may have reached the runtime, and a fallback then could send a write (a deploy START) twice."""
+    if spawn_error is not None:
+        return True
+    if not isinstance(rc, int) or rc <= 0:
+        return False
+    try:
+        doc = json.loads((out or "").strip())
+    except ValueError:
+        doc = None
+    if isinstance(doc, dict) and doc.get("ok") is False and isinstance(doc.get("error"), dict):
+        e = doc["error"]
+        if e.get("sent") != "nothing":
+            return False
+        if e.get("type") == "gateway_request_error":
+            return str(e.get("message") or "").startswith("unknown method: ")
+        return e.get("type") in ("gateway_transport_error", "cli_error")
+    return bool(_SENPI_SENT_NOTHING.search(err or ""))
 
 
 EVENTS_FIXTURE_ENV = "SENPI_EVENTS_FIXTURE"   # offline test hook: JSON {"<runtime_id>": [entries…]}
@@ -122,9 +171,13 @@ def _resolve_state_dir():
     """Locate the OpenClaw runtime state dir holding installed_runtimes.json — robustly, WITHOUT relying
     on $HOME (it may be /root while OpenClaw lives under /data). On a real host the skill installs at
     `<root>/.openclaw/skills/<skill>/scripts/` and the state dir is a sibling: `<root>/.openclaw/senpi-state`.
-    Order: (1) $SENPI_STATE_DIR; (2) derive from THIS file's install path — the enclosing `.openclaw` dir
-    → its `senpi-state` (or any ancestor that actually holds the registry); (3) common host locations;
-    (4) ~/.openclaw/senpi-state as last resort."""
+    Order: (0) the runtime daemon's folder — $SENPI_DAEMON_STATE_DIR, else /data/runtime/state — when it
+    holds the registry; (1) $SENPI_STATE_DIR; (2) derive from THIS file's install path — the enclosing
+    `.openclaw` dir → its `senpi-state` (or any ancestor that actually holds the registry); (3) common
+    host locations; (4) ~/.openclaw/senpi-state as last resort."""
+    for daemon_dir in (os.environ.get(DAEMON_STATE_DIR_ENV), DAEMON_STATE_DIR):
+        if daemon_dir and os.path.isfile(os.path.join(daemon_dir, REGISTRY_FILENAME)):
+            return daemon_dir
     env = os.environ.get(STATE_DIR_ENV)
     if env:
         return env
@@ -419,7 +472,7 @@ def load_runtime_registry(meta):
     None). A meta.warnings note is added ONLY for a real parse error, not an absent registry file.
 
     Also captures each entry's runtime **`id`** → a `wallet_lower → runtime_id` map, the KEY the event-log
-    CLI is addressed by (`openclaw senpi events --runtime <id>`). Telemetry enrichment (exit reasons +
+    CLI is addressed by (`senpi events --runtime <id>`). Telemetry enrichment (exit reasons +
     missed signals) needs this id per wallet; it's harvested here where we already hold each registry entry.
     Returns (profiles_map, runtime_id_map, source)."""
     state_dir = _resolve_state_dir()
@@ -867,9 +920,36 @@ def _run_grouped(cmd, timeout):
     return subprocess.CompletedProcess(cmd, p.returncode, out or "", err or "")
 
 
+def _run_events_call(params):
+    """`senpi.getEvents` → a CompletedProcess: `senpi call` first, `openclaw gateway call` within the
+    same wall clock ONLY when `senpi_sent_nothing`. Raises what `_run_grouped` raises: TimeoutExpired
+    from senpi is final (no fallback after a call that may have been sent); FileNotFoundError only
+    when neither CLI exists."""
+    t0 = time.monotonic()
+    try:
+        proc = _run_grouped(gateway_argv("senpi.getEvents", params, rpc_timeout_ms=EVENTS_RPC_MS),
+                            EVENTS_CALL_TIMEOUT_S)
+    except OSError:                          # senpi never ran: nothing was sent
+        proc = None
+    if proc is not None and not senpi_sent_nothing(proc.returncode, proc.stdout, proc.stderr):
+        return proc
+    left = EVENTS_CALL_TIMEOUT_S - (time.monotonic() - t0)
+    if left < 1:
+        if proc is None:
+            raise subprocess.TimeoutExpired("senpi.getEvents", EVENTS_CALL_TIMEOUT_S)
+        return proc
+    rpc = min(EVENTS_RPC_MS, max(500, int((left - 1) * 1000)))
+    try:
+        return _run_grouped(openclaw_gateway_argv("senpi.getEvents", params, rpc_timeout_ms=rpc), left)
+    except OSError:
+        if proc is None:
+            raise FileNotFoundError("neither senpi nor openclaw is on PATH")
+        return proc
+
+
 def _fetch_events(runtime_id, since_ms, meta):
     """Read a runtime's on-disk event ring → a list of event dicts ({name, ts, attrs, …}). FAIL-OPEN:
-    missing `openclaw` / non-zero exit / `unknown method: senpi.getEvents` (older build that lacks the RPC)
+    missing runtime CLI / non-zero exit / `unknown method: senpi.getEvents` (older build that lacks the RPC)
     / parse error → [] plus a ONE-TIME `meta.warnings` note; NEVER raises. The whole point is that
     telemetry absence degrades enrichment only — discovery still lists the trades.
 
@@ -894,12 +974,12 @@ def _fetch_events(runtime_id, since_ms, meta):
     since_iso = _iso8601(since_ms)
     if since_iso:
         params["since"] = since_iso
-    cmd = gateway_argv("senpi.getEvents", params, rpc_timeout_ms=EVENTS_RPC_MS)
     try:
-        proc = _run_grouped(cmd, EVENTS_CALL_TIMEOUT_S)
-    except FileNotFoundError:                # no `openclaw` on PATH (not a runtime host)
+        proc = _run_events_call(params)
+    except FileNotFoundError:                # neither `senpi` nor `openclaw` on PATH (not a runtime host)
         meta["_telemetry_dead"] = True       # no CLI at all → every runtime fails; stop shelling out
-        _note_telemetry_unavailable(meta, "openclaw CLI not found; exit reasons from ratchet fallback only")
+        _note_telemetry_unavailable(meta, "runtime CLI (senpi/openclaw) not found; exit reasons from "
+                                          "ratchet fallback only")
         return []
     except subprocess.TimeoutExpired:        # this fetch was slow (double CLI boot + read under host load).
         # Fail-open for THIS strategy only — NO count-based circuit breaker: the parallel fan-out gives each

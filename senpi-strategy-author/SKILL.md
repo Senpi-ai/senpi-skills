@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.17.0"
+  version: "3.17.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -102,7 +102,9 @@ ticker, field name, enum value, unit, MCP tool/arg, or output key compiles fine,
 and ask — never paper over the gap with a plausible value.** This is not optional polish; it is the
 single most common way a strategy silently does nothing.
 
-**And when you cannot check a source, run the code.** `openclaw senpi validate <recipe-dir> --stage import`
+`senpi …` is the runtime's own CLI and works while the agent sleeps; where it answers *not installed on this box yet*, run the same command as `openclaw senpi …` (same flags, output and exit codes).
+
+**And when you cannot check a source, run the code.** `senpi validate <recipe-dir> --stage import`
 loads every scanner file in about a second, with no credentials and no wallet — the fastest way to
 find out that a name you were confident about does not resolve. Use it while you write, not only at
 the end. **`<recipe-dir>` is the directory holding the `runtime.yaml`** — the package root for the
@@ -284,9 +286,9 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
 9. **THE GATE — `senpi validate`. Authoring is not done until this is green.**
    ```
    # FLAT (stage 2's default: no `instances:` list) — the recipe is at the root, so the root is the target:
-   openclaw senpi validate /data/workspace/strategies/<id>
+   senpi validate /data/workspace/strategies/<id>
    # `instances:` LISTED — one run per instance, each pointed at its own dir:
-   openclaw senpi validate /data/workspace/strategies/<id>/<instance>
+   senpi validate /data/workspace/strategies/<id>/<instance>
    ```
    **Point it at the directory holding that instance's `runtime.yaml`.** It resolves ONE recipe, so
    the target is whichever directory holds one: the package **root** for the flat layout you built at
@@ -412,7 +414,7 @@ loop every time:
 
 > **Was this an edit to a strategy that is ALREADY LIVE?** (you changed the scoring / scanner / DSL of a
 > deployed package — "make my live strategy more aggressive", re-tune, re-score) — then hand it to
-> **`senpi-strategy-ops`**, which applies it IN PLACE with `openclaw senpi update`: no close, no fresh
+> **`senpi-strategy-ops`**, which applies it IN PLACE with `senpi update`: no close, no fresh
 > wallet, no market exit — call it an **update**, never a "redeploy". **Re-running `create` will NOT apply it** — the deploy verb is idempotent, so it
 > adopts the existing wallet and leaves the deployed scanner as it is. Tell the user two things:
 > `dsl_preset` is **forward-only** — new entries only, never a position already open (other `exit:` fields
@@ -438,9 +440,9 @@ loop every time:
    [`refusal-playbook.md`](../senpi-strategy-ops/references/refusal-playbook.md).
 4. **GATE — the deploy report's `overall`**: `live` (every instance installed **and** a scanner tick
    observed) is the only value you may call live. `installed-unobserved` means the tick was not seen in
-   the window — say exactly that and re-read `openclaw senpi scanner -r <runtime_id>` in a few minutes;
+   the window — say exactly that and re-read `senpi scanner -r <runtime_id>` in a few minutes;
    `refused` / `failed` name their cause — fix it and re-run. Re-read the verdict **read-only** with
-   `openclaw senpi deploy status` (or `status.py <id>` / `deploy.py verify <id>`, both read-only). The
+   `senpi deploy status` (or `status.py <id>` / `deploy.py verify <id>`, both read-only). The
    command that RESUMES a deploy is `deploy.py runtime <id>` (or `create <id> --budget <usd>`): that one
    installs, starts trading, and can create+fund a wallet — reach for it only when you mean to resume.
    **Never tell the user it's live until a report says `overall: live`.**

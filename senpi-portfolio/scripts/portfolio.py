@@ -31,6 +31,7 @@ import calendar
 import json
 import math
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -52,18 +53,63 @@ QUIET_AFTER_HOURS = 48      # a strategy whose newest CLOSE is older than this i
 #   catalog  (templates only, our packages)                      →  extra facets when present
 # Neither is agent memory; the runtime outranks the catalog.
 
-# The `openclaw senpi …` verbs wrap one gateway method each, but on OpenClaw 10.x every verb first
-# copies and hashes the runtime's dependency tree (30-160 s). `gateway call` loads no plugins and takes
-# about 1 s. Vendored from senpi-strategy-ops/scripts/_cli.py (test_name_reader_parity.py pins the copy).
+# Runtime reads go through `senpi call` (the runtime daemon's CLI: answers while OpenClaw sleeps), and
+# through `openclaw gateway call` only when senpi provably sent nothing (no daemon on this box). The
+# `openclaw senpi …` verbs are avoided: on OpenClaw 10.x each one first copies and hashes the runtime's
+# dependency tree (30-160 s). Vendored from senpi-strategy-ops/scripts/_cli.py
+# (test_name_reader_parity.py pins the copy).
 READ_RPC_MS = 15000
 
 
 def gateway_argv(method, params=None, rpc_timeout_ms=READ_RPC_MS):
-    """The exact `openclaw gateway call` argv for one method (also what `--dry-run` prints). Every
-    call passes its own `--timeout`: the CLI default is 10 s on 5.7, 5.12 and 10.x. Params are JSON
+    """The exact `senpi call` argv for one runtime method (also what `--dry-run` prints). `senpi` is
+    the runtime daemon's CLI: it answers with the gateway's own payload and error envelope (plus
+    `sent`), with OpenClaw asleep or awake. Every call passes its own `--timeout`. Params are JSON
     with `allow_nan=False`, so a non-finite number raises ValueError here, before anything runs."""
+    return ["senpi", "call", method, "--json", "--timeout", str(int(rpc_timeout_ms)),
+            "--params", json.dumps(params or {}, allow_nan=False)]
+
+
+def openclaw_gateway_argv(method, params=None, rpc_timeout_ms=READ_RPC_MS):
+    """The `openclaw gateway call` argv for the same call: the fallback on a box without the runtime
+    daemon (see `senpi_sent_nothing`). The OpenClaw CLI default timeout is 10 s, so it is always passed."""
     return ["openclaw", "gateway", "call", method, "--json", "--timeout", str(int(rpc_timeout_ms)),
             "--params", json.dumps(params or {}, allow_nan=False)]
+
+
+# `senpi` speaking for itself before anything reached the runtime: the box launcher on a box without
+# the daemon, the CLI's API-version check, or its own command-line parser (an older `senpi`).
+_SENPI_SENT_NOTHING = re.compile(
+    r"not installed on this box yet|^senpi: this CLI speaks runtime API|"
+    r"^senpi: the runtime daemon did not report an API version|"
+    r"^\s*error: (?:unknown command|unknown option|too many arguments|required option|"
+    r"missing required argument|option '[^']*' argument missing)", re.M)
+
+
+def senpi_sent_nothing(rc, out, err, spawn_error=None):
+    """True ONLY when a `senpi call` provably reached no runtime handler: `senpi` never ran, it
+    refused before calling (`_SENPI_SENT_NOTHING`), or its envelope says `"sent": "nothing"` for no
+    answer (daemon unreachable), a command-line error, or `unknown method`. This is the one gate for
+    falling back to `openclaw gateway call`. An answered refusal is THE answer even though the daemon
+    marks it `sent: nothing` (nothing applied): a fallback would swap it for whatever a sleeping
+    gateway says. Everything else — a timeout, a kill, an envelope without `sent`, unreadable output —
+    may have reached the runtime, and a fallback then could send a write (a deploy START) twice."""
+    if spawn_error is not None:
+        return True
+    if not isinstance(rc, int) or rc <= 0:
+        return False
+    try:
+        doc = json.loads((out or "").strip())
+    except ValueError:
+        doc = None
+    if isinstance(doc, dict) and doc.get("ok") is False and isinstance(doc.get("error"), dict):
+        e = doc["error"]
+        if e.get("sent") != "nothing":
+            return False
+        if e.get("type") == "gateway_request_error":
+            return str(e.get("message") or "").startswith("unknown method: ")
+        return e.get("type") in ("gateway_transport_error", "cli_error")
+    return bool(_SENPI_SENT_NOTHING.search(err or ""))
 
 
 # ASK THE RUNTIME, don't guess at its files. Every registry-derived field on this surface comes from
@@ -205,6 +251,24 @@ def _run_cli(args, timeout=60):
     if timed_out:
         return -1, "", f"timed out after {timeout}s: {' '.join(args)}"
     return rc, out, err
+
+
+def _run_gateway(method, params=None, timeout=30, rpc_timeout_ms=READ_RPC_MS):
+    """One runtime read → (rc, stdout, stderr), as `_run_cli`: `senpi call` first, `openclaw gateway
+    call` within the same wall clock ONLY when `senpi_sent_nothing` (no daemon here, daemon down,
+    unknown method). With openclaw missing too, senpi's own answer stands unless senpi never ran."""
+    t0 = time.monotonic()
+    rc, out, err = _run_cli(gateway_argv(method, params, rpc_timeout_ms), timeout)
+    never_ran = rc == -1 and err.startswith(SPAWN_FAILED_PREFIX)
+    if not (never_ran or senpi_sent_nothing(rc, out, err)):
+        return rc, out, err
+    left = timeout - (time.monotonic() - t0)
+    if left < 1:
+        return rc, out, err
+    rc2, out2, err2 = _run_cli(openclaw_gateway_argv(method, params, rpc_timeout_ms), left)
+    if rc2 == -1 and err2.startswith(SPAWN_FAILED_PREFIX) and not never_ran:
+        return rc, out, err
+    return rc2, out2, err2
 
 
 def _extract_json(text):
@@ -405,7 +469,7 @@ def load_runtime_registry(meta):
         except Exception as e:  # noqa — a bad fixture is a failed read like any other, never an empty one
             return _runtime_read_failed(meta, f"fixture {fixture} unreadable ({e})")
     else:
-        rc, out, err = _run_cli(RUNTIME_LIST_CMD, timeout=30)
+        rc, out, err = _run_gateway("senpi.listRuntimes", timeout=30)
         payload = _extract_json(out)          # stdout carries `[plugins]` banners on a real box
         if payload is None:                   # spawn failure, timeout, or nothing parseable on stdout
             if rc < -1:                       # killed: any further read would be too
@@ -502,7 +566,7 @@ def _fleet_statuses(meta):
         return None
     print("reading runtime health (one status call for the whole fleet)…", file=sys.stderr, flush=True)
     for _ in range(2):
-        rc, out, err = _run_cli(FLEET_STATUS_CMD, timeout=30)
+        rc, out, err = _run_gateway("senpi.getHealthStatus", timeout=30)
         if rc < -1:                                # killed: the per-id reads would be too
             meta["_telemetry_dead"] = True
             _note_telemetry_unavailable(meta, f"runtime status read {_killed_read(rc)}; liveness unverified",
@@ -578,7 +642,7 @@ def _fetch_runtime_status(runtime_id, meta):
         # fleet document does not list gets an EMPTY `statuses` — the same answer the per-id call
         # gives for a runtime that is registered but not running — which maps to 'unknown'.
         return {"ok": True, "statuses": [r for r in fleet if _record_is(r, runtime_id)]}
-    rc, out, err = _run_cli(gateway_argv("senpi.getHealthStatus", {"runtimeId": str(runtime_id)}), timeout=20)
+    rc, out, err = _run_gateway("senpi.getHealthStatus", {"runtimeId": str(runtime_id)}, timeout=20)
     if rc != 0:
         err = (err or out or "")[:200]            # 10.x writes a gateway error to stdout, 5.x to stderr
         if rc < -1:                               # killed: the next id would be too
@@ -587,7 +651,7 @@ def _fetch_runtime_status(runtime_id, meta):
                                         always=True)
         elif err.startswith(SPAWN_FAILED_PREFIX):   # not a runtime host → every call fails; stop shelling out
             meta["_telemetry_dead"] = True
-            _note_telemetry_unavailable(meta, "openclaw CLI not found — runtime liveness unverified")
+            _note_telemetry_unavailable(meta, "runtime CLI (senpi/openclaw) not found — runtime liveness unverified")
         elif "unknown method" in err.lower():
             meta["_telemetry_dead"] = True
             _note_telemetry_unavailable(meta, "runtime build predates the status RPC — liveness unverified")
@@ -1634,7 +1698,7 @@ def fetch_strategies(client, meta):
         meta.setdefault("warnings", []).append(
             f"{len(degraded)} strategy(ies) have a runtime the engine reports UNHEALTHY (degraded) — two or more "
             f"consecutive scan errors, not a blip. Confirm the cause with senpi-strategy-ops "
-            f"`status.py <id>` (runtime verdict + position count; `openclaw senpi scanner -r <rt>` for health/alive/errors): "
+            f"`status.py <id>` (runtime verdict + position count; `senpi scanner -r <rt>` for health/alive/errors): "
             f"{degraded_text}. A reason in parentheses is the runtime's own words (a crash-loop cause or the scanner's "
             f"last tick error) — tell the user that, in those words, before anything else; call it a crash loop "
             f"only when it says crashes.")
