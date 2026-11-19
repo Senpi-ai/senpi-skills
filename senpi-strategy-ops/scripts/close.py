@@ -160,11 +160,13 @@ def _open_simulations_or_skip(mcp, dry_run):
     if rows is None:
         if why and isinstance(why[0], _cli.NoSimulationRouter):
             return None, None
-        return [], f"they could not be read ({why[0] if why else 'no cause reported'})"
+        return [], (f"they could not be read ({why[0] if why else 'no cause reported'}). Any you have "
+                    f"may still be open and charged")
     rows = [s for s in rows if _cli.strategy_open(s)]
     blocked = None if dry_run else _simulation_close_blocked([(None, s) for s in rows])
     if blocked:
-        return [], f"strategy_close would be refused for them ({blocked[1]})"
+        return [], (f"strategy_close would be refused for them ({blocked[1]}). They keep running and keep "
+                    f"being charged")
     return rows, None
 
 
@@ -176,8 +178,8 @@ def _all_label(s):
 
 
 def _skipped_simulations_note(why):
-    return (f"\nYour simulations were NOT closed: {why}. They keep running and keep being charged. "
-            f"Close them once they can be read: close.py --all --simulation")
+    return (f"\nYour simulations were NOT closed: {why}. Close them once they can be read: "
+            f"close.py --all --simulation")
 
 
 def _select_direct_target(rows, target, simulation=False):
