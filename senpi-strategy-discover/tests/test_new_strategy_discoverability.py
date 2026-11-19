@@ -79,6 +79,43 @@ _CASES = [
     ("ibex",    _intent(), "gold breakout"),
     ("ibex",    _intent(), "donchian breakout gold"),
     ("ibex",    _intent(assets=[("class", "commodities")]), "gold xauusd metals"),
+    # ── the daily dip cascade (2026-11-12): buy the hardest drop in chips / Nasdaq / S&P, else cash ──
+    ("gannet",  _intent(), "buy the dip in the nasdaq"),
+    ("gannet",  _intent(), "buy the crash in us stocks"),
+    ("gannet",  _intent(assets=[("class", "indices")]), "oversold index rsi dip buy"),
+    # ── the Nasdaq trend rider (2026-11-12): long 3x above the 40-week average, washouts only below it ──
+    ("mustang", _intent(), "leveraged nasdaq trend following 200 day moving average"),
+    ("mustang", _intent(assets=[("class", "indices")]), "long term nasdaq with a trend filter"),
+    ("mustang-sp500", _intent(assets=[("named", "SP500")]), "s&p 500 trend following 200 day average"),
+    ("mustang-semis", _intent(assets=[("named", "SOXL")]), "soxl trend following"),
+    ("mustang", _intent(), "tqqq for the long term"),   # no TQQQ on the venue: its 3x Nasdaq
+    # ── tech vs the trend basket (2026-11-12): Nasdaq when it leads gold/oil/fx, chips after a crash ──
+    ("ocelot", _intent(), "switch between tech and managed futures trend"),
+    ("ocelot", _intent(), "own tech only when it beats gold oil and currencies"),
+    ("ocelot", _intent(), "tech rotation into cash"),
+    # ── the quality big-tech basket (2026-11-12): ten megacaps at 2x, re-bought unless the Nasdaq is hot ──
+    ("kudu", _intent(), "hold quality big tech stocks basket"),
+    ("kudu", _intent(assets=[("class", "xyz_equities")]), "own the magnificent seven megacaps long term"),
+    ("kudu", _intent(), "long term stock portfolio"),
+    # A strategy ask that names its stocks (blind test, 16 Nov) is still a template ask: the tickers ride
+    # in as --assets or in the theme words, and the basket that holds them leads either way.
+    ("kudu", _intent(assets=[("named", "AAPL"), ("named", "MSFT"), ("named", "NVDA")]),
+     "long-term basket of quality megacap stocks equal amounts"),
+    ("kudu", _intent(), "a long-term basket of quality megacap stocks the likes of apple microsoft and nvidia "
+                        "held in equal amounts"),
+    # ── all-weather with trend gates (2026-11-12): five sleeves, each held only while it trends up ──
+    ("yak", _intent(), "all weather portfolio with trend filter"),
+    ("yak", _intent(), "diversified stocks gold commodities step out of what is falling"),
+    ("yak", _intent(), "all weather portfolio"),
+    # ── big-tech momentum, Nasdaq-gated (2026-11-12): strongest name when healthy, the index after a washout ──
+    ("kinkajou", _intent(), "leveraged big tech momentum when the market is healthy"),
+    ("kinkajou", _intent(), "magnificent seven momentum"),
+    # ── the BTC/ETH dip ladder (2026-11-16): three wallets buy 10 / 20 / 30% under the 60-day high at 1x ──
+    ("squirrel", _intent(), "dca dip ladder buy more as it falls"),
+    ("squirrel", _intent(), "dollar cost average into btc dips"),
+    # ── the same ladder buying only above the 40-week average; roughly half the budget or more in USDC (2026-11-16) ──
+    ("chipmunk", _intent(), "conservative dip buyer keep cash"),
+    ("chipmunk", _intent(), "buy dips but keep half in usdc"),
 ]
 
 
