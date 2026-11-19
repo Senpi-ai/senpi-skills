@@ -14,7 +14,7 @@ minutes, blow the `exec` timeout, and push you to raw MCP — which loses every 
 **fast, resumable STEPS** and **narrate each slice the moment it returns** (this mirrors
 `senpi-improve-trades` / `senpi-strategy-ops` — short steps over a shared state file, the skill narrates
 between). Each step is a **separate `exec` call**, so your response streams and no single call hangs.
-Runtime health inside `strategies` is **one** `openclaw senpi status --json` for the whole fleet (a
+Runtime health inside `strategies` is **one** `senpi status --json` for the whole fleet (a
 progress line goes to stderr), so that step's cost does not grow with the number of runtimes.
 
 The steps (SKILL.md "Run it in steps"):

@@ -282,7 +282,7 @@ RULES_BACK_IN_CORE = (
     "called running, not-running, protected or unprotected off that run.",
     "The fix is a runtime upgrade on the box, not a redeploy of the strategies.",
     "`live`, trading: **They agree.** Clean. Say so.",
-    "**Re-run the deploy** — a deploy interrupted by a gateway restart does not resume on its own, and re-running "
+    "**Re-run the deploy** — a deploy interrupted by a runtime restart does not resume on its own, and re-running "
     "reconciles rather than duplicating.",
     "This is the fix for `not_running` after a broken deploy.",
     "**Do not offer \"close and relaunch\" for `withdrawable_unavailable`.** Wait, then support.",

@@ -59,12 +59,12 @@ computing anything:
 run"*. **Say that.** An unreadable record is an unreadable record — do not fall back to guessing a mechanism
 from fill shapes and present it as fact.
 
-## `openclaw senpi explain <ASSET> --runtime <id> --json` — the lifecycle
+## `senpi explain <ASSET> --runtime <id> --json` — the lifecycle
 
 It returns `{ok, asset, entries[]}` — the asset's events oldest-first (`position.opened` → `dsl.created` →
 `dsl.tier_advanced` → `dsl.closed`/`position.closed`), threaded by `senpi.position.id`. You need the
 **runtime id**, which is the key the event log is addressed by. Get it from the runtime registry
 (`installed_runtimes.json`, the same source the engine reads for mandates — each entry's `id`) or from
-`openclaw senpi runtime list`. A closed strategy has no ring → `explain` returns nothing; that's expected.
+`senpi runtime list`. A closed strategy has no ring → `explain` returns nothing; that's expected.
 
 The event shapes behind it: `references/event-log.md`.

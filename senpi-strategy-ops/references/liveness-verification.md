@@ -3,7 +3,7 @@
 When and how to verify a Senpi runtime is **actually operating**, not merely registered.
 
 Use this whenever you have just deployed a strategy, are diagnosing a "nothing is happening" report, or
-are about to tell the user a strategy is live. Do not declare success on `openclaw senpi runtime list:
+are about to tell the user a strategy is live. Do not declare success on `senpi runtime list:
 running` alone — that field reports process status only, not functional liveness.
 
 This is an **agent-side check**. Run the commands yourself; do not ask the user to confirm "is it working?"
@@ -25,14 +25,14 @@ This is an **agent-side check**. Run the commands yourself; do not ask the user 
 > reach for it to monitor.
 >
 > **The reliable backbone vs. the flaky detail — which command to trust:**
-> - **`openclaw senpi runtime list`** — the **authoritative inventory** (id / wallet / source / status).
+> - **`senpi runtime list`** — the **authoritative inventory** (id / wallet / source / status).
 >   Reliable immediately after deploy. It answers the load-bearing question: *is the runtime running?* If
 >   it is, the runtime is driving its declared scanner. This is the backbone the gate rests on. Its limit:
 >   it has **no component-level health** — it can't tell a healthy scanner from a crash-looping one. One
 >   exception it CAN see: a runtime whose entry scanners never wired shows
 >   **`running — NO ENTRY SCANNERS`** — that is a wiring failure (the runtime is up but cannot produce
 >   entry signals), **not** live; `senpi status` names the failed phase, `senpi events` has the failure.
-> - **`openclaw senpi status -r <id> --json`** (getHealthStatus) / **`state -r <id> --json`**
+> - **`senpi status -r <id> --json`** (getHealthStatus) / **`state -r <id> --json`**
 >   (getSystemState) — per-scanner `health` / rich row (runCount, `lastAliveAt`, `lastError`). Precise
 >   *when they answer*, but **both are flaky-empty / throw for a minute+ after start** (seen live: `verify`
 >   got nothing while a manual `status -r`/`state -r` seconds apart returned healthy). Treat them as
@@ -52,7 +52,7 @@ A runtime can show `status: running` while every component inside it is silent:
 - The DSL monitor can be wired up while never evaluating a position.
 - An action can be wired but never invoked because no signal ever reaches it.
 
-Liveness means walking `openclaw senpi state -r <runtime_id> --json` and confirming each component is
+Liveness means walking `senpi state -r <runtime_id> --json` and confirming each component is
 doing real work, with timestamps and counters as proof. `runtime_id` = the runtime.yaml `name`
 (`spider-swing`); rediscover a strategy's runtimes via `runtime list` matching `group == <id>`.
 
@@ -70,14 +70,14 @@ doing real work, with timestamps and counters as proof. `runtime_id` = the runti
 
 **On DSL.** The DSL monitor exposes counters (`tickSuccessCount`, `lastTickFinishedAt`) in `state`, but
 those only prove the internal tick loop moves — not that the end-to-end protective path (price providers,
-MCP, exchange) works. Don't use DSL counters as a runtime-wide liveness gate; use `openclaw senpi dsl
+MCP, exchange) works. Don't use DSL counters as a runtime-wide liveness gate; use `senpi dsl
 inspect <ASSET>` when triaging a specific position.
 
 ---
 
 ## Field-level decision tree
 
-Run `openclaw senpi state -r <runtime_id> --json` once, then walk each component. Use field paths against
+Run `senpi state -r <runtime_id> --json` once, then walk each component. Use field paths against
 the JSON structure — they are stable; the human-readable summary is not.
 
 ### The supervised external scanner
@@ -134,7 +134,7 @@ their money is in a broken thing while it scans.
 > the window you are describing. Ticks landing `ok` with no candidates is a strategy that is working and
 > finding nothing — say that instead, and take the question to the gates or the budget.
 >
-> **The events log is not a heartbeat.** `events/events.jsonl` (and `openclaw senpi events`) records
+> **The events log is not a heartbeat.** `events/events.jsonl` (and `senpi events`) records
 > errors and state changes — signals, orders, DSL, `scaffold.tick_error`, `mcp.call_failed` — and nothing
 > for an `ok` tick with no candidates. A `tail` of it is therefore all failures with no successes between
 > them, even when nearly every tick succeeded. Never count failures there and call it an outage. When
@@ -153,7 +153,7 @@ emits no failure signature at all. That is what `senpi validate` is for, before 
 | Disabled | `enabled === false` | Scanner is turned off — not wired to run |
 | Hung mid-tick | `inFlight === true` & `lastRunStartedAt` older than `timeout_seconds` | `scan()` exceeded its time box — the runtime kills + restarts it; persistent hangs point at a slow upstream read |
 | Can't read either command | `state` throws AND `status` unreadable | **Not a scanner fault** — the gateway read is transiently unavailable (common right after deploy). Re-check; do not declare the scanner down. |
-| **Healthy and doing nothing** | `health === "healthy"`, ticks land (fresh `lastAliveAt`) — and **no signal ever accepted** | The hardest one to see from here: a scanner whose reads all fail, or that returns before reading, looks *identical* to one with no setups. Nothing in this table catches it, because there is no positive evidence to find. **Catch it before deploy** — `openclaw senpi validate <recipe-dir>` counts successful reads and reports **UNPROVEN** (exit 2) for a tick that established nothing. |
+| **Healthy and doing nothing** | `health === "healthy"`, ticks land (fresh `lastAliveAt`) — and **no signal ever accepted** | The hardest one to see from here: a scanner whose reads all fail, or that returns before reading, looks *identical* to one with no setups. Nothing in this table catches it, because there is no positive evidence to find. **Catch it before deploy** — `senpi validate <recipe-dir>` counts successful reads and reports **UNPROVEN** (exit 2) for a tick that established nothing. |
 
 **When `status` and `state` disagree, `status` wins for the health verdict.** `status` (getHealthStatus)
 keeps answering while `state` (getSystemState) is still throwing post-deploy — so a scanner that `status`
@@ -195,7 +195,7 @@ Declare a strategy **live** only when, for **every** instance:
 - each action is either "operating" or "dormant by design" — never "wiring problem" or "failing".
 
 If you **cannot read `status` or `state`** for an instance (they're flaky-empty for a minute+ after start),
-fall back to the **reliable backbone**: is the runtime in **`openclaw senpi runtime list`** as `running`?
+fall back to the **reliable backbone**: is the runtime in **`senpi runtime list`** as `running`?
 If yes, the scanner is **live-but-unmeasured** (`supervised`) — the runtime spawns and supervises the
 declared scanner and restarts it on crash, and the DSL protects positions — **not** "down." That is
 hand-triage advice, not a verdict the tooling shares: the deploy verb's observe step reads an
@@ -209,7 +209,7 @@ status`, which starts nothing.
 
 Anything less: surface the specific failing field and the remediation, not a generic "looks fine." For
 deeper engine triage (position_tracker → DSL → actions), see
-`senpi-trading-runtime/references/runtime-concepts.md` and `openclaw senpi dsl|action …`.
+`senpi-trading-runtime/references/runtime-concepts.md` and `senpi dsl|action …`.
 
 ---
 
@@ -229,7 +229,7 @@ a quiet external one shows it only after an error run) says *that* it found noth
    with a rare signature is the common shape of a strategy that is *working perfectly* and will realistically
    never fire — say so plainly, in that arithmetic, rather than leaving them to wait it out.
 3. **Say how often it has fired** — `signalsProduced` on the scanner row, and its `signal.*` events in
-   `openclaw senpi events -r <runtime_id>`. Zero signals since install is a fact worth leading with, not a
+   `senpi events -r <runtime_id>`. Zero signals since install is a fact worth leading with, not a
    detail to omit because the runtime is healthy.
 
 Then give the two levers in the user's terms — **widen the universe** or **loosen the binding gate** —
@@ -242,5 +242,5 @@ real creation fee and resets nothing but the book.
 > wrong scale; a nested payload shape the venue returns flat), each indistinguishable from patience from
 > every surface above. Before telling a user to keep waiting, read the value the gate tests from the tool
 > the scanner reads and check it can reach the threshold (`senpi-strategy-ops/tests/test_entry_gate_reachability.py`
-> holds both cases). `openclaw senpi validate` does not catch this: a tick that reads data and stands aside
+> holds both cases). `senpi validate` does not catch this: a tick that reads data and stands aside
 > is a **PASS** — **UNPROVEN** (exit 2) only means the tick read nothing.
