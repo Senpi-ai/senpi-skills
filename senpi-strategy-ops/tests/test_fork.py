@@ -128,6 +128,38 @@ def test_fork_rewrites_identity_and_nothing_else(tmp_path):
         _fork.fork(pkg, tmp_path, name="Shield Wall")
 
 
+def test_a_named_fork_of_a_fork_copies_its_edits_as_an_independent_variation(tmp_path):
+    parent, _ = _fork.fork(_pkg.load(_template(tmp_path)), tmp_path, owner="Alice")
+    rt = parent / "main" / "runtime.yaml"
+    rt.write_text(rt.read_text().replace("tiltThreshold: 65", "tiltThreshold: 72"))   # the parent's own edit
+    (parent / ".deploy-state.json").write_text("{}")                                    # the parent's deploy state
+    dest, info = _fork.fork(_pkg.load(parent), tmp_path, name="Penguin Wide Stop")
+    assert dest == tmp_path / "penguin-wide-stop" and info["runtimes"] == ["penguin-wide-stop-main"] and not info["reused"]
+    assert info["forked_from"] == {"id": "phalanx", "version": "1.1.0"}               # lineage stays the template's
+    man = (dest / "strategy.yaml").read_text()
+    assert "\nid: penguin-wide-stop\n" in man and '  name: "Penguin Wide Stop"' in man
+    assert man.count("forked_from:") == 1 and 'forked_from:\n  id: phalanx\n  version: "1.1.0"' in man
+    text = (dest / "main" / "runtime.yaml").read_text()
+    assert "\nname: penguin-wide-stop-main\n" in text and "\ngroup: penguin-wide-stop\n" in text
+    assert "description: >\n  Penguin Wide Stop — copied from Alice's Phalanx.\n" in text
+    assert "tiltThreshold: 72" in text                                                 # the parent's edit came along
+    assert not (dest / ".deploy-state.json").exists()
+    assert _pkg.validate(_pkg.load(dest)) == []
+    assert "tiltThreshold: 72" in rt.read_text() and "\nname: alice-phalanx-main\n" in rt.read_text()   # parent untouched
+    with pytest.raises(_fork.ForkError, match="exists"):                                # never overwrites a copy
+        _fork.fork(_pkg.load(parent), tmp_path, name="Penguin Wide Stop")
+    with pytest.raises(_fork.ForkError, match="--name"):                                # an owner alone is not a variation name
+        _fork.fork(_pkg.load(parent), tmp_path, owner="Jason")
+
+
+def test_cli_fork_of_a_fork_with_a_name(tmp_path):
+    _fork.fork(_pkg.load(_template(tmp_path)), tmp_path, owner="Alice")
+    out = _run(["fork", str(tmp_path / "alice-phalanx"), "--name", "Penguin Wide Stop", "--json"], tmp_path)
+    assert out.returncode == 0, out.stderr
+    doc = json.loads(out.stdout.strip().splitlines()[-1])
+    assert doc["id"] == "penguin-wide-stop" and doc["errors"] == [] and doc["dir"] == str(tmp_path / "penguin-wide-stop")
+
+
 def test_fork_handles_a_quoted_description_and_a_flat_package(tmp_path):
     rt = RUNTIME.replace('description: >\n  PHALANX — proven-cohort rotation. Reads the proven cohort and tracks where\n  their headcount is shifting each tick.\n',
                          'description: "PHALANX — proven-cohort rotation."\n')
