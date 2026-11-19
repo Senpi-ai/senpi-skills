@@ -11,6 +11,7 @@ no marker, and `PAPER_UNAVAILABLE` comes back as a tool failure.
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import contextlib
 import io
+import json
 import os
 import shutil
 import sys
@@ -774,6 +775,40 @@ class UpdateIdNamingTwoInstances(unittest.TestCase):
         inst, _sel, refusal = deploy.update_target(self.pkg, "omega-main-paper")
         self.assertIsNone(inst)
         self.assertIn("Nothing was changed", refusal)
+
+    def test_a_runtime_with_no_wallet_on_record_refuses(self):
+        self.inventory = [{"name": "omega-main-paper", "wallet": ""}]
+        inst, _sel, refusal = deploy.update_target(self.pkg, "omega-main-paper")
+        self.assertIsNone(inst)
+        self.assertIn("no wallet", refusal)
+        self.assertIn("Nothing was changed", refusal)
+
+    def test_a_killed_inventory_read_is_the_out_of_memory_stop(self):
+        def killed(why=None):
+            if why is not None:
+                why.append(_cli.Cause("senpi.listRuntimes: error: killed", -9))
+            return None
+        _cli.list_runtimes_or_none = killed
+        inst, _sel, refusal = deploy.update_target(self.pkg, "omega-main-paper")
+        self.assertIsNone(inst)
+        self.assertTrue(_cli.sigkilled(refusal))
+
+        orig = (deploy.local_pkg, deploy.full_validate, deploy.outside_durable_root, _cli.run_cli)
+        self.addCleanup(lambda: (setattr(deploy, "local_pkg", orig[0]), setattr(deploy, "full_validate", orig[1]),
+                                 setattr(deploy, "outside_durable_root", orig[2]), setattr(_cli, "run_cli", orig[3])))
+        deploy.local_pkg = lambda arg: self.pkg
+        deploy.full_validate = lambda pkg: []
+        deploy.outside_durable_root = lambda pkg, cmd, paper=False: None
+        sent = []
+        _cli.run_cli = lambda argv, timeout=60: (sent.append(argv) or (0, "", ""))
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            with self.assertRaises(SystemExit) as raised:
+                deploy.main(["deploy.py", "update", "omega", "--id", "omega-main-paper", "--json"])
+        self.assertEqual(raised.exception.code, _cli.EXIT_OOM)
+        self.assertIs(json.loads(out.getvalue())["oom"], True)
+        self.assertIn("out of memory", err.getvalue())
+        self.assertEqual(sent, [], "no update is sent after the kill")
 
     def test_an_id_only_one_instance_runs_as_reads_no_inventory(self):
         def boom(why=None):
