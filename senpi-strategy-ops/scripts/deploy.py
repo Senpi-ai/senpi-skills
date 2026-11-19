@@ -2127,6 +2127,10 @@ def cmd_update(a):
         print(refusal, file=sys.stderr)
         return EXIT_CODES["refused"]
     target = inst.runtime_path.parent
+    # `--id` names the simulation's runtime when it is not the instance's live one: every follow-up
+    # read must then be `status.py --paper`, or it reads the live world.
+    read = (f"python3 {_cli.STATUS_PY} {pkg.id}"
+            + (" --paper" if getattr(a, "runtime_id", None) not in (None, inst.runtime_name) else ""))
     if a.apply and not (target / PROOF_FILE).is_file():
         # The verb refuses this too (`E_UPDATE_PROOF_REQUIRED`); saying it here saves the round-trip
         # and names the exact command. A STALE proof is the verb's call, not ours — it knows the bytes.
@@ -2160,8 +2164,7 @@ def cmd_update(a):
         sys.stderr.write(err if err.endswith("\n") else err + "\n")
     if rc == 0 and not a.json:
         if a.apply:
-            print(f"applied. Re-read what is running now: python3 {Path(__file__).resolve().with_name('status.py')}"
-                  f" {pkg.id}   — and remember `dsl_preset` is forward-only: positions already open "
+            print(f"applied. Re-read what is running now: {read}   — and remember `dsl_preset` is forward-only: positions already open "
                   f"keep the ladder they were opened under (the plan named them).", file=sys.stderr)
         else:
             print(f"PLAN only — nothing changed. Read it to the user, then commit with:\n"
@@ -2171,7 +2174,6 @@ def cmd_update(a):
         return rc
     if rc < -1:  # killed, by any signal: stderr above carries the bare fact, the next step is said here
         head = f"✗ {pkg.id}: `senpi update` was killed before it answered (rc {rc})."
-        read = f"python3 {_cli.STATUS_PY} {pkg.id}"
         if _cli.is_sigkill(rc):
             if a.apply:
                 stop = _cli.oom_stop("The outcome is unknown: the edit may have been applied before the "
@@ -2194,7 +2196,7 @@ def cmd_update(a):
     # `status.py`, not `openclaw senpi runtime list`: that verb loads the same plugin tree and, on a
     # box whose memory killed this one, is killed too.
     print(f"✗ {pkg.id}: `senpi update` did not answer (rc {rc}) — {tail or 'no output'}. Read the "
-          f"runtime before retrying: python3 {Path(__file__).resolve().with_name('status.py')} {pkg.id}",
+          f"runtime before retrying: {read}",
           file=sys.stderr)
     return EXIT_INTERNAL
 
