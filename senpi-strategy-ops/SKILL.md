@@ -35,7 +35,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.32.5"
+  version: "3.32.6"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -166,7 +166,7 @@ second beside it. The **`--budget` is a hard target**: if the live balance can't
 Fund/free USDC or confirm a smaller amount, then re-run — **never lower `--budget` to dodge a funding
 error**. When the user names a budget per strategy ("$1k on X, $2k on Y"), deploy each with its own
 and **confirm the split before funding**.
-**Taking a simulation live** ("take Puffin v13 live"): deploy the package that simulation ran (its `skillName` in `strategy_list` with simulation results), live, with `create <id> --budget <usd> --from-simulation simulation-<id>` (that simulation's id), and confirm the budget as for any live deploy. Never with `--simulation`.
+**Taking a simulation live** ("take Puffin v13 live"): deploy the package that simulation ran (its `skillName` in `strategy_list` with simulation results), live, with `create <id> --budget <usd> --from-simulation simulation-<id>`. Its budget was virtual: ask the user for a real-money amount and confirm it as for any live deploy; never reuse the simulation's.
 **Running variations** ("run 3 variations of Penguin", "try Penguin with a 4% stop"): each variation is its own fork of the package that simulation ran, with its levers changed (`deploy.py fork`, edit, then `create <dir>`), deployed with `--simulation --variant-of simulation-<id>` (the simulation it varies, from `strategy_list`). When several start together, give each the same `--batch <id>`: one fresh id for the batch, e.g. `penguin-<unix seconds>`. Deploy them one after another, never in parallel. They join that simulation's group as the next free vN. Never pass `--variant-of` for a new strategy: it starts its own group. **A variation refused or failed = stop there**: deploy none of the rest and ask exactly these three, nothing else: *"<name> failed: <the refusal's own reason, no guessed cause>. Nothing was created. Should I run them as standalone simulations (each its own strategy, not a variation of <parent>), retry, or stop?"* Never deploy them without `--variant-of` unasked.
 
 `deploy.py` polls for ~150s and then **returns** (exec says "Command still running" after 10s: `process poll` it until it exits) — with one bounded exception, the stale-proof repair
