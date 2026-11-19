@@ -135,16 +135,24 @@ def fork(pkg, root, owner=None, name=None, log=lambda m: None):
 
     Reuse is by lineage: an existing directory is returned untouched when it is a fork of this same
     template (a live fork keeps its deploy state; a fork is a copy, so a newer template is not grafted
-    onto it). Any other occupant of the name is refused rather than overwritten."""
-    if (pkg.manifest or {}).get("forked_from"):
-        ff = pkg.manifest["forked_from"] or {}
+    onto it). Any other occupant of the name is refused rather than overwritten.
+
+    A package that is already a fork is copied, edits and all, only under `name`: that is how a variation
+    of a user's own strategy starts. The copy keeps the template lineage and is never reused."""
+    parent_ff = (pkg.manifest or {}).get("forked_from")
+    if parent_ff is not None and not (name and str(name).strip()):
+        ff = parent_ff or {}
         raise ForkError(f"{pkg.id} is already a fork (of {ff.get('id')} {ff.get('version')}) — deploy it by "
-                        f"directory, or fork the template it came from")
+                        f"directory, or copy it with its edits under --name <their words>")
     fid, display = names_for(pkg, owner, name)
     root = Path(root)
     dest = root / fid
-    info = dict(id=fid, display=display, forked_from=dict(id=pkg.id, version=str(pkg.version)),
+    lineage = dict(id=str(parent_ff.get("id")), version=str(parent_ff.get("version"))) if parent_ff else \
+        dict(id=pkg.id, version=str(pkg.version))
+    info = dict(id=fid, display=display, forked_from=lineage,
                 runtimes=[f"{fid}-{i.name}" for i in pkg.instances], dir=str(dest), reused=False)
+    if dest.exists() and parent_ff is not None:
+        raise ForkError(f"{dest} exists — deploy it by directory if it is this copy, or pass --name <another name>")
     if dest.exists():
         try:
             have = _pkg.load(dest)
@@ -164,15 +172,18 @@ def fork(pkg, root, owner=None, name=None, log=lambda m: None):
         text = man.read_text()
         text = _set_top_key(text, "id", fid)
         text = _set_catalog_name(text, display)
-        text = _add_forked_from(text, pkg.id, pkg.version)
+        if parent_ff is None:
+            text = _add_forked_from(text, pkg.id, pkg.version)
         man.write_text(text)
         title = short_title((pkg.catalog or {}).get("name"), pkg.id)
+        origin = f"copied from {(pkg.catalog or {}).get('name') or pkg.id}" if parent_ff is not None else \
+            f"forked from {title} {pkg.version}"
         for inst in pkg.instances:
             rp = dest / inst.runtime_rel
             t = rp.read_text()
             t = _set_top_key(t, "name", f"{fid}-{inst.name}")
             t = _set_top_key(t, "group", fid)
-            t = _prefix_description(t, f"{display} — forked from {title} {pkg.version}.")
+            t = _prefix_description(t, f"{display} — {origin}.")
             rp.write_text(t)
         forked = _pkg.load(dest)
         errs = _pkg.validate(forked)
@@ -181,5 +192,5 @@ def fork(pkg, root, owner=None, name=None, log=lambda m: None):
     except Exception:
         shutil.rmtree(dest, ignore_errors=True)
         raise
-    log(f"  forked {pkg.id} {pkg.version} → {dest} ({display})")
+    log(f"  {'copied' if parent_ff is not None else 'forked'} {pkg.id} {pkg.version} → {dest} ({display})")
     return dest, info
