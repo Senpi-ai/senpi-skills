@@ -54,7 +54,7 @@ class RunShDeployOutcomes(unittest.TestCase):
         self.assertEqual(proc.returncode, 0)
         self.assertIn("deploy dpl-a1b2c3d4 — report", proc.stdout)   # the report survived
         self.assertIn("tick", proc.stdout.lower())                   # says what 4 actually means
-        self.assertIn("openclaw senpi scanner", proc.stdout)         # …and how to check it
+        self.assertIn("senpi scanner -r", proc.stdout)         # …and how to check it
         self.assertNotIn("error", proc.stderr.lower())
 
     def test_a_still_running_job_is_reported_not_aborted(self):
