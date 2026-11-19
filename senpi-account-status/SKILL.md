@@ -2,7 +2,7 @@
 name: senpi-account-status
 description: >-
   Show the user's standing across Senpi programs — points and rank, the Senpi trading fee (none on a
-  paid plan), referral earnings — and explain the AI-credits usage meter. Use for "how many points
+  paid plan or while the account holds credits), referral earnings — and explain the AI-credits usage meter. Use for "how many points
   do I have?", "what's my rank/tier?", "where did my tier go?", "what are my fees?", "my referral
   rewards", "how do referrals work?", and for credits: "what is the bubble/meter in the header?", "why are my credits going
   down?", "how much did that cost?", "does my strategy use credits?", "can I trade or withdraw my
@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.10.1"
+  version: "1.11.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -32,9 +32,7 @@ cleanly**: points and rank, the Senpi fee, and referral earnings.
   referral together. Read its JSON.
 - **Real-time, not from memory.** Points/rank move — never quote a figure from earlier in the
   conversation; re-run.
-- **The fee comes from the data, never from memory.** Quote `fee.pct` as returned: `0%` on a paid
-  plan (Pro, Advanced, Quant, and Starter for people already on it), the flat free rate without one,
-  free trials included.
+- **The fee comes from the data, never from memory.** Quote `fee.pct` as returned.
 - **Tiers carry no benefit right now: no fee change, nothing unlocked. Do not bring tiers up.** Never
   suggest reaching, keeping or regaining a tier, and never close with a next-tier offer. If the user
   asks about their tier or where it went, say tiers carry no benefit right now. Points still accrue
@@ -57,7 +55,8 @@ Returns `{as_of, identity, points, fee, referral, meta}`:
 - `points` — `total`, `base` (Base copy-trading), `perp` (Hyperliquid), `multiplier` (the plan's
   points rate), `rank`, `rank_change`.
 - `fee` — `bps` + `pct`, the Senpi fee this user pays, as the backend reports it: `0` / `0%` on a
-  paid plan or while the account holds credits (`bps` is in tenths of a bp).
+  paid plan (Pro, Advanced, Quant, and Starter for people already on it) or while the account holds credits (`bps` is in tenths of a bp). `null` when the backend
+  could not read it: say the fee could not be read right now, never `0%` and never a rate.
 - `referral` — `balance_usdc` (referral earnings not yet claimed).
 - `meta.warnings` / `meta.degraded` — narrate honestly.
 - Fails open — partial data still returns valid JSON.
@@ -67,7 +66,7 @@ Returns `{as_of, identity, points, fee, referral, meta}`:
 Lead with the section they asked about; otherwise a tight standing card:
 
 1. **Points & rank** — total, base/perp split, multiplier, rank (+ change).
-2. **Fee** — `fee.pct` (`0%` = a paid plan or credits, no Senpi fee).
+2. **Fee** — `fee.pct` as returned.
 3. **Referral** — pending `balance_usdc` (and that it's claimable if > 0).
 
 Formatting: clean, scannable, numbers from the data; emoji sparingly.
