@@ -60,22 +60,22 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | Skill | Ver | Role |
 |---|---|---|
 | **Analyze** | | |
-| [`senpi-portfolio`](senpi-portfolio/) | 1.38.5 | All-wallet portfolio, positions, DSL protection, per-strategy mandate reads; every wallet — Senpi and the ones you added — in one list by value, managed and read-only subtotals |
-| [`senpi-market-pulse`](senpi-market-pulse/) | 1.10.0 | Daily cross-asset market read (crypto, equities, commodities, macro, funding regime); the positions check includes your saved wallets, read-only |
-| [`senpi-smart-money`](senpi-smart-money/) | 1.7.0 | Where the most-profitable wallets are positioned vs. the crowd; the alignment check includes your saved wallets, read-only |
-| [`senpi-signals`](senpi-signals/) | 2.11.0 | Non-obvious market developments (funding extremes, proven cohort vs the 4h crowd, momentum events, cross-asset laggards), ranked through a trade lens and a news lens — read from Senpi's backend, the same Senpi Signals the app and the browser extension show; on demand, no cron |
-| [`senpi-trader-research`](senpi-trader-research/) | 1.7.0 | Rank + vet Hyperliquid traders before copying them (mirror-aware: copyability, min-budget, live book); your saved wallets go to the quant desk, never the copy shortlist |
-| [`senpi-improve-trades`](senpi-improve-trades/) | 1.25.4 | Retrospective review + health checks off the **telemetry event log**: PnL **net of fees**, exit quality, peak-to-exit give-back, missed signals, leaks, crashes; your saved wallets reviewed read-only as manual trades, in one book with your Senpi strategies ordered by value |
-| [`quant-desk`](quant-desk/) | 1.50.3 | **Quant Desk** — the desk your AI Quant produces. "run AI quant" / "run quant" / "run quant desk" on **any** Hyperliquid address → 90 days of fills, fees, funding; six 0–100 dimensions, a quant score, leaks priced as charged counterfactuals, protection audit, you vs the proven and hot cohorts, market fit, where your edge is. No address? It finds you candidates by account size. A senpi user's whole book — every strategy wallet, closed ones included — is one desk via `--book`. Public data, read-only; Senpi discovery when a token is present |
-| [`senpi-account-status`](senpi-account-status/) | 1.11.5 | Points and rank, the Senpi trading fee (none on a paid plan or with credits), referrals, strategy limits and usage (`strategy_get_limits`), and the AI-credits usage meter with the live credit balance. Carries the plan catalog (Pro/Advanced/Quant; Starter closed to new subscribers), the end of the free-credit milestones, what running out of credits pauses (the AI and simulations, not live strategies) and what a lapsed plan pauses |
+| [`senpi-portfolio`](senpi-portfolio/) | 1.38.6 | All-wallet portfolio, positions, DSL protection, per-strategy mandate reads; every wallet — Senpi and the ones you added — in one list by value, managed and read-only subtotals |
+| [`senpi-market-pulse`](senpi-market-pulse/) | 1.11.1 | Daily cross-asset market read (crypto, equities, commodities, macro, funding regime); the positions check includes your saved wallets, read-only |
+| [`senpi-smart-money`](senpi-smart-money/) | 1.8.1 | Where the most-profitable wallets are positioned vs. the crowd, and what they just did; the alignment check includes your saved wallets, read-only |
+| [`senpi-signals`](senpi-signals/) | 2.12.1 | Non-obvious market developments (funding extremes, proven cohort vs the 4h crowd, momentum events, cross-asset laggards), ranked through a trade lens and a news lens — read from Senpi's backend, the same Senpi Signals the app and the browser extension show; on demand, no cron |
+| [`senpi-trader-research`](senpi-trader-research/) | 1.8.1 | Rank + vet Hyperliquid traders before copying them (mirror-aware: copyability, min-budget, live book); your saved wallets go to the quant desk, never the copy shortlist |
+| [`senpi-improve-trades`](senpi-improve-trades/) | 1.25.5 | Retrospective review + health checks off the **telemetry event log**: PnL **net of fees**, exit quality, peak-to-exit give-back, missed signals, leaks, crashes; your saved wallets reviewed read-only as manual trades, in one book with your Senpi strategies ordered by value |
+| [`quant-desk`](quant-desk/) | 1.50.4 | **Quant Desk** — the desk your AI Quant produces. "run AI quant" / "run quant" / "run quant desk" on **any** Hyperliquid address → 90 days of fills, fees, funding; six 0–100 dimensions, a quant score, leaks priced as charged counterfactuals, protection audit, you vs the proven and hot cohorts, market fit, where your edge is. No address? It finds you candidates by account size. A senpi user's whole book — every strategy wallet, closed ones included — is one desk via `--book`. Public data, read-only; Senpi discovery when a token is present |
+| [`senpi-account-status`](senpi-account-status/) | 1.11.6 | Points and rank, the Senpi trading fee (none on a paid plan or with credits), referrals, strategy limits and usage (`strategy_get_limits`), and the AI-credits usage meter with the live credit balance. Carries the plan catalog (Pro/Advanced/Quant; Starter closed to new subscribers), the end of the free-credit milestones, what running out of credits pauses (the AI and simulations, not live strategies) and what a lapsed plan pauses |
 | **Run a strategy** | | |
-| [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.57.1 | Conversational picker — rank the catalog against your worldview; holdings context includes your saved wallets (read-only, never a budget) |
-| [`senpi-strategy-author`](senpi-strategy-author/) | 3.15.3 | Build/edit a DSL-protected strategy package, one decision at a time |
-| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.32.9 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
-| [`senpi-trade`](senpi-trade/) | 1.10.1 | Direct trade or mirror a specific trader — manual positions + copy trading, one decision at a time |
-| [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.1.17 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
+| [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.57.2 | Conversational picker — rank the catalog against your worldview; each pick's exits and position size quoted from its full card; holdings context includes your saved wallets (read-only, never a budget) |
+| [`senpi-strategy-author`](senpi-strategy-author/) | 3.17.2 | Build/edit a DSL-protected strategy package, one decision at a time |
+| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.32.10 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
+| [`senpi-trade`](senpi-trade/) | 1.12.2 | Direct trade or mirror a specific trader — manual positions + copy trading, one decision at a time |
+| [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.1.18 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
 | **Move money / positioning** | | |
-| [`senpi-deposit-withdraw-transfer`](senpi-deposit-withdraw-transfer/) | 1.6.2 | The money-movement rails (funds in via the funding card — deposit address or in-card USDC purchase; out via the app); top-ups prechecked against perps and traced to Spot when they fail, withdrawals at the exact available figure, fees stated before money moves |
+| [`senpi-deposit-withdraw-transfer`](senpi-deposit-withdraw-transfer/) | 1.6.5 | The money-movement rails (funds in via the funding card — deposit address or in-card USDC purchase; out via the app); top-ups prechecked against perps and traced to Spot when they fail, withdrawals at the exact available figure, fees stated before money moves |
 | [`senpi-why`](senpi-why/) | 1.7.1 | "What makes Senpi different" — your AI quant: reads the market, reviews your trading, runs your strategy 24/7, wherever you trade |
 
 Skills **compose**: `improve-trades` pulls in `market-pulse` + `smart-money` + `portfolio`; `discover` hands a chosen package to `ops`; `author` hands a built package to `ops`. The agent routes by **intent**, not keywords, and never re-implements one skill inside another.
@@ -134,7 +134,7 @@ The 80+ templates span the full cross-asset spectrum (majors, alts, universe cry
 | Breakout / momentum | 16 | Buy the break, gated on trend + smart money | Hawk, Badger, Hare (crypto session scalp), Kite (SMC/ICT) |
 | Structural / neutral | 9 | Non-directional (DCA, market-neutral, thematic) | Tortoise (DCA), Cougar |
 | Contrarian / fade | 8 | Fade crowding once it exhausts | Camel (funding), Owl, Pangolin |
-| Copy-trading | 9 | Mirror proven traders | Jackal, Whalehunter, Shadow (multi-trader fresh-entry mirror) |
+| Copy-trading | 9 | Mirror proven traders | Jackal, Whalehunter, Squid (multi-trader fresh-entry mirror) |
 | Macro thesis | 4 | Read the regime, set a posture, rotate by attrition | Chimp (daily), Gorilla (weekly), Rotator (3h conviction rebalance) |
 | Event-driven | 1 | IPO / new-listing convexity | Magpie |
 | Risk parity | 2 | Equal-risk / diversified capital preservation across uncorrelated classes | Ox, Mandate (no-leverage crypto + RWA) |

@@ -156,7 +156,6 @@ def _spawn(args, timeout):
         return -1, "", "", False, e
     try:
         out, err = p.communicate(timeout=timeout)
-        return p.returncode, out or "", err or "", False, None
     except subprocess.TimeoutExpired:
         _kill_tree(p)
         try:
@@ -164,6 +163,28 @@ def _spawn(args, timeout):
         except (subprocess.TimeoutExpired, ValueError, OSError):
             out, err = "", ""
         return -1, out or "", err or "", True, None
+    out, err, note = out or "", err or "", killed_note(p.returncode)
+    if note:  # the fact only, on stderr; stdout stays where it was (`error_tail` reads both)
+        err = "\n".join(t for t in (err.rstrip(), note) if t)
+    return p.returncode, out, err, False, None
+
+
+def killed_note(rc):
+    """The bare fact when a child died by signal: Python's `rc < -1`. Never a `128 + n` exit: the
+    CLI is exec'd with no shell, and a Node CLI exits 130/143 on purpose from its own signal handlers.
+    `-1` is this module's own timeout/spawn sentinel, never a signal here.
+
+    A SIGKILLed CLI prints nothing, and `rc -9, no output` read as a mystery: the same command was
+    retried again and again into a box that kept killing it. This line says only what happened. What
+    to do next depends on the verb (a read, a write, a poll), so the caller says it."""
+    n = -rc if rc < -1 else None
+    if n is None:
+        return ""
+    try:
+        name = signal.Signals(n).name
+    except ValueError:
+        name = f"signal {n}"
+    return f"killed by {name} (rc {rc}) before it answered"
 
 
 def _run_cli(args, timeout=60):
@@ -387,6 +408,9 @@ def load_runtime_registry(meta):
         rc, out, err = _run_cli(RUNTIME_LIST_CMD, timeout=30)
         payload = _extract_json(out)          # stdout carries `[plugins]` banners on a real box
         if payload is None:                   # spawn failure, timeout, or nothing parseable on stdout
+            if rc < -1:                       # killed: any further read would be too
+                meta["_telemetry_dead"] = True
+                return _runtime_read_failed(meta, _killed_read(rc))
             return _runtime_read_failed(meta, (err or "").strip()[:200] or f"exit {rc}, no JSON on stdout")
     if not isinstance(payload, dict):
         return _runtime_read_failed(meta, "output was not a JSON object")
@@ -443,9 +467,18 @@ def _profile_from_descriptor(desc):
 # Registry presence says a runtime was DEPLOYED; telemetry says it's actually RUNNING/healthy. Same
 # fail-open + fixture pattern as senpi-improve-trades' event-log read: absence degrades to "unknown" (never
 # a false "broken"), and once a host shows no CLI we stop shelling out.
-def _note_telemetry_unavailable(meta, msg):
-    """One-time telemetry warning; marks meta so the rollup can say liveness is unverified (registry-only)."""
-    if not meta.get("_telemetry_warned"):
+def _killed_read(rc):
+    """A killed runtime read, in words: the bare fact, the out-of-memory reading only for SIGKILL (a
+    SIGTERM from a container stop or a SIGSEGV is not that), and that it was not retried."""
+    oom = ", most likely out of memory" if rc == -signal.SIGKILL else ""
+    return f"{killed_note(rc)}{oom} — not retried"
+
+
+def _note_telemetry_unavailable(meta, msg, always=False):
+    """One-time telemetry warning; marks meta so the rollup can say liveness is unverified (registry-only).
+    `always=True` is for a kill: an earlier, milder note must not swallow the one that says the box is
+    killing its reads (each kill also sets `_telemetry_dead`, so it still prints once per run)."""
+    if always or not meta.get("_telemetry_warned"):
         meta.setdefault("warnings", []).append(f"telemetry: {msg}")
         meta["_telemetry_warned"] = True
 
@@ -470,6 +503,11 @@ def _fleet_statuses(meta):
     print("reading runtime health (one status call for the whole fleet)…", file=sys.stderr, flush=True)
     for _ in range(2):
         rc, out, err = _run_cli(FLEET_STATUS_CMD, timeout=30)
+        if rc < -1:                                # killed: the per-id reads would be too
+            meta["_telemetry_dead"] = True
+            _note_telemetry_unavailable(meta, f"runtime status read {_killed_read(rc)}; liveness unverified",
+                                        always=True)
+            return None
         if rc != 0:
             head = (err or out or "")[:200]       # 10.x writes a gateway error to stdout, 5.x to stderr
             if head.startswith(SPAWN_FAILED_PREFIX) or "unknown method" in head.lower():
@@ -543,7 +581,11 @@ def _fetch_runtime_status(runtime_id, meta):
     rc, out, err = _run_cli(gateway_argv("senpi.getHealthStatus", {"runtimeId": str(runtime_id)}), timeout=20)
     if rc != 0:
         err = (err or out or "")[:200]            # 10.x writes a gateway error to stdout, 5.x to stderr
-        if err.startswith(SPAWN_FAILED_PREFIX):   # not a runtime host → every call fails; stop shelling out
+        if rc < -1:                               # killed: the next id would be too
+            meta["_telemetry_dead"] = True
+            _note_telemetry_unavailable(meta, f"status read {_killed_read(rc)}; liveness unverified",
+                                        always=True)
+        elif err.startswith(SPAWN_FAILED_PREFIX):   # not a runtime host → every call fails; stop shelling out
             meta["_telemetry_dead"] = True
             _note_telemetry_unavailable(meta, "openclaw CLI not found — runtime liveness unverified")
         elif "unknown method" in err.lower():

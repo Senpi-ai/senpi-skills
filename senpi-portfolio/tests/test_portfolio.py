@@ -1927,3 +1927,31 @@ def test_open_gates_and_older_runtimes_are_not_paused():
     res = _run_with_status({"kodiak-main": status_doc({"health": "healthy"})})      # no risk component
     assert by_wallet(res, KODIAK_WALLET)["risk_pause"] is None
     assert "paused_by_risk_gate" not in res["meta"]
+
+
+def test_a_killed_status_read_is_not_retried_and_the_per_id_reads_are_skipped():
+    """A SIGKILL is the box's memory, not a flaky answer: retrying, then one read per runtime, only
+    feeds it more kills."""
+    res, calls = _run_with_cli(lambda a: (-9, "", portfolio.killed_note(-9)))
+    assert len(calls) == 1, calls
+    warns = " ".join(res["meta"]["warnings"])
+    assert "killed by SIGKILL (rc -9)" in warns, warns
+    assert "out of memory" in warns, warns
+
+
+def test_only_a_sigkill_is_called_out_of_memory():
+    """A SIGTERM (a container stop) or a SIGSEGV is a kill, not the box's memory."""
+    for rc in (-15, -11):
+        res, calls = _run_with_cli(lambda a, rc=rc: (rc, "", portfolio.killed_note(rc)))
+        assert len(calls) == 1, (rc, calls)
+        warns = " ".join(res["meta"]["warnings"])
+        assert portfolio.killed_note(rc) in warns, warns
+        assert "memory" not in warns, warns
+
+
+def test_an_earlier_telemetry_note_does_not_swallow_the_kill():
+    meta = {}
+    portfolio._note_telemetry_unavailable(meta, "status read exit 1 (boom)")
+    portfolio._note_telemetry_unavailable(meta, "status read " + portfolio._killed_read(-9), always=True)
+    warns = " ".join(meta["warnings"])
+    assert "boom" in warns and "killed by SIGKILL" in warns, warns

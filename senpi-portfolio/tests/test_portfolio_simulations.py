@@ -136,7 +136,7 @@ def test_the_printed_output_never_names_simulation_unless_simulations_were_read(
         assert "simulations" not in json.loads(out)
         assert "simulation" not in out.lower()
         out = _printed(_with_simulation(_fixture(), {"success": False, "error": {
-            "code": "SIMULATION_UNAVAILABLE", "message": "simulation trading is not available"}}), capsys, step)
+            "code": "SIMULATION_UNAVAILABLE", "message": "simulations are not available"}}), capsys, step)
         assert "simulations" not in json.loads(out)
         assert "simulation" not in out.lower()
 

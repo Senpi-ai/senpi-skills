@@ -74,6 +74,8 @@ exit on an instance, an unsupported scanner-level `enabled` key, and the live-un
 
 Exit codes (`deploy status` and `deploy.py` alike): `0` live · `2` refused · `3` failed · `4`
 installed-unobserved · `5` interrupted · `6` pending/still running · `1` internal/transport error.
+`deploy.py` alone adds `9`: out of memory (a call was SIGKILLed) — stop, don't retry or poll now; safe
+again when `senpi-strategy-ops`' `status.py` exits `0`.
 `deploy status` sets the JOB's code and then prints the snapshot, on `--json` too — a non-zero code
 there is a verdict about the deploy, not a failed read.
 

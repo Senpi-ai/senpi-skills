@@ -323,3 +323,35 @@ name the file that holds them.
   actions intro now reads "The **actionable lever** (the fix) per intent; its step(s) are in the Router, its
   data in `references/output-shape.md`." (pointers only). The fee row's Read-first cell names
   "`guardrails.md` hard rule 0".
+
+# senpi-improve-trades 1.25.0 — fork-first routing: dropped and reworded sentences
+
+Strategy conversations now start in `senpi-strategy-author`: the closest template is the base the user
+forks and makes their own (a lever shifted, a rule of their own); scratch when nothing fits. No skill
+pitches a template by name outside that match. Each quote below is base text that left SKILL.md, with why.
+
+>   on a saved wallet stay in this skill. When the user has NOTHING to review yet, `meta.book_state` routes it: nothing deployed -> read the market (senpi-market-pulse) then shortlist a fit (senpi-strategy-discover); deployed-but-idle -> diagnose THAT strategy, never pitch another. A hidden engine (scripts/review.py) reconstructs every
+
+Why: Description rewritten fork-first: it is the routing surface every turn. The new description is in the frontmatter.
+
+> | nothing to review, an empty result | read `meta.book_state` first | `no_strategies` → `senpi-market-pulse`, then `senpi-strategy-discover`; no critique of an empty account ("Nothing to review?" below) |
+
+Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`, which offers the closest template as the base the user forks and makes their own.
+
+> ### `no_strategies` — pivot to market-pulse → strategy-discover
+
+Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`, which offers the closest template as the base the user forks and makes their own.
+
+> 2. **Then shortlist against THAT read** — compose **`senpi-strategy-discover`**, and let today's market
+>    drive the shortlist. *"Semis and crypto-proxy equities are leading today while crypto is soft — here
+
+Why: Routing reworked fork-first: strategy asks start in `senpi-strategy-author`, which offers the closest template as the base the user forks and makes their own.
+
+> 3. **Offer, never push.** Two or three named fits with risk level and minimum budget; let them choose. If
+
+Why: Reworded in place for fork-first routing; the new wording is in SKILL.md.
+
+> | *"How could I make more gains?"* | Strategy tune (DSL / entry gate), never a $/week promise. If the book has no Hyperfeed exposure at all — and only when `meta.strategy_count` > 0 (never for a saved-only user: coach their own process, no strategy pitch) — name it as the gap: **Penguin** (crypto) or **Pelican** (all assets) react only to the strongest live rotations on the feed, one position at up to 10x, 90% margin, with a DSL floor that ratchets up to lock gains — high risk, high reward, with -15% SL. That SL is **15% ROE**, a 1.5% price move at 10x, ~13.5% of that wallet **per stop-out**, and stops compound with the guard rails off. Say **rotations**, never "pumps" |
+
+Why: A hardcoded template pitch. A template is now offered only as a fit for the user's own idea (senpi-strategy-author, via the discover ranking, once), never from a fixed list.
+
