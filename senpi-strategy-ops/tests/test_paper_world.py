@@ -735,12 +735,18 @@ class UpdateFollowsTheDriftCommand(unittest.TestCase):
         self.assertIn("status.py omega ", err)
         self.assertNotIn("--paper", err)
 
-    def _apply(self, runtime_id, selector="--id"):
+    def test_a_live_id_beside_a_simulation_address_says_to_read_the_live_strategy(self):
+        err = self._apply("omega-main", extra=["--address", PAPER_WALLET])
+        self.assertIn("status.py omega ", err)
+        self.assertNotIn("--paper", err)
+        self.assertEqual(self.calls[-1][-3:], ["--id", "omega-main", "--apply"])
+
+    def _apply(self, runtime_id, selector="--id", extra=()):
         (self.tmp / "main" / deploy.PROOF_FILE).write_text("{}")
         err = io.StringIO()
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
             with self.assertRaises(SystemExit) as raised:
-                deploy.main(["deploy.py", "update", str(self.tmp), selector, runtime_id, "--apply"])
+                deploy.main(["deploy.py", "update", str(self.tmp), selector, runtime_id, *extra, "--apply"])
         self.assertEqual(raised.exception.code, 0, err.getvalue())
         return err.getvalue()
 

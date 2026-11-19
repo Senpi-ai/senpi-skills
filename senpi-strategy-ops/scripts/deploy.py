@@ -2127,12 +2127,12 @@ def cmd_update(a):
         print(refusal, file=sys.stderr)
         return EXIT_CODES["refused"]
     target = inst.runtime_path.parent
-    # `--id` names the simulation's runtime when it is not the instance's live one, and `--address`
-    # names it with a simulation wallet: every follow-up read must then be `status.py --paper`, or it
-    # reads the live world.
-    address = getattr(a, "address", None)
-    simulated = (getattr(a, "runtime_id", None) not in (None, inst.runtime_name)
-                 or (bool(address) and _cli.is_paper_address(address)))
+    # The follow-up read matches the selector actually sent: `--id` naming a runtime other than the
+    # instance's live one, or `--address` with a simulation wallet, targets the simulation, so every
+    # follow-up read must be `status.py --paper`, or it reads the live world.
+    flag, value = selector[0], selector[1]
+    simulated = ((flag == "--id" and value != inst.runtime_name)
+                 or (flag == "--address" and _cli.is_paper_address(value)))
     read = f"python3 {_cli.STATUS_PY} {pkg.id}" + (" --paper" if simulated else "")
     if a.apply and not (target / PROOF_FILE).is_file():
         # The verb refuses this too (`E_UPDATE_PROOF_REQUIRED`); saying it here saves the round-trip
