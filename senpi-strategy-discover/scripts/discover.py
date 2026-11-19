@@ -18,6 +18,8 @@ Contract:
   ranking — nothing it matches on requires a maintained glossary.
 - Fails open: unknown concrete values drop to "unstated" (widen, never dead-end); always valid JSON;
   exit 0 for handled cases.
+- `--card <ids>` prints the FULL card of the picks about to be presented (offline): the shortlist cuts
+  the card text, and the cut usually drops how a pick sells, sizes and re-buys.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
@@ -41,6 +43,11 @@ OUTPUT_BUDGET = 12_000
 TEXT_FIELD_LIMIT = 120
 TAG_LIMIT = 8
 MARKET_FACT_LIMIT = 2
+# The 120-character cut lands before the sentences that say how a pick sells, sizes and re-buys on almost
+# every card (16 Nov 2026: 126 of 145 cards state their exit, 10 of them inside the cut). Agents filled the
+# gap from the entry rule ("exits when the trend breaks") and from budget ÷ slots; `--card` has the full text.
+FULL_CARD_NOTE = ("card text is cut at 120 characters: before presenting a pick, run --card <id> and quote "
+                  "how it sells, how big each position is and when it re-buys")
 
 
 def default_catalog():
@@ -349,13 +356,17 @@ def _candidate(r, intent):
 
 
 def _compact(cand):
-    """Output projection: trim the long soft-rank text so the shortlist fits the result budget."""
+    """Output projection: trim the long soft-rank text so the shortlist fits the result budget.
+    Returns True when any text was cut (limit_result then points the agent at `--card`)."""
+    cut = False
     for field in ("tagline", "belief_plain", "thesis"):
-        cand[field] = _short_text(cand.get(field))
+        short = _short_text(cand.get(field))
+        cut = cut or short != str(cand.get(field) or "")
+        cand[field] = short
     for field in ("tags", "tag_labels"):
         if field in cand:
             cand[field] = cand[field][:TAG_LIMIT]
-    return cand
+    return cut
 
 
 def match(intent, records):
@@ -552,9 +563,13 @@ def limit_result(result, limit):
         result["candidates"] = result.get("candidates", [])[:limit]
         if "theme_matches" in result.get("meta", {}):
             result["meta"]["theme_matches"] = result["meta"]["theme_matches"][:limit]
+    cut = False
     for cand in result.get("candidates", []):
-        _compact(cand)
-    result.setdefault("meta", {})["returned_n"] = len(result.get("candidates", []))
+        cut = _compact(cand) or cut
+    meta = result.setdefault("meta", {})
+    meta["returned_n"] = len(result.get("candidates", []))
+    if cut:
+        meta["full_card"] = FULL_CARD_NOTE
     return result
 
 
@@ -584,6 +599,24 @@ def fit_budget(result, budget):
             kept = {c.get("id") for c in cands}
             meta["theme_matches"] = [m for m in meta["theme_matches"] if m.get("id") in kept]
     return result
+
+
+def fit_cards(out, budget):
+    """Keep `--card` output inside the result budget without cutting a card's text — that text is why
+    `--card` exists. Over budget: drop the ranking-only tags, then defer whole cards from the end (never
+    below one) to a second `--card` call. Four long cards printed 16.4k, over OpenClaw's 16k exec cap."""
+    def size():
+        return len(json.dumps(out, ensure_ascii=False))
+
+    if size() <= budget:
+        return out
+    for card in out["cards"]:
+        card.pop("tags", None)
+        card.pop("tag_labels", None)
+    while len(out["cards"]) > 1 and size() > budget:
+        out["deferred"] = [out["cards"].pop()["id"]] + out.get("deferred", [])
+        out["note"] = f"over the output budget: run --card {','.join(out['deferred'])} for the rest"
+    return out
 
 
 # ---------------------------------------------------------------- data layer (guarded I/O)
@@ -869,6 +902,10 @@ def main(argv=None):
     ap.add_argument("--no-market", action="store_true", help="skip the live market enrichment pass")
     ap.add_argument("--context-only", action="store_true",
                     help="return user context only, no match (budget + Senpi holdings + saved-wallet holdings)")
+    ap.add_argument("--card", default=None,
+                    help="csv of ids: the FULL card of each pick you present (offline, no ranking) — the "
+                         "shortlist cuts tagline/belief_plain/thesis at 120 chars. Over the output budget "
+                         "the last ids come back under `deferred`: run --card again for those")
     args = ap.parse_args(argv)
 
     try:
@@ -879,6 +916,19 @@ def main(argv=None):
         return 1
 
     by_id = {r.get("id"): r for r in records}
+
+    if args.card:
+        # The picks about to be presented, uncut: their own words on how they sell, size and re-buy.
+        intent = normalize_intent(args)
+        ids = [i.strip().lower() for i in args.card.split(",") if i.strip()]
+        cards = [_candidate(by_id[i], intent) for i in ids if i in by_id]
+        for card in cards:
+            card.pop("market_facts", None)   # the shortlist run did the market read
+        out = {"cards": cards}
+        if any(i not in by_id for i in ids):
+            out["unknown"] = [i for i in ids if i not in by_id]
+        print(json.dumps(fit_cards(out, OUTPUT_BUDGET), ensure_ascii=False))
+        return 0
 
     if args.context_only:
         try:
