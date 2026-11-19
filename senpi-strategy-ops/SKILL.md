@@ -2,8 +2,8 @@
 name: senpi-strategy-ops
 description: >-
   Deploy / monitor / close a NAMED Senpi trading strategy. Monitoring is on demand:
-  never an agent-turn cron to watch a strategy (a model call per firing) — the runtime
-  supervises it at zero model cost. Simulations exist: virtual money on a copy of Hyperliquid, no real balance read or moved; pass `--simulation` only when the user asks for one.
+  never an agent-turn cron to watch a strategy — the runtime
+  supervises it at zero model cost. Simulations: virtual money on a copy of Hyperliquid, no real balance read or moved; pass `--simulation` only when the user asks.
   Use when the user names a strategy to run — "install spider", "deploy polar",
   "set up kodiak", "reinstall athena", "run the spider strategy", "is my strategy live?",
   "what am I running", "list my strategies" (→ status.py), "why isn't polar trading?" /
@@ -18,7 +18,7 @@ description: >-
   "return funds to main", "close all my strategies", "withdraw everything" (→ close.py --all --live);
   "close everything", "tear everything down", "strategies and simulations" (→ close.py --all). ALWAYS tear
   down via close.py, never a raw strategy_close (that strands the runtime). ops
-  deploys / closes / monitors; it does NOT author or edit strategy files — an edit
+  does NOT author or edit strategy files — an edit
   ("make my live strategy more aggressive", change leverage/sizing/DSL) is authored
   in senpi-strategy-author, the only skill that knows the scanner / yaml / DSL
   schema — and "tighten the ratchet / change the tiers / the locks" on a LIVE strategy
@@ -26,7 +26,7 @@ description: >-
   scanners/) the runtime supervises in-process — no scanner daemon. `deploy.py
   create <id> --budget <usd>` takes a package live end to end (it gates the package,
   then runs the runtime's detached deploy job; watch with `deploy.py status`);
-  close.py tears down (stop runtime + strategy_close → flattens positions,
+  close.py tears down (flattens positions,
   returns funds). Before the budget question ops runs THE WALKTHROUGH (Step 0.75):
   what the template does, how it is set, the two levers worth shifting — all in
   bullets and plain words, never a config key — and its name: every template deploys
