@@ -462,6 +462,8 @@ class CloseAllMeansAll(_CloseHarness):
         self.assertIn("SIMULATION_UNAVAILABLE", out)
         self.assertIn("simulations were NOT closed", out)
         self.assertIn("close.py --all --simulation", out)
+        self.assertIn("may still be open and charged", out)
+        self.assertNotIn("They keep running", out)
 
     def test_simulation_writes_off_still_close_the_live_ones_and_stop_no_simulation_runtime(self):
         self._both()
@@ -472,6 +474,7 @@ class CloseAllMeansAll(_CloseHarness):
         self.assertEqual(self.deleted, ["omega-main"])
         self.assertIn("SIMULATION_DISABLED", out)
         self.assertIn("simulations were NOT closed", out)
+        self.assertIn("They keep running and keep being charged", out)
 
     def test_an_mcp_with_no_simulation_router_closes_the_live_ones(self):
         self.mcp.live = [_live_row()]
