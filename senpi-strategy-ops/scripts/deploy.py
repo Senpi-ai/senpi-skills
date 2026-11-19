@@ -2056,12 +2056,21 @@ def update_target(pkg, runtime_id=None, address=None):
         if live and simulation:
             # Instances `main` and `main-simulation` both answer to `<id>-main-simulation`. The box
             # holds one runtime by that id, and its wallet says which world, so which instance, it is.
-            rt = next((r for r in _cli.list_runtimes_or_none() or []
+            why = []
+            rt = next((r for r in _cli.list_runtimes_or_none(why=why) or []
                        if _cli.runtime_name(r) == runtime_id), None)
+            both = f"{runtime_id!r} is the live runtime of {live.name!r} and the simulation of {simulation.name!r}"
+            if _cli.sigkilled(why):
+                return None, [], _cli.Cause(
+                    f"✗ {pkg.id}: {both}, and the runtime list read that tells which was killed. "
+                    + _cli.oom_stop("Nothing was changed: no update was sent.", "the box is out of memory"),
+                    why[0].rc)
             if rt is None:
-                return None, [], (f"✗ {pkg.id}: {runtime_id!r} is the live runtime of {live.name!r} "
-                                  f"and the simulation of {simulation.name!r}, and no runtime by that "
-                                  f"id could be read on this box to tell which. Nothing was changed.")
+                return None, [], (f"✗ {pkg.id}: {both}, and no runtime by that id could be read on this "
+                                  f"box to tell which. Nothing was changed.")
+            if not _cli.runtime_wallet(rt):
+                return None, [], (f"✗ {pkg.id}: {both}, and that runtime has no wallet on record, which "
+                                  f"is the only thing that tells which. Nothing was changed.")
             live = None if _cli.runtime_world_is(rt, True) else live
         inst = live or simulation
         if inst is None:
@@ -2114,6 +2123,8 @@ def cmd_update(a):
     inst, selector, refusal = update_target(pkg, getattr(a, "runtime_id", None),
                                             getattr(a, "address", None))
     if refusal:
+        if _cli.sigkilled(refusal):
+            return _cli.emit_oom(refusal, a.json, {"id": pkg.id}, refusal.rc)
         print(refusal, file=sys.stderr)
         return EXIT_CODES["refused"]
     target = inst.runtime_path.parent
