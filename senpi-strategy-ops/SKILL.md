@@ -14,8 +14,9 @@ description: >-
   normal (it was closed, or never fetched) and `deploy.py` fetches it by id.
   "are my positions protected? / do they have a stop-loss (DSL)?",
   "close/uninstall polar", "pause polar" / "stop new trades" / "stop opening positions" (→ watch-only, decision_mode: none; never the MCP strategy_pause),
-  "close my trades / positions" (→ strategy_close_positions, coins named; not close.py) — and for teardown like "close all strategies",
-  "return funds to main", "tear everything down" (→ close.py --all). ALWAYS tear
+  "close my trades / positions" (→ strategy_close_positions, coins named; not close.py) — and for teardown:
+  "return funds to main", "close all my strategies", "withdraw everything" (→ close.py --all --live);
+  "close everything", "tear everything down", "strategies and simulations" (→ close.py --all). ALWAYS tear
   down via close.py, never a raw strategy_close (that strands the runtime). ops
   deploys / closes / monitors; it does NOT author or edit strategy files — an edit
   ("make my live strategy more aggressive", change leverage/sizing/DSL) is authored
@@ -36,7 +37,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.32.9"
+  version: "3.32.10"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -367,7 +368,7 @@ python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/close.py --strategy-id
 Per strategy: **stop the runtime** (if live) → **trigger `strategy_close`** (flattens **all** positions
 + closes the strategy, funds returned). `strategy_close` is **async**, so the script **does not wait** —
 it returns `closing` and hands polling to you: **re-run `close.py spider`** until it reports `closed`.
-Re-runs are idempotent. **`--all` closes simulations too** (`--all --live` or `--all --simulation` keeps it to one world). When it says `Your simulations were NOT closed`, it closed the live strategies only and exits 2: tell the user their simulations are still open and charged, and run the command it names when it says. **A plain `close.py <id>` refuses and closes nothing when the package also has a simulation, or its simulations cannot be read:** re-run with `--live` or `--simulation`. When a `--simulation` close refuses, tell the user and re-run when the refusal says. **Two refusals close nothing (exit ≠ 0), and neither has an override:** the runtime inventory (`senpi.listRuntimes`) could not be read, so no runtime could be stopped first (a live runtime would re-enter the positions); or nothing is live but a deploy START never got an answer and its job may still be running. Tell the user why it was refused, never call `strategy_close` yourself, and re-run once the gateway answers / once `deploy.py status` shows no job running. A close that triggers while that START's job may still be running also exits ≠ 0 (`NOT torn down yet`): the live strategies are closing, but the job may still fund a wallet, so follow the same wait before re-running and never `deploy.py create` meanwhile. **A subset = one run each, sequential, never backgrounded with `&`** ([lifecycle.md](references/lifecycle.md#closing-several)). `--instance <name>` scopes an instance (needs its live runtime to map; else omit
+Re-runs are idempotent. **`--all` closes simulations too** (`--all --live` or `--all --simulation` keeps it to one world). **The user's words pick the world.** Money or live words ("return funds to main", "close my strategies", "withdraw") → `close.py --all --live`: a simulation holds no funds, and a closed one cannot be resumed. "Close everything" or "strategies and simulations" → plain `close.py --all`. When the words do not settle it and `close.py --all --dry-run` lists both strategies and simulations, ask once which to close. When it says `Your simulations were NOT closed`, it closed the live strategies only and exits 2: tell the user their simulations are still open and charged, and run the command it names when it says. **A plain `close.py <id>` refuses and closes nothing when the package also has a simulation, or its simulations cannot be read:** re-run with `--live` or `--simulation`. When a `--simulation` close refuses, tell the user and re-run when the refusal says. **Two refusals close nothing (exit ≠ 0), and neither has an override:** the runtime inventory (`senpi.listRuntimes`) could not be read, so no runtime could be stopped first (a live runtime would re-enter the positions); or nothing is live but a deploy START never got an answer and its job may still be running. Tell the user why it was refused, never call `strategy_close` yourself, and re-run once the gateway answers / once `deploy.py status` shows no job running. A close that triggers while that START's job may still be running also exits ≠ 0 (`NOT torn down yet`): the live strategies are closing, but the job may still fund a wallet, so follow the same wait before re-running and never `deploy.py create` meanwhile. **A subset = one run each, sequential, never backgrounded with `&`** ([lifecycle.md](references/lifecycle.md#closing-several)). `--instance <name>` scopes an instance (needs its live runtime to map; else omit
 to close all). **Starting over on a new wallet** = `openclaw senpi validate` → `close` → `create`, in that order. Discovery is strategy-driven: close also cleans up an attributed package's **orphaned** (no-runtime) wallet, and
 `--strategy-id`/`--address` close one with **no package at all** ([`references/lifecycle.md`](references/lifecycle.md)).
 
