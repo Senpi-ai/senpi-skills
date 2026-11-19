@@ -726,6 +726,24 @@ class UpdateFollowsTheDriftCommand(unittest.TestCase):
         self.assertEqual(self.calls, [["openclaw", "senpi", "update", str(self.tmp / "main"),
                                        "--id", "omega-main-paper"]])
 
+    def _apply(self, runtime_id):
+        (self.tmp / "main" / deploy.PROOF_FILE).write_text("{}")
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            with self.assertRaises(SystemExit) as raised:
+                deploy.main(["deploy.py", "update", str(self.tmp), "--id", runtime_id, "--apply"])
+        self.assertEqual(raised.exception.code, 0, err.getvalue())
+        return err.getvalue()
+
+    def test_an_applied_simulation_update_says_to_read_the_simulation(self):
+        err = self._apply("omega-main-paper")
+        self.assertIn("status.py omega --paper", err)
+
+    def test_an_applied_live_update_says_to_read_the_live_strategy(self):
+        err = self._apply("omega-main")
+        self.assertIn("status.py omega ", err)
+        self.assertNotIn("--paper", err)
+
     def test_an_unknown_runtime_id_is_still_refused(self):
         inst, _sel, refusal = deploy.update_target(self.pkg, "omega-other-paper")
         self.assertIsNone(inst)
