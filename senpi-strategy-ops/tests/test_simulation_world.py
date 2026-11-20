@@ -874,6 +874,43 @@ class UpdateFollowsTheDriftCommand(unittest.TestCase):
         self.assertEqual(self.calls, [["openclaw", "senpi", "update", str(self.tmp / "main"),
                                        "--id", "omega-main-simulation"]])
 
+    SIM_WALLET = "0x0000000000000000" + "1762500000000" + "0a1b2c3d4e5"
+    SIM_READ = r"status\.py omega --(paper|simulation)\b"
+    ANY_WORLD_FLAG = r"--(paper|simulation)\b"
+
+    def test_an_applied_update_by_simulation_wallet_says_to_read_the_simulation(self):
+        err = self._apply(self.SIM_WALLET, selector="--address")
+        self.assertRegex(err, self.SIM_READ)
+
+    def test_an_applied_update_by_live_wallet_says_to_read_the_live_strategy(self):
+        err = self._apply(LIVE_WALLET, selector="--address")
+        self.assertIn("status.py omega ", err)
+        self.assertNotRegex(err, self.ANY_WORLD_FLAG)
+
+    def test_a_live_id_beside_a_simulation_address_says_to_read_the_live_strategy(self):
+        err = self._apply("omega-main", extra=["--address", self.SIM_WALLET])
+        self.assertIn("status.py omega ", err)
+        self.assertNotRegex(err, self.ANY_WORLD_FLAG)
+        self.assertEqual(self.calls[-1][-3:], ["--id", "omega-main", "--apply"])
+
+    def _apply(self, runtime_id, selector="--id", extra=()):
+        (self.tmp / "main" / deploy.PROOF_FILE).write_text("{}")
+        err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            with self.assertRaises(SystemExit) as raised:
+                deploy.main(["deploy.py", "update", str(self.tmp), selector, runtime_id, *extra, "--apply"])
+        self.assertEqual(raised.exception.code, 0, err.getvalue())
+        return err.getvalue()
+
+    def test_an_applied_simulation_update_says_to_read_the_simulation(self):
+        err = self._apply(_cli.runtime_id_for("omega", "main", True))
+        self.assertRegex(err, self.SIM_READ)
+
+    def test_an_applied_live_update_says_to_read_the_live_strategy(self):
+        err = self._apply("omega-main")
+        self.assertIn("status.py omega ", err)
+        self.assertNotRegex(err, self.ANY_WORLD_FLAG)
+
     def test_an_unknown_runtime_id_is_still_refused(self):
         inst, _sel, refusal = deploy.update_target(self.pkg, "omega-other-simulation")
         self.assertIsNone(inst)
