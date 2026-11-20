@@ -313,8 +313,15 @@ class TheFeeFollowsThePlan(unittest.TestCase):
 
     def test_the_standing_answer_quotes_the_fee_the_data_returns(self):
         body = _flat(_split(SKILL)[1])
-        self.assertIn("Quote `fee.pct` as returned: `0%` on a paid plan", body)
-        self.assertIn("the Senpi trading fee (none on a paid plan)", _flat(_split(SKILL)[0]))
+        self.assertIn("Quote `fee.pct` as returned.", body)
+        self.assertNotIn("the flat free rate without one", body)
+        self.assertIn("the Senpi trading fee (none on a paid plan or while the account holds credits)",
+                      _flat(_split(SKILL)[0]))
+
+    def test_a_fee_the_backend_could_not_read_is_never_said_as_zero(self):
+        body = _flat(_split(SKILL)[1])
+        self.assertIn("`null` when the backend could not read it: say the fee could not be read right now, "
+                      "never `0%` and never a rate.", body)
 
     def test_the_presentation_notes_quote_the_same_field(self):
         notes = _flat(NOTES.read_text(encoding="utf-8"))
