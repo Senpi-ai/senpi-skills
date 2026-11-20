@@ -2139,6 +2139,16 @@ def cmd_update(a):
         print(refusal, file=sys.stderr)
         return EXIT_CODES["refused"]
     target = inst.runtime_path.parent
+    # The follow-up read matches the selector actually sent: `--id` naming a runtime other than the
+    # instance's live one, or `--address` with a simulation wallet, targets the simulation, so every
+    # follow-up read must name the simulation, or it reads the live world. The world is `--paper` on
+    # a tree that predates the simulation rename and `--simulation` after it; `_cli` says which.
+    renamed = hasattr(_cli, "is_simulation_address")
+    is_simulation_wallet = _cli.is_simulation_address if renamed else _cli.is_paper_address
+    flag, value = selector[0], selector[1]
+    simulated = ((flag == "--id" and value != inst.runtime_name)
+                 or (flag == "--address" and is_simulation_wallet(value)))
+    read = f"python3 {_cli.STATUS_PY} {pkg.id}" + ((" --simulation" if renamed else " --paper") if simulated else "")
     if a.apply and not (target / PROOF_FILE).is_file():
         # The verb refuses this too (`E_UPDATE_PROOF_REQUIRED`); saying it here saves the round-trip
         # and names the exact command. A STALE proof is the verb's call, not ours — it knows the bytes.
@@ -2172,8 +2182,7 @@ def cmd_update(a):
         sys.stderr.write(err if err.endswith("\n") else err + "\n")
     if rc == 0 and not a.json:
         if a.apply:
-            print(f"applied. Re-read what is running now: python3 {Path(__file__).resolve().with_name('status.py')}"
-                  f" {pkg.id}   — and remember `dsl_preset` is forward-only: positions already open "
+            print(f"applied. Re-read what is running now: {read}   — and remember `dsl_preset` is forward-only: positions already open "
                   f"keep the ladder they were opened under (the plan named them).", file=sys.stderr)
         else:
             print(f"PLAN only — nothing changed. Read it to the user, then commit with:\n"
@@ -2183,7 +2192,6 @@ def cmd_update(a):
         return rc
     if rc < -1:  # killed, by any signal: stderr above carries the bare fact, the next step is said here
         head = f"✗ {pkg.id}: `senpi update` was killed before it answered (rc {rc})."
-        read = f"python3 {_cli.STATUS_PY} {pkg.id}"
         if _cli.is_sigkill(rc):
             if a.apply:
                 stop = _cli.oom_stop("The outcome is unknown: the edit may have been applied before the "
@@ -2206,7 +2214,7 @@ def cmd_update(a):
     # `status.py`, not `openclaw senpi runtime list`: that verb loads the same plugin tree and, on a
     # box whose memory killed this one, is killed too.
     print(f"✗ {pkg.id}: `senpi update` did not answer (rc {rc}) — {tail or 'no output'}. Read the "
-          f"runtime before retrying: python3 {Path(__file__).resolve().with_name('status.py')} {pkg.id}",
+          f"runtime before retrying: {read}",
           file=sys.stderr)
     return EXIT_INTERNAL
 
