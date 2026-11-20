@@ -3,11 +3,12 @@
 # Same 45% of the phalanx sleeve at risk, carried by two larger bets. Total exposure is held
 # CONSTANT on purpose: if size moved with count, a result could not be attributed to
 # concentration. The aegis arm and the 65/35 split are untouched.
-# Listed in the catalog and in discover. Compare it against the parent it varies, not on its
-# own P&L — see senpi-strategy-discover/references/variant-families.md.
+# RETIRED from the catalog on 2026-11-20 (2.1.0): Athena 2.0.0 is built on this package's arms
+# (see athena/strategy.yaml), so the variant no longer differs from its parent in the way its card
+# describes. Running copies are untouched; it stays in the repo and tested.
 schema_version: 1
 id: athena-concentrated
-version: "2.0.0"
+version: "2.1.0"
 catalog:
   varies: athena          # a VARIANT of this template — never outrank it
   name: Athena Concentrated — two large phalanx bets
@@ -34,6 +35,7 @@ catalog:
   leverage_max: 5
   max_slots: 6
   assets: []
+  status: blocked            # ⚠️ retired 2026-11-20 — Athena 2.0.0 is built on it, see the header
   tags:
     - aegis
     - alpha-plus-hedge

@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-11-16",
+  "_updated": "2026-11-20",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the machine-COMPUTED minimum total budget at which the design functions (min_budget.py) — the smallest budget where every wallet funds and its smallest slot clears the $12 bumped notional; 'wallet_count' + 'min_budget_binding_wallet' explain it. It is NOT authored — deleting an authored min_budget is a no-op; use min_budget_floor to RAISE it. Positions scale with budget above the min. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -7413,73 +7413,14 @@
       "sort_order": 1
     },
     {
-      "id": "athena-concentrated",
-      "name": "Athena Concentrated — two large phalanx bets",
-      "emoji": "🏛️",
-      "varies": "athena",
-      "tagline": "Athena with the phalanx arm concentrated into two larger positions instead of three smaller ones — the same capital at risk, carried by fewer, bigger bets. The aegis hedge and the 65/35 split are unchanged.",
-      "belief_plain": "This is Athena with one change on its attacking side. Athena runs two arms: phalanx, which follows what proven smart-money traders are buying, and aegis, which hedges. Normally phalanx spreads its share across three positions. This version holds two instead, each half again as large, with exactly the same total amount of money at work. The hedge is untouched. The question is whether the phalanx signal is strong enough that backing fewer names harder beats spreading across more — concentration pays when the top signal is genuinely better than the third, and costs when it is not.",
-      "version": "2.0.0",
-      "thesis": "Two inputs differ from athena, both on the phalanx arm: slots 3 -> 2 and margin_pct / marginPctBase 15 -> 22.5. Total phalanx exposure is unchanged at 45% of the sleeve — that is the point, because moving size and count together would make any difference unattributable. The aegis arm, the 65/35 funding split, both detectors, the exits and the hedge logic are athena's, verbatim. Concentration pays only if phalanx's ranking is informative — if its 1st and 2nd picks genuinely beat its 3rd. If the ranking is noise, this arm just raises variance for nothing, and that is exactly what running it against athena over the same window measures.",
-      "tags": [
-        "aegis",
-        "alpha-plus-hedge",
-        "concentration",
-        "cross-asset",
-        "dynamic-hedge",
-        "experiment",
-        "hedge-fund",
-        "long-short",
-        "phalanx",
-        "proven-cohort",
-        "regime-hedge",
-        "rotation",
-        "smart-money",
-        "smart-money-hedge-fund"
-      ],
-      "group": "smart-money",
-      "archetype": "copy_trading",
-      "archetype_label": "Copy-Trader",
-      "sub_style": "sm_hedge_fund",
-      "sub_style_label": "A smart-money alpha sleeve paired with an independent regime-hedge sleeve in one fund — two wallets, user-weighted.",
-      "asset_classes": [
-        "universe_crypto",
-        "btc_eth",
-        "major_alts",
-        "xyz_equities",
-        "commodities",
-        "indices",
-        "fx"
-      ],
-      "asset_scope": "follows_traders",
-      "assets": [],
-      "direction": "long_short",
-      "risk_level": "moderate",
-      "tier": "advanced",
-      "leverage_max": 5,
-      "time_horizon": "swing",
-      "cadence_seconds": 300,
-      "min_budget": 30,
-      "wallet_count": 2,
-      "min_budget_binding_wallet": "aegis",
-      "instance_count": 2,
-      "funding_split": [
-        0.65,
-        0.35
-      ],
-      "max_slots": 6,
-      "branch": "main",
-      "sort_order": 1
-    },
-    {
       "id": "athena",
       "name": "Athena — Smart-Money Hedge Fund",
       "emoji": "🏛️",
       "varies": null,
-      "tagline": "The smart-money hedge fund in one package: a Phalanx sleeve follows the proven cohort's rotation for alpha, an Aegis sleeve reads the tape to hedge the regime. 65/35 by default — you set the weighting.",
-      "belief_plain": "One strategy is one bet. A fund is two that disagree on purpose. Athena runs Phalanx and Aegis side by side in two wallets: Phalanx follows where the proven cohort (traders with >=$1M lifetime realized PnL) is moving its headcount — the smart money — and Aegis reads market structure itself (funding crowding, gold and yen haven flows, OI velocity) to short risk and buy defensives when the tape turns risk-off, go long risk when it turns risk-on, and open nothing new in between. The two read different things, so when the cohort hasn't rotated yet but the tape has, the hedge is already on. You choose the weighting; 65% alpha / 35% hedge is the default.",
-      "version": "1.7.0",
-      "thesis": "A smart-money hedge fund needs an alpha engine and a hedge that doesn't share its blind spot. Phalanx is the alpha sleeve: it reads the proven cohort's positioning (headcount, not notional), requires conviction to be growing, boosts on divergence from the 4h crowd, and lets winners run on 3x with wide stops. Aegis is the hedge sleeve: a graduated regime score from funding regime, haven trends and OI velocity drives it short risk and long defensives in risk-off, long risk in risk-on, and flat in neutral — with tighter stops and earlier profit locks because regime calls reverse fast. The signals are independent by construction (crowd vs tape), which is what makes the second sleeve a real hedge rather than a second alpha bet. Each sleeve carries its own DSL protection and guard rails. The weighting is the user's lever: 65/35 alpha/hedge by default, moved in the fork before funding; every other number is each sleeve's own template, unchanged.",
+      "tagline": "The smart-money hedge fund in one package: a Phalanx sleeve follows the proven cohort's rotation for alpha, an Aegis sleeve reads the tape to hedge the regime, and neither enters against a sharp move of the last two hours. 50/50 by default — you set the weighting.",
+      "belief_plain": "One strategy is one bet. A fund is two that disagree on purpose. Athena runs Phalanx and Aegis side by side in two wallets. Phalanx follows where the proven cohort (traders with >=$1M lifetime realized PnL) is moving its headcount — the smart money — and opens no new longs while 65% or more of that cohort's positions are short. Aegis reads market structure itself (funding crowding, gold and yen haven flows, OI velocity) to short risk and buy defensives when the tape turns risk-off, go long risk when it turns risk-on, and open nothing new in between. Neither sleeve enters a trade that price moved more than 1% against over the last two hours. The two read different things, so when the cohort hasn't rotated yet but the tape has, the hedge is already on. You choose the weighting; 50/50 is the default.",
+      "version": "2.0.0",
+      "thesis": "A smart-money hedge fund needs an alpha engine and a hedge that doesn't share its blind spot. Phalanx is the alpha sleeve: it reads the proven cohort's positioning (headcount, not notional), requires conviction to be growing or to have held for an hour, raises conviction only when the cohort is actively shifting against the 4h crowd, and opens no long while 65% or more of the cohort's positions across all assets are short. It holds up to 2 positions at 4x, 35-42% of its wallet each, with a trailing floor 4.5% of price behind the best price until the first profit lock arms at +2%, and a 6% hard stop. Aegis is the hedge sleeve: a graduated regime score from funding regime, haven trends and OI velocity drives it short risk and long defensives in risk-off, long risk in risk-on, and nothing new in neutral. It holds up to 2 positions at 5x, 25-45% of its wallet each (more in a stronger regime), with a 3.33% stop and an early first lock at +2%, because regime calls reverse fast. Both sleeves skip any entry that price moved more than 1% against over the last two hourly bars. There is no daily limit on the number of entries; the brakes are a cooldown after three straight losses, a per-asset cooldown, and a drawdown halt at 28% (Phalanx) and 25% (Aegis) from the PnL peak, which stops new entries without closing what is open and stays on until you release it. The weighting is the user's lever: 50/50 by default, moved in the fork before funding.",
       "tags": [
         "smart-money",
         "hedge-fund",
@@ -7516,77 +7457,17 @@
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
-      "min_budget": 100,
+      "min_budget": 25,
       "wallet_count": 2,
-      "min_budget_binding_wallet": "aegis",
+      "min_budget_binding_wallet": "phalanx",
       "instance_count": 2,
       "funding_split": [
-        0.65,
-        0.35
+        0.5,
+        0.5
       ],
-      "max_slots": 7,
+      "max_slots": 4,
       "branch": "main",
-      "sort_order": 2
-    },
-    {
-      "id": "athena-x",
-      "name": "Athena-X — Smart-Money Hedge Fund, Conviction Sizing",
-      "emoji": "🏛️",
-      "varies": null,
-      "tagline": "Athena at conviction size. Same two sleeves and the same selection — scanners byte-identical, stops rescaled to sit at the same place in price — but NOT the same entry behaviour: no daily loss halt and no cap on entries per day, so it fills faster and keeps adding while underwater. 5x instead of 3x, more margin per slot, one more slot each: about 3.6x the gross exposure, and 100% of each wallet committed at full slots. Take it only if you already run Athena and want conviction size behind the same calls.",
-      "belief_plain": "Athena decides WHAT to trade; Athena-X changes HOW MUCH, and loosens two gates that ration entries. Phalanx still follows the proven cohort (traders with >=$1M lifetime realized PnL) and Aegis still hedges the regime off the tape — the scanners are byte-identical to Athena's. What differs: 5x leverage instead of 3x, 25% of the alpha wallet per position instead of 15%, 20% of the hedge wallet instead of 12%, and one extra slot in each sleeve — about 3.6x the gross exposure for the same signals. At full slots each sleeve commits 100% of its wallet as margin, against 45% and 48% on Athena; that absence of headroom is the real change in character, not the leverage number. Two entry gates are also gone: there is no daily loss halt and no cap on entries per day, so the book can fill in one burst and can keep adding while it is underwater. Gains and drawdowns both scale with all of it.",
-      "version": "1.6.0",
-      "thesis": "Sizing is a separate decision from selection, and Athena-X exists to make it an explicit one rather than a fork users hand-edit. Selection is Athena's and unchanged: the scanners are byte-identical to the Phalanx and Aegis source templates and a test enforces that. What differs is size and the entry gates. Every DSL threshold is rescaled so the stops sit at the same place in PRICE terms as Athena rather than tightening with leverage, and the overall risk budget is 37%/35% of PnL from peak — the same ~7% adverse market move Athena tolerates at 10%. But the daily loss halt and the daily entry cap are removed, which is deliberate for a conviction hold and does mean the only brakes left are that drawdown budget, a consecutive-loss pause, a per-asset cooldown, and each position's own DSL stop. Nothing flattens the book. It suits an operator who has already watched Athena trade and wants conviction size behind the same calls; it is the wrong first strategy. Start on Athena, move here on evidence.",
-      "tags": [
-        "athena-x",
-        "conviction-sizing",
-        "aggressive-sizing",
-        "smart-money",
-        "hedge-fund",
-        "smart-money-hedge-fund",
-        "alpha-plus-hedge",
-        "proven-cohort",
-        "rotation",
-        "regime-hedge",
-        "dynamic-hedge",
-        "cross-asset",
-        "long-short",
-        "phalanx",
-        "aegis"
-      ],
-      "group": "smart-money",
-      "archetype": "copy_trading",
-      "archetype_label": "Copy-Trader",
-      "sub_style": "sm_hedge_fund",
-      "sub_style_label": "A smart-money alpha sleeve paired with an independent regime-hedge sleeve in one fund — two wallets, user-weighted.",
-      "asset_classes": [
-        "universe_crypto",
-        "btc_eth",
-        "major_alts",
-        "xyz_equities",
-        "commodities",
-        "indices",
-        "fx"
-      ],
-      "asset_scope": "follows_traders",
-      "assets": [],
-      "direction": "long_short",
-      "risk_level": "aggressive",
-      "tier": "advanced",
-      "leverage_max": 5,
-      "time_horizon": "swing",
-      "cadence_seconds": 300,
-      "min_budget": 100,
-      "wallet_count": 2,
-      "min_budget_binding_wallet": "aegis",
-      "instance_count": 2,
-      "funding_split": [
-        0.65,
-        0.35
-      ],
-      "max_slots": 9,
-      "branch": "main",
-      "sort_order": 3
+      "sort_order": 1
     },
     {
       "id": "cuckoo",
@@ -7631,7 +7512,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 4
+      "sort_order": 2
     },
     {
       "id": "oxpecker",
@@ -7679,7 +7560,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 5
+      "sort_order": 3
     },
     {
       "id": "phalanx",
@@ -7730,7 +7611,7 @@
       ],
       "max_slots": 3,
       "branch": "main",
-      "sort_order": 6
+      "sort_order": 4
     },
     {
       "id": "puffin-duo",
@@ -7792,7 +7673,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 7
+      "sort_order": 5
     },
     {
       "id": "puffin",
@@ -7851,7 +7732,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 8
+      "sort_order": 6
     },
     {
       "id": "remora",
@@ -7898,7 +7779,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 7
     },
     {
       "id": "signals-hunter",
@@ -7954,7 +7835,7 @@
       ],
       "max_slots": 5,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 8
     },
     {
       "id": "squid",
@@ -8004,7 +7885,7 @@
       ],
       "max_slots": 5,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 9
     },
     {
       "id": "whalehunter",
@@ -8050,7 +7931,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 10
     },
     {
       "id": "osprey",
