@@ -745,7 +745,7 @@ class UpdateFollowsTheDriftCommand(unittest.TestCase):
         status.build = lambda *a, **k: ([row], [], True)
         deploy.local_pkg = lambda arg: self.pkg
         deploy.full_validate = lambda pkg: []
-        deploy.outside_durable_root = lambda pkg, cmd, simulation=False: None
+        deploy.outside_durable_root = lambda pkg, cmd, simulation=False, **k: None
         _cli.run_cli = lambda argv, timeout=60: (self.calls.append(list(argv)) or (0, "", ""))
 
     def tearDown(self):
@@ -1035,7 +1035,7 @@ class DeploySimulation(unittest.TestCase):
         deploy.run_deploy = lambda p, a, log: seen.append((a.cmd, a.simulation)) or 0
         deploy.ensure_pkg = lambda *a, **k: pkg
         deploy._fork_for_deploy = lambda p, a, log: p
-        deploy.outside_durable_root = lambda p, cmd, simulation=False: None
+        deploy.outside_durable_root = lambda p, cmd, simulation=False, **k: None
         deploy.full_validate = lambda p: []
         deploy.start_request_ids_supported = lambda log, as_json=False: True
         try:
