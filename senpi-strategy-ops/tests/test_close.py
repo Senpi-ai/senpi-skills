@@ -354,7 +354,7 @@ class MainDirectAddressing(unittest.TestCase):
         close.MCPClient = _FakeMCP
 
         def _fake_strategies_for(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15,
-                                 statuses=None, why=None, paper=False):
+                                 statuses=None, why=None, simulation=False):
             return [s for s in outer.rows
                     if (strategy_id is None or _cli.strategy_id_of(s) == strategy_id)
                     and (wallet is None
@@ -522,8 +522,8 @@ class MainPackagePollReportsClosed(unittest.TestCase):
         close.MCPClient = _FakeMCP
 
         def _fake_strategies_for(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15,
-                                 statuses=None, why=None, paper=False):
-            if paper:
+                                 statuses=None, why=None, simulation=False):
+            if simulation:
                 return []                        # this package has no simulations
             # The point of the test: HONOUR `statuses`, the way the real server-side filter does.
             if statuses is None and outer.unreadable:
@@ -898,8 +898,8 @@ class StrandedRuntimeSweep(unittest.TestCase):
         _cli.list_runtimes_or_none = lambda *a, **k: list(outer.inventory)
         orig = _cli.list_strategies_or_none
         self.addCleanup(setattr, _cli, "list_strategies_or_none", orig)
-        _cli.list_strategies_or_none = (lambda mcp, timeout=15, statuses=None, why=None, paper=False:
-                                         [] if paper else list(every))
+        _cli.list_strategies_or_none = (lambda mcp, timeout=15, statuses=None, why=None, simulation=False:
+                                         [] if simulation else list(every))
 
     def test_close_one_sweep_stops_the_runtime_of_a_closed_strategy_and_sends_nothing(self):
         self._box([{"name": "omega-main", "wallet": "0xabc"}], [])
