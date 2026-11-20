@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.57.0"
+  version: "2.58.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -225,7 +225,7 @@ otherwise put it in `--theme` and rank on `archetype_label`/`belief_plain`/`thes
    1. 🏦 "A ready-made **fund** — either a *view* on the world (a war, the economy, AI, one coin beating
       the rest), or a *return style* (AI/tech, market-neutral, income, macro)?" → rank up candidates
       whose `tags` include `hedge-fund`/`thesis-fund`/`all-weather`/`tail-risk`/… and whose `thesis`
-      fits. **Athena** is the smart-money hedge fund (a Phalanx alpha sleeve + an Aegis hedge sleeve, 65/35
+      fits. **Athena** is the smart-money hedge fund (a Phalanx alpha sleeve + an Aegis hedge sleeve, 50/50
       by default — the weighting is theirs): lead with it for a "hedge fund" or "smart money" ask.
       **No `--assets` for a fuzzy view** — run broad with `--theme` and rank.
    2. "Ride what's moving, or fade the crowd?" → `--theme "trend momentum breakout"` or `--theme
@@ -311,7 +311,7 @@ They lack the vocabulary; recommend *without* making them self-classify:
   contrarian fade"` for a momentum pick — and offer the candidate that *complements* it (read
   `archetype_label`/`tags`/`direction` to choose), à la
   Spider + Dog. Phalanx has one built as its pair: **Aegis** (reads the tape where Phalanx reads the
-  crowd) — and **Athena** is the two as one fund (65/35 by default, the weighting is theirs). Stacking by
+  crowd) — and **Athena** is the two as one fund (50/50 by default, the weighting is theirs). Stacking by
   hand, size ~70/30 toward the primary — it's a cushion, not a co-bet.
 - **Fund pick** (`wallet_count` > 1 → already a multi-wallet long/short book): **don't push
   stacking — it's internally hedged.** Just show the funding split when you present it.
@@ -343,7 +343,7 @@ They lack the vocabulary; recommend *without* making them self-classify:
   tail-risk crisis-alpha oil gold"` → rank up war / tail-risk / oil-gold theses (`thesis-war-escalation`, `rhino`)
 - "run a hedge fund / all-weather book" → run broad with `--theme "hedge-fund all-weather risk-parity
   multi-strategy smart-money"` → rank up `hedge-fund`/`all-weather`/`risk-parity` tags (`athena` first — the smart-money hedge fund — then `ox`, `spider`, `rhino`)
-- "a smart money hedge fund" / "follow the smart money, hedged" → `--theme "smart money hedge fund proven cohort regime hedge"` → `athena` (65/35 Phalanx/Aegis by default; the weighting is theirs)
+- "a smart money hedge fund" / "follow the smart money, hedged" → `--theme "smart money hedge fund proven cohort regime hedge"` → `athena` (50/50 Phalanx/Aegis by default; the weighting is theirs)
 - "which of your templates are proven?" / "did you backtest this?" → no engine call; the honest line under *Special paths*, then the pick they asked about
 - "copy good traders, nothing crazy" → **hand to `senpi-trader-research`** for the blended shortlist (steady names surface by copyability — no window for the user to pick); or a managed **Copy-Trader template** if they want it hands-off. Keep risk=moderate in head.
 - "trade stocks not crypto" → `--assets xyz_equities --exclude crypto`
