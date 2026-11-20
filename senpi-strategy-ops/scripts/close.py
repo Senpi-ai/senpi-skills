@@ -2,9 +2,11 @@
 """Close a strategy PACKAGE — stop the runtime(s), TRIGGER strategy_close, return immediately.
 
   python3 close.py <id> [--instance <name>] [--dry-run] [--json]
-  python3 close.py --all                                     # close EVERY open strategy + delete their runtimes
+  python3 close.py --all                                     # close EVERY open strategy and simulation + delete their runtimes
   python3 close.py --strategy-id <id> | --address <wallet>    # a wallet with NO package (unattributed
                                                                 # or app-created) — <id>/--all only resolve a package
+  python3 close.py <id> --simulation                         # the same, for simulations only (any form above)
+  python3 close.py <id> --live                               # live only, though the package also has a simulation
 
 Does NOT wait for the on-chain flatten — it hands off to the agent to poll. Per strategy (discovered
 from strategy_list by attribution skillName == manifest id, or directly by strategyId/wallet for
@@ -24,6 +26,12 @@ strategy whose wallet no open strategy uses, then reports `closed`. strategy_clo
 
 --instance scopes which instance(s) to close; --dry-run prints the plan with no side effects.
 --strategy-id/--address are mutually exclusive with <id>/--all/--instance/--ref and with each other.
+--simulation reads and closes simulations only (`strategy_list {simulation: true}`); --live, live strategies only.
+Plain --all closes both. Any other run without --simulation reads live strategies only. When a plain --all cannot
+close the simulations (unreadable, or simulations switched off), it still closes the live strategies, says the
+simulations were NOT closed, and exits 2.
+A plain `close.py <id>` that finds live strategies refuses, closing nothing, when the same package also has an
+open simulation (or the simulation read is unknown): name `--live` or `--simulation` to say which.
 Exit: 0 done · 2 failed/partial/refused · 1 error · `_cli.EXIT_OOM` (9) a call was SIGKILLed (out of
 memory): the killed instance sends nothing more, and `--json` carries `oom: true`. In a parallel
 close nothing is cancelled: the other workers run their own close to the end (delete retry, re-read,
@@ -54,7 +62,7 @@ _CLOSED = _cli.DEAD_STATUSES
 LIVE_STATUSES = _cli.LIVE_STATUSES
 
 
-def _read_or_refuse(rows, why, what):
+def _read_or_refuse(rows, why, what, simulation=False):
     """The strategy inventory, or a refusal — never an empty list standing in for an unread one.
 
     `strategy_list` degrading to `[]` on an unreadable read is not a silent no-op here: teardown then
@@ -65,6 +73,8 @@ def _read_or_refuse(rows, why, what):
     teardown money path, "couldn't read it" must never render as "there is nothing there"."""
     if rows is not None:
         return rows
+    if simulation:
+        raise SystemExit(_cli.simulation_refusal(what, why))
     raise SystemExit(
         f"error: could not read the strategy list, so NOTHING was closed and nothing about {what} is "
         f"known here — this is not 'there is nothing to close'.\n"
@@ -73,7 +83,106 @@ def _read_or_refuse(rows, why, what):
         f"open first (read-only):  python3 status.py")
 
 
-def _select_direct_target(rows, target):
+def _refuse_if_simulations_exist(mcp, pkg, targets, instance):
+    """A plain package close must not take the live strategy when the same package also has a
+    simulation: an agent that meant the simulation and dropped `--simulation` would close real money.
+    Refuses, naming both worlds and the command for each. An MCP with no simulation router has no
+    simulations, so it passes; any other unreadable answer refuses too, since a simulation may exist.
+    True when a simulation router answered, so the close it lets through is known to be the live world."""
+    why = []
+    sims = _cli.strategies_for_or_none(mcp, skill_name=pkg.id, statuses=LIVE_STATUSES, why=why, simulation=True)
+    base = f"close.py {pkg.id}" + (f" --instance {instance}" if instance else "")
+    if sims is None:
+        if why and isinstance(why[0], _cli.NoSimulationRouter):
+            return False
+        raise SystemExit(
+            f"error: {pkg.id} has live strategies to close, but its simulations could not be read, so "
+            f"NOTHING was closed.\n  Cause: {why[0] if why else 'no cause reported'}\n"
+            f"  A simulation may exist. To close the live strategy only:  {base} --live")
+    sims = [s for s in sims if _cli.strategy_open(s)]
+    if not sims:
+        return True
+    raise SystemExit(
+        f"error: {pkg.id} has both live strategies and simulations, so NOTHING was closed.\n"
+        f"  Live ({len(targets)}): {', '.join(str(_cli.strategy_id_of(s))[:8] for _l, s in targets)}\n"
+        f"  Simulation ({len(sims)}): {', '.join(str(_cli.strategy_id_of(s))[:8] for s in sims)}\n"
+        f"  Close the live one(s):  {base} --live\n"
+        f"  Close the simulation(s):  {base} --simulation")
+
+
+def _simulation_close_blocked(targets):
+    """`(sid, error)` when `strategy_close` on these simulations would be refused, else None. With
+    simulations switched off, the MCP still lists simulations but refuses `strategy_close` with
+    SIMULATION_DISABLED. `strategy_get` on a simulation id is refused the same way and writes nothing, so
+    it is asked first. It takes the close's route to simulation-service, so an unanswered probe counts
+    too."""
+    sid = next((_cli.strategy_id_of(s) for _l, s in targets
+                if str(_cli.strategy_status(s) or "").upper() not in _CLOSED and _cli.strategy_id_of(s)),
+               None)
+    if sid is None:
+        return None
+    try:
+        reply = MCPClient().mcp_call("strategy_get", timeout=SUBMIT_TIMEOUT, strategy_id=sid)
+        # An empty or malformed 200 unwraps to None or {} without raising: only a reply that names
+        # the strategy proves the close's route answered.
+        if not (isinstance(reply, dict) and reply.get("success") is not False
+                and str(sid) in json.dumps(reply, default=str)):
+            raise RuntimeError(f"strategy_get answered without the simulation: {str(reply)[:200]}")
+    except Exception as e:  # noqa: BLE001
+        return sid, e
+    return None
+
+
+def _refuse_if_simulation_writes_off(targets, rerun):
+    blocked = _simulation_close_blocked(targets)
+    if blocked:
+        sid, e = blocked
+        if "SIMULATION_DISABLED" in str(e):
+            raise SystemExit(
+                f"error: simulations are switched off on this Senpi MCP (SIMULATION_DISABLED), so it would "
+                f"refuse strategy_close. NOTHING was closed and no runtime was stopped: the simulation "
+                f"stays open and keeps its runtime.\n  Cause: {e}\n"
+                f"  The close works once simulations are switched back on. Then re-run: {rerun}")
+        raise SystemExit(
+            f"error: the simulation {sid} could not be read before closing it, so NOTHING was closed and "
+            f"no runtime was stopped: strategy_close would likely fail the same way after the runtime "
+            f"was stopped.\n  Cause: {e}\n  Re-run: {rerun}")
+
+
+def _open_simulations_or_skip(mcp, dry_run):
+    """The open simulations a plain `--all` closes beside the live strategies: `(rows, None)`, or
+    `([], why)` when they cannot be closed now. The live close still runs then, and the reply says the
+    simulations were NOT closed and exits 2: a sim outage must not keep real money open, and the user
+    must not be told everything closed. An MCP with no simulation router has no simulation world:
+    `(None, None)`."""
+    why = []
+    rows = _cli.list_strategies_or_none(mcp, statuses=LIVE_STATUSES, why=why, simulation=True)
+    if rows is None:
+        if why and isinstance(why[0], _cli.NoSimulationRouter):
+            return None, None
+        return [], (f"they could not be read ({why[0] if why else 'no cause reported'}). Any you have "
+                    f"may still be open and charged")
+    rows = [s for s in rows if _cli.strategy_open(s)]
+    blocked = None if dry_run else _simulation_close_blocked([(None, s) for s in rows])
+    if blocked:
+        return [], (f"strategy_close would be refused for them ({blocked[1]}). They keep running and keep "
+                    f"being charged")
+    return rows, None
+
+
+def _all_label(s):
+    sid = str(_cli.strategy_id_of(s))
+    if sid.startswith("simulation-"):
+        return f"{_cli.strategy_skill(s) or 'simulation'} (simulation):{sid[len('simulation-'):][:8]}"
+    return f"{_cli.strategy_skill(s) or 'strategy'}:{sid[:8]}"
+
+
+def _skipped_simulations_note(why):
+    return (f"\nYour simulations were NOT closed: {why}. Close them once they can be read: "
+            f"close.py --all --simulation")
+
+
+def _select_direct_target(rows, target, simulation=False):
     """From an UNFILTERED-by-status `strategies_for_or_none()` read, pick the one row addressed by
     `--strategy-id`/`--address`. Refuses on 0 or >1 matches rather than guessing: `--all`/`<package>`
     answer a SET question ("what's open for X"), where zero rows is a legitimate true fact; this
@@ -84,7 +193,10 @@ def _select_direct_target(rows, target):
     duplicated across DIFFERENT addresses (never one address on two strategy rows), so >1 here would
     mean an unmodeled backend state — refuse and name every match rather than pick one silently."""
     if not rows:
-        raise SystemExit(f"error: no strategy found for {target!r} on this account — nothing to close.")
+        hint = (f"\n  {target!r} looks like a simulation. Simulations are closed with --simulation."
+                if not simulation and _cli.looks_simulation(target) else "")
+        world = "simulation" if simulation else "strategy"
+        raise SystemExit(f"error: no {world} found for {target!r} on this account — nothing to close.{hint}")
     if len(rows) > 1:
         ids = ", ".join(str(_cli.strategy_id_of(s) or "?")[:8] for s in rows)
         raise SystemExit(f"error: {target!r} matched {len(rows)} strategies ({ids}) — refusing to "
@@ -184,16 +296,20 @@ def _inventory_or_stop(rerun, as_json, soft=False):
 _FLATTENED = ("CLOSED", "CLOSING_DONE")
 
 
-def _sweep_targets(mcp, pkg, why, rerun, as_json):
+def _sweep_targets(mcp, pkg, why, rerun, as_json, simulation=False, runtimes=None):
     """`(targets, runtimes)` for the terminal strategies (of `pkg`, or any with `pkg=None`) whose runtime
     still runs: closed outside close.py (the app, a raw strategy_close), they drop out of the LIVE read
     while the runtime keeps ticking against the emptied wallet. Only a wallet no open strategy uses, in
     any package: a runtime there may belong to the live one. An unreadable inventory sweeps nothing
-    and returns `runtimes=None`: no runtime is deleted off it, and the strategies are still closed."""
-    runtimes = _inventory_or_stop(rerun, as_json, soft=True)
+    and returns `runtimes=None`: no runtime is deleted off it, and the strategies are still closed.
+    One world, `simulation`'s: a `--simulation` close never deletes a closed live strategy's runtime.
+    `runtimes` is an inventory this run already read."""
+    if runtimes is None:
+        runtimes = _inventory_or_stop(rerun, as_json, soft=True)
     if not runtimes:
         return [], runtimes
-    every = _read_or_refuse(_cli.list_strategies_or_none(mcp, why=why), why, "every strategy")
+    every = _read_or_refuse(_cli.list_strategies_or_none(mcp, why=why, simulation=simulation), why,
+                            "every strategy", simulation)
     live = [_cli.strategy_wallet(s) for s in every if _cli.strategy_open(s)]
     stranded = [s for s in every if str(_cli.strategy_status(s) or "").upper() in _FLATTENED
                 and (pkg is None or _cli._match_strategy(s, pkg.id, None, None))
@@ -320,14 +436,14 @@ def _close_open_request(pkg, a, checked=False):
     if pkg is None or a.dry_run or a.instance:
         return None
     if not checked:
-        pending = _unanswered_start_may_be_running(pkg)
+        pending = _unanswered_start_may_be_running(pkg, a.simulation)
         if pending:
             return pending
-    _journal.resolve(pkg.id, None, "closed-by-close.py")
+    _journal.resolve(_journal.key(pkg.id, a.simulation), None, "closed-by-close.py")
     return None
 
 
-def _unanswered_start_may_be_running(pkg):
+def _unanswered_start_may_be_running(pkg, simulation=False):
     """`(open entry, why)` when the package has an open START request whose job may still be running,
     else None.
 
@@ -338,7 +454,7 @@ def _unanswered_start_may_be_running(pkg):
     `deploy.py` uses for it: the job record answers, the START's wall clock has passed, and no job is
     running (the gateway's `[NOT_FOUND]`, or a finished job; one deploy slot per agent). A running
     job or an unreadable record keeps it open."""
-    entry = _journal.read(pkg.id) or {}
+    entry = _journal.read(_journal.key(pkg.id, simulation)) or {}
     if entry.get("packageId") != str(pkg.id) or entry.get("resolved") is not None \
             or not entry.get("requestId"):
         return None
@@ -351,7 +467,8 @@ def main(argv):
     ap = argparse.ArgumentParser(description="Close strategies: stop runtime(s) → trigger strategy_close (no wait).")
     ap.add_argument("package", nargs="?", help="Strategy id (e.g. spider). Omit with --all.")
     ap.add_argument("--all", action="store_true",
-                    help="Close EVERY open strategy (all packages) and delete their runtimes.")
+                    help="Close EVERY open strategy and simulation (all packages) and delete their runtimes. "
+                         "--live or --simulation keeps it to one world.")
     ap.add_argument("--instance", default=None, help="Close only this instance of <package>.")
     ap.add_argument("--ref", default=None, help="Branch/ref to fetch the package manifest from if not on disk.")
     ap.add_argument("--strategy-id", default=None,
@@ -360,9 +477,18 @@ def main(argv):
                          "and with --address.")
     ap.add_argument("--address", default=None,
                     help="Close by wallet address directly — same use as --strategy-id.")
+    world = ap.add_mutually_exclusive_group()
+    world.add_argument("--simulation", action="store_true",
+                       help="Simulations only: list them with strategy_list {simulation: true} and close only "
+                            "those. Without it, only live strategies are read, except by a plain --all.")
+    world.add_argument("--live", action="store_true",
+                       help="Live strategies only. Skips the refusal a plain `<package>` close makes "
+                            "when the package also has a simulation.")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv[1:])
+    sfx = " --simulation" if a.simulation else " --live" if a.live else ""
+    poll_sfx = sfx
     direct = a.strategy_id or a.address
     if a.strategy_id and a.address:
         raise SystemExit("error: pass --strategy-id or --address, not both.")
@@ -381,16 +507,24 @@ def main(argv):
     rerun = shlex.join(["python3", str(Path(__file__).resolve())] + list(argv[1:]))
     runtimes = None   # the inventory, read once (`--instance` reads it before targeting)
 
+    both = a.all and not a.simulation and not a.live
+    sims = None      # a plain --all's open simulations; None when the MCP has no simulation router
+    skipped = None   # why a plain --all closed no simulations
     if a.all:
-        # Close every OPEN strategy across all packages — for "close all strategies / return funds".
+        # Close every OPEN strategy across all packages. Plain --all ("close everything") closes the
+        # simulations too; --live ("return funds") or --simulation keeps it to one world.
         # sid + wallet come from each strategy record; close_one stops the matching runtime (by wallet)
         # and triggers strategy_close, so package runtimes are never stranded.
-        rows = _read_or_refuse(_cli.list_strategies_or_none(mcp, statuses=LIVE_STATUSES, why=why),
-                               why, "every open strategy")
+        rows = _read_or_refuse(_cli.list_strategies_or_none(mcp, statuses=LIVE_STATUSES, why=why,
+                                                            simulation=a.simulation),
+                               why, "every open strategy", a.simulation)
         opens = [s for s in rows if _cli.strategy_open(s)]
-        targets = [((_cli.strategy_skill(s) or "strategy") + ":" + str(_cli.strategy_id_of(s))[:8], s)
-                   for s in opens]
-        hdr = "all open strategies"
+        if both:
+            sims, skipped = _open_simulations_or_skip(mcp, a.dry_run)
+            opens += sims or []
+        targets = [(_all_label(s), s) for s in opens]
+        hdr = ("all open strategies and simulations" if both else
+               "all open simulations" if a.simulation else "all open strategies")
         strategy_label = "ALL"
     elif direct:
         # A wallet with NO package — unattributed, or app/manual-created — has no <id> to resolve
@@ -399,12 +533,13 @@ def main(argv):
         # otherwise fall through to the "no OPEN strategies to close" + exit 0 below — a false
         # all-clear on a target named explicitly. `_select_direct_target` refuses on 0 or >1 matches.
         rows = _read_or_refuse(
-            _cli.strategies_for_or_none(mcp, strategy_id=a.strategy_id, wallet=a.address, why=why),
-            why, direct)
-        strat = _select_direct_target(rows, direct)
+            _cli.strategies_for_or_none(mcp, strategy_id=a.strategy_id, wallet=a.address, why=why,
+                                        simulation=a.simulation),
+            why, direct, a.simulation)
+        strat = _select_direct_target(rows, direct, a.simulation)
         sid = str(_cli.strategy_id_of(strat) or "")
         targets = [(f"strategy:{sid[:8]}", strat)]
-        hdr = f"strategy {sid[:8]} (no package attribution)"
+        hdr = f"{'simulation' if a.simulation else 'strategy'} {sid[:8]} (no package attribution)"
         strategy_label = sid
     else:
         try:
@@ -424,26 +559,33 @@ def main(argv):
         if a.instance and a.instance not in {i.name for i in pkg.instances}:
             raise SystemExit(f"error: no instance {a.instance!r} in {pkg.id} (have: {', '.join(i.name for i in pkg.instances)})")
         rows = _read_or_refuse(_cli.strategies_for_or_none(mcp, skill_name=pkg.id,
-                                                           statuses=LIVE_STATUSES, why=why),
-                               why, pkg.id)
+                                                           statuses=LIVE_STATUSES, why=why,
+                                                           simulation=a.simulation),
+                               why, pkg.id, a.simulation)
         opens = [s for s in rows if _cli.strategy_open(s)]
         if a.instance:
             # The instance maps to its wallet only through its runtime, so the inventory is read
             # here, fail-closed: an unreadable read stops the run, never "no runtime".
             runtimes = _inventory_or_stop(rerun, a.json)
-            rt = next((r for r in runtimes if _cli.runtime_name(r) == f"{pkg.id}-{a.instance}"), None)
+            rid = _cli.runtime_id_for(pkg.id, a.instance, a.simulation)
+            rt = _cli.instance_runtime(runtimes, pkg.id, a.instance, a.simulation)
             w = _cli.runtime_wallet(rt) if rt else None
             targets = [(a.instance, s) for s in opens if w and _cli.wallet_match(w, _cli.strategy_wallet(s))]
             if not targets:
                 raise SystemExit(f"error: can't map instance {a.instance!r} to a strategy without its live "
-                                 f"runtime ({pkg.id}-{a.instance}). Omit --instance to close all of {pkg.id}.")
+                                 f"runtime ({rid}). Omit --instance to close all of {pkg.id}{sfx}.")
         else:
             targets = [(f"{pkg.id}[{i + 1}]", s) for i, s in enumerate(opens)]
-        hdr = f"{pkg.id} v{pkg.version}"
+        if targets and not a.simulation and not a.live and _refuse_if_simulations_exist(mcp, pkg, targets,
+                                                                                         a.instance):
+            # The gate proved the world, so the poll names it: a simulation outage then cannot
+            # refuse the poll of a close that is flattening live positions.
+            poll_sfx = " --live"
+        hdr = f"{pkg.id} v{pkg.version}" + (" (simulation)" if a.simulation else "")
         strategy_label = pkg.id
 
     sweep = unchecked = False
-    if not targets and not a.dry_run:
+    if not targets:
         # A LIVE-filtered read that came back empty has TWO causes and they are not the same answer:
         # the close we are being polled for has completed, or this package was never deployed here.
         # `close.py`'s contract is that this poll "reports `closed` once the strategy leaves the
@@ -459,8 +601,9 @@ def main(argv):
         # `--strategy-id`/`--address` already re-reads UNFILTERED for this reason; so does this now.
         if pkg is not None:
             ever = _read_or_refuse(
-                _cli.strategies_for_or_none(mcp, skill_name=pkg.id, why=why), why, pkg.id)
-            pending = None if a.instance else _unanswered_start_may_be_running(pkg)
+                _cli.strategies_for_or_none(mcp, skill_name=pkg.id, why=why, simulation=a.simulation), why, pkg.id,
+                a.simulation)
+            pending = None if a.instance else _unanswered_start_may_be_running(pkg, a.simulation)
             if pending and _cli.sigkilled(pending[1]):
                 entry, why_open = pending
                 sys.exit(_cli.emit_oom(
@@ -480,14 +623,16 @@ def main(argv):
                       f"create and fund a wallet; close.py cannot stop a deploy job. Nothing was "
                       f"closed and the request stays open.\n"
                       f"  Next: python3 deploy.py status   — wait until it shows no job running (or "
-                      f"that job finished), then re-run: close.py {pkg.id}. Do not run "
+                      f"that job finished), then re-run: close.py {pkg.id}{sfx}. Do not run "
                       f"`deploy.py create` meanwhile.")
                 sys.exit(2)
             if not a.instance and ever:   # never deployed here: no runtime of it to sweep
-                targets, runtimes = _sweep_targets(mcp, pkg, why, rerun, a.json)
+                targets, runtimes = _sweep_targets(mcp, pkg, why, rerun, a.json, a.simulation)
                 unchecked = runtimes is None
         elif a.all:
-            targets, runtimes = _sweep_targets(mcp, None, why, rerun, a.json)
+            targets, runtimes = _sweep_targets(mcp, None, why, rerun, a.json, a.simulation)
+            if sims is not None and skipped is None and runtimes:
+                targets += _sweep_targets(mcp, None, why, rerun, a.json, True, runtimes)[0]
             unchecked = runtimes is None
         sweep = bool(targets)
     if not targets and not a.dry_run:
@@ -512,9 +657,16 @@ def main(argv):
             # open START request is accounted for here too, not only after a triggered close (P2-03).
             _close_open_request(pkg, a, checked=True)
             sys.exit(0)
-        print(f"{hdr}: no OPEN strategies to close.{note}")
-        sys.exit(2 if unchecked else 0)
+        if skipped and a.json:
+            print(json.dumps({"strategy": strategy_label, "status": "partial", "instances": [],
+                              "simulationsNotClosed": skipped, "runtimesNotChecked": unchecked}, indent=2))
+            sys.exit(2)
+        what = "strategies or simulations" if both and not skipped else "strategies"
+        print(f"{hdr}: no OPEN {what} to close.{note}" + (_skipped_simulations_note(skipped) if skipped else ""))
+        sys.exit(2 if unchecked or skipped else 0)
 
+    if a.simulation and not a.dry_run:
+        _refuse_if_simulation_writes_off(targets, rerun)
     # stop runtime + trigger strategy_close per instance — in PARALLEL (each instance uses its own MCP client),
     # then hand off to the agent to poll. The runtime inventory is fetched ONCE and shared (instances target distinct ids).
     # Fail CLOSED. An unreadable inventory used to read as "no runtime", so every target skipped the
@@ -535,6 +687,8 @@ def main(argv):
                "closing" if "closing" in statuses else
                "closed" if statuses <= {"closed"} else "partial")
     out = {"strategy": strategy_label, "status": overall, "instances": results}
+    if skipped:
+        out["simulationsNotClosed"] = skipped
     oom = any(r.get("oom") for r in results)
     if oom:
         out.update(_cli.oom_fields())
@@ -571,13 +725,16 @@ def main(argv):
             print(f"  - {r['instance']}: {r['status']}{extra}")
         if overall == "closing" and not oom:
             if pkg:
-                poll = f"close.py {pkg.id}"
+                poll = f"close.py {pkg.id}{poll_sfx}"
             elif direct:
-                poll = f"close.py --strategy-id {a.strategy_id}" if a.strategy_id else f"close.py --address {a.address}"
+                poll = (f"close.py --strategy-id {a.strategy_id}{sfx}" if a.strategy_id
+                        else f"close.py --address {a.address}{sfx}")
             else:
-                poll = "close.py --all"
+                poll = f"close.py --all{sfx}"
             print(f"\nClose triggered (runtimes stopped). strategy_close is async — positions flatten "
                   f"on-chain. Poll until closed by re-running: {poll}  (or check strategy_list status).")
+        if skipped:
+            print(_skipped_simulations_note(skipped))
         if job_stop:
             print(f"\nClose triggered for what is live (runtimes stopped); positions flatten on-chain.\n"
                   + job_stop, file=sys.stderr)
@@ -587,7 +744,7 @@ def main(argv):
                   f"RUNNING and may still create and fund a wallet; close.py cannot stop a deploy job. "
                   f"The request stays open.\n"
                   f"  Next: python3 deploy.py status   — wait until it shows no job running (or that "
-                  f"job finished), then re-run: close.py {pkg.id}. Do not run `deploy.py create` "
+                  f"job finished), then re-run: close.py {pkg.id}{sfx}. Do not run `deploy.py create` "
                   f"meanwhile.")
 
     # state is ephemeral: once a package is torn down, clear its deploy state so the next deploy is clean
@@ -596,7 +753,7 @@ def main(argv):
             (pkg.dir / ".deploy-state.json").unlink()
         except OSError:
             pass
-    sys.exit(_cli.EXIT_OOM if oom else 2 if overall in ("failed", "partial") or pending else 0)
+    sys.exit(_cli.EXIT_OOM if oom else 2 if overall in ("failed", "partial") or pending or skipped else 0)
 
 
 if __name__ == "__main__":

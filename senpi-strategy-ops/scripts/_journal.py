@@ -1,5 +1,6 @@
-"""The deploy request journal (K2): one JSON entry per package under the durable strategies root,
-`<strategies_root()>/.deploy-requests/<package id>.json`, holding the request id the last
+"""The deploy request journal (K2): one JSON entry per package and world under the durable strategies
+root, `<strategies_root()>/.deploy-requests/<package id>.json` (`<package id>.simulation.json` for a
+simulation), holding the request id the last
 `senpi.deploy.start` carried and whether that START was accounted for (`resolved`).
 
 `deploy.py` writes it (mint, reuse, resolve on a reply naming a job, `deploy.py status` seeing the
@@ -27,6 +28,12 @@ def utc_stamp(ts):
     return datetime.fromtimestamp(ts, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def key(pkg_id, simulation):
+    """The journal key for a package in one world. A simulation deploy (`senpi.deploy.startSimulation`)
+    keeps its own entry, so a simulation START never reuses a live START's request id, nor the reverse."""
+    return f"{pkg_id}.simulation" if simulation else pkg_id
+
+
 def path_for(pkg_id):
     return _pkg.strategies_root() / REQUEST_DIR / f"{pkg_id}.json"
 
@@ -36,6 +43,15 @@ def read(pkg_id):
         return None
     try:
         entry = json.loads(path_for(pkg_id).read_text())
+    except FileNotFoundError:
+        # A simulation journaled while simulations were called paper sits under `<id>.paper`; it
+        # moves to the `.simulation` key on its first read.
+        if not pkg_id.endswith(".simulation"):
+            return None
+        entry = read(pkg_id.removesuffix(".simulation") + ".paper")
+        if entry:
+            write(pkg_id, entry)
+        return entry
     except (OSError, ValueError):
         return None
     return entry if isinstance(entry, dict) else None
