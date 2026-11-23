@@ -34,14 +34,12 @@ description: >-
   spoken as "Ignas's Phalanx"; `--name` for their own words), as-is or with levers moved. The id (spider, polar, kodiak) is the package folder. NOT for choosing WHICH strategy
   (senpi-strategy-discover) or authoring / editing the strategy files themselves, nor for a user who
   wants their own (senpi-strategy-author).
-  SEVERAL SIMULATIONS: before any start (batch call, `create --simulation`, fork), show every
-  variation, its budget, the total and the cost, ask, and start nothing until the user says yes.
-  A refused dry run or an unreadable catalog changes only the cost line (billed by the hour, no
-  number); it never makes another start path OK.
+  SEVERAL SIMULATIONS: no start (batch, `create`, fork) before a yes to the shown list, total
+  and cost, even when the dry run is refused.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.33.9"
+  version: "3.33.10"
   platform: senpi
   exchange: hyperliquid
   requires:
