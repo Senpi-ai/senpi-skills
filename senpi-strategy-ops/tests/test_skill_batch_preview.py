@@ -50,3 +50,15 @@ class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
     def test_a_first_batch_starts_its_parent_from_the_list(self):
         self.assertIn("the first variation of the list is the parent", VARIATIONS)
         self.assertIn("Never start a base the list did not show; 5 asked = 5 simulations.", VARIATIONS)
+
+    def test_a_refused_dry_run_still_shows_the_batch_and_waits(self):
+        self.assertIn("nothing starts before the user says yes to the list, on every start path", VARIATIONS)
+        self.assertLess(VARIATIONS.find("on every start path"), VARIATIONS.find("takes the fork path"))
+        refused = VARIATIONS[VARIATIONS.find("When the dry run is refused or unreadable"):]
+        self.assertIn("still show every variation, its budget and the total", refused)
+        self.assertIn("never a reason to start another way", refused)
+
+    def test_the_description_holds_the_rule_for_a_refused_dry_run(self):
+        description = SKILL[SKILL.find("description:"):SKILL.find("license:")]
+        self.assertIn("no start (batch, `create`, fork) before a yes to the shown list, total and cost", description)
+        self.assertIn("even when the dry run is refused", description)
