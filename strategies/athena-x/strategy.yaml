@@ -1,4 +1,7 @@
 # Athena-X — Athena at conviction size. Selection is Athena's; only sizing differs.
+# BLOCKED in the catalog on 2026-11-20 (1.7.0): it is Athena 1.7.0 at 5/3 the leverage, and
+# Athena 2.0.0 moved both legs, so its card and its parity no longer describe today's Athena.
+# Rebuild it on Athena 2.0.0's numbers before unblocking. Running copies are untouched.
 # Athena — the smart-money hedge fund: Phalanx and Aegis as one two-wallet PACKAGE.
 # Phalanx (the alpha sleeve) follows the proven cohort's rotation; Aegis (the hedge
 # sleeve) reads the tape — funding regime, haven flows, OI velocity — and hedges the
@@ -9,7 +12,7 @@
 schema_version: 1
 
 id: athena-x
-version: "1.6.0"
+version: "1.7.0"
 
 catalog:
   name: "Athena-X — Smart-Money Hedge Fund, Conviction Sizing"
@@ -29,6 +32,7 @@ catalog:
   leverage_max: 5
   max_slots: 9
   assets: []
+  status: blocked            # ⚠️ hidden 2026-11-20 — derived from Athena 1.7.0, see the header
   # Computed mechanically, Athena-X's minimum is LOWER than Athena's ($40 vs $100): a bigger
   # marginPct clears the $10 exchange floor on a smaller wallet. That is true and useless —
   # it would advertise the higher-risk package as the cheaper one. Floored to Athena's, so

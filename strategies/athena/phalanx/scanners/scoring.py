@@ -207,6 +207,29 @@ def trend_structure(candles, lookback=6):
         return "BEARISH", lower_highs / denom
     return "NEUTRAL", 0.0
 
+# ── 1h momentum (entry timing gate) ───────────────────────────────────────────
+
+def price_momentum(candles, n_bars=2):
+    """% change over the last n_bars closes.
+
+    Used as a short-term entry filter: don't enter a SHORT when the asset is
+    rallying on 1h, don't enter a LONG when it's dumping. Prevents entering
+    shorts into a bear-market rally bounce and longs into a flash dump.
+    """
+    if len(candles) < n_bars + 1:
+        return 0.0
+    def _close(c):
+        if isinstance(c, dict):
+            return _f(c.get("c", c.get("close", 0)))
+        if isinstance(c, (list, tuple)) and len(c) >= 5:
+            return _f(c[4])
+        return 0.0
+    old = _close(candles[-(n_bars + 1)])
+    new = _close(candles[-1])
+    if old == 0:
+        return 0.0
+    return ((new - old) / old) * 100
+
 # ── breakout check (overcrowding gate) ─────────────────────────────────────────
 
 def breakout_check(candles_1h, direction, lookback=12):
