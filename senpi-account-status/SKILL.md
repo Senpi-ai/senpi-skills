@@ -2,7 +2,7 @@
 name: senpi-account-status
 description: >-
   Show the user's standing across Senpi programs — points and rank, the Senpi trading fee (none on a
-  paid plan), referral earnings — and explain the AI-credits usage meter. Use for "how many points
+  paid plan or while the account holds credits), referral earnings — and explain the AI-credits usage meter. Use for "how many points
   do I have?", "what's my rank/tier?", "where did my tier go?", "what are my fees?", "my referral
   rewards", "how do referrals work?", and for credits: "what is the bubble/meter in the header?", "why are my credits going
   down?", "how many credits do I have?", "how much did that cost?", "does my strategy use credits?", "can I trade or withdraw my
@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.11.1"
+  version: "1.11.2"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -32,9 +32,7 @@ cleanly**: points and rank, the Senpi fee, and referral earnings.
   referral together. Read its JSON.
 - **Real-time, not from memory.** Points/rank move — never quote a figure from earlier in the
   conversation; re-run.
-- **The fee comes from the data, never from memory.** Quote `fee.pct` as returned: `0%` on a paid
-  plan (Pro, Advanced, Quant, and Starter for people already on it), the flat free rate without one,
-  free trials included.
+- **The fee comes from the data, never from memory.** Quote `fee.pct` as returned.
 - **Tiers carry no benefit right now: no fee change, nothing unlocked. Do not bring tiers up.** Never
   suggest reaching, keeping or regaining a tier, and never close with a next-tier offer. If the user
   asks about their tier or where it went, say tiers carry no benefit right now. Points still accrue
@@ -55,7 +53,8 @@ Returns `{as_of, identity, points, fee, referral, credits, meta}`:
 - `points` — `total`, `base` (Base copy-trading), `perp` (Hyperliquid), `multiplier` (the plan's
   points rate), `rank`, `rank_change`.
 - `fee` — `bps` + `pct`, the Senpi fee this user pays, as the backend reports it: `0` / `0%` on a
-  paid plan (`bps` is in tenths of a bp).
+  paid plan (Pro, Advanced, Quant, and Starter for people already on it) or while the account holds credits (`bps` is in tenths of a bp). `null` when the backend
+  could not read it: say the fee could not be read right now, never `0%` and never a rate.
 - `referral` — `balance_usdc` (referral earnings not yet claimed).
 - `credits` — `available`, and when true `remaining` (credits), `burn_per_hour` and `hours_left`
   (each may be null), `cycle_end`. `{"available": false}` when the balance could not be read.
@@ -67,7 +66,7 @@ Returns `{as_of, identity, points, fee, referral, credits, meta}`:
 Lead with the section they asked about; otherwise a tight standing card:
 
 1. **Points & rank** — total, base/perp split, multiplier, rank (+ change).
-2. **Fee** — `fee.pct` (`0%` = a paid plan, no Senpi fee).
+2. **Fee** — `fee.pct` as returned.
 3. **Referral** — pending `balance_usdc` (and that it's claimable if > 0).
 
 Formatting: clean, scannable, numbers from the data; emoji sparingly.
@@ -148,8 +147,9 @@ it and can upgrade, but cannot return to it after leaving.
 
 - **Every plan includes every model.** Plans differ on credits and points rate only — never on model
   access, so a cheaper plan never locks anyone out of the better model.
-- **No Senpi trading fee on any paid plan** — only Hyperliquid's own exchange fees. For any other
-  account, quote its own `fee.pct` from the engine; never state a rate from memory.
+- **No Senpi trading fee on any paid plan, or while the account holds credits** (pay as you go, the
+  initial free credits) — only Hyperliquid's own exchange fees. For an account with no plan and no
+  credits, quote its own `fee.pct` from the engine; never state a rate from memory.
 - **Referrals pay 15% of a referred friend's monthly Senpi spend, for their first 12 months** — from
   what the friend spends on Senpi, not from their trading. A friend on $100 a month earns the referrer
   $15 a month × 12 months = $180. How and when the share is paid out is not announced yet: if asked,
