@@ -57,3 +57,8 @@ class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
         refused = VARIATIONS[VARIATIONS.find("When the dry run is refused or unreadable"):]
         self.assertIn("still show every variation, its budget and the total", refused)
         self.assertIn("never a reason to start another way", refused)
+
+    def test_the_description_holds_the_rule_for_a_refused_dry_run(self):
+        description = SKILL[SKILL.find("description:"):SKILL.find("license:")]
+        self.assertIn("start nothing until the user says yes", description)
+        self.assertIn("it never makes another start path OK", description)
