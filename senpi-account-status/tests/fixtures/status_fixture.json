@@ -54,5 +54,12 @@
       "balance_usdc": "12.5",
       "balance_raw": "12500000"
     }
+  },
+  "user_get_credits": {
+    "success": true,
+    "data": {
+      "credits": {"remaining": 1234.5, "burn_per_hour": 10, "hours_left": 123.4, "cycle_end": "2026-12-01T00:00:00.000Z"},
+      "sources_unavailable": []
+    }
   }
 }
