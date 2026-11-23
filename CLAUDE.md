@@ -53,6 +53,8 @@ strategies/<id>/                   # a strategy package (e.g. strategies/spider/
   places**: repo `strategies/catalog.json` (source of truth) AND
   `senpi-strategy-discover/catalog.json` (bundled so the catalog travels with the discover skill
   when installed standalone). Keep both in sync by re-running `gen_catalog.py`.
+- **`STRATEGIES.md` is GENERATED** from `strategies/catalog.json` by `scripts/gen_strategies_md.py`.
+  Re-run it after `gen_catalog.py`; `tests/test_strategies_index.py` fails while it is stale.
 - **Validate** a package with `senpi-strategy-author/scripts/validate_strategy.py <dir>` and
   `senpi-strategy-ops/scripts/validate_universe.py <dir>` (every hardcoded ticker the strategy
   TRADES must be a live HL instrument — a dead name silently no-trades; an **exclusion** list
