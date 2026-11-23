@@ -360,7 +360,7 @@ class CloseOneWorld(_CloseHarness):
 
     def test_close_all_and_a_direct_live_id_are_not_gated(self):
         self._both()
-        _out, code = self._run("--all")
+        _out, code = self._run("--all", "--live")
         self.assertEqual(code, 0)
         self.assertEqual(self.mcp.closed, [{"strategyId": "live-1"}])
         self.mcp.closed.clear()
@@ -417,11 +417,118 @@ class CloseOneWorld(_CloseHarness):
         self.assertEqual(code, 0)
         self.assertEqual(self.mcp.closed, [{"strategyId": SIMULATION_ID}])
 
-    def test_close_all_without_simulation_closes_only_live(self):
+    def test_close_all_with_live_closes_only_live(self):
         self._both()
-        _out, code = self._run("--all")
+        _out, code = self._run("--all", "--live")
         self.assertEqual(code, 0)
         self.assertEqual(self.mcp.closed, [{"strategyId": "live-1"}])
+        self.assertEqual(self.deleted, ["omega-main"])
+
+
+class CloseAllMeansAll(_CloseHarness):
+    """"Close everything" runs `close.py --all`. It closed live strategies only, so a user's open
+    simulations kept running and kept being charged."""
+
+    def _both(self):
+        self.mcp.live = [_live_row()]
+        self.mcp.simulation = [_simulation_row()]
+        self.runtimes = [{"name": "omega-main", "wallet": LIVE_WALLET, "status": "running"},
+                         {"name": "omega-main-simulation", "wallet": SIMULATION_WALLET, "status": "running"}]
+
+    def test_close_all_closes_live_strategies_and_simulations(self):
+        self._both()
+        out, code = self._run("--all")
+        self.assertEqual(code, 0, out)
+        self.assertCountEqual(self.mcp.closed, [{"strategyId": "live-1"}, {"strategyId": SIMULATION_ID}])
+        self.assertCountEqual(self.deleted, ["omega-main", "omega-main-simulation"])
+        self.assertIn("re-running: close.py --all ", out)
+
+    def test_close_all_closes_simulations_when_nothing_live_is_open(self):
+        self.mcp.simulation = [_simulation_row(), _simulation_row(sid="simulation-x", wallet=SIMULATION_WALLET_2)]
+        self.runtimes = [{"name": "omega-main-simulation", "wallet": SIMULATION_WALLET, "status": "running"}]
+        out, code = self._run("--all")
+        self.assertEqual(code, 0, out)
+        self.assertCountEqual(self.mcp.closed, [{"strategyId": SIMULATION_ID}, {"strategyId": "simulation-x"}])
+        self.assertEqual(self.deleted, ["omega-main-simulation"])
+        self.assertNotIn("no OPEN strategies", out)
+
+    def test_unreadable_simulations_still_close_the_live_ones_and_say_the_simulations_were_not_closed(self):
+        self._both()
+        self.mcp.unavailable = True
+        out, code = self._run("--all")
+        self.assertEqual(code, 2, out)
+        self.assertEqual(self.mcp.closed, [{"strategyId": "live-1"}])
+        self.assertEqual(self.deleted, ["omega-main"])
+        self.assertIn("SIMULATION_UNAVAILABLE", out)
+        self.assertIn("simulations were NOT closed", out)
+        self.assertIn("close.py --all --simulation", out)
+        self.assertIn("may still be open and charged", out)
+        self.assertNotIn("They keep running", out)
+
+    def test_simulation_writes_off_still_close_the_live_ones_and_stop_no_simulation_runtime(self):
+        self._both()
+        self.mcp.writes_off = True
+        out, code = self._run("--all")
+        self.assertEqual(code, 2, out)
+        self.assertEqual(self.mcp.closed, [{"strategyId": "live-1"}])
+        self.assertEqual(self.deleted, ["omega-main"])
+        self.assertIn("SIMULATION_DISABLED", out)
+        self.assertIn("simulations were NOT closed", out)
+        self.assertIn("They keep running and keep being charged", out)
+
+    def test_an_mcp_with_no_simulation_router_closes_the_live_ones(self):
+        self.mcp.live = [_live_row()]
+        self.mcp.router = False
+        self.runtimes = [{"name": "omega-main", "wallet": LIVE_WALLET, "status": "running"}]
+        out, code = self._run("--all")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.mcp.closed, [{"strategyId": "live-1"}])
+
+    def test_nothing_open_in_either_world_is_said_once(self):
+        out, code = self._run("--all")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.mcp.closed, [])
+        self.assertIn("no OPEN strategies or simulations to close", out)
+
+    def test_close_all_sweeps_the_runtime_of_a_simulation_closed_elsewhere(self):
+        self.mcp.simulation = [_simulation_row(status_="CLOSED")]
+        self.runtimes = [{"name": "omega-main-simulation", "wallet": SIMULATION_WALLET, "status": "running"}]
+        out, code = self._run("--all")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.deleted, ["omega-main-simulation"])
+        self.assertEqual(self.mcp.closed, [])
+
+    def test_with_no_simulation_router_close_all_still_sweeps_a_closed_live_strategys_runtime(self):
+        self.mcp.live = [_live_row(status_="CLOSED")]
+        self.mcp.router = False
+        self.runtimes = [{"name": "omega-main", "wallet": LIVE_WALLET, "status": "running"}]
+        out, code = self._run("--all")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.deleted, ["omega-main"])
+        self.assertEqual(self.mcp.closed, [])
+
+    def test_a_closed_simulations_runtime_is_swept_even_if_a_later_inventory_read_fails(self):
+        self.mcp.simulation = [_simulation_row(status_="CLOSED")]
+        self.runtimes = [{"name": "omega-main-simulation", "wallet": SIMULATION_WALLET, "status": "running"}]
+        reads = []
+        inventory = _cli.list_runtimes_or_none
+
+        def _second_read_fails(*a, **k):
+            reads.append(1)
+            return None if len(reads) == 2 else inventory(*a, **k)
+        _cli.list_runtimes_or_none = _second_read_fails
+        out, code = self._run("--all")
+        self.assertEqual(set(self.deleted), {"omega-main-simulation"}, out)
+        self.assertNotIn("no OPEN strategies or simulations to close", out)
+
+    def test_close_all_json_with_nothing_live_and_unreadable_simulations_is_json(self):
+        self.mcp.unavailable = True
+        out, code = self._run("--all", "--json")
+        self.assertEqual(code, 2, out)
+        doc = json.loads(out)
+        self.assertIn("SIMULATION_UNAVAILABLE", doc["simulationsNotClosed"])
+        self.assertEqual(doc["instances"], [])
+        self.assertEqual(self.mcp.closed, [])
 
     def test_a_simulation_id_without_the_flag_is_not_found_and_points_at_simulation(self):
         self._both()
