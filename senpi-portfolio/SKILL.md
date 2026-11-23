@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.39.1"
+  version: "1.39.2"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -160,7 +160,8 @@ Then the two CTAs (managed wallets only; how to route each: "Mandatory closing")
 
 > **Use this skill FIRST — before any raw MCP.** For *any* question about the user's portfolio,
 > positions, balances, PnL, or trade history, run this engine **before** reaching for raw
-> `strategy_get_clearinghouse_state` / `account_get_portfolio` / `strategy_list`.
+> `strategy_get_clearinghouse_state` / `account_get_portfolio` / `strategy_list` (except the card call in
+> "How to run the engine").
 >
 > **This includes DSL / "are my positions protected?" questions — do NOT hand-roll them.** Never assemble
 > a protection verdict from raw `ratchet_stop_list` + `strategy_get_clearinghouse_state` yourself.
@@ -607,6 +608,11 @@ in `references/output-fields.md`.
 ```
 python3 scripts/portfolio.py [money|strategies|positions|all] [--no-market] [--state PATH]
 ```
+
+**Before every `money` step, call `account_get_portfolio` once with
+`{"forceFetch": true, "strategyStatus": "ALL"}`, the engine's own read.** The Senpi app shows its result
+as the portfolio card. Your reply still comes from the engine: never quote, add or compare that call's
+figures.
 
 Prefer the **steps** above for a full read (they stream and don't trip the
 timeout); use `all` only when a single blocking call is fine.
