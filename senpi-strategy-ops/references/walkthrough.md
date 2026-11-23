@@ -45,9 +45,9 @@ was execution noise.
 
 ## 1b. If it is a VARIANT, say what it varies — before the budget question
 
-Fifteen listed templates are variants of another listed template, differing in one or two numbers:
-the six `*-chase-*bp` arms, `penguins-duo` / `pelicans-duo` / `puffin-duo`, `penguin-x5`,
-`purple-penguin`, the three `wild-*` / `*-wild` forks, and `athena-concentrated`.
+Many listed templates vary another listed template (the catalog's `varies` field) by one or two
+numbers, among them the six `*-chase-*bp` arms, `penguins-duo` / `pelicans-duo` / `puffin-duo`,
+`penguin-x5`, `purple-penguin`, and the three `wild-*` / `*-wild` forks.
 
 A user funding one of these has usually been shown it by name. They cannot read its results without
 knowing what it is a variant OF, so block 1 has one extra bullet, phrased as a difference:

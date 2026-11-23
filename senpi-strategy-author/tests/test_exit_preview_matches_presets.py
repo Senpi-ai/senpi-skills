@@ -127,6 +127,15 @@ _PHASE1 = re.compile(
     r"^([ \t]*)phase1:[ \t]*(?:#[^\n]*)?"
     r"(\{[^}]*\}|(?:\n(?:\1[ \t]+\S[^\n]*|[ \t]*))*)", re.M)
 _ENABLED_TRUE = re.compile(r"\benabled:\s*true\b", re.I)
+# Deliberate exceptions to the trailing ban, each with its reason; anything else that turns phase-1
+# trailing on still fails.
+_TRAILING_ON = {
+    # Athena 2.0.0 is the fork Jason runs live, promoted to the default (20 Nov 2026). Phalanx trails
+    # 4.50% of price behind the best price until the first rung arms at +2.00%, under a 6.00% hard
+    # stop: a reversing trade closes 2.5-4.5% below entry instead of at the stop, accepting that some
+    # trades that would have recovered are cut. strategies/athena/tests/test_arm_sizing.py pins it.
+    "strategies/athena/phalanx/runtime.yaml",
+}
 
 
 def _config_text(path):
@@ -152,6 +161,8 @@ def test_no_copyable_config_teaches_a_dropped_default(doc):
     text = _config_text(doc)
     assert not _BREAKEVEN.search(text), \
         f"{doc.name} has a `lock_hw_pct: 0` rung — exits flat, still pays fees, dropped fleet-wide"
+    if doc.relative_to(_ROOT).as_posix() in _TRAILING_ON:
+        return
     assert not any(_ENABLED_TRUE.search(block) for _, block in _PHASE1.findall(text)), \
         f"{doc.name} has `phase1.enabled: true` — trailing is off fleet-wide (ratchets into a loss)"
 
