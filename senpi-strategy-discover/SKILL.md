@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.57.2"
+  version: "2.57.3"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -415,7 +415,8 @@ days.
 - **Deploy** → **senpi-strategy-ops** with the chosen **`id` + `version`** (ops creates the wallet(s)
   and runs the install; it re-reads `strategy.yaml` for budget/`funding_split`). **Ops owes the
   walkthrough first** (its Step 0.75: what it does, how it's set, two levers, the fork name) — hand over
-  before any budget question, not after it.
+  before any budget question, not after it. One simulation gets ops' one-message confirm instead (what it does, budget,
+  credits an hour, "go?").
 - **Build-custom** → **senpi-strategy-author** with a **structured intent brief** (the `meta.intent_echo`
   + a one-line summary of what they wanted, including the worldview if they gave one).
 

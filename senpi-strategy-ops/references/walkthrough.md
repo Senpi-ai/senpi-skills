@@ -157,7 +157,7 @@ is the cheapest thing the agent does; a lever fork adds a little; a bespoke edit
 different signal — `senpi-strategy-author`'s edit path) adds more; building their own is roughly two to
 three times a template. Named installs ("just
 install spider") get the walkthrough too — one turn, skippable — the user who names a strategy is the one
-most likely to fork it.
+most likely to fork it. One simulation ("simulate spider with $50") gets no walkthrough: ops Step 0.75's one-message confirm.
 
 ## The fork — the verb makes it
 
