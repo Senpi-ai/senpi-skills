@@ -16,6 +16,8 @@ Run: python3 -m pytest strategies/phalanx/tests/test_gate_attribution.py -q
 import os
 import re
 
+import pytest
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "main", "scanners", "scan.py")
 LEG = os.path.join(HERE, "..", "..", "athena", "phalanx", "scanners", "scan.py")
@@ -26,38 +28,41 @@ def _src(path):
         return f.read()
 
 
-def test_every_gate_increments_its_own_counter():
-    body = _src(SRC)
+# athena/phalanx runs this engine plus two gates of its own (athena/tests/test_legs_verbatim.py
+# declares them); the attribution every phalanx gate reports has to be there too.
+BOTH = pytest.mark.parametrize("path", [SRC, LEG], ids=["phalanx", "athena-phalanx"])
+
+
+@BOTH
+def test_every_gate_increments_its_own_counter(path):
+    body = _src(path)
     for gate in ("tilt", "delta", "breakout"):
         assert f'blocked["{gate}"] += 1' in body, f"gate {gate} does not report itself"
 
 
-def test_the_waiting_line_carries_the_attribution():
-    body = _src(SRC)
+@BOTH
+def test_the_waiting_line_carries_the_attribution(path):
+    body = _src(path)
     waiting = body[body.index('WAITING — no emit'):]
     waiting = waiting[:waiting.index('file=sys.stderr')]
     for needle in ("blocked:", "tilt=", "delta=", "breakout=", "max_delta="):
         assert needle in waiting, f"WAITING line lost {needle!r}"
 
 
-def test_max_delta_is_measured_after_gate_one_not_before():
+@BOTH
+def test_max_delta_is_measured_after_gate_one_not_before(path):
     """It is only meaningful for assets that actually cleared one_sidedness — a max taken over
     every asset would be dominated by names the strategy would never trade."""
-    body = _src(SRC)
+    body = _src(path)
     gate1 = body.index('blocked["tilt"] += 1')
     best = body.index("best_delta = delta if best_delta is None else max(best_delta, delta)")
     gate2 = body.index('blocked["delta"] += 1')
     assert gate1 < best < gate2
 
 
-def test_athena_leg_carries_the_same_instrumentation():
-    """athena/phalanx is byte-identical to this template — a diagnostic that lands in one and
-    not the other is the drift test-legs-verbatim exists to stop."""
-    assert _src(SRC) == _src(LEG)
-
-
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
-        fn(); print(f"ok  {fn.__name__}")
+        for path in (SRC, LEG):
+            fn(path); print(f"ok  {fn.__name__}  {os.path.relpath(path, HERE)}")
     print(f"\nALL {len(fns)} PHALANX GATE TESTS PASS")
