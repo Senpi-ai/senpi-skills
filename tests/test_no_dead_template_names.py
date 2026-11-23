@@ -19,6 +19,7 @@ DELETED = {"stingray"}
 # (file relative to the repo root, id) — a dead template named on purpose, e.g. to explain a variant.
 ALLOW = {
     ("senpi-strategy-discover/references/variant-families.md", "camel-spread"),
+    ("senpi-strategy-discover/references/variant-families.md", "athena-concentrated"),
 }
 
 
