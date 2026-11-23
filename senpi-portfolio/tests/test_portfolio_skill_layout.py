@@ -526,8 +526,6 @@ def test_mirror_dsl_mandate_contract_and_fields_moved_whole():
         assert needle in fields, needle
 
 
-# 1.38.1: the Senpi app draws the portfolio card from an account_get_portfolio result, and the engine reads
-# the MCP itself, so a `money` read shows no card unless the agent makes this one call.
 def test_money_step_makes_the_card_call_and_answers_from_the_engine():
     skill = _norm(SKILL)
     assert _norm("**Before every `money` step, call `account_get_portfolio` once, with no arguments.**") in skill
