@@ -9,6 +9,7 @@ from pathlib import Path
 OPS = Path(__file__).resolve().parent.parent
 SKILL = " ".join((OPS / "SKILL.md").read_text().split())
 VARIATIONS = SKILL[SKILL.find("**Running variations**"):SKILL.find("**A variation refused or failed")]
+STEP_075 = SKILL[SKILL.find("**Step 0.75"):SKILL.find("**Step 1 ")]
 
 
 class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
@@ -36,7 +37,15 @@ class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
         self.assertIn("never an estimate of your own", VARIATIONS)
 
     def test_a_single_simulation_takes_one_short_confirm(self):
-        self.assertIn("One simulation the user asked for with its budget needs no list", VARIATIONS)
+        self.assertIn("One simulation needs no list: Step 0.75's one-message confirm.", VARIATIONS)
+
+    def test_one_simulation_skips_the_walkthrough_for_one_message_with_its_cost(self):
+        rule = STEP_075[STEP_075.find("**One simulation skips it**"):STEP_075.find("keep what they have.") + 20]
+        self.assertIn("no walkthrough, no levers, no name line", rule)
+        self.assertIn("`creditsPerHourAfter`", rule)
+        self.assertIn('"go?"', rule)
+        self.assertIn("Create nothing before the yes", rule)
+        self.assertIn("A live deploy, a simulation going live and several simulations keep what they have.", rule)
 
     def test_a_first_batch_starts_its_parent_from_the_list(self):
         self.assertIn("the first variation of the list is the parent", VARIATIONS)
