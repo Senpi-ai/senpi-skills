@@ -53,6 +53,9 @@ _DEFAULT_SMART_MIN_REALIZED = 1_000_000  # >=$1M lifetime realized
 _DEFAULT_STATE_BATCH = 50         # discovery_get_trader_state batch size
 _DEFAULT_LEADERBOARD_LIMIT = 100
 _COHORT_REFRESH_S = 86400         # 24h cohort cache refresh
+_DEFAULT_MOM_BLOCK_PCT = 1.0      # skip entry if 1h momentum is moving > this % against direction
+_DEFAULT_MOM_BARS_1H = 2           # 1h momentum lookback bars
+_DEFAULT_COHORT_SHORT_BLOCK_PCT = 65.0  # block LONG entries when total cohort short% >= this across all assets
 
 def _read(ctx, name, args, label):
     """Guarded MCP read — a transient error degrades, never crashes the tick."""
@@ -413,6 +416,9 @@ def scan(inputs, ctx):
     max_short = int(scoring._f(inputs.get("maxShort"), _DEFAULT_MAX_SHORT))
     ttl = scoring._f(inputs.get("recentSignalTtlSeconds"), _DEFAULT_RECENT_TTL)
     lb_limit = int(scoring._f(inputs.get("leaderboardLimit"), _DEFAULT_LEADERBOARD_LIMIT))
+    mom_block_pct = scoring._f(inputs.get("momBlockPct"), _DEFAULT_MOM_BLOCK_PCT)
+    mom_bars_1h = int(scoring._f(inputs.get("momBars1h"), _DEFAULT_MOM_BARS_1H))
+    cohort_short_block_pct = scoring._f(inputs.get("cohortShortBlockPct"), _DEFAULT_COHORT_SHORT_BLOCK_PCT)
 
     # ── load previous state ──
     prev = (ctx.state.last() or {}) if ctx.state else {}
@@ -493,6 +499,20 @@ def scan(inputs, ctx):
     for cls in ("crypto", "xyz"):
         accuracy_state = scoring.update_accuracy(accuracy_state, cls, now, _price_lookup)
 
+    # ── cohort regime gate ──
+    # Aggregate the cohort's positioning across ALL assets. If the cohort is overwhelmingly
+    # net-short (>= cohort_short_block_pct short across every position they hold), the regime
+    # is risk-off and long entries are blocked — even if a single asset's headcount is net-long.
+    # This prevents phalanx from opening longs into a crash when the cohort is fleeing risk.
+    total_long_n = sum(r["long_n"] for r in headcount.values())
+    total_short_n = sum(r["short_n"] for r in headcount.values())
+    total_n = total_long_n + total_short_n
+    cohort_short_pct = (total_short_n / total_n * 100.0) if total_n > 0 else 0.0
+    regime_long_blocked = cohort_short_pct >= cohort_short_block_pct
+    if regime_long_blocked:
+        print(f"[phalanx.scan] cohort regime gate: {cohort_short_pct:.0f}% short across all assets "
+              f"(>= {cohort_short_block_pct:.0f}%) — LONG entries blocked this tick", file=sys.stderr)
+
     # ── build candidates ──
     long_candidates, short_candidates = [], []
     new_tilts = {}
@@ -501,7 +521,7 @@ def scan(inputs, ctx):
     # a cohort that is merely undecided from a gate that never passes anything. On one live book that
     # ambiguity stood for 359 consecutive ticks (30h, cohort=100, assets=224, zero candidates)
     # with no way to say which gate was responsible without editing the scanner.
-    blocked = {"tilt": 0, "delta": 0, "breakout": 0}
+    blocked = {"tilt": 0, "delta": 0, "breakout": 0, "momentum": 0, "regime": 0}
     best_delta = None
     best_sustain = 0
 
@@ -583,14 +603,31 @@ def scan(inputs, ctx):
         trend_label, trend_strength = scoring.trend_structure(c4h or [])
         price_mult = scoring.price_conviction_mult(trend_label, direction)
 
+        # 1h momentum gate — don't enter SHORT into a 1h bounce, don't enter LONG into a 1h dump.
+        # The cohort can be right about direction but wrong about timing; this filter prevents
+        # entering shorts during bear-market rally bounces and longs during flash dumps.
+        mom_1h = scoring.price_momentum(c1h or [], mom_bars_1h)
+        signed_mom = mom_1h if direction == "LONG" else -mom_1h
+        if signed_mom < -mom_block_pct:
+            blocked["momentum"] += 1
+            continue
+
         # divergence booster — only against a board row. A name missing from the 4h board has no crowd
         # read; a 50 default counted as SHORT and boosted every cohort long on an off-board name.
         crowd_lr = crowd_lean.get(asset_key)
         divergent = crowd_lr is not None and scoring.is_divergent(long_ratio, crowd_lr)
-        divergence_mult = 1.5 if divergent else 1.0
-
-        if divergent:
-            reasons.append(f"divergence: cohort {direction} vs 4h board {'LONG' if crowd_lr > 50 else 'SHORT'}")
+        # Only boost when the cohort is ACTIVELY shifting (delta >= delta_min). A standing position
+        # that's divergent from the 4h crowd is the cohort being wrong, not early — the market is
+        # moving against them. Fresh divergence (active shift) = early signal. Stale divergence
+        # (delta < delta_min) = no boost, just neutral.
+        if divergent and growing:
+            divergence_mult = 1.5
+            reasons.append(f"divergence: cohort {direction} vs 4h board {'LONG' if crowd_lr > 50 else 'SHORT'} (active shift, delta +{delta:.0f})")
+        elif divergent:
+            divergence_mult = 1.0
+            reasons.append(f"stale divergence: cohort {direction} vs 4h board (no active shift — no boost)")
+        else:
+            divergence_mult = 1.0
 
         if trend_label != "NEUTRAL":
             reasons.append(f"4h trend {trend_label.lower()} ({trend_strength:.0%})")
@@ -618,6 +655,9 @@ def scan(inputs, ctx):
         }
 
         if direction == "LONG":
+            if regime_long_blocked:
+                blocked["regime"] += 1
+                continue
             long_candidates.append(candidate)
         else:
             short_candidates.append(candidate)
@@ -659,7 +699,8 @@ def scan(inputs, ctx):
               f"long_cands={len(long_candidates)} short_cands={len(short_candidates)} "
               f"held={held_assets} (threshold {tilt_threshold:.0f}, delta_min {delta_min:.0f}) "
               f"| blocked: tilt={blocked['tilt']} delta={blocked['delta']} "
-              f"breakout={blocked['breakout']} "
+              f"breakout={blocked['breakout']} momentum={blocked['momentum']} "
+              f"regime={blocked['regime']} "
               f"max_delta={'n/a' if best_delta is None else format(best_delta, '.0f')} "
               f"max_sustain={best_sustain}/{sustain_min_ticks:.0f}",
               file=sys.stderr)

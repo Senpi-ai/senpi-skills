@@ -13,6 +13,10 @@ So the invariant is not "same numbers" — it is **same behaviour in PRICE terms
 threshold here is Athena's scaled by 5/3, and these tests compute that from the configs rather than
 trusting a comment.
 
+"Athena" here is Athena 1.7.0, whose legs were strategies/phalanx and strategies/aegis verbatim, so
+the parity is read from those templates. Athena 2.0.0 (20 Nov 2026) moved both legs; athena-x is
+blocked in the catalog until it is rebuilt on 2.0.0's numbers.
+
 Run: python3 -m pytest strategies/athena-x/tests -q
 """
 import os
@@ -40,6 +44,11 @@ def _rt(pkg, leg):
     return yaml.safe_load(open(os.path.join(STRATEGIES, pkg, leg, "runtime.yaml"), encoding="utf-8"))
 
 
+def _athena_1_7(leg):
+    """Athena 1.7.0's leg: the template itself."""
+    return _rt(leg, "main")
+
+
 def _code_lines(path):
     with open(path, encoding="utf-8") as f:
         return [l.rstrip("\n") for l in f if l.strip() and not l.lstrip().startswith("#")]
@@ -62,7 +71,7 @@ def test_scanners_are_byte_identical_to_the_source_templates():
 def test_the_hard_stop_is_the_same_width_in_price():
     """The one that actually closes a position. ROE / leverage is the price move it tolerates."""
     for leg in LEGS:
-        a, x = _rt("athena", leg), _rt("athena-x", leg)
+        a, x = _athena_1_7(leg), _rt("athena-x", leg)
         pa = a["exit"]["dsl_preset"]["phase1"]["max_loss_pct"] / a["strategy"]["default_leverage"]
         px = x["exit"]["dsl_preset"]["phase1"]["max_loss_pct"] / x["strategy"]["default_leverage"]
         assert _close(pa, px), f"{leg}: stop is {px:.2f}% of price vs Athena's {pa:.2f}%"
@@ -70,7 +79,7 @@ def test_the_hard_stop_is_the_same_width_in_price():
 
 def test_every_profit_lock_rung_triggers_at_the_same_price_move():
     for leg in LEGS:
-        a, x = _rt("athena", leg), _rt("athena-x", leg)
+        a, x = _athena_1_7(leg), _rt("athena-x", leg)
         ta = a["exit"]["dsl_preset"]["phase2"]["tiers"]
         tx = x["exit"]["dsl_preset"]["phase2"]["tiers"]
         assert len(ta) == len(tx), f"{leg}: rung count changed"
@@ -95,7 +104,7 @@ def test_the_drawdown_budget_tolerates_the_same_market_move():
     Carrying a flat 10 onto a 5.0x notional book would make it a ~2% move — it would halt on
     noise, which is the exact failure this package exists to avoid."""
     for leg in LEGS:
-        a, x = _rt("athena", leg), _rt("athena-x", leg)
+        a, x = _athena_1_7(leg), _rt("athena-x", leg)
         ma = a["risk"]["guard_rails"]["drawdown_halt_pct"] / _notional(a)
         mx = x["risk"]["guard_rails"]["drawdown_halt_pct"] / _notional(x)
         assert mx >= ma * (1 - TOL), (
@@ -115,7 +124,7 @@ def test_the_entry_rationing_gates_are_gone():
 
 def test_it_is_actually_bigger():
     for leg in LEGS:
-        a, x = _rt("athena", leg), _rt("athena-x", leg)
+        a, x = _athena_1_7(leg), _rt("athena-x", leg)
         for k in ("default_leverage", "margin_pct", "slots"):
             assert x["strategy"][k] > a["strategy"][k], f"{leg}: {k}"
 
