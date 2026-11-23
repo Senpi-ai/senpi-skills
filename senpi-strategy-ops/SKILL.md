@@ -36,7 +36,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.34.2"
+  version: "3.34.3"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -167,6 +167,7 @@ second beside it. The **`--budget` is a hard target**: if the live balance can't
 Fund/free USDC or confirm a smaller amount, then re-run — **never lower `--budget` to dodge a funding
 error**. When the user names a budget per strategy ("$1k on X, $2k on Y"), deploy each with its own
 and **confirm the split before funding**.
+**Taking a simulation live** ("take Puffin v13 live"): deploy the package that simulation ran (its `skillName` in `strategy_list` with simulation results), live, with `create <id> --budget <usd> --from-simulation simulation-<id>`. Its budget was virtual: ask the user for a real-money amount and confirm it as for any live deploy; never reuse the simulation's.
 
 `deploy.py` polls for ~150s and then **returns** (exec says "Command still running" after 10s: `process
 poll` it until it exits) — with one bounded exception, the stale-proof repair
