@@ -37,3 +37,7 @@ class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
 
     def test_a_single_simulation_takes_one_short_confirm(self):
         self.assertIn("One simulation the user asked for with its budget needs no list", VARIATIONS)
+
+    def test_a_first_batch_starts_its_parent_from_the_list(self):
+        self.assertIn("the first variation of the list is the parent", VARIATIONS)
+        self.assertIn("Never start a base the list did not show; 5 asked = 5 simulations.", VARIATIONS)
