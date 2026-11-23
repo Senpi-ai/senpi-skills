@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.11.1"
+  version: "1.11.2"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -82,8 +82,10 @@ reads it.
 - **How many credits do I have.** Run the engine. When `credits.available` is true, answer with
   `credits.remaining` as a number of credits, and the time left when `hours_left` is present. Never
   convert it to dollars, never say a dollar amount of credit, and never round it into a "roughly".
-- **When `credits.remaining` is 0**, the user is out of credits: the AI stops and simulations pause,
-  but their live strategies keep running. Buying credits, upgrading or the renewal brings the AI back.
+- **When `credits.remaining` is 0**, the user is out of credits, and that also stops the agent: the AI
+  stops, simulations pause and strategies that run on the agent stop. Stop-losses already on the
+  exchange stay there, mirror strategies keep running, open positions are not closed and funds are
+  untouched. Buying credits, upgrading or the renewal brings the AI back.
 - **When `credits.available` is false**, you cannot read the balance: point at the meter in the app
   header or the subscription page (senpi.ai/settings/subscription) for the exact figure, and never
   invent a number, a percentage or a "roughly". The in-app indicator surfaces only when credits run
@@ -99,7 +101,7 @@ reads it.
   since that calls a model when it fires. A cron the agent set up to check on a strategy does move it
   (each firing is a full model call), so name any the agent runs for this user. Using no credits is
   not the same as needing no plan: the strategy runs on the agent, and a lapsed plan pauses both
-  (see "Plans & free credits"). Running out of credits does not: live strategies keep running.
+  (see "Plans & free credits"). Running out of credits stops the strategies that run on the agent too.
 - **Not trading money.** Credits cannot be traded, withdrawn, deposited into a strategy, or moved
   anywhere — they are separate from the funding wallet and from every strategy budget. A shrinking
   meter is usage, never a trading loss; a losing trade never touches the meter.
@@ -114,7 +116,7 @@ reads it.
 | "Credits aren't money: they can't be traded, withdrawn or put into a strategy — your funding wallet and strategy budgets are separate." | "credits" as a tradable or withdrawable balance |
 | "The meter going down is usage — it moves with messages and tool turns, not with your trades." | Blaming a shrinking meter on trading losses |
 | "Your strategy runs on its own without the AI, so running it doesn't use credits. Chat does, and so does any scheduled check-in I run for you." | "running the strategy costs nothing" while the agent runs a check-in cron on it; a wallet or strategy balance offered as proof about credits |
-| "If the credits run out, the AI stops and simulations pause, but your live strategies keep running." | "your strategies stop when the credits run out" |
+| "If the credits run out, the agent stops: the AI, simulations and the strategies that run on your agent stop. Stop-losses already on the exchange stay there, mirror strategies keep running, and your open positions are not closed." | "your live strategies keep running when the credits run out" / "all your positions are closed when the credits run out" |
 | "Your strategy doesn't use credits, but it runs on your agent, and the agent needs an active plan or credits left. If the plan lapses with no credits left, the agent and your strategies pause until you subscribe or buy credits." | "no subscription is needed" / "your strategy keeps running without a plan" |
 
 **Routing.** "What is the bubble / meter in the header?", "why are my credits going down?", "how much
@@ -166,8 +168,9 @@ it and can upgrade, but cannot return to it after leaving.
   their subscription page is the only source of truth. When it expires with no credits left, the agent
   stops until they subscribe: active strategies pause, **open positions are NOT auto-closed**, funds
   untouched.
-- **Out of credits is not a lapse.** When the credits run out, the AI stops and simulations pause,
-  but live strategies keep running.
+- **Out of credits stops the agent too.** Running out of credits also stops the agent: the AI stops,
+  simulations pause and strategies that run on the agent stop. Stop-losses already on the exchange stay
+  there, mirror strategies keep running, open positions are not closed and funds are untouched.
 - **A lapsed plan pauses everything, not just chat.** Strategies run on the agent. When a trial or
   plan expires or a renewal payment fails and no credits are left, Senpi pauses the agent and
   every strategy on it stops with it: no scans, no new entries, no stop moves. Open positions stay
