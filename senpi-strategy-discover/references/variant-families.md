@@ -163,9 +163,11 @@ noise, they are the parent with more variance. Say exactly that.
 
 ### 5. Concentration — fewer, larger bets inside a multi-arm strategy
 
-`athena-concentrated` — athena with its phalanx arm holding **2 positions at 22.5%** instead of 3 at
-15%. The same 45% of that sleeve is at risk either way; it is carried by fewer names. The aegis
-hedge and the 65/35 split are untouched.
+`athena-concentrated` was **retired from the catalog on 2026-11-20**: Athena 2.0.0 is built on its two
+arms, so it no longer varies its parent and is not offered. Anyone still running it holds Athena
+2.0.0's base: phalanx at 40-48% per position instead of 35-42%, a 65/35 split, daily entry caps, no
+phase-1 trailing, and neither of 2.0.0's entry gates (1h momentum, cohort regime). Read their results
+against that, not against today's Athena.
 
 ### 6. Concentration at leverage — fewer bets, and bigger ones
 
