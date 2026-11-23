@@ -199,20 +199,21 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
         self.assertIn('"no subscription is needed"', _flat(_section(_split(SKILL)[1])))  # Never say
         self.assertIn("what happens when my trial ends?", _flat(_split(SKILL)[0]))  # the router finds it
 
-    def test_running_out_of_credits_never_pauses_live_strategies(self):
-        # out of credits, the AI stops and simulations pause; live strategies keep trading. Telling a
-        # user their strategies stop at zero has them walk away or panic-close real positions
+    def test_running_out_of_credits_stops_the_agent_but_not_the_exchange_stops(self):
+        # at zero credits the agent stops, and with it the strategies that run on it. A user told their
+        # live strategies keep running leaves open positions without the stop management they expect
         text = _flat(_split(SKILL)[1]).lower()
         for stale in (
-            "or the credits run out, the agent and your strategies pause",
-            "on expiry or exhaustion",
-            "or the cycle's credits run out, senpi pauses",
-            "credits run out, the agent",
+            "but live strategies keep running",
+            "but their live strategies keep running",
+            "but your live strategies keep running",
+            "out of credits is not a lapse",
+            "running out of credits does not",
         ):
             self.assertNotIn(stale, text, stale)
         for needle in (
-            "if the credits run out, the ai stops and simulations pause, but your live strategies keep running",
-            "out of credits is not a lapse",
+            "running out of credits also stops the agent: the ai stops, simulations pause and strategies that run on the agent stop",
+            "stop-losses already on the exchange stay there, mirror strategies keep running, open positions are not closed and funds are untouched",
             "when `credits.remaining` is 0",
         ):
             self.assertIn(needle, text, needle)
