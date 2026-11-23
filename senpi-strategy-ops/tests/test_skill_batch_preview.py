@@ -23,7 +23,7 @@ class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
         self.assertIn("`would_refuse`", VARIATIONS)
 
     def test_the_dry_run_params_are_json(self):
-        params = re.search(r"--params '(\{.*?\})'", VARIATIONS).group(1)
+        params = re.search(r"startBatch --json --params '(\{.*?\})'", VARIATIONS).group(1)
         self.assertIn('"requestId":', params)
         self.assertIn('"budgetUsd":', params)
 
