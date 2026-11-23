@@ -608,9 +608,10 @@ in `references/output-fields.md`.
 python3 scripts/portfolio.py [money|strategies|positions|all] [--no-market] [--state PATH]
 ```
 
-**Before every `money` step, call `account_get_portfolio` once, with no arguments.** The Senpi app shows
-its result as the portfolio card. Your reply still comes from the engine: never quote, add or compare
-that call's figures.
+**Before every `money` step, call `account_get_portfolio` once with
+`{"forceFetch": true, "strategyStatus": "ALL"}`, the engine's own read.** The Senpi app shows its result
+as the portfolio card. Your reply still comes from the engine: never quote, add or compare that call's
+figures.
 
 Prefer the **steps** above for a full read (they stream and don't trip the
 timeout); use `all` only when a single blocking call is fine.

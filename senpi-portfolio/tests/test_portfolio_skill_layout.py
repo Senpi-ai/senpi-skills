@@ -528,6 +528,6 @@ def test_mirror_dsl_mandate_contract_and_fields_moved_whole():
 
 def test_money_step_makes_the_card_call_and_answers_from_the_engine():
     skill = _norm(SKILL)
-    assert _norm("**Before every `money` step, call `account_get_portfolio` once, with no arguments.**") in skill
+    assert _norm("**Before every `money` step, call `account_get_portfolio` once with `{\"forceFetch\": true, \"strategyStatus\": \"ALL\"}`, the engine's own read.**") in skill
     assert _norm("Your reply still comes from the engine: never quote, add or compare that call's figures.") in skill
     assert _norm("`strategy_list` (except the card call in \"How to run the engine\").") in skill
