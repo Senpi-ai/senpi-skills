@@ -14,12 +14,12 @@ tests below; "shadow" means exactly one thing here — the `senpi validate` run.
 
 ## Two real tests, cheapest first
 
-**1. A tick with no wallet — `openclaw senpi validate`.** One real scan against live, read-only market
+**1. A tick with no wallet — `senpi validate`.** One real scan against live, read-only market
 data: no wallet, no funding, no model call. It prints what the scanner *would have emitted* and
 whether the recipe loads. Re-run it as often as you like; it costs nothing but the tick.
 
 ```
-openclaw senpi validate /data/workspace/strategies/<id>      # the dir holding that runtime.yaml
+senpi validate /data/workspace/strategies/<id>      # the dir holding that runtime.yaml
 ```
 
 `PASS` = the code runs and read real data. `UNPROVEN` = it returned before reading anything (an
@@ -72,10 +72,10 @@ the runtime.
 ## Read on demand — every one of these is read-only and free of model cost until you narrate it
 
 ```
-openclaw senpi scanner -r <runtime_id>           # health / alive / errors / signals — is it alive?
-openclaw senpi status -r <runtime_id> --json     # the runtime's own health verdict + risk gates
-openclaw senpi dsl positions                     # what it holds and where each stop sits
-openclaw senpi action history                    # what it did, and why
+senpi scanner -r <runtime_id>           # health / alive / errors / signals — is it alive?
+senpi status -r <runtime_id> --json     # the runtime's own health verdict + risk gates
+senpi dsl positions                     # what it holds and where each stop sits
+senpi action history                    # what it did, and why
 python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/status.py     # the fleet view (health, pauses, config drift)
 ```
 

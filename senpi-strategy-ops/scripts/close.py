@@ -154,15 +154,15 @@ def _inventory_or_stop(rerun, as_json, soft=False):
     nothing is about to be closed: an unreadable inventory returns None (the caller reports the
     strategies and "runtimes not checked") instead of the stop. A killed read stops either way."""
     vwhy, rwhy = [], []
-    _cli.openclaw_available(why=vwhy)
+    _cli.runtime_cli_available(why=vwhy)
     runtimes = _cli.list_runtimes_or_none(why=rwhy)
     if runtimes is not None:
         return runtimes
     head = (f"error: the runtime inventory (`senpi.listRuntimes`) could not be read "
             f"({_cli.cause_fact(rwhy[0]) if rwhy else 'no cause'}), so no runtime could be stopped first. "
             f"NOTHING WAS CLOSED and no runtime was stopped.")
-    # The kill comes first: a killed `openclaw --version` (rc -9) is openclaw running out of memory,
-    # never openclaw missing from this host.
+    # The kill comes first: a killed `senpi --version` / `openclaw --version` (rc -9) is the box
+    # running out of memory, never the runtime CLI missing from this host.
     if _cli.sigkilled(rwhy, vwhy):
         sys.exit(_cli.emit_oom(f"{head}\n  {oom_not_closed(rerun)}", as_json,
                                {"status": "failed", "instances": []}))
@@ -170,7 +170,7 @@ def _inventory_or_stop(rerun, as_json, soft=False):
         return None
     rc0 = getattr(vwhy[0], "rc", None) if vwhy else 0
     if rc0 != 0 and not (isinstance(rc0, int) and rc0 < -1):
-        cure = ("openclaw is not available on this host, so no runtime can be stopped from here. Run "
+        cure = ("No runtime CLI (`senpi` or `openclaw`) is available on this host, so no runtime can be stopped from here. Run "
                 "this command on the agent's own box, where the runtimes run.")
     else:
         cure = "Re-run this command; if it keeps failing, the gateway is not answering."
@@ -280,10 +280,10 @@ def close_one(label, strat, runtimes, dry_run, log, rerun=None, sweep=False):
                                 f"sent. Read what is running now (read-only): python3 {_cli.STATUS_PY}, "
                                 f"then re-run: {_close_rerun(rerun)}")
                 return rec
-            delete = shlex.join(_cli.gateway_argv("senpi.deleteRuntime", {"id": rname}, DELETE_RPC_MS))
+            delete = _cli.runtime_call_hint("senpi.deleteRuntime", {"id": rname}, DELETE_RPC_MS)
             rec["error"] = (f"runtime {rname!r} still in (or unreadable from) `senpi.listRuntimes` after "
                             f"delete — it may re-enter positions, so strategy_close was NOT sent. Delete "
-                            f"it (`{delete}`) then re-run close")
+                            f"it ({delete}) then re-run close")
             return rec
         rec["runtime"] = "stopped"
     else:

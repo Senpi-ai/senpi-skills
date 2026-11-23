@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.38.0"
+  version: "1.39.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -269,7 +269,7 @@ question needs before you answer. These hold always:
   honest bar: **only `live` means "confirmed working."** `unverified` (the registry read itself failed):
   Say **"could not verify on this host"** — never "protected," "not protected," "running," or "not
   running." **`null` is not `false`.**
-- Every runtime field `null` on every strategy, with a `meta.warnings` line naming `openclaw senpi runtime
+- Every runtime field `null` on every strategy, with a `meta.warnings` line naming `senpi runtime
   list --json`: **That whole-fleet pattern means the runtime on this box is too old for this skill's
   registry read, not that the strategies are broken.** Say so in those words, quote the warning, and do
   not diagnose the strategies from it: no strategy may be called running, not-running, protected or
@@ -316,7 +316,7 @@ question needs before you answer. These hold always:
   runtime gave none — never invent one; the ladder finds it.
 - **When it IS genuinely broken, act — don't hand the user a to-do.** For `degraded` corroborated by no
   activity, or `not_running`, work the ladder yourself and report what you found (the ladder:
-  `references/runtime-health.md`). Its step 3: **Re-run the deploy** — a deploy interrupted by a gateway
+  `references/runtime-health.md`). Its step 3: **Re-run the deploy** — a deploy interrupted by a runtime
   restart does not resume on its own, and re-running reconciles rather than duplicating. This is the fix
   for `not_running` after a broken deploy. Only the last step touches their money, and only that one needs
   their consent: **`close.py` → redeploy** — **last resort, and ask first.** It is a market exit of every open

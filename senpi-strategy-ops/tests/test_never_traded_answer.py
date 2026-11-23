@@ -78,14 +78,14 @@ class TheNeverTradedAnswerIsTaught(unittest.TestCase):
             self.assertIn(needle, liveness, needle)
         # validate cannot see it: an unreachable gate reads data and stands aside, which is a PASS.
         flat = " ".join(liveness.split())
-        self.assertIn("`openclaw senpi validate` does not catch this", flat)
+        self.assertIn("`senpi validate` does not catch this", flat)
 
     def test_fired_count_reads_signal_events_not_a_tick_history(self):
         """`senpi events` is the domain-event log (position/dsl/order/signal), not ticks; and an external
         scanner records a run only on an accepted signal or an error, so a quiet one gets
         `(no signals yet)` only after an error run."""
         flat = " ".join(LIVENESS.read_text().split())
-        self.assertIn("its `signal.*` events in `openclaw senpi events -r <runtime_id>`", flat)
+        self.assertIn("its `signal.*` events in `senpi events -r <runtime_id>`", flat)
         self.assertNotIn("for the tick history", flat)
         self.assertIn("a quiet external one shows it only after an error run", flat)
         # Newer runtimes drop `runs=` from the external row; the doc must not teach reading it there.

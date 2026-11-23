@@ -465,12 +465,14 @@ class HealthAndDescriptorsReadTheGateway(unittest.TestCase):
             self.assertEqual(calls, ["senpi.getHealthStatus"], kind)
 
     def test_the_remaining_cli_reads_share_the_cli_read_timeout(self):
-        # `status -r` / `state -r` still go through an `openclaw senpi` verb: they get the 120 s budget.
+        # `status -r` / `state -r` still go through a runtime CLI verb (`senpi …`, `openclaw senpi …`
+        # without the daemon): they get the 120 s budget.
         seen = []
-        with mock.patch.object(_cli, "cli_json", lambda args, timeout=60: seen.append(timeout)):
+        with mock.patch.object(_cli, "run_runtime_cli",
+                               lambda args, timeout=60: seen.append((args[0], timeout)) or (1, "", "")):
             _cli.runtime_status("spider-main")
             _cli.runtime_state("spider-main")
-        self.assertEqual(seen, [_cli.OPENCLAW_READ_TIMEOUT_S] * 2)
+        self.assertEqual(seen, [("status", _cli.OPENCLAW_READ_TIMEOUT_S), ("state", _cli.OPENCLAW_READ_TIMEOUT_S)])
         self.assertEqual(_cli.OPENCLAW_READ_TIMEOUT_S, 120)
 
     def test_descriptors_come_from_the_list_runtimes_rows(self):
