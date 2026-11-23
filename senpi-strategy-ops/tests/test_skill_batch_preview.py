@@ -60,5 +60,5 @@ class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
 
     def test_the_description_holds_the_rule_for_a_refused_dry_run(self):
         description = SKILL[SKILL.find("description:"):SKILL.find("license:")]
-        self.assertIn("start nothing until the user says yes", description)
-        self.assertIn("it never makes another start path OK", description)
+        self.assertIn("no start (batch, `create`, fork) before a yes to the shown list, total and cost", description)
+        self.assertIn("even when the dry run is refused", description)
