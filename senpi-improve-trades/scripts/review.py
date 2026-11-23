@@ -51,12 +51,12 @@ HL_INFO_URL = "https://api.hyperliquid.xyz/info"   # public, no-auth — durable
 HL_FILLS_CAP = 2000          # userFills returns the most recent N fills; ample for any review window
 # hypaper's simulation wallet format today (`0x`, 16 zeros, 13-digit ms timestamp, 11 hex). The
 # timestamp is a real ms epoch, so it never starts with 0: that keeps the zero address, the runtime's
-# stand-in wallet, live. Held equal to every copy in this repo by `tests/test_paper_address_parity.py`.
-PAPER_ADDRESS_RE = re.compile(r"^0x0{16}[1-9]\d{12}[0-9a-f]{11}$")
+# stand-in wallet, live. Held equal to every copy in this repo by `tests/test_simulation_address_parity.py`.
+SIMULATION_ADDRESS_RE = re.compile(r"^0x0{16}[1-9]\d{12}[0-9a-f]{11}$")
 
 
-def _is_paper_address(address):
-    return bool(PAPER_ADDRESS_RE.match(str(address or "").strip().lower()))
+def _is_simulation_address(address):
+    return bool(SIMULATION_ADDRESS_RE.match(str(address or "").strip().lower()))
 
 # The runtime registers every deployed strategy in installed_runtimes.json in the state dir — the
 # UNIVERSAL source of a strategy's mandate (the runtime.yaml `description`) + its DSL ladder. Reused
@@ -521,7 +521,7 @@ def fetch_strategies(client, meta):
         meta.setdefault("warnings", []).append(f"strategy_list failed: {e}")
         return []
     rows = sl if isinstance(sl, list) else _field(sl, "strategies", "data", default=[])
-    rows = [s for s in (rows or []) if not (isinstance(s, dict) and s.get("paper") is True)]
+    rows = [s for s in (rows or []) if not (isinstance(s, dict) and s.get("simulation") is True)]
     registry, runtime_ids, registry_src = load_runtime_registry(meta)   # wallet_lower → profile / runtime id
     meta["registry_source"] = registry_src
     strategies = []
@@ -1154,7 +1154,7 @@ def _hl_info(payload, meta, client=None, timeout=12):
     Hyperliquid rate-limits with HTTP 429 and a `null` body — that is a busy IP, not an answer, so a 429 or
     5xx is retried (3 tries, HL_RETRY_BACKOFF_S apart, within the review's HL_RETRY_BUDGET_S) before the
     read fails open. Any other non-200 is a failed read at once."""
-    if _is_paper_address(payload.get("user")):
+    if _is_simulation_address(payload.get("user")):
         meta.setdefault("warnings", []).append(
             f"hl_info {payload.get('type')} {str(payload.get('user', '')).strip()[:8]} not read: a "
             f"simulation wallet trades on the simulated venue, never on Hyperliquid; read as unknown")

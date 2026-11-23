@@ -123,22 +123,22 @@ class HLError(Exception):
 
 # hypaper's simulation wallet format today (`0x`, 16 zeros, 13-digit ms timestamp, 11 hex). The
 # timestamp is a real ms epoch, so it never starts with 0: that keeps the zero address, the runtime's
-# stand-in wallet, live. Held equal to every copy in this repo by `tests/test_paper_address_parity.py`.
-PAPER_ADDRESS_RE = re.compile(r"^0x0{16}[1-9]\d{12}[0-9a-f]{11}$")
+# stand-in wallet, live. Held equal to every copy in this repo by `tests/test_simulation_address_parity.py`.
+SIMULATION_ADDRESS_RE = re.compile(r"^0x0{16}[1-9]\d{12}[0-9a-f]{11}$")
 
 
-def is_paper_address(address):
-    return bool(PAPER_ADDRESS_RE.match(str(address or "").strip().lower()))
+def is_simulation_address(address):
+    return bool(SIMULATION_ADDRESS_RE.match(str(address or "").strip().lower()))
 
 
-class PaperWalletRefused(HLError):
+class SimulationWalletRefused(HLError):
     """A read for a simulation's wallet, refused before any request left."""
 
 
-def _refuse_paper(body):
+def _refuse_simulation(body):
     for k in ("user", "vaultAddress"):
-        if is_paper_address(body.get(k)):
-            raise PaperWalletRefused(f"{body.get('type')}: {str(body.get(k)).strip()} is a simulation "
+        if is_simulation_address(body.get(k)):
+            raise SimulationWalletRefused(f"{body.get('type')}: {str(body.get(k)).strip()} is a simulation "
                                      f"wallet; it trades on the simulated venue, not on Hyperliquid")
 
 
@@ -163,7 +163,7 @@ class HL:
 
     # ---- transport ----
     def info(self, body):
-        _refuse_paper(body)
+        _refuse_simulation(body)
         key = hashlib.sha1(json.dumps(body, sort_keys=True).encode()).hexdigest()
         ttl = TTL.get(body.get("type"), 300)
         path = os.path.join(self.cache_dir, key + ".json") if self.cache_dir else None
@@ -399,7 +399,7 @@ class HLFixture(HL):
         self._r = recorded
 
     def info(self, body):
-        _refuse_paper(body)
+        _refuse_simulation(body)
         t = body.get("type")
         req = body.get("req") or {}
         user = str(body.get("user", "")).lower(); dex = body.get("dex", "")
