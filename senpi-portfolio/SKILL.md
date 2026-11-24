@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.38.6"
+  version: "1.38.7"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -65,7 +65,9 @@ book total, or verdicts and figures already shown unless the user asks for them 
 - **Acting on a CTA:** Confirm before any change; never trade unprompted. Propose; never deploy without
   confirmation. CTA 2: build their own (author, forking the closest template when one fits); name none here.
 - **There is no restart verb; close → redeploy is a last resort, asked first.** ("Liveness")
-- **A running simulation is "running", never "live"; "best" ranks by return** unless a measure is named.
+- **A running simulation is "running"**, never "live"/"active", and its data is never "live". **"Best" ranks
+  by return** unless another measure is named. **Sharpe:** compute it from
+  `strategy_get_pnl_and_account_value_history` (`strategy_wallet` = the simulation's wallet).
 
 > **Source of truth for position facts — read before you answer, even mid-trade.** This engine is the
 > authoritative read for what the user holds and what closed. **Before any statement about a position —
@@ -140,9 +142,7 @@ them. Their raw reads: "row details" below.
 
 **First, when `book.deep_dive.offer` is true** (more than one wallet with something to go deeper on —
 any user, with or without a Senpi strategy), ask the deep-dive question and name the wallets in
-`book.deep_dive.order`, largest first. The order holds only wallets with a non-zero value, an open
-position, or a value that couldn't load: an empty $0 Senpi main wallet is a row of the list, never an
-option of the question.
+`book.deep_dive.order`, largest first (who is in it: "row details" below).
 
 > **Which one do you want me to go deeper on?**
 
@@ -553,7 +553,9 @@ no stop." (The engine frames every `armed: false` position in `dsl.note`; never 
 
 Going deeper on a Senpi strategy is its per-strategy verdict (the `strategies` step); on a wallet the
 user added, its row here, then its trades via `senpi-improve-trades` or `quant-desk`; on the Senpi main
-wallet, its cash legs (`embedded_wallet`).
+wallet, its cash legs (`embedded_wallet`). `book.deep_dive.order` holds only wallets with a non-zero
+value, an open position, or a value that couldn't load: an empty $0 Senpi main wallet is a row of the
+list, never an option of the question.
 
 - **`not_read_this_step`** on a strategy row (the `money` step reads no positions) → those columns come
   with the `strategies` step; never "none" or $0.
