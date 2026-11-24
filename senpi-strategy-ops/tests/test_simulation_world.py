@@ -747,15 +747,15 @@ class CloseSimulationWithWritesOff(_CloseHarness):
 
 class StatusOneWorld(unittest.TestCase):
     def setUp(self):
-        self._orig = (_cli.list_runtimes_or_none, status._openclaw_available, _cli.runtime_health_map)
+        self._orig = (_cli.list_runtimes_or_none, status._runtime_cli_available, _cli.runtime_health_map)
         self.runtimes = [{"name": "omega-main", "wallet": LIVE_WALLET, "status": "running"},
                          {"name": "omega-main-simulation", "wallet": SIMULATION_WALLET, "status": "running"}]
         _cli.list_runtimes_or_none = lambda *a, **k: list(self.runtimes)
-        status._openclaw_available = lambda **k: True
+        status._runtime_cli_available = lambda **k: True
         _cli.runtime_health_map = lambda **k: {}
 
     def tearDown(self):
-        _cli.list_runtimes_or_none, status._openclaw_available, _cli.runtime_health_map = self._orig
+        _cli.list_runtimes_or_none, status._runtime_cli_available, _cli.runtime_health_map = self._orig
 
     def _mcp(self, **kw):
         return FakeMCP(live=[_live_row()], simulation=[_simulation_row()], **kw)
@@ -871,7 +871,7 @@ class UpdateFollowsTheDriftCommand(unittest.TestCase):
             with self.assertRaises(SystemExit) as raised:
                 deploy.main(cmd)
         self.assertEqual(raised.exception.code, 0)
-        self.assertEqual(self.calls, [["openclaw", "senpi", "update", str(self.tmp / "main"),
+        self.assertEqual(self.calls, [["senpi", "update", str(self.tmp / "main"),
                                        "--id", "omega-main-simulation"]])
 
     SIM_WALLET = "0x0000000000000000" + "1762500000000" + "0a1b2c3d4e5"

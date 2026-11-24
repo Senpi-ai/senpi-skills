@@ -16,9 +16,9 @@ supplies the current price for the "if I'd held to now" counterfactual.
 ## Telemetry — only from the current book
 
 **Telemetry is read ONLY from the current book.** The event-log ring lives on-disk with a running runtime, so
-the engine shells `openclaw senpi events` **only for ACTIVE/PAUSED strategies** — a *closed* strategy's ring is
+the engine shells `senpi events` **only for ACTIVE/PAUSED strategies** — a *closed* strategy's ring is
 torn down with its runtime. (Probing a closed one isn't a hang — the gateway returns an immediate `NOT_FOUND` —
-but every `openclaw senpi events` spawns a *second* CLI process, so fanning dozens of those process pairs
+but every `senpi events` spawns a *second* CLI process, so fanning dozens of those process pairs
 across the worker pool starved the CPU and pushed even *live* reads past the timeout: that's what once made a
 whole review report "telemetry unavailable / every exit UNKNOWN." Not probing closed strategies is the fix.) A
 closed strategy's exit reasons come from the ratchet record or honest `UNKNOWN`.

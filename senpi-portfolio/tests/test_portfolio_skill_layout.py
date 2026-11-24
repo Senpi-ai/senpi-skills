@@ -77,6 +77,7 @@ REPLAY_NEEDLES = (
     "A full read never skips a wallet or the CTAs.",
     "A `timeout` open may have filled: check positions, never suggest a retry.",
     "Confirm before any change; never trade unprompted. Propose; never deploy without confirmation.",
+    "**A running simulation is \"running\", never \"live\"; \"best\" ranks by return** unless a measure is named.",
     "**Source of truth for position facts — read before you answer, even mid-trade.**",
     "**\"In profit\" on an open position is unrealized.**",
     "**A Senpi strategy is one row with all its wallets.**",
@@ -282,7 +283,7 @@ RULES_BACK_IN_CORE = (
     "called running, not-running, protected or unprotected off that run.",
     "The fix is a runtime upgrade on the box, not a redeploy of the strategies.",
     "`live`, trading: **They agree.** Clean. Say so.",
-    "**Re-run the deploy** — a deploy interrupted by a gateway restart does not resume on its own, and re-running "
+    "**Re-run the deploy** — a deploy interrupted by a runtime restart does not resume on its own, and re-running "
     "reconciles rather than duplicating.",
     "This is the fix for `not_running` after a broken deploy.",
     "**Do not offer \"close and relaunch\" for `withdrawable_unavailable`.** Wait, then support.",
@@ -524,3 +525,21 @@ def test_mirror_dsl_mandate_contract_and_fields_moved_whole():
     for needle in ("**`strategy_groups[]` — ONE entry per real strategy", "`registry_source`",
                    "**never crashes on a missing/corrupt state file"):
         assert needle in fields, needle
+
+
+def test_money_step_makes_the_card_call_and_answers_from_the_engine():
+    skill = _norm(SKILL)
+    assert _norm("**Before every `money` step, call `account_get_portfolio` once with `{\"forceFetch\": true, \"strategyStatus\": \"ALL\"}`, the engine's own read.**") in skill
+    assert _norm("Your reply still comes from the engine: never quote, add or compare that call's figures.") in skill
+    assert _norm("`strategy_list` (except the card call in \"How to run the engine\").") in skill
+
+
+# "Show my best simulations" opens this skill first, so it carries the simulation wording rule: a
+# simulation is "running", never "live", and "best" means return unless the user names another measure.
+def test_simulations_are_running_and_best_ranks_by_return():
+    skill = _norm(SKILL)
+    assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money), in a status column too.") in skill
+    assert _norm("\"Show my best simulations\" ranks them by return unless the user names another measure (Sharpe ratio, "
+                 "drawdown, win rate, trade count); say which measure ranks them.") in skill
+    health = _ref("runtime-health.md")
+    assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money).") in health

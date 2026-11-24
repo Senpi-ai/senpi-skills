@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.38.5"
+  version: "1.39.3"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -65,6 +65,7 @@ book total, or verdicts and figures already shown unless the user asks for them 
 - **Acting on a CTA:** Confirm before any change; never trade unprompted. Propose; never deploy without
   confirmation. CTA 2: build their own (author, forking the closest template when one fits); name none here.
 - **There is no restart verb; close → redeploy is a last resort, asked first.** ("Liveness")
+- **A running simulation is "running", never "live"; "best" ranks by return** unless a measure is named.
 
 > **Source of truth for position facts — read before you answer, even mid-trade.** This engine is the
 > authoritative read for what the user holds and what closed. **Before any statement about a position —
@@ -160,7 +161,8 @@ Then the two CTAs (managed wallets only; how to route each: "Mandatory closing")
 
 > **Use this skill FIRST — before any raw MCP.** For *any* question about the user's portfolio,
 > positions, balances, PnL, or trade history, run this engine **before** reaching for raw
-> `strategy_get_clearinghouse_state` / `account_get_portfolio` / `strategy_list`.
+> `strategy_get_clearinghouse_state` / `account_get_portfolio` / `strategy_list` (except the card call in
+> "How to run the engine").
 >
 > **This includes DSL / "are my positions protected?" questions — do NOT hand-roll them.** Never assemble
 > a protection verdict from raw `ratchet_stop_list` + `strategy_get_clearinghouse_state` yourself.
@@ -226,7 +228,8 @@ on SEPARATE wallets** — **ox** = `core`+`ballast` (risk-parity), **cougar** = 
 (market-neutral), **cub** = `long`+`short`+`preipo` (multi-sleeve dispersion). `strategy_list` returns
 **each instance/wallet as its own row**, so the raw list looks like several separate strategies. **It is
 not.** A multi-wallet strategy (long+short, core+ballast, multi-sleeve) is **ONE strategy across N
-wallets/instances** — the wallets are the *legs of one design*, not independent bets.
+wallets/instances** — the wallets are the *legs of one design*, not independent bets (but
+against the plan's strategy limits each wallet still takes its own slot).
 
 **Lead and reason at the `strategy_groups[]` level, not `strategies[]`.** The engine re-unites the
 per-wallet rows into **`strategy_groups[]`** — one entry per real strategy, with `is_multi_wallet`,
@@ -269,7 +272,7 @@ question needs before you answer. These hold always:
   honest bar: **only `live` means "confirmed working."** `unverified` (the registry read itself failed):
   Say **"could not verify on this host"** — never "protected," "not protected," "running," or "not
   running." **`null` is not `false`.**
-- Every runtime field `null` on every strategy, with a `meta.warnings` line naming `openclaw senpi runtime
+- Every runtime field `null` on every strategy, with a `meta.warnings` line naming `senpi runtime
   list --json`: **That whole-fleet pattern means the runtime on this box is too old for this skill's
   registry read, not that the strategies are broken.** Say so in those words, quote the warning, and do
   not diagnose the strategies from it: no strategy may be called running, not-running, protected or
@@ -316,7 +319,7 @@ question needs before you answer. These hold always:
   runtime gave none — never invent one; the ladder finds it.
 - **When it IS genuinely broken, act — don't hand the user a to-do.** For `degraded` corroborated by no
   activity, or `not_running`, work the ladder yourself and report what you found (the ladder:
-  `references/runtime-health.md`). Its step 3: **Re-run the deploy** — a deploy interrupted by a gateway
+  `references/runtime-health.md`). Its step 3: **Re-run the deploy** — a deploy interrupted by a runtime
   restart does not resume on its own, and re-running reconciles rather than duplicating. This is the fix
   for `not_running` after a broken deploy. Only the last step touches their money, and only that one needs
   their consent: **`close.py` → redeploy** — **last resort, and ask first.** It is a market exit of every open
@@ -352,7 +355,10 @@ from memory. If the fee read fails, say the number is gross and why.
 
 **Paper is not live.** A `senpi validate` tick, a scanner signal, a simulation or an estimate is not a
 trade; only a fill on the strategy wallet (`positions`, `closed`) is. Never narrate a shadow run as
-"live", "running" or "a trade".
+"live", "running" or "a trade". A simulation (virtual money, run by the runtime) is the exception for
+one word: while it runs it is "running", never "live" ("live" means real money), in a status column too.
+"Show my best simulations" ranks them by return unless the user names another measure (Sharpe ratio,
+drawdown, win rate, trade count); say which measure ranks them.
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
@@ -606,6 +612,11 @@ in `references/output-fields.md`.
 ```
 python3 scripts/portfolio.py [money|strategies|positions|all] [--no-market] [--state PATH]
 ```
+
+**Before every `money` step, call `account_get_portfolio` once with
+`{"forceFetch": true, "strategyStatus": "ALL"}`, the engine's own read.** The Senpi app shows its result
+as the portfolio card. Your reply still comes from the engine: never quote, add or compare that call's
+figures.
 
 Prefer the **steps** above for a full read (they stream and don't trip the
 timeout); use `all` only when a single blocking call is fine.
