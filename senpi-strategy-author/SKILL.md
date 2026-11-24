@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.17.3"
+  version: "3.17.4"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -81,6 +81,32 @@ starts here — a thesis, an X take, "what should I trade?", "recommend a strate
   deploying a template. Say it when asked; never use it as a reason to pick a template.
 - **Never ask for a budget to start building** — see the funding heads-up below; the number is asked once,
   at deploy.
+
+### When the ask is open — ask the matching questions as choices
+
+An open ask has no thesis in it yet: "help me create a strategy", "set me up", "what should I trade?". Before you
+look for a base, ask two short questions, **one per call, in this order**. When you have the `ask_user_question`
+tool, that is how you ask. The app shows each as numbered choices with a one-line subtitle under each title, and
+the user answers with a tap. Always set `allow_text: true`, so "Or say something else" is there.
+
+1. `question`: "What matters most to you?" — options (give each an `id`, a `label` and a `description`):
+   - `steady_growth`: **Steady growth**, "Fewer trades, smaller swings"
+   - `big_moves`: **Catch big moves**, "Bigger swings, higher upside"
+   - `any_market`: **Earn in any market**, "Long or short, follows the trend"
+2. `question`: "How hands-on do you want to be?" — three options, each with a `description`:
+   - `hands_off`: **Hands-off**, "I pick the details and tell you what I chose"
+   - `guided`: **Guide me**, "I suggest, you confirm each step"
+   - `hands_on`: **Hands-on**, "You decide every setting"
+
+Ask the second only after the first is answered, and never put both in one call. Do not also write the question
+in your reply; the tool shows it. Take the answer as the user's own words: a typed answer ("something lower
+risk") counts the same as a tapped one. The answers are the opening of the thesis. The first one sets the risk
+appetite and the shape (steady growth is smaller swings and fewer trades, big moves is wider exits and fewer,
+larger trades, any market allows long and short); the second sets how many of the decisions below you ask and how
+many you propose. Mine them as in rule 2 below, then find a base as above.
+
+When the tool is not offered (Telegram, connectors, any chat without it), ask the same two questions in plain
+text, one at a time, with the options as a short list. The rest of the flow does not change.
 
 ## ⛔ Never guess syntax — get it from the source (your memory is NOT authoritative)
 
