@@ -84,7 +84,9 @@ from memory. If the fee read fails, say the number is gross and why.
 
 **Paper is not live.** A `senpi validate` tick, a scanner signal, a simulation or an estimate is not a
 trade; only a fill on the strategy wallet (`positions`, `closed`) is. Never narrate a shadow run as
-"live", "running" or "a trade" — the user then manages a position that does not exist.
+"live", "running" or "a trade" — the user then manages a position that does not exist. A simulation
+(virtual money, run by the runtime) is the exception for one word: while it runs it is "running", never
+"live" ("live" means real money).
 
 ### When it IS genuinely broken, act — don't hand the user a to-do
 
