@@ -63,6 +63,12 @@ class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
         self.assertIn("no start (batch, `create`, fork) before a yes to the shown list, total and cost", description)
         self.assertIn("even when the dry run is refused", description)
 
+    def test_the_description_holds_the_rule_for_one_simulation_of_several_wallets(self):
+        description = " ".join(SKILL[SKILL.find("description:"):SKILL.find("license:")].split())
+        self.assertIn("ONE SIMULATION OR SEVERAL", description)
+        self.assertIn("one simulation: its cost and \"Go?\"", description)
+        self.assertIn("`create --simulation` starts nothing without `--user-said-yes`: pass it only after their yes.", description)
+
 
 class NoBudgetNamedStartsAt1000(unittest.TestCase):
     def test_one_simulation_with_no_budget_named_confirms_1000(self):
@@ -71,7 +77,7 @@ class NoBudgetNamedStartsAt1000(unittest.TestCase):
 
     def test_one_simulation_whose_dry_run_is_refused_still_waits_for_the_yes(self):
         self.assertIn("A refused dry run (a package of several wallets) still gets that message", STEP_075)
-        self.assertIn("and waits for the yes; then `create <id> --simulation`.", STEP_075)
+        self.assertIn("and waits for the yes; then `create <id> --simulation --user-said-yes`.", STEP_075)
 
 
 if __name__ == "__main__":

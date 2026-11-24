@@ -1146,7 +1146,8 @@ class DeploySimulation(unittest.TestCase):
         deploy.full_validate = lambda p: []
         deploy.start_request_ids_supported = lambda log, as_json=False: True
         try:
-            for argv in (["create", "omega", "--budget", "30", "--simulation"], ["runtime", "omega", "--simulation"],
+            for argv in (["create", "omega", "--budget", "30", "--simulation", "--user-said-yes"],
+                         ["runtime", "omega", "--simulation", "--user-said-yes"],
                          ["create", "omega", "--budget", "30"]):
                 with self.assertRaises(SystemExit):
                     deploy.main(["deploy.py", *argv])
