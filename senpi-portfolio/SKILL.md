@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.39.2"
+  version: "1.39.3"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -65,6 +65,7 @@ book total, or verdicts and figures already shown unless the user asks for them 
 - **Acting on a CTA:** Confirm before any change; never trade unprompted. Propose; never deploy without
   confirmation. CTA 2: build their own (author, forking the closest template when one fits); name none here.
 - **There is no restart verb; close → redeploy is a last resort, asked first.** ("Liveness")
+- **A running simulation is "running", never "live"; "best" ranks by return** unless a measure is named.
 
 > **Source of truth for position facts — read before you answer, even mid-trade.** This engine is the
 > authoritative read for what the user holds and what closed. **Before any statement about a position —
@@ -354,7 +355,10 @@ from memory. If the fee read fails, say the number is gross and why.
 
 **Paper is not live.** A `senpi validate` tick, a scanner signal, a simulation or an estimate is not a
 trade; only a fill on the strategy wallet (`positions`, `closed`) is. Never narrate a shadow run as
-"live", "running" or "a trade".
+"live", "running" or "a trade". A simulation (virtual money, run by the runtime) is the exception for
+one word: while it runs it is "running", never "live" ("live" means real money), in a status column too.
+"Show my best simulations" ranks them by return unless the user names another measure (Sharpe ratio,
+drawdown, win rate, trade count); say which measure ranks them.
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
