@@ -33,12 +33,13 @@ description: >-
   spoken as "Ignas's Phalanx"; `--name` for their own words), as-is or with levers moved. The id (spider, polar, kodiak) is the package folder. NOT for choosing WHICH strategy
   (senpi-strategy-discover) or authoring / editing the strategy files themselves, nor for a user who
   wants their own (senpi-strategy-author).
-  SEVERAL SIMULATIONS: no start (batch, `create`, fork) before a yes to the shown list, total
-  and cost, even when the dry run is refused.
+  ONE SIMULATION OR SEVERAL: no start (batch, `create`, fork) before a yes to the shown list, total
+  and cost (one simulation: its cost and "Go?"), even when the dry run is refused.
+  A dry run refused for several wallets is expected, never a reason to start another way.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.35.2"
+  version: "3.35.3"
   platform: senpi
   exchange: hyperliquid
   requires:
