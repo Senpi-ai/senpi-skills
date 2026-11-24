@@ -1,10 +1,8 @@
 # ── ATHENA · phalanx leg — the alpha sleeve ─────────────────────────────────
-# Phalanx's engine (proven-cohort rotation: >=$1M lifetime realized PnL, headcount not
-# notional, delta-gated, divergence-boosted) at Athena 2.0.0's sizing, plus two entry gates
-# Phalanx does not have: a 1h momentum gate and a cohort regime gate. Athena 2.0.0 is the
-# fork Jason runs live on his own account (edited 22 Oct and 5 Nov 2026), promoted to the
-# default. Every difference from strategies/phalanx is declared in
-# tests/test_legs_verbatim.py, so a phalanx fix that does not land here fails there.
+# Phalanx, verbatim: proven-cohort rotation (>=$1M lifetime realized PnL,
+# headcount not notional, delta-gated, divergence-boosted, wide stops on 3x).
+# Only the identity lines differ from strategies/phalanx (name, group, wallet,
+# the description's first line); tests/test_legs_verbatim.py pins that.
 # The sleeve weighting lives in ../strategy.yaml (funding_share).
 name: athena-phalanx
 group: athena
@@ -14,25 +12,17 @@ description: >
   realized PnL via discovery_get_top_traders ALL_TIME) and tracks where their
   headcount is shifting each tick. Goes LONG the assets the cohort is crowding
   into (one_sidedness >= 65%, delta >= +2) and SHORT the ones they're fleeing,
-  with a divergence booster when the cohort is actively shifting against the 4h
-  leaderboard and an overcrowding breakout gate at 85%. Skips any entry the last
-  two 1h candles moved more than 1% against, and opens no LONG while 65% or more of
-  the cohort's positions across all assets are short. 4x leverage, 2 slots,
-  35-42% of the sleeve per position; a trailing floor 4.5% of price behind the
-  best price until the first profit lock arms at +2.0% of price, and a 6.0%
-  hard stop on the exchange. Per-class hit-rate tracking auto-tunes the tilt
+  with a divergence booster when the cohort disagrees with the 4h leaderboard
+  and an overcrowding breakout gate at 85%. 3x leverage with wide stops (15%
+  margin) and reachable profit locks (first at +20% ROE) so winners run through
+  noise to pay back losers. Per-class hit-rate tracking auto-tunes the tilt
   threshold so the strategy learns which crowd to trust.
 
 strategy:
   wallet: "${ATHENA_PHALANX_WALLET}"
-  # 2 slots at 4x. Each signal carries its own marginPct from the scanner: marginPctBase 35,
-  # x1.25 at conviction >= 65, capped at marginPctMax 42 — so 35% or 42% of the sleeve per
-  # position. marginPct is a percent of WITHDRAWABLE AT OPEN and the runtime opens one at a time,
-  # so two positions deploy 1-(1-p)^2 of the sleeve: 57.8% at 35, 66.4% at 42.
-  # tests/test_arm_sizing.py pins the range, the stop and the ladder.
-  slots: 2
-  margin_pct: 35
-  default_leverage: 4
+  slots: 3
+  margin_pct: 15
+  default_leverage: 3
   trading_risk: moderate
   enabled: true
 
@@ -57,9 +47,9 @@ scanners:
                                           # a cohort that is already short and stays short
                                           # sits at delta~0 and locked the strategy out.
       overcrowdThreshold: 85
-      marginPctBase: 35
-      marginPctMax: 42
-      leverageDefault: 4
+      marginPctBase: 15
+      marginPctMax: 0
+      leverageDefault: 3
       maxLong: 2
       maxShort: 2
       recentSignalTtlSeconds: 21600       # 6h. Was 240s against a 300s scan — the dedup
@@ -78,15 +68,6 @@ scanners:
       stateBatch: 50
       pageSize: 1000
       maxPages: 6
-      # 1h momentum entry gate: no SHORT into a 1h bounce, no LONG into a 1h dump. The cohort
-      # can be right about direction and early on timing.
-      momBlockPct: 1.0                   # skip entry if the last momBars1h 1h closes moved > this % against it
-      momBars1h: 2                       # 1h momentum lookback, in bars
-      # Cohort regime gate: no LONG while the proven cohort is overwhelmingly net-short across
-      # ALL assets (risk-off), even when it is long the one name. Added on Jason's live fork after
-      # 5 Nov 2026, when phalanx opened a MU long into a semis selloff because 3 cohort members
-      # were long MU while the same cohort was short BTC, ETH, SOL, XRP, LIT, PUMP and FARTCOIN.
-      cohortShortBlockPct: 65            # block LONG entries when total cohort short% >= this across all assets
     signal_data_schema:
       score: { type: number }
       direction: { type: string }
@@ -120,11 +101,12 @@ actions:
       - type: signal
         scanner: phalanx_main_signals
 
-# ── EXIT (DSL — a trailing floor until the ladder arms, no deadline on winners) ─
-# Every ROE number below is a price distance x 4 (leverage). Until the first rung arms
-# (+8% ROE = +2.0% of price) the floor trails the best price by 18% ROE (4.50% of price) and
-# never sits below the 24% ROE hard stop (6.00% of price, placed on the exchange). From the
-# first rung on, the ladder locks a share of the high-water ROE. No time-based cuts: Phalanx holds and follows the smart-money divergence, so a
+# ── EXIT (DSL — wide stops, reachable locks, no deadline on winners) ──────────
+# Hard stop at 15% margin loss (3.75% price on 3x) — wide enough that normal
+# noise doesn't trigger it. First profit lock at +20% ROE (6.67% price on 3x),
+# floor at 40% of high-water (+8% ROE). Escalating ladder with wide gaps so
+# a position at +25% that pulls back to +18% hits no floor and keeps running.
+# No time-based cuts: Phalanx holds and follows the smart-money divergence, so a
 # position exits on the hard stop (phase1.max_loss_pct) or the profit-lock ladder
 # (phase2.tiers) — never because a clock ran out. The 12h weak-peak cut closed
 # positions that were inside the stop and had hit no tier: the cohort not having
@@ -144,20 +126,20 @@ exit:
     weak_peak_cut:
       enabled: false
     phase1:
-      enabled: true                   # trailing ON (Jason's live fork, 5 Nov 2026): the floor follows the
-                                      # best price 4.50% behind it. Phase 1 ends at +2.0% of price, so this
-                                      # floor stays 2.5-4.5% below entry: it cuts a loser sooner than the
-                                      # hard stop, and never locks a profit (the ladder does that).
-      max_loss_pct: 24.0              # 6.00% of price at 4x — the measured adverse p90 (5.96%); the exchange stop
-      retrace_threshold: 18           # 4.50% of price at 4x
+      enabled: false                  # trailing OFF — a floor below entry can ratchet a winner into a loss
+      max_loss_pct: 15.0              # 15% margin loss cap (3.75% price on 3x) — wide for noise
+      retrace_threshold: 15           # INERT while phase1.enabled is false
       consecutive_breaches_required: 1
     phase2:
       enabled: true
-      tiers:                          # profit-lock ladder at 4x. Leverage, stop width and this ladder are one system: change together.
-        - { trigger_pct: 8, lock_hw_pct: 40 }     #  2.00% of price at 4x — arms on 60% of trades (was 36%)
-        - { trigger_pct: 24, lock_hw_pct: 55 }    #  6.00% of price
-        - { trigger_pct: 49.4, lock_hw_pct: 70 }  # 12.35% of price — the measured peak p90
-        - { trigger_pct: 66.4, lock_hw_pct: 88 }  # 16.60% of price — the measured peak max
+      tiers:                          # profit-lock ladder, tuned live 2026-09-12: the first lock keeps 40% of the peak (25% left a
+                                      # +20% ROE winner locking 1.7% of price — a rounding error); 50% at 3x left 3.3% of price of
+                                      # retrace room, inside small-cap noise. 40/55 keeps ~4% of room at 3x and doubles what a
+                                      # reversing winner retains. Leverage, stop width and this ladder are one system: change together.
+        - { trigger_pct: 20, lock_hw_pct: 40 }    # +20% ROE (6.7% price at 3x): keep 40% of the peak — 4.0% price of retrace room
+        - { trigger_pct: 30, lock_hw_pct: 55 }    # +30% ROE (10% price): keep 55% — 4.5% price of room; the thesis is real by here
+        - { trigger_pct: 60, lock_hw_pct: 65 }    # +60% ROE: keep 65%
+        - { trigger_pct: 100, lock_hw_pct: 85 }   # +100% ROE: keep 85%
 
 # ── RISK guard rails ──────────────────────────────────────────────────────────
 risk:
@@ -170,15 +152,16 @@ risk:
     # ADDING once it was underwater — the cohort still short, the book down, and the gate
     # CLOSED until UTC midnight. That is the failure that forced a manual close-and-
     # redeploy to clear it. The overall budget is drawdown_halt_pct below.
-    max_entries_per_day: 999                # no daily entry cap (Jason's live setting); the brakes are the
-                                            # 3-loss cooldown, the per-asset cooldown and the drawdown halt
+    max_entries_per_day: 12
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 3
     cooldown_seconds: 43200            # 12h regime pause after 3 consecutive losses
-    drawdown_halt_pct: 28                   # THE overall risk budget: 28% of PnL from peak,
+    drawdown_halt_pct: 10                   # THE overall risk budget: 10% of PnL from peak,
                                             # carried across days (reset flag below is false).
-                                            # It stops the strategy ADDING — it never flattens
-                                            # the book; open positions run to their own DSL stop.
+                                            # At this sizing that is a ~7% adverse market move
+                                            # before the strategy stops ADDING — it never
+                                            # flattens the book; open positions run to their
+                                            # own DSL stop.
     drawdown_reset_on_day_rollover: false
     per_asset_cooldown_seconds: 14400  # 4h per-asset re-entry cooldown
 

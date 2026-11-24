@@ -35,6 +35,10 @@ import deploy  # noqa: E402
 
 M = "senpi.deploy.status"
 
+# The box launcher's answer on a box without the runtime daemon (senpi-agent scripts/senpi-launcher.sh).
+SENPI_NOT_INSTALLED = (1, "", "senpi: the runtime daemon is not installed on this box yet (it is installed "
+                              "on a box running RUNTIME_MODE=daemon)\n", False, None)
+
 # ---- 5.12: rc 1, stdout empty, the error on stderr (verbatim from the Box A probe) ----
 E512_NOT_FOUND = ("Gateway call failed: GatewayClientRequestError: [NOT_FOUND] No deploy has been "
                   "started on this agent. Start one: openclaw senpi deploy -p <package-dir> --budget <usd>\n")
@@ -131,11 +135,14 @@ class Classification(unittest.TestCase):
         self.assertEqual(self.call((1, J1010_CREDENTIALS, "", False, None))["kind"], "error")
 
     def test_openclaw_rejecting_the_command_line_sent_nothing(self):
-        self.assertEqual(self.call((1, "", "error: unknown option '--params'\n", False, None))["kind"],
-                         "cli_parse")
-        rejected = _pretty({"ok": False, "error": {"type": "cli_error",
-                                                   "message": "error: unknown option '--params'"}})
-        self.assertEqual(self.call((1, rejected, "", False, None))["kind"], "cli_parse")
+        # Reached only through the fallback: senpi said nothing was sent, then openclaw's parser spoke.
+        for answer in ((1, "", "error: unknown option '--params'\n", False, None),
+                       (1, _pretty({"ok": False, "error": {"type": "cli_error",
+                                                           "message": "error: unknown option '--params'"}}),
+                        "", False, None)):
+            _cli._spawn = FakeSpawn([SENPI_NOT_INSTALLED, answer])
+            r = _cli.gateway_call(M, {})
+            self.assertEqual((r["kind"], r["via"]), ("cli_parse", "openclaw"), answer)
 
     def test_a_10x_cli_error_is_an_error_unless_it_is_a_command_line_rejection(self):
         # `cli_error` is OpenClaw's catch-all for any unclassified failure during the call
@@ -147,7 +154,8 @@ class Classification(unittest.TestCase):
 
     def test_timeout_spawn_failure_and_garbage(self):
         self.assertEqual(self.call((-1, "", "", True, None))["kind"], "timeout")
-        self.assertEqual(self.call((-1, "", "", False, FileNotFoundError()))["kind"], "spawn_failed")
+        _cli._spawn = FakeSpawn([(-1, "", "", False, FileNotFoundError())] * 2)   # neither CLI ran
+        self.assertEqual(_cli.gateway_call(M, {})["kind"], "spawn_failed")
         self.assertEqual(self.call((1, "", "segfault\n", False, None))["kind"], "unreadable")
         self.assertEqual(self.call((0, "not json", "", False, None))["kind"], "unreadable")
 
@@ -161,10 +169,13 @@ class Classification(unittest.TestCase):
         r = _cli.gateway_call("senpi.deploy.start", {"packageDir": "/p", "budget": 30.0},
                               rpc_timeout_ms=30000, timeout_s=40)
         argv, wall = fake.calls[0]
-        self.assertEqual(argv, ["openclaw", "gateway", "call", "senpi.deploy.start", "--json",
+        self.assertEqual(argv, ["senpi", "call", "senpi.deploy.start", "--json",
                                 "--timeout", "30000", "--params", '{"packageDir": "/p", "budget": 30.0}'])
         self.assertEqual(wall, 40)
         self.assertEqual(r["argv"], argv)
+        self.assertEqual(_cli.openclaw_gateway_argv("senpi.deploy.start", {"packageDir": "/p", "budget": 30.0},
+                                                    30000)[:3], ["openclaw", "gateway", "call"])
+        self.assertEqual(_cli.openclaw_gateway_argv("m", {"a": 1}, 5)[3:], _cli.gateway_argv("m", {"a": 1}, 5)[2:])
 
     def test_a_non_finite_param_is_refused_before_spawning(self):
         _cli._spawn = FakeSpawn([])
@@ -211,12 +222,17 @@ class RuntimeTaxonomyParity(unittest.TestCase):
             self.assertEqual(deploy.exit_code_for({"state": {"status": "done", "overall": overall}}), 1)
 
 
-def _write_fake_openclaw(d, body):
-    """An `openclaw` on PATH that runs `body` (Python) — so the REAL `_spawn` and kill path run."""
-    exe = Path(d) / "openclaw"
+def _write_fake_cli(d, name, body):
+    """A `name` on PATH (in `d`) that runs `body` (Python) — so the REAL `_spawn` and kill path run."""
+    exe = Path(d) / name
     exe.write_text(f"#!{sys.executable}\n{body}\n")
     exe.chmod(exe.stat().st_mode | stat.S_IEXEC)
     return dict(os.environ, PATH=f"{d}{os.pathsep}{os.environ.get('PATH', '')}")
+
+
+def _write_fake_openclaw(d, body):
+    """An `openclaw` on PATH that runs `body` (Python)."""
+    return _write_fake_cli(d, "openclaw", body)
 
 
 def _gone(pid):
@@ -300,17 +316,19 @@ class ProcessGroupKill(unittest.TestCase):
         # The REAL path end to end: a fake `openclaw` that never answers.
         with tempfile.TemporaryDirectory() as d:
             env = _write_fake_openclaw(d, "import time\ntime.sleep(60)")
+            _write_fake_cli(d, "senpi", "import sys\nsys.stderr.write('senpi: the runtime daemon is not "
+                                        "installed on this box yet\\n')\nsys.exit(1)")
             old = os.environ.copy()
             os.environ.clear()
             os.environ.update(env)
             try:
                 t0 = time.time()
-                r = _cli.gateway_call(M, {}, rpc_timeout_ms=1000, timeout_s=1)
+                r = _cli.gateway_call(M, {}, rpc_timeout_ms=1000, timeout_s=3)
             finally:
                 os.environ.clear()
                 os.environ.update(old)
-        self.assertEqual(r["kind"], "timeout")
-        self.assertLess(time.time() - t0, 10)
+        self.assertEqual((r["kind"], r["via"]), ("timeout", "openclaw"))
+        self.assertLess(time.time() - t0, 12)
         self.assertIn("process group was killed", r["message"])
 
     def test_run_cli_gets_the_same_spawn_and_kill(self):
@@ -505,8 +523,9 @@ class OutputAndExitCodesUnchanged(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 2)
         self.assertEqual(err.getvalue(), msg + "\n")
 
-    def test_deploy_start_and_status_go_through_openclaw_gateway_call(self):
-        # A full create through `main`, at the spawn level: no `openclaw senpi deploy` argv anywhere.
+    def test_deploy_start_and_status_go_through_senpi_call(self):
+        # A full create through `main`, at the spawn level: `senpi call` for every runtime method, no
+        # `openclaw` at all once senpi answers, and no `openclaw senpi deploy` argv anywhere.
         real_spawn, ensure, validate = _cli._spawn, deploy.ensure_pkg, deploy.full_validate
         _cli.gateway_call = self._gc
         calls = []
@@ -524,9 +543,9 @@ class OutputAndExitCodesUnchanged(unittest.TestCase):
         finally:
             _cli._spawn, deploy.ensure_pkg, deploy.full_validate = real_spawn, ensure, validate
         self.assertEqual(ctx.exception.code, 0)
-        self.assertEqual([c[:4] for c in calls], [["openclaw", "gateway", "call", "senpi.getHealthStatus"],
-                                                  ["openclaw", "gateway", "call", "senpi.deploy.start"],
-                                                  ["openclaw", "gateway", "call", "senpi.deploy.status"]])
+        self.assertEqual([c[:3] for c in calls], [["senpi", "call", "senpi.getHealthStatus"],
+                                                  ["senpi", "call", "senpi.deploy.start"],
+                                                  ["senpi", "call", "senpi.deploy.status"]])
         self.assertFalse(any(c[:3] == ["openclaw", "senpi", "deploy"] for c in calls))
 
 
