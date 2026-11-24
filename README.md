@@ -4,6 +4,8 @@
 
 It's for pro traders who code, and for their AI agents: read exactly what a strategy does before you run it, fork it, or build your own on the same contract. MIT-licensed.
 
+**In use:** 252 strategy runtimes ran on Senpi agents in the 7 days to 23 Nov 2026, and 2,122 machines cloned this repo 25,104 times in the 14 days to 22 Nov (GitHub's count; most are Senpi agent boxes updating their skills). Runtimes are counted from Senpi's production telemetry, with Senpi team and test accounts left out.
+
 **Try it:** deploy a template from [senpi.ai/strategies](https://senpi.ai/strategies) · browse all of them in [STRATEGIES.md](STRATEGIES.md) · ask Claude, ChatGPT, Codex or Cursor about any of them with the [Senpi plugin](https://github.com/Senpi-ai/senpi-plugin)
 
 ---
@@ -20,7 +22,7 @@ The contract is in [`senpi-trading-runtime`](senpi-trading-runtime/). Guide: [Ho
 
 ## How do I use Claude or ChatGPT to trade on Hyperliquid?
 
-Add Senpi to your AI app with the [Senpi plugin](https://github.com/Senpi-ai/senpi-plugin). Claude, ChatGPT, Codex, Cursor, Grok and Hermes then read the market, smart money, top traders and your own portfolio through Senpi, and can browse this repo's strategy catalog. Live trading runs on your Senpi agent at [senpi.ai](https://senpi.ai), which executes your strategies 24/7.
+Add Senpi to Claude, ChatGPT, Grok or Hermes, and your own Senpi agent places, changes and closes Hyperliquid trades for you, with your approval: see [Senpi for Claude](https://senpi.ai/senpi-for-claude). In Claude Code, Codex and Cursor, the [Senpi plugin](https://github.com/Senpi-ai/senpi-plugin) adds Senpi's research tools: the market, smart money, top traders, your own portfolio and this repo's strategy catalog.
 
 ## How can I automate a trading strategy on Hyperliquid without coding?
 
