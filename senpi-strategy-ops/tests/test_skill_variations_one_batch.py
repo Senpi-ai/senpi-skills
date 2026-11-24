@@ -19,8 +19,7 @@ class SettingsOnlyVariationsStartAsOneBatch(unittest.TestCase):
     def test_each_variant_carries_its_label_and_settings(self):
         self.assertIn('{"label":"<name>","settings":{"<key>":<value>}}', VARIATIONS)
 
-    def test_progress_is_one_batch_wait_with_batch_status_as_the_fallback(self):
-        self.assertIn("run `deploy.py batch-wait <that requestId>` once", VARIATIONS)
+    def test_progress_is_read_from_batch_status(self):
         params = re.search(r"senpi\.simulations\.batchStatus --json --params '(\{.*?\})'", VARIATIONS).group(1)
         self.assertIn('"requestId":', params)
 

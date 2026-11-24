@@ -551,8 +551,12 @@ def test_a_simulations_question_calls_simulation_list_once_first():
     paper = _norm(SKILL[SKILL.index("**Paper is not live.**"):SKILL.index("## Judge each strategy")])
     assert _norm("**For a question about the user's simulations (how they are doing, the best ones, list them), "
                  "call `simulation_list` once first.** The app shows its result as the simulations card, ranked "
-                 "by return. Answer from it in a short line or two; don't repeat the table the card already "
-                 "shows. A measure other than return still follows the rule above.") in paper
+                 "by return. Answer from it in one or two sentences, never a table or a list of the rows: the card already "
+                 "shows them. Name the best one and its return. Quote a return exactly as the card shows it: two decimals "
+                 "with its sign (+0.22%, -0.15%), and zero as 0.00% with no sign; `return_pct` is already a percent "
+                 "(0.22 is 0.22%, never 22%). A measure other than return still follows the rule above.") in paper
+    assert "return_display" not in paper
+    assert "short line or two" not in paper
 
 
 def test_the_simulations_trigger_names_the_call_in_the_description():

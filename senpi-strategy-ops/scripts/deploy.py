@@ -92,7 +92,6 @@ import shutil
 import sys
 import tempfile
 import time
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -1149,11 +1148,6 @@ STALE_PROOF_REASON = "runtime_version_changed"
 # the scanner around it, so this is that plus headroom. A validate that outruns it comes back rc=-1
 # and is reported as a FAILED re-validation — never as a repair, because no proof was written.
 VALIDATE_TIMEOUT = 180
-# A measuring validate (`--measure`, simulations) also runs the three-tick probe, beside the traced
-# tick or after it depending on the runtime build: up to three more tick budgets.
-VALIDATE_MEASURE_TIMEOUT = 3 * 120 + VALIDATE_TIMEOUT
-# A package's instance dirs validate side by side, at most this many at once.
-VALIDATE_PARALLEL = 4
 
 
 def _refused_steps(snap):
@@ -1232,10 +1226,8 @@ def stale_proof_dirs(snap, pkg):
     return dirs or _instance_dirs(pkg)
 
 
-def revalidate(dirs, log, measure=False):
-    """Re-record each directory's proof, all dirs side by side. Returns `(ok, the failing call's own
-    words)`. `measure` (a simulation) adds `--measure`, so the proof carries each scanner's size and
-    the deploy job does not run the scanner again to size it.
+def revalidate(dirs, log):
+    """Re-record each directory's proof. Returns `(ok, the failing call's own words)`.
 
     `senpi validate` is the ONLY command that writes a `.senpi-proof.json`, and it writes
     one only when the run is proof-ELIGIBLE: `verdict === "PASS"` AND `depth === "live"` AND no
@@ -1252,31 +1244,24 @@ def revalidate(dirs, log, measure=False):
     caller to surface unedited.
 
     Returns `(ok, text, cut_short, killed_rc)`. `cut_short`: this command's clock stopped validate;
-    `killed_rc`: a signal did (`rc < -1`). Neither is a verdict on the package. With several
-    failures, a kill is reported first (it is the out-of-memory stop), else the first dir in order."""
-    flags = ["--stage", "live"] + (["--measure"] if measure else [])
-    cap = VALIDATE_MEASURE_TIMEOUT if measure else VALIDATE_TIMEOUT
-    # Clipped to what is left of the command budget (K2), like every gateway call. The dirs start
-    # together, so each gets the same clip.
-    left = _remaining()
-    timeout = cap if left is None else min(cap, left - KILL_RESERVE_S)
-    if timeout < 1:
-        return False, (f"senpi validate {dirs[0]} was not run: this command's budget is "
-                       f"spent {_budget_note()}."), True, None
+    `killed_rc`: a signal did (`rc < -1`). Neither is a verdict on the package."""
     for d in dirs:
-        log(f"  re-proving {d} (senpi validate {' '.join(flags)})…")
-    with ThreadPoolExecutor(max_workers=min(len(dirs), VALIDATE_PARALLEL)) as pool:
-        results = list(pool.map(
-            lambda d: _cli.run_runtime_cli(["validate", str(d), *flags], timeout=timeout), dirs))
-    failed = [(d, rc, out, err) for d, (rc, out, err) in zip(dirs, results) if rc != 0]
-    if not failed:
-        return True, "", False, None
-    d, rc, out, err = next((f for f in failed if f[1] < -1), failed[0])
-    # A timeout under a clipped budget is this command's clock, not a validate verdict.
-    cut_short = timeout < cap and rc == -1 and str(err or "").startswith("timed out after")
-    return False, (_cli.error_tail(err, out, limit=2000)
-                   or f"senpi validate {d} exited {rc} and printed nothing."), \
-        cut_short, (rc if rc < -1 else None)
+        log(f"  re-proving {d} (senpi validate --stage live)…")
+        # Clipped to what is left of the command budget (K2), like every gateway call.
+        left = _remaining()
+        timeout = VALIDATE_TIMEOUT if left is None else min(VALIDATE_TIMEOUT, left - KILL_RESERVE_S)
+        if timeout < 1:
+            return False, (f"senpi validate {d} was not run: this command's budget is "
+                           f"spent {_budget_note()}."), True, None
+        rc, out, err = _cli.run_runtime_cli(["validate", str(d), "--stage", "live"], timeout=timeout)
+        if rc != 0:
+            # A timeout under a clipped budget is this command's clock, not a validate verdict.
+            cut_short = (timeout < VALIDATE_TIMEOUT and rc == -1
+                         and str(err or "").startswith("timed out after"))
+            return False, (_cli.error_tail(err, out, limit=2000)
+                           or f"senpi validate {d} exited {rc} and printed nothing."), \
+                cut_short, (rc if rc < -1 else None)
+    return True, "", False, None
 
 
 def _validate_killed(rc, retry, state=""):
@@ -1362,7 +1347,7 @@ def run_deploy(pkg, a, log):
               f"deploy is re-run ONCE, and if it does not, its findings are printed here and the "
               f"deploy is not re-run. Nothing was created, funded or installed by the refused run.",
               file=sys.stderr)
-        ok, text, cut_short, killed_rc = revalidate(dirs, log, measure=getattr(a, "simulation", False))
+        ok, text, cut_short, killed_rc = revalidate(dirs, log)
         if ok:
             why = []
             deploy_id, fresh, poll_budget = _poll_deploy(pkg, a, log, why)
@@ -2333,7 +2318,7 @@ def _fork_for_deploy(pkg, a, log):
         # `senpi validate --stage live` the agent would otherwise be sent to run by hand.
         unproven = [d for _n, st, d in proof_state(forked) if st == "no_proof"]
         if unproven:
-            ok, text, cut_short, killed_rc = revalidate(unproven, log, measure=getattr(a, "simulation", False))
+            ok, text, cut_short, killed_rc = revalidate(unproven, log)
             if not ok and killed_rc is not None:
                 print(text, file=sys.stderr)
                 sys.exit(_validate_killed_exit(killed_rc, a, f"✗ {info['id']}: ",
@@ -2377,70 +2362,6 @@ def cmd_fork(pkg, a, log):
     print(f"  move levers on it with the normal edit path, then:\n"
           f"    python3 {Path(__file__).name} create {dest} --budget <usd>   # proves it (senpi validate) and deploys it")
     return 0
-
-
-# `batch-wait`: read a started batch until no row is still starting. Phases are the runtime's
-# (`VariantPhase`, src/deploy/batch/batch.ts); a row whose status is not `started` was refused at
-# admission and has no phase.
-BATCH_WAIT_BUDGET, BATCH_WAIT_EVERY = 240, 3
-BATCH_STARTING = ("queued", "validating", "deploying")
-BATCH_NOT_STARTED = EXIT_CODES["failed"]
-
-
-def _batch_row_state(row):
-    if row.get("status") != "started":
-        return "not_started"
-    phase = row.get("phase")
-    if phase == "live":
-        return "started"
-    return "starting" if phase in BATCH_STARTING or phase is None else "not_started"
-
-
-def cmd_batch_wait(a):
-    """Read-only: polls `senpi.simulations.batchStatus` and starts nothing. Exit 0 every row runs ·
-    `BATCH_NOT_STARTED` a row was refused, failed or interrupted · `EXIT_PENDING` a row was still
-    starting when the budget ran out · 1 the batch could not be read · 9 the out-of-memory stop."""
-    begin_command_budget(a.budget)
-    answer, failure = None, None
-    while True:
-        r = _gw("senpi.simulations.batchStatus", {"requestId": a.request_id}, _cli.READ_RPC_MS, _cli.READ_WALL_S)
-        if r["kind"] == "budget_spent":
-            break
-        if _cli.is_sigkill(r["rc"]):
-            return _cli.emit_oom("  " + _cli.oom_stop(
-                "Nothing was started or changed by this read; the batch runs on without it.",
-                "the box is out of memory, so the batch could not be read"), a.json, {"requestId": a.request_id})
-        if r["kind"] == "ok" and isinstance(r["payload"], dict) and isinstance(r["payload"].get("rows"), list):
-            answer = r["payload"]
-            if not any(_batch_row_state(row) == "starting" for row in answer["rows"]):
-                break
-        elif r["kind"] in ("refused", "unknown_method", "cli_parse"):
-            failure = r["message"] or r["kind"]
-            break
-        else:
-            failure = r["message"] or r["kind"]
-        if _budget_spent():
-            break
-        _sleep(BATCH_WAIT_EVERY)
-    if answer is None:
-        print(f"Could not read batch {a.request_id}: {failure or 'no answer'} {_budget_note()}. Nothing was "
-              f"started or changed by this command.", file=sys.stderr)
-        return EXIT_INTERNAL
-    states = [_batch_row_state(row) for row in answer["rows"]]
-    outcome, code = (("not_started", BATCH_NOT_STARTED) if "not_started" in states else
-                     ("still_starting", EXIT_PENDING) if "starting" in states else ("started", 0))
-    if a.json:
-        print(json.dumps({"requestId": a.request_id, "outcome": outcome, "rows": answer["rows"]}, indent=2))
-        return code
-    for row in answer["rows"]:
-        where = row.get("phase") if row.get("status") == "started" else row.get("status")
-        sim = f" ({row['simulationId']})" if row.get("simulationId") else ""
-        print(f"  {row.get('label')}: {where}{sim} — {row.get('detail') or ''}".rstrip(" —"))
-    print({"started": "Every simulation in the batch is running.",
-           "not_started": "At least one did not start: report its detail above.",
-           "still_starting": f"Still starting when this command stopped waiting {_budget_note()}: run "
-                             f"it again to keep waiting."}[outcome])
-    return code
 
 
 def _simulation_flag(p):
@@ -2572,14 +2493,6 @@ def _main(argv):
                     help="Assert only scanner code changed; the verb refuses if the recipe moved too.")
     pu.add_argument("--json", action="store_true", help="The verb's report as one JSON document on stdout.")
 
-    pbw = sub.add_parser("batch-wait",
-                         help="READ-ONLY: wait for a started simulation batch (senpi.simulations.batchStatus) "
-                              "until no row is still starting, then print each row. Starts nothing.")
-    pbw.add_argument("request_id", metavar="requestId", help="The requestId the batch was started with.")
-    pbw.add_argument("--budget", type=int, default=BATCH_WAIT_BUDGET,
-                     help=f"Seconds to wait at most (default {BATCH_WAIT_BUDGET}).")
-    pbw.add_argument("--json", action="store_true")
-
     a = ap.parse_args(argv[1:])
 
     variant, batch =getattr(a, "variant_of", None), getattr(a, "batch", None)
@@ -2614,8 +2527,6 @@ def _main(argv):
     if a.cmd == "where":
         print(_pkg.strategies_root())
         return 0
-    if a.cmd == "batch-wait":
-        sys.exit(cmd_batch_wait(a))
 
     log = (lambda m: None) if a.json else (lambda m: print(m))
 
