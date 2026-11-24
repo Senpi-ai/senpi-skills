@@ -14,6 +14,7 @@ display name — `Ignas's Phalanx` — lives in `catalog.name` and the runtime d
 the agent says. Both are printed by every verb that makes or deploys a fork.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import hashlib
 import re
 import shutil
 from pathlib import Path
@@ -21,8 +22,11 @@ from pathlib import Path
 import _pkg
 
 MAX_ID = 40        # the deploy verb's sanitizeStrategyName cap (runtime src/deploy/package.ts)
-MAX_OWNER = 20     # leaves room for `-<template>` and `-<instance>` under the cap
+MAX_OWNER = 20
 MIN_ID = 3         # the backend's floor for a strategy name
+# A simulation installs as `<id>-<instance>-simulation` under MAX_ID, and the runtime refuses an
+# `<id>-<instance>` longer than this rather than cutting it (src/deploy/package.ts).
+SIMULATION_BASE_MAX = MAX_ID - len("-simulation")
 SKIP_NAMES = {".deploy-state.json", ".senpi-proof.json", "__pycache__", ".DS_Store"}
 
 
@@ -34,6 +38,14 @@ def slug(text, cap=MAX_ID):
     """Lowercase `[a-z0-9-]`, words joined by '-', capped — the shape the deploy verb accepts unchanged."""
     s = re.sub(r"[^a-z0-9-]", "", re.sub(r"[\s_]+", "-", str(text or "").strip().lower()))
     return re.sub(r"-{2,}", "-", s).strip("-")[:cap].strip("-")
+
+
+def _fit(fid, budget, seed=None):
+    """`fid` when it fits `budget`; else its head plus a hash of the uncut id, so two ids cut to one head stay apart."""
+    if len(fid) <= budget:
+        return fid
+    h = hashlib.sha256((seed or fid).encode()).hexdigest()[:6]
+    return f"{fid[:budget - len(h) - 1].rstrip('-')}-{h}"
 
 
 def short_title(catalog_name, pkg_id):
@@ -48,13 +60,19 @@ def names_for(pkg, owner=None, name=None):
         if re.fullmatch(r"m\d+(-[0-9a-z]+)?", str(given or "").strip(), re.IGNORECASE):
             raise ForkError(f"{given!r} is the user's Senpi ID, not a name: leave --owner off and their username is "
                             f"read for you, or ask what to call it and pass --name <their words>")
+    budget = SIMULATION_BASE_MAX - 1 - max((len(i.name) for i in pkg.instances), default=0)
     if name and str(name).strip():
-        fid, display = slug(name), str(name).strip()
+        fid, display = _fit(slug(name), budget), str(name).strip()
     elif owner and str(owner).strip():
         o = slug(owner, MAX_OWNER)
         if not o:
             raise ForkError(f"owner {owner!r} leaves nothing usable in a strategy id — pass --name <their words> instead")
-        fid, display = f"{o}-{pkg.id}"[:MAX_ID].strip("-"), f"{str(owner).strip()}'s {short_title((pkg.catalog or {}).get('name'), pkg.id)}"
+        fid = f"{o}-{pkg.id}"[:MAX_ID].strip("-")
+        room = budget - len(pkg.id) - 1
+        if len(fid) > budget and room >= MIN_ID:     # keep the whole template, cut the username
+            fid = f"{slug(owner, room)}-{pkg.id}"
+        fid = _fit(fid, budget, seed=f"{slug(owner, 200)}-{pkg.id}")
+        display = f"{str(owner).strip()}'s {short_title((pkg.catalog or {}).get('name'), pkg.id)}"
     else:
         raise ForkError("a template deploys under the user's name, and their Senpi username could not be read: "
                         "ask what to call it and pass --name <their words>")
