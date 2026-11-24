@@ -1313,7 +1313,8 @@ def _simulation_sfx(a):
 
 
 def _rerun_sfx(a):
-    return _simulation_sfx(a) + _lineage_flags(getattr(a, "from_simulation", None),
+    yes = " --user-said-yes" if getattr(a, "simulation", False) and getattr(a, "user_said_yes", False) else ""
+    return _simulation_sfx(a) + yes + _lineage_flags(getattr(a, "from_simulation", None),
                                                getattr(a, "variant_of", None), getattr(a, "batch", None))
 
 
@@ -2367,6 +2368,24 @@ def _simulation_flag(p):
     p.add_argument("--simulation", action="store_true",
                    help="Run the package as a simulation (gateway method `senpi.deploy.startSimulation`): "
                         "simulated money, no real funds move.")
+    p.add_argument("--user-said-yes", dest="user_said_yes", action="store_true",
+                   help="With --simulation: the user saw the cost in this chat and said yes. Without it, "
+                        "--simulation starts nothing.")
+
+
+def _simulation_waits_for_the_yes(a):
+    """A simulation bills credits from its start, so the start needs the user's yes to the cost. A skill
+    rule alone did not hold: an agent whose cost quote failed started one through this command."""
+    if not getattr(a, "simulation", False) or getattr(a, "user_said_yes", False) or getattr(a, "dry_run", False):
+        return
+    print(f"[E_NEEDS_USER_YES] Nothing was started. A simulation bills credits by the hour from its start, so it "
+          f"starts only after the user has seen its cost in this chat and said yes.\n"
+          f"  If they have not said yes to it: send them one message (what it does, its budget in virtual money, "
+          f"the credits an hour from the dry run, or \"billed by the hour\" when the dry run could not quote it, "
+          f"then \"Go?\"; for several, the list and the total), and end your turn. A failed or refused cost quote "
+          f"is never a reason to start without it.\n"
+          f"  After their yes: re-run this exact command with --user-said-yes.", file=sys.stderr)
+    sys.exit(EXIT_CODES["refused"])
 
 
 def _main(argv):
@@ -2476,7 +2495,7 @@ def _main(argv):
 
     a = ap.parse_args(argv[1:])
 
-    variant, batch = getattr(a, "variant_of", None), getattr(a, "batch", None)
+    variant, batch =getattr(a, "variant_of", None), getattr(a, "batch", None)
     problem = (None if variant is None and batch is None else
                "--variant-of needs --simulation" if variant is not None and not a.simulation else
                "--variant-of cannot be combined with --from-simulation"
@@ -2499,6 +2518,8 @@ def _main(argv):
         if problem:
             print(f"[INVALID_REQUEST] --from-simulation: {problem}. Nothing was started.", file=sys.stderr)
             sys.exit(EXIT_CODES["refused"])
+    if a.cmd in ("create", "runtime"):
+        _simulation_waits_for_the_yes(a)
 
     # `where` answers one question — the durable strategies root, the only directory a fork or a
     # fetched package may be written to — and takes no flags, so it is answered before the flag-
