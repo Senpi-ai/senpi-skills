@@ -22,8 +22,7 @@ description: >-
   ("make my live strategy more aggressive", change leverage/sizing/DSL) is authored
   in senpi-strategy-author, the only skill that knows the scanner / yaml / DSL
   schema — and "tighten the ratchet / change the tiers / the locks" on a LIVE strategy
-  is applied here (update --apply), never parked "for the next position". A strategy is a PACKAGE (strategy.yaml + one runtime.yaml per instance +
-  scanners/) the runtime supervises in-process — no scanner daemon. `deploy.py
+  is applied here (update --apply), never parked "for the next position". `deploy.py
   create <id> --budget <usd>` takes a package live end to end (it gates the package,
   then runs the runtime's detached deploy job; watch with `deploy.py status`);
   close.py tears down (flattens positions,
@@ -34,12 +33,13 @@ description: >-
   spoken as "Ignas's Phalanx"; `--name` for their own words), as-is or with levers moved. The id (spider, polar, kodiak) is the package folder. NOT for choosing WHICH strategy
   (senpi-strategy-discover) or authoring / editing the strategy files themselves, nor for a user who
   wants their own (senpi-strategy-author).
-  SEVERAL SIMULATIONS: no start (batch, `create`, fork) before a yes to the shown list, total
-  and cost, even when the dry run is refused.
+  ONE SIMULATION OR SEVERAL: no start (batch, `create`, fork) before a yes to the shown list, total
+  and cost (one simulation: its cost and "Go?"), even when the dry run is refused.
+  A dry run refused for several wallets is expected, never a reason to start another way.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.35.2"
+  version: "3.35.3"
   platform: senpi
   exchange: hyperliquid
   requires:
