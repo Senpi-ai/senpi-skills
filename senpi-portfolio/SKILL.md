@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.38.8"
+  version: "1.38.9"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -356,8 +356,10 @@ one word: while it runs it is "running", never "live" ("live" means real money),
 "Show my best simulations" ranks them by return unless the user names another measure (Sharpe ratio,
 drawdown, win rate, trade count); say which measure ranks them. **For a question about the user's
 simulations (how they are doing, the best ones, list them), call `simulation_list` once first.** The app
-shows its result as the simulations card, ranked by return. Answer from it in a short line or two; don't
-repeat the table the card already shows. A measure other than return still follows the rule above.
+shows its result as the simulations card, ranked by return. Answer from it in one or two sentences, never a
+table: the card already shows the rows. Quote each return the way the card shows it, signed with two
+decimals (+0.22%); `return_pct` is already a percent (0.22 is 0.22%, never 22%). A measure other than return
+still follows the rule above.
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
