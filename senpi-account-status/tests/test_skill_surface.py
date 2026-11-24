@@ -328,6 +328,17 @@ class TheFeeFollowsThePlan(unittest.TestCase):
         notes = _flat(NOTES.read_text(encoding="utf-8"))
         self.assertIn("Quote `fee.pct` as returned", notes)
 
+    # "Never state a rate from memory" made agents refuse to give the published no-plan fee at all.
+    def test_the_no_plan_fee_is_quoted_from_the_senpi_mcp(self):
+        body = _flat(_split(SKILL)[1])
+        notes = _flat(NOTES.read_text(encoding="utf-8"))
+        rule = "quote the flat fee in the Senpi MCP's fee rule"
+        for name, text in (("rules", _flat(_section(_split(SKILL)[1], RULES))),
+                           ("plans", _flat(_section(_split(SKILL)[1], PLANS))), ("notes", notes)):
+            self.assertIn(rule, text, name)
+        self.assertNotIn("never state a rate from memory", body)
+        self.assertNotIn("tenths of a bp", body)
+
 
 class ReferralsPayAShareOfSpend(unittest.TestCase):
     """Referrals pay 15% of a referred friend's monthly Senpi spend for their first 12 months (the
