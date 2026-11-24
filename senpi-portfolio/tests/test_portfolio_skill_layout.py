@@ -77,7 +77,9 @@ REPLAY_NEEDLES = (
     "A full read never skips a wallet or the CTAs.",
     "A `timeout` open may have filled: check positions, never suggest a retry.",
     "Confirm before any change; never trade unprompted. Propose; never deploy without confirmation.",
-    "**A running simulation is \"running\", never \"live\"; \"best\" ranks by return** unless a measure is named.",
+    "**A running simulation is \"running\"**, never \"live\"/\"active\"; its data is never \"live\".",
+    "**\"Best\" ranks by return** unless told otherwise.",
+    "**Sharpe:** from `strategy_get_pnl_and_account_value_history` (`strategy_wallet` = its wallet).",
     "**Source of truth for position facts — read before you answer, even mid-trade.**",
     "**\"In profit\" on an open position is unrealized.**",
     "**A Senpi strategy is one row with all its wallets.**",
@@ -543,3 +545,36 @@ def test_simulations_are_running_and_best_ranks_by_return():
                  "drawdown, win rate, trade count); say which measure ranks them.") in skill
     health = _ref("runtime-health.md")
     assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money).") in health
+
+
+def test_a_simulations_question_calls_simulation_list_once_first():
+    paper = _norm(SKILL[SKILL.index("**Paper is not live.**"):SKILL.index("## Judge each strategy")])
+    assert _norm("**For a question about the user's simulations (how they are doing, the best ones, list them), "
+                 "call `simulation_list` once first.** The app shows its result as the simulations card, ranked "
+                 "by return. Answer from it in a short line or two; don't repeat the table the card already "
+                 "shows. A measure other than return still follows the rule above.") in paper
+
+
+def test_the_simulations_trigger_names_the_call_in_the_description():
+    head = _norm(SKILL.split("---", 2)[1])
+    assert _norm('"how are my simulations doing" (call simulation_list once first)') in head
+
+
+def test_when_the_deep_dive_is_offered_moved_whole_to_row_details():
+    details = _norm(SKILL[SKILL.index("## One wallet list — row details"):])
+    assert _norm("`book.deep_dive.offer` is true when more than one wallet has something to go deeper on — any user, "
+                 "with or without a Senpi strategy.") in details
+
+
+def test_portfolio_version_moved_past_the_running_rule_and_matches_the_readme():
+    version = re.search(r'^  version: "([0-9.]+)"', SKILL, re.M).group(1)
+    assert tuple(map(int, version.split("."))) > (1, 38, 6), version
+    readme = _read(os.path.join(SKILL_DIR, "..", "README.md"))
+    assert f"| [`senpi-portfolio`](senpi-portfolio/) | {version} |" in readme
+
+
+def test_who_the_deep_dive_question_names_moved_whole_to_row_details():
+    details = _norm(SKILL[SKILL.index("## One wallet list — row details"):])
+    assert _norm("`book.deep_dive.order` holds only wallets with a non-zero value, an open position, or a value that "
+                 "couldn't load: an empty $0 Senpi main wallet is a row of the list, never an option of the "
+                 "question.") in details
