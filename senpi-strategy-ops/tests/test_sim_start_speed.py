@@ -37,11 +37,11 @@ class _RunCli:
 
     def __call__(self, args, timeout=60):
         with self.lock:
-            self.calls.append(list(args))
+            self.calls.append(["openclaw", "senpi", *args[args.index("validate"):]])
             self.timeouts.append(timeout)
         if self.barrier is not None:
             self.barrier.wait()
-        return self.answers.get(args[3], (0, "PASS", ""))
+        return self.answers.get(args[args.index("validate") + 1], (0, "PASS", ""))
 
 
 class _Patched(unittest.TestCase):
