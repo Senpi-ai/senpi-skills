@@ -543,7 +543,6 @@ def test_simulations_are_running_and_best_ranks_by_return():
                  "drawdown, win rate, trade count); say which measure ranks them.") in skill
     health = _ref("runtime-health.md")
     assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money).") in health
-    assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money).") in health
 
 
 def test_a_simulations_question_calls_simulation_list_once_first():

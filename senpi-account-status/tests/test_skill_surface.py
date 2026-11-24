@@ -349,6 +349,7 @@ class TheFeeFollowsThePlan(unittest.TestCase):
                            ("plans", _flat(_section(_split(SKILL)[1], PLANS))), ("notes", notes)):
             self.assertIn(rule, text, name)
         self.assertNotIn("never state a rate from memory", body)
+        self.assertIn("in the same reply, never an offer to look it up", _flat(_section(_split(SKILL)[1], PLANS)))
         self.assertNotIn("tenths of a bp", body)
 
 
