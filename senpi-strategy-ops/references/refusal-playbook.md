@@ -7,7 +7,7 @@ runtime against the state it actually read — `buildBudgetEscape` (`src/deploy/
 picks a scoped `close.py --instance`, a read-only triage pointer, or **no command at all**, per
 report. Where this file and a rendered message differ, the message wins and this file is stale.
 
-**And it is version-scoped.** The depth here is the **converged `openclaw senpi deploy` verb's** —
+**And it is version-scoped.** The depth here is the **converged `senpi deploy` verb's** —
 its codes, its branches, its escapes. A box on an older `@senpi-ai/runtime` renders fewer of them and
 some of them differently, which does not make this file a second opinion; it makes it the wrong one.
 Read what the box printed.
@@ -86,10 +86,10 @@ cheaper — the two skills-side validators (`deploy.py validate`, and the author
 `validate_strategy.py`). Nothing was created; nothing was started.
 
 The refusal **names the offending instances and computes the re-check block for them** — one
-`openclaw senpi validate '<that instance's dir>'` per offender, then the package-wide
+`senpi validate '<that instance's dir>'` per offender, then the package-wide
 `python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py validate '<package dir>'`. **Run the block it printed,
 in that order, and do not substitute the python line for the runtime one**: the refusal says so
-itself — only `openclaw senpi validate` records the proof the deploy requires, and the python route
+itself — only `senpi validate` records the proof the deploy requires, and the python route
 writes none. Add the exit block to the instance `runtime.yaml`, re-check, then re-run.
 
 `[INVALID_REQUEST]` is a **family**, not one condition — see the taxonomy row. Fix what the message
@@ -98,7 +98,7 @@ names and nothing else; a shape defect no `--budget` can clear sits beside membe
 
 ### `[E_VALIDATE_NO_RECIPE]`
 
-`openclaw senpi validate` was pointed at a directory holding no recipe of its own — normally a
+`senpi validate` was pointed at a directory holding no recipe of its own — normally a
 package root whose `strategy.yaml` lists instance directories. Validation runs against **one**
 runtime, so the root is not a target. Not a package defect and not a money path: the refusal lists
 the instances, so point it at the dir holding that instance's `runtime.yaml` and run it once per
@@ -132,7 +132,7 @@ else** — they are not interchangeable, and one of them permits no action at al
   until it settles). **Change nothing and close nothing.** The install can still write its registry
   row and start a runtime seconds from now; a close here lands on a strategy the install is binding
   and leaves a live runtime trading a closed strategy. Re-read shortly — `python3 deploy.py
-  status`, then `openclaw senpi runtime list` — and act on the settled state. A re-run that reaches
+  status`, then `senpi runtime list` — and act on the settled state. A re-run that reaches
   this wallet is refused (`[E_WALLET_INSTALL_IN_FLIGHT]`) rather than installing over it, so it
   cannot settle this for you. **No close appears in this arm of the report, and there is none to
   improvise.**
@@ -144,14 +144,14 @@ else** — they are not interchangeable, and one of them permits no action at al
 
 **A registry ROW is not proof the install landed.** The row is written *before* the runtime starts,
 so the wedge this code reports for produces exactly a row with nothing running behind it —
-`openclaw senpi runtime list` renders it `stopped`. Read the list for the **state**, not for the
+`senpi runtime list` renders it `stopped`. Read the list for the **state**, not for the
 presence of a line:
 
 - **The runtime is RUNNING on that wallet** → the install landed. Re-run the same deploy command; it
   adopts the wallet, skips the install and observes a tick.
 - **A row exists but is NOT running** → neither landed nor abandoned. **Do not close that wallet**:
-  the next gateway restart will try to start that runtime, so a close now buys the same live-runtime-
-  on-a-closed-strategy outcome later. Read it first (`openclaw senpi status -r <runtime-id>`) and
+  the next runtime restart will try to start that runtime, so a close now buys the same live-runtime-
+  on-a-closed-strategy outcome later. Read it first (`senpi status -r <runtime-id>`) and
   decide with the user.
 - **NO runtime names that wallet at all**, on a **created** wallet, with the report saying the fence
   has cleared → nothing is watching the funds: reclaim them with the MCP `strategy_close` the report
@@ -173,9 +173,9 @@ If it is wedged, the fence on this wallet will not clear until the gateway proce
 the condition that would clear it, reported here so you know what you are waiting on, not an action
 to take yourself.
 
-**Delete nothing.** `openclaw senpi runtime delete` removes the row the in-flight install is about to
+**Delete nothing.** `senpi runtime delete` removes the row the in-flight install is about to
 bind, and `close.py` would tear down a wallet that is seconds from being watched. Read instead —
-`python3 deploy.py status`, then `openclaw senpi runtime list` — and once a row names the wallet,
+`python3 deploy.py status`, then `senpi runtime list` — and once a row names the wallet,
 re-run the same deploy command. A re-run adopts the wallet; it does not fund a second one.
 
 ### A live `<id>` strategy that is PAUSED (or mid-teardown)
@@ -220,13 +220,13 @@ Deploy will not fund a package it cannot prove ever ran. **Refused pre-money —
 BY THAT RUN.** Say it exactly that scoped way: this gate reads the package's own files and stops
 before any live read, so on a resume the package may already own a funded wallet the gate cannot
 see. "Nothing exists" is the sentence that gets a second wallet funded beside a live one.
-The proof is the `.senpi-proof.json` a passing `openclaw senpi validate <recipe-dir>` writes
+The proof is the `.senpi-proof.json` a passing `senpi validate <recipe-dir>` writes
 (see `SKILL.md`'s preflight step). **Which of the three it is decides the answer — read the code, not the
 prose:**
 `NO_PROOF` = nothing here has been observed to run; validate the directory the refusal names.
 `CONTENT_CHANGED` = the files differ from the ones that passed, and it names them; **look at the
 edit before re-proving it** — either restore the proven content or validate what is there now.
-For all three, the only fix is a run of `openclaw senpi validate`: **never write, edit or copy a
+For all three, the only fix is a run of `senpi validate`: **never write, edit or copy a
 `.senpi-proof.json` by hand.** Recomputing its hashes proves nothing ran, and a hand-edited proof
 is a false record that the package passed. If validate itself cannot finish (killed (rc -9, exit 137, or 'Killed'),
 out of memory), the gate stays shut and that is no verdict on the package: report the edit as

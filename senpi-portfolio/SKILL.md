@@ -7,8 +7,7 @@ description: >-
   with positions as evidence. Use this skill FIRST for ANY portfolio / strategies / positions / balances
   / PnL / trade-history question, BEFORE any raw strategy_get_clearinghouse_state / account_get_portfolio
   / strategy_list MCP call. Use for "analyze my strategies", "how are my strategies doing", "analyze my
-  portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is idle",
-  "how are my simulations doing" (call simulation_list once first), and
+  portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is idle", and
   "are my open positions protected? / do they have a stop-loss?", "my saved wallet", "the wallets I added", "my MetaMask
   wallet" (read-only balances and positions of a wallet the user added in Your wallets), and "tell me about my strategies and
   their DSL / what tier are my positions in?", and "what happened to my closed [asset] position / did my
@@ -22,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.38.8"
+  version: "1.39.3"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -139,8 +138,11 @@ them. Their raw reads: "row details" below.
 
 **Closing — the deep-dive question comes first** (the two CTAs follow, in "Mandatory closing").
 
-**First, when `book.deep_dive.offer` is true**, ask the deep-dive question and name the wallets in
-`book.deep_dive.order`, largest first (when it is offered and who is in it: "row details" below).
+**First, when `book.deep_dive.offer` is true** (more than one wallet with something to go deeper on —
+any user, with or without a Senpi strategy), ask the deep-dive question and name the wallets in
+`book.deep_dive.order`, largest first. The order holds only wallets with a non-zero value, an open
+position, or a value that couldn't load: an empty $0 Senpi main wallet is a row of the list, never an
+option of the question.
 
 > **Which one do you want me to go deeper on?**
 
@@ -159,7 +161,8 @@ Then the two CTAs (managed wallets only; how to route each: "Mandatory closing")
 
 > **Use this skill FIRST — before any raw MCP.** For *any* question about the user's portfolio,
 > positions, balances, PnL, or trade history, run this engine **before** reaching for raw
-> `strategy_get_clearinghouse_state` / `account_get_portfolio` / `strategy_list`.
+> `strategy_get_clearinghouse_state` / `account_get_portfolio` / `strategy_list` (except the card call in
+> "How to run the engine").
 >
 > **This includes DSL / "are my positions protected?" questions — do NOT hand-roll them.** Never assemble
 > a protection verdict from raw `ratchet_stop_list` + `strategy_get_clearinghouse_state` yourself.
@@ -225,7 +228,8 @@ on SEPARATE wallets** — **ox** = `core`+`ballast` (risk-parity), **cougar** = 
 (market-neutral), **cub** = `long`+`short`+`preipo` (multi-sleeve dispersion). `strategy_list` returns
 **each instance/wallet as its own row**, so the raw list looks like several separate strategies. **It is
 not.** A multi-wallet strategy (long+short, core+ballast, multi-sleeve) is **ONE strategy across N
-wallets/instances** — the wallets are the *legs of one design*, not independent bets.
+wallets/instances** — the wallets are the *legs of one design*, not independent bets (but
+against the plan's strategy limits each wallet still takes its own slot).
 
 **Lead and reason at the `strategy_groups[]` level, not `strategies[]`.** The engine re-unites the
 per-wallet rows into **`strategy_groups[]`** — one entry per real strategy, with `is_multi_wallet`,
@@ -268,7 +272,7 @@ question needs before you answer. These hold always:
   honest bar: **only `live` means "confirmed working."** `unverified` (the registry read itself failed):
   Say **"could not verify on this host"** — never "protected," "not protected," "running," or "not
   running." **`null` is not `false`.**
-- Every runtime field `null` on every strategy, with a `meta.warnings` line naming `openclaw senpi runtime
+- Every runtime field `null` on every strategy, with a `meta.warnings` line naming `senpi runtime
   list --json`: **That whole-fleet pattern means the runtime on this box is too old for this skill's
   registry read, not that the strategies are broken.** Say so in those words, quote the warning, and do
   not diagnose the strategies from it: no strategy may be called running, not-running, protected or
@@ -315,7 +319,7 @@ question needs before you answer. These hold always:
   runtime gave none — never invent one; the ladder finds it.
 - **When it IS genuinely broken, act — don't hand the user a to-do.** For `degraded` corroborated by no
   activity, or `not_running`, work the ladder yourself and report what you found (the ladder:
-  `references/runtime-health.md`). Its step 3: **Re-run the deploy** — a deploy interrupted by a gateway
+  `references/runtime-health.md`). Its step 3: **Re-run the deploy** — a deploy interrupted by a runtime
   restart does not resume on its own, and re-running reconciles rather than duplicating. This is the fix
   for `not_running` after a broken deploy. Only the last step touches their money, and only that one needs
   their consent: **`close.py` → redeploy** — **last resort, and ask first.** It is a market exit of every open
@@ -354,10 +358,7 @@ trade; only a fill on the strategy wallet (`positions`, `closed`) is. Never narr
 "live", "running" or "a trade". A simulation (virtual money, run by the runtime) is the exception for
 one word: while it runs it is "running", never "live" ("live" means real money), in a status column too.
 "Show my best simulations" ranks them by return unless the user names another measure (Sharpe ratio,
-drawdown, win rate, trade count); say which measure ranks them. **For a question about the user's
-simulations (how they are doing, the best ones, list them), call `simulation_list` once first.** The app
-shows its result as the simulations card, ranked by return. Answer from it in a short line or two; don't
-repeat the table the card already shows. A measure other than return still follows the rule above.
+drawdown, win rate, trade count); say which measure ranks them.
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
@@ -554,10 +555,7 @@ no stop." (The engine frames every `armed: false` position in `dsl.note`; never 
 
 Going deeper on a Senpi strategy is its per-strategy verdict (the `strategies` step); on a wallet the
 user added, its row here, then its trades via `senpi-improve-trades` or `quant-desk`; on the Senpi main
-wallet, its cash legs (`embedded_wallet`). `book.deep_dive.offer` is true when more than one wallet has
-something to go deeper on — any user, with or without a Senpi strategy. `book.deep_dive.order` holds only
-wallets with a non-zero value, an open position, or a value that couldn't load: an empty $0 Senpi main
-wallet is a row of the list, never an option of the question.
+wallet, its cash legs (`embedded_wallet`).
 
 - **`not_read_this_step`** on a strategy row (the `money` step reads no positions) → those columns come
   with the `strategies` step; never "none" or $0.
@@ -614,6 +612,11 @@ in `references/output-fields.md`.
 ```
 python3 scripts/portfolio.py [money|strategies|positions|all] [--no-market] [--state PATH]
 ```
+
+**Before every `money` step, call `account_get_portfolio` once with
+`{"forceFetch": true, "strategyStatus": "ALL"}`, the engine's own read.** The Senpi app shows its result
+as the portfolio card. Your reply still comes from the engine: never quote, add or compare that call's
+figures.
 
 Prefer the **steps** above for a full read (they stream and don't trip the
 timeout); use `all` only when a single blocking call is fine.

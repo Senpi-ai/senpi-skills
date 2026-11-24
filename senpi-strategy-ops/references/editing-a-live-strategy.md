@@ -7,24 +7,24 @@ holding positions. `senpi-strategy-ops/SKILL.md` routes here; this file is the p
 `senpi-strategy-author`** (the only skill that knows the scanner / yaml / DSL schema). Ops APPLIES the
 edited package; it does not write it.
 
-**Most edits now apply IN PLACE — `openclaw senpi update`. Do not close a live book to re-tune it.**
+**Most edits now apply IN PLACE — `senpi update`. Do not close a live book to re-tune it.**
 No wallet is created, nothing is funded, no position is market-exited, and DSL state, scanner stores
 and action history all survive. Re-running `create` still will NOT apply an edit — the deploy verb is
 idempotent, so it adopts the wallet that already exists and leaves the deployed scanner as it is.
 
 ```bash
 # 1. Prove the edit runs, and write the proof `--apply` requires.
-openclaw senpi validate <recipe-dir>
+senpi validate <recipe-dir>
 
 # 2. PLAN it — what changes, and what it leaves alone. Changes nothing; show this to the user.
-openclaw senpi update <recipe-dir> --id <runtime_id>
+senpi update <recipe-dir> --id <runtime_id>
 
 # 3. Apply.
-openclaw senpi update <recipe-dir> --id <runtime_id> --apply
+senpi update <recipe-dir> --id <runtime_id> --apply
 
 # 4. Confirm the running strategy has it — both read-only.
-openclaw senpi events -r <runtime_id> --name runtime.updated   # an entry for this apply (code-only edits too)
-openclaw senpi update <recipe-dir> --id <runtime_id>           # a recipe edit that landed now plans "The recipe is unchanged."
+senpi events -r <runtime_id> --name runtime.updated   # an entry for this apply (code-only edits too)
+senpi update <recipe-dir> --id <runtime_id>           # a recipe edit that landed now plans "The recipe is unchanged."
 ```
 
 **An edit is live only after step 3 succeeds and step 4 shows it.** Until then tell the user the edit is
@@ -32,12 +32,12 @@ openclaw senpi update <recipe-dir> --id <runtime_id>           # a recipe edit t
 
 - Step 2 changes nothing, and only the first line of its output says so:
   `Dry run for <runtime_id> — nothing has been applied.` Nothing at the end repeats it, so never pipe
-  `openclaw senpi` output through `tail` or `head` — read all of it.
+  `senpi` output through `tail` or `head` — read all of it.
 - Step 3 succeeded when it exits `0`, its first line is `Updated <runtime_id>.`, and no `WARNING` says
   the runtime's external scanners are NOT running. If one does, the edited scanner is not running:
   relay the warning and the check it names.
 - A running scanner imported `scan.py` and `scoring.py` when it started, so it keeps the old code until
-  step 3 restarts the scanners (a crash or a gateway restart would load the edit too, unannounced). The
+  step 3 restarts the scanners (a crash or a runtime restart would load the edit too, unannounced). The
   plan in step 4 compares recipes and cannot see code: for a code-only edit, the `runtime.updated` entry
   is the proof.
 - A `PASS` from step 1 is not step 4. `senpi validate` runs the copy on disk in a fresh process; it
@@ -91,7 +91,7 @@ it is a money conversation before it is a command:
 
 1. **Confirm the edited package is on disk** in the durable root (`/data/workspace/strategies/<id>/…`),
    authored via `senpi-strategy-author`, not hand-guessed here.
-2. **Prove the edit still RUNS before you close anything** — `openclaw senpi validate <recipe-dir>`
+2. **Prove the edit still RUNS before you close anything** — `senpi validate <recipe-dir>`
    must return `PASS`. An edit is exactly when a scanner breaks, and you are about to flatten a live
    book to install it. **Point it at the dir holding that instance's `runtime.yaml`** — the package
    root for a flat package (no `instances:` list), the arm's own dir (`<package-dir>/<arm>`) once
@@ -122,7 +122,7 @@ it is a money conversation before it is a command:
 - close a live strategy to apply a change `senpi update` would have made in place. Flattening a book
   costs the user spread, fees and their open P&L; reach for the close path only for a changed
   `strategy.wallet`.
-- hand-render a `runtime.yaml` or run raw `openclaw senpi runtime create` on a hand-built file — the
+- hand-render a `runtime.yaml` or run raw `senpi runtime create` on a hand-built file — the
   `./scanners` "NO ENTRY SCANNERS" trap, and it skips the funds preflight, the attribution and the
   verified tick.
 - raw `strategy_create_custom_strategy` — that is a naked wallet with no runtime.

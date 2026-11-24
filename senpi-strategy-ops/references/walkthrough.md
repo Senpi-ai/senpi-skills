@@ -167,7 +167,7 @@ prints — never a CWD-relative `strategies/`), leaving out `.deploy-state.json`
 `__pycache__`; rewrites `id`, `catalog.name` (the spoken name), each runtime's `name`/`group` linkage and
 the first line of its `description` (`Ignas's Phalanx — forked from Phalanx 1.1.0.` — the mandate
 `senpi-portfolio` reads back); records `forked_from: {id, version}`; validates the copy; proves it
-(`openclaw senpi validate --stage live`); then deploys **the fork**. `--name "<their words>"` names it their
+(`senpi validate --stage live`); then deploys **the fork**. `--name "<their words>"` names it their
 way. A second `create` reuses the same fork. A user ID passed as a name is refused, and so is a bare template
 id when no username can be read — nothing is created; ask what to call it and pass `--name`. From then on the id is the fork's (`ignas-phalanx`) for `status`, `verify`,
 `update` and `close`.
@@ -177,6 +177,6 @@ moved levers with the edit path — values only, never structure; `wallet_env` n
 the normal gate (`python3 /data/.openclaw/skills/senpi-strategy-author/scripts/validate_strategy.py <dir>` — it warns on a stop
 that is too tight at the leverage, sizing with no free-margin gate, a daily cap at or below the slots, a
 fee load above 0.5% of the budget a day, and refuses a maker-only entry — relay every warn; then
-`openclaw senpi validate <dir>`), and `deploy.py create <dir> --budget <usd>` — the **directory**.
+`senpi validate <dir>`), and `deploy.py create <dir> --budget <usd>` — the **directory**.
 
 A fork is a copy: a later fix to the template does not reach it — say so if asked.

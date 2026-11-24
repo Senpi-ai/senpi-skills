@@ -283,7 +283,7 @@ RULES_BACK_IN_CORE = (
     "called running, not-running, protected or unprotected off that run.",
     "The fix is a runtime upgrade on the box, not a redeploy of the strategies.",
     "`live`, trading: **They agree.** Clean. Say so.",
-    "**Re-run the deploy** — a deploy interrupted by a gateway restart does not resume on its own, and re-running "
+    "**Re-run the deploy** — a deploy interrupted by a runtime restart does not resume on its own, and re-running "
     "reconciles rather than duplicating.",
     "This is the fix for `not_running` after a broken deploy.",
     "**Do not offer \"close and relaunch\" for `withdrawable_unavailable`.** Wait, then support.",
@@ -527,6 +527,13 @@ def test_mirror_dsl_mandate_contract_and_fields_moved_whole():
         assert needle in fields, needle
 
 
+def test_money_step_makes_the_card_call_and_answers_from_the_engine():
+    skill = _norm(SKILL)
+    assert _norm("**Before every `money` step, call `account_get_portfolio` once with `{\"forceFetch\": true, \"strategyStatus\": \"ALL\"}`, the engine's own read.**") in skill
+    assert _norm("Your reply still comes from the engine: never quote, add or compare that call's figures.") in skill
+    assert _norm("`strategy_list` (except the card call in \"How to run the engine\").") in skill
+
+
 # "Show my best simulations" opens this skill first, so it carries the simulation wording rule: a
 # simulation is "running", never "live", and "best" means return unless the user names another measure.
 def test_simulations_are_running_and_best_ranks_by_return():
@@ -536,22 +543,3 @@ def test_simulations_are_running_and_best_ranks_by_return():
                  "drawdown, win rate, trade count); say which measure ranks them.") in skill
     health = _ref("runtime-health.md")
     assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money).") in health
-
-
-def test_a_simulations_question_calls_simulation_list_once_first():
-    paper = _norm(SKILL[SKILL.index("**Paper is not live.**"):SKILL.index("## Judge each strategy")])
-    assert _norm("**For a question about the user's simulations (how they are doing, the best ones, list them), "
-                 "call `simulation_list` once first.** The app shows its result as the simulations card, ranked "
-                 "by return. Answer from it in a short line or two; don't repeat the table the card already "
-                 "shows. A measure other than return still follows the rule above.") in paper
-
-
-def test_the_simulations_trigger_names_the_call_in_the_description():
-    head = _norm(SKILL.split("---", 2)[1])
-    assert _norm('"how are my simulations doing" (call simulation_list once first)') in head
-
-
-def test_when_the_deep_dive_is_offered_moved_whole_to_row_details():
-    details = _norm(SKILL[SKILL.index("## One wallet list — row details"):])
-    assert _norm("`book.deep_dive.offer` is true when more than one wallet has something to go deeper on — any user, "
-                 "with or without a Senpi strategy.") in details
