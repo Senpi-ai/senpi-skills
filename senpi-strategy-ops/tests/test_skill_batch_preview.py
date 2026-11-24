@@ -66,8 +66,8 @@ class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
     def test_the_description_holds_the_rule_for_one_simulation_of_several_wallets(self):
         description = " ".join(SKILL[SKILL.find("description:"):SKILL.find("license:")].split())
         self.assertIn("ONE SIMULATION OR SEVERAL", description)
-        self.assertIn("one simulation: its cost message ending \"Go?\"", description)
-        self.assertIn("A dry run refused for a package of several wallets is expected, never a reason to start another way", description)
+        self.assertIn("one simulation: its cost and \"Go?\"", description)
+        self.assertIn("A dry run refused for several wallets is expected, never a reason to start another way", description)
 
 
 class NoBudgetNamedStartsAt1000(unittest.TestCase):
