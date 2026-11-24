@@ -77,8 +77,6 @@ REPLAY_NEEDLES = (
     "A full read never skips a wallet or the CTAs.",
     "A `timeout` open may have filled: check positions, never suggest a retry.",
     "Confirm before any change; never trade unprompted. Propose; never deploy without confirmation.",
-    # 1.38.7: on dev one "best" answer said "3 active simulations", one Sharpe turn passed
-    # `strategy_wallet_address` to the history tool, and two called simulation figures "live data".
     "**A running simulation is \"running\"**, never \"live\"/\"active\", and its data is never \"live\".",
     "**\"Best\" ranks by return** unless another measure is named.",
     "**Sharpe:** compute it from `strategy_get_pnl_and_account_value_history` (`strategy_wallet` = the simulation's wallet).",
