@@ -99,6 +99,49 @@ def test_names_follow_the_decided_shape():
     assert _fork.names_for(pkg, name="Mars Base")[0] == "mars-base"        # an M-word is still a name
 
 
+def _stub(pkg_id, *instances):
+    from types import SimpleNamespace
+    return SimpleNamespace(id=pkg_id, instances=[SimpleNamespace(name=n) for n in instances or ("main",)],
+                           catalog={"name": pkg_id.title()})
+
+
+SIMULATION_BASE_MAX = 29   # runtime src/deploy/package.ts: "<id>-<instance>" + "-simulation" fits the 40 cap
+
+
+def _fits_simulation(fid, pkg):
+    return all(len(f"{fid}-{i.name}") <= SIMULATION_BASE_MAX for i in pkg.instances)
+
+
+def test_a_long_username_still_makes_a_simulation_sized_id():
+    hawk = _stub("hawk")
+    fid, display = _fork.names_for(hawk, owner="SparkTurquoiseIceCream")
+    assert _fits_simulation(fid, hawk), fid
+    assert fid.startswith("sparkturquoise") and fid.endswith("-hawk") and display == "SparkTurquoiseIceCream's Hawk"
+    assert _fork.names_for(hawk, owner="SparkTurquoiseIceCream")[0] == fid                       # stable
+
+
+def test_a_long_template_fits_and_stays_one_id_per_strategy():
+    ids = set()
+    for tpl in ("penguins-duo-chase-150bp", "penguins-duo-chase-200bp", "penguins-duo-chase-300bp"):
+        pkg = _stub(tpl)
+        for owner in ("kinsyu", "SparkTurquoiseIceCream"):
+            fid = _fork.names_for(pkg, owner=owner)[0]
+            assert _fits_simulation(fid, pkg) and len(fid) >= _fork.MIN_ID, fid
+            ids.add(fid)
+    assert len(ids) == 6
+    athena = _stub("athena-concentrated", "phalanx", "aegis")
+    assert _fits_simulation(_fork.names_for(athena, owner="SparkTurquoiseIceCream")[0], athena)
+    long_words = _fork.names_for(hawk := _stub("hawk"), name="My very own long strategy name of words")[0]
+    assert _fits_simulation(long_words, hawk) and long_words.startswith("my-very-own")
+
+
+def test_ids_that_already_fit_are_unchanged():
+    assert _fork.names_for(_stub("hawk"), owner="Ignas")[0] == "ignas-hawk"
+    assert _fork.names_for(_stub("phalanx"), owner="Purple Frog_99")[0] == "purple-frog-99-phalanx"
+    assert _fork.names_for(_stub("hawk"), owner="TwentyCharUsername1")[0] == "twentycharusername1-hawk"
+    assert _fork.names_for(_stub("hawk"), name="Shield Wall")[0] == "shield-wall"
+
+
 def test_fork_rewrites_identity_and_nothing_else(tmp_path):
     tpl = _template(tmp_path)
     pkg = _pkg.load(tpl)
