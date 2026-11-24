@@ -7,7 +7,8 @@ description: >-
   with positions as evidence. Use this skill FIRST for ANY portfolio / strategies / positions / balances
   / PnL / trade-history question, BEFORE any raw strategy_get_clearinghouse_state / account_get_portfolio
   / strategy_list MCP call. Use for "analyze my strategies", "how are my strategies doing", "analyze my
-  portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is idle", and
+  portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is idle",
+  "how are my simulations doing" (call simulation_list once first), and
   "are my open positions protected? / do they have a stop-loss?", "my saved wallet", "the wallets I added", "my MetaMask
   wallet" (read-only balances and positions of a wallet the user added in Your wallets), and "tell me about my strategies and
   their DSL / what tier are my positions in?", and "what happened to my closed [asset] position / did my
@@ -21,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.39.3"
+  version: "1.39.4"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -138,11 +139,8 @@ them. Their raw reads: "row details" below.
 
 **Closing — the deep-dive question comes first** (the two CTAs follow, in "Mandatory closing").
 
-**First, when `book.deep_dive.offer` is true** (more than one wallet with something to go deeper on —
-any user, with or without a Senpi strategy), ask the deep-dive question and name the wallets in
-`book.deep_dive.order`, largest first. The order holds only wallets with a non-zero value, an open
-position, or a value that couldn't load: an empty $0 Senpi main wallet is a row of the list, never an
-option of the question.
+**First, when `book.deep_dive.offer` is true**, ask the deep-dive question and name the wallets in
+`book.deep_dive.order`, largest first (when it is offered and who is in it: "row details" below).
 
 > **Which one do you want me to go deeper on?**
 
@@ -358,7 +356,10 @@ trade; only a fill on the strategy wallet (`positions`, `closed`) is. Never narr
 "live", "running" or "a trade". A simulation (virtual money, run by the runtime) is the exception for
 one word: while it runs it is "running", never "live" ("live" means real money), in a status column too.
 "Show my best simulations" ranks them by return unless the user names another measure (Sharpe ratio,
-drawdown, win rate, trade count); say which measure ranks them.
+drawdown, win rate, trade count); say which measure ranks them. **For a question about the user's
+simulations (how they are doing, the best ones, list them), call `simulation_list` once first.** The app
+shows its result as the simulations card, ranked by return. Answer from it in a short line or two; don't
+repeat the table the card already shows. A measure other than return still follows the rule above.
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
@@ -555,7 +556,10 @@ no stop." (The engine frames every `armed: false` position in `dsl.note`; never 
 
 Going deeper on a Senpi strategy is its per-strategy verdict (the `strategies` step); on a wallet the
 user added, its row here, then its trades via `senpi-improve-trades` or `quant-desk`; on the Senpi main
-wallet, its cash legs (`embedded_wallet`).
+wallet, its cash legs (`embedded_wallet`). `book.deep_dive.offer` is true when more than one wallet has
+something to go deeper on — any user, with or without a Senpi strategy. `book.deep_dive.order` holds only
+wallets with a non-zero value, an open position, or a value that couldn't load: an empty $0 Senpi main
+wallet is a row of the list, never an option of the question.
 
 - **`not_read_this_step`** on a strategy row (the `money` step reads no positions) → those columns come
   with the `strategies` step; never "none" or $0.
