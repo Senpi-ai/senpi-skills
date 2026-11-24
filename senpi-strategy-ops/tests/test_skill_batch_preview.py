@@ -69,6 +69,10 @@ class NoBudgetNamedStartsAt1000(unittest.TestCase):
         self.assertIn("No budget named: $1,000.", STEP_075)
         self.assertNotIn("No budget named: ask for it", SKILL)
 
+    def test_one_simulation_whose_dry_run_is_refused_still_waits_for_the_yes(self):
+        self.assertIn("A refused dry run (a package of several wallets) still gets that message", STEP_075)
+        self.assertIn("and waits for the yes; then `create <id> --simulation`.", STEP_075)
+
 
 if __name__ == "__main__":
     unittest.main()
