@@ -142,6 +142,8 @@ The contract between them: skills call MCP tools; strategies export `scan(inputs
 
 The supervisor turns a package into a live, risk-managed strategy. A strategy author writes only `scan()` and config; the runtime owns the rest.
 
+The `@senpi-ai/runtime` package itself is proprietary (its npm license is `UNLICENSED`). The skills and strategy templates in this repo are MIT.
+
 - **`scan(inputs, ctx)`** is your scanner, called every `interval_seconds`. `inputs` is the config from `runtime.yaml`; `ctx` gives you `ctx.senpi_mcp.call_tool(...)` for market, discovery and leaderboard data, and `ctx.state`, a small persistent store per scanner. You return signals (`{score, direction, ...}`); you never place an order.
 - **Two-phase DSL exit engine:** a pure tick function checks hard timeout, dead weight, weak peak, the phase 1 breach and the phase 2 tier advance on every price update, and records a typed close reason (`tier_breach`, `max_retrace`, `trailing_floor`, `weak_peak`, `hard_timeout` and others).
 - **Risk guard rails:** daily-loss halt, drawdown circuit breaker, consecutive-loss and per-asset cooldowns, and a maximum-entries-per-day cap. Blocked signals are logged with a reason code.

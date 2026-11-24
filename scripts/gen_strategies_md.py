@@ -38,7 +38,7 @@ def _name(s):
 
 
 def _markets(s):
-    if s.get("assets"):
+    if s.get("assets") and s.get("asset_scope") in ("single", "basket"):
         shown = s["assets"][:4]
         more = len(s["assets"]) - len(shown)
         return ", ".join(shown) + (f" and {more} more" if more > 0 else "")
