@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.11.7"
+  version: "1.11.8"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -33,8 +33,8 @@ cleanly**: points and rank, the Senpi fee, referral earnings, and strategy limit
   referral and strategy limits together. Read its JSON.
 - **Real-time.** Points/rank move — never quote an earlier figure; re-run.
 - **The fee comes from the data, never from memory.** Quote `fee.pct` as returned. Asked what an
-  account with no plan and no credits pays, quote the flat fee in the Senpi MCP's fee rule; state no
-  rate that neither gives.
+  account with no plan and no credits pays, quote the flat fee in the Senpi MCP's fee rule (in its
+  instructions, already in context) in the same reply; state no rate that neither gives.
 - **Tiers carry no benefit right now: no fee change, nothing unlocked. Do not bring tiers up.** Never
   suggest reaching, keeping or regaining a tier, and never close with a next-tier offer. If the user
   asks about their tier or where it went, say tiers carry no benefit right now. Points still accrue
@@ -212,7 +212,8 @@ always wins for them.
 - **No Senpi trading fee on any paid plan, or while the account holds credits** (pay as you go, the
   initial free credits) — only Hyperliquid's own exchange fees. For an account with no plan and no
   credits, quote its own `fee.pct` from the engine; asked about that state ahead of time, quote the flat
-  fee in the Senpi MCP's fee rule. Never state a rate neither gives.
+  fee in the Senpi MCP's fee rule (in its instructions, already in context) in the same reply, never
+  an offer to look it up. Never state a rate neither gives.
 - **Referrals pay 15% of a referred friend's monthly Senpi spend, for their first 12 months** — from
   what the friend spends on Senpi, not from their trading. A friend on $100 a month earns the referrer
   $15 a month × 12 months = $180. How and when the share is paid out is not announced yet: if asked,
