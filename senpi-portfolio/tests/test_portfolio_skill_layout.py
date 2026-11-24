@@ -536,3 +536,22 @@ def test_simulations_are_running_and_best_ranks_by_return():
                  "drawdown, win rate, trade count); say which measure ranks them.") in skill
     health = _ref("runtime-health.md")
     assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money).") in health
+
+
+def test_a_simulations_question_calls_simulation_list_once_first():
+    paper = _norm(SKILL[SKILL.index("**Paper is not live.**"):SKILL.index("## Judge each strategy")])
+    assert _norm("**For a question about the user's simulations (how they are doing, the best ones, list them), "
+                 "call `simulation_list` once first.** The app shows its result as the simulations card, ranked "
+                 "by return. Answer from it in a short line or two; don't repeat the table the card already "
+                 "shows. A measure other than return still follows the rule above.") in paper
+
+
+def test_the_simulations_trigger_names_the_call_in_the_description():
+    head = _norm(SKILL.split("---", 2)[1])
+    assert _norm('"how are my simulations doing" (call simulation_list once first)') in head
+
+
+def test_when_the_deep_dive_is_offered_moved_whole_to_row_details():
+    details = _norm(SKILL[SKILL.index("## One wallet list — row details"):])
+    assert _norm("`book.deep_dive.offer` is true when more than one wallet has something to go deeper on — any user, "
+                 "with or without a Senpi strategy.") in details
