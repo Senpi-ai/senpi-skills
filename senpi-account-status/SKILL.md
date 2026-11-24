@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.11.6"
+  version: "1.11.7"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -32,7 +32,9 @@ cleanly**: points and rank, the Senpi fee, referral earnings, and strategy limit
 - **Run the engine; never hand-pull.** `python3 scripts/status.py` gathers points, the fee,
   referral and strategy limits together. Read its JSON.
 - **Real-time.** Points/rank move — never quote an earlier figure; re-run.
-- **The fee comes from the data, never from memory.** Quote `fee.pct` as returned.
+- **The fee comes from the data, never from memory.** Quote `fee.pct` as returned. Asked what an
+  account with no plan and no credits pays, quote the flat fee in the Senpi MCP's fee rule; state no
+  rate that neither gives.
 - **Tiers carry no benefit right now: no fee change, nothing unlocked. Do not bring tiers up.** Never
   suggest reaching, keeping or regaining a tier, and never close with a next-tier offer. If the user
   asks about their tier or where it went, say tiers carry no benefit right now. Points still accrue
@@ -52,7 +54,7 @@ Returns `{as_of, identity, points, fee, referral, limits, credits, meta}`:
 - `points` — `total`, `base` (Base copy-trading), `perp` (Hyperliquid), `multiplier` (the plan's
   points rate), `rank`, `rank_change`.
 - `fee` — `bps` + `pct`, the Senpi fee this user pays, as the backend reports it: `0` / `0%` on a
-  paid plan (Pro, Advanced, Quant, and Starter for people already on it) or while the account holds credits (`bps` is in tenths of a bp). `null` when the backend
+  paid plan (Pro, Advanced, Quant, and Starter for people already on it) or while the account holds credits (quote `pct`, never convert `bps`). `null` when the backend
   could not read it: say the fee could not be read right now, never `0%` and never a rate.
 - `referral` — `balance_usdc` (referral earnings not yet claimed).
 - `limits` — MCP `strategy_get_limits` as returned; rules in "Strategy limits" below.
@@ -209,7 +211,8 @@ always wins for them.
   access, so a cheaper plan never locks anyone out of the better model.
 - **No Senpi trading fee on any paid plan, or while the account holds credits** (pay as you go, the
   initial free credits) — only Hyperliquid's own exchange fees. For an account with no plan and no
-  credits, quote its own `fee.pct` from the engine; never state a rate from memory.
+  credits, quote its own `fee.pct` from the engine; asked about that state ahead of time, quote the flat
+  fee in the Senpi MCP's fee rule. Never state a rate neither gives.
 - **Referrals pay 15% of a referred friend's monthly Senpi spend, for their first 12 months** — from
   what the friend spends on Senpi, not from their trading. A friend on $100 a month earns the referrer
   $15 a month × 12 months = $180. How and when the share is paid out is not announced yet: if asked,
