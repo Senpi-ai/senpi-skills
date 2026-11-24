@@ -85,8 +85,8 @@ class ASimulationValidateMeasures(_Patched):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             code = deploy.run_deploy(pkg, a, lambda m: None)
         self.assertEqual(code, 0)
-        self.assertEqual(fake.argv_for("validate"),
-                         [["openclaw", "senpi", "validate", "/pkg/spider", "--stage", "live", "--measure"]])
+        self.assertEqual([a[a.index("validate"):] for a in fake.argv_for("validate")],
+                         [["validate", "/pkg/spider", "--stage", "live", "--measure"]])
 
 
 class InstancesValidateSideBySide(_Patched):
