@@ -79,8 +79,8 @@ REPLAY_NEEDLES = (
     "Confirm before any change; never trade unprompted. Propose; never deploy without confirmation.",
     "**A running simulation is \"running\"**, never \"live\"/\"active\"; its data is never \"live\".",
     "**\"Best\" ranks by return** unless told otherwise.",
-    "**Sharpe or drawdown:** quote `simulation_metrics` from `strategy_get_pnl_and_account_value_history` "
-    "(`strategy_wallet` = its wallet); never compute one.",
+    "**Sharpe, drawdown:** its `simulation_metrics` from `strategy_get_pnl_and_account_value_history` "
+    "(`strategy_wallet` = its wallet).",
     "**Source of truth for position facts — read before you answer, even mid-trade.**",
     "**\"In profit\" on an open position is unrealized.**",
     "**A Senpi strategy is one row with all its wallets.**",
@@ -586,12 +586,7 @@ def test_who_the_deep_dive_question_names_moved_whole_to_row_details():
 
 
 def test_a_simulations_figures_are_quoted_from_senpi_never_computed():
-    rule = _norm(SKILL)
-    for needle in (
-        "**A simulation's Sharpe, max drawdown, win rate, profit factor or trades** come from Senpi, not from you",
-        "call `strategy_get_pnl_and_account_value_history` with `strategy_wallet` = its wallet and quote its "
-        "`simulation_metrics` as written",
-        "Never compute Sharpe or drawdown from the history or `today_snapshot` (today only).",
-        "A null figure: say Senpi doesn't have it yet and give the reason in `not_available`",
-    ):
-        assert _norm(needle) in rule, needle
+    assert _norm(
+        "A simulation's Sharpe, drawdown, win rate or profit factor: quote `simulation_metrics`, never your own; "
+        "a null one: say why (`not_available`)."
+    ) in _norm(SKILL)
