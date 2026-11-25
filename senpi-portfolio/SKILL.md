@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.39.12"
+  version: "1.39.13"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -66,8 +66,8 @@ book total, or verdicts and figures already shown unless the user asks for them 
   confirmation. CTA 2: build their own (author, forking the closest template when one fits); name none here.
 - **There is no restart verb; close → redeploy is a last resort, asked first.** ("Liveness")
 - **A running simulation is "running"**, never "live"/"active"; its data is never "live". **"Best" or any
-  status ranks by return** unless told otherwise. **Sharpe:** from `strategy_get_pnl_and_account_value_history`
-  (`strategy_wallet` = its wallet).
+  status ranks by return** unless told otherwise. **Return, Sharpe:** quote `simulation_metrics` from
+  `strategy_get_pnl_and_account_value_history` (`strategy_wallet` = its wallet), never compute one.
 
 > **Source of truth for position facts — read before you answer, even mid-trade.** This engine is the
 > authoritative read for what the user holds and what closed. **Before any statement about a position —
