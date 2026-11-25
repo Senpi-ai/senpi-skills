@@ -17,7 +17,7 @@ class SettingsOnlyVariationsStartAsOneBatch(unittest.TestCase):
         self.assertIn("no fork, no edit, no `create`", VARIATIONS)
 
     def test_each_variant_carries_its_label_and_settings(self):
-        self.assertIn('{"label":"<name>","settings":{"<key>":<value>}}', VARIATIONS)
+        self.assertIn('{"label":"<name>","budgetUsd":<its budget>,"settings":{"<key>":<value>}}', VARIATIONS)
 
     def test_progress_is_one_batch_wait_with_batch_status_as_the_fallback(self):
         self.assertIn("run `deploy.py batch-wait <that requestId>` once", VARIATIONS)
