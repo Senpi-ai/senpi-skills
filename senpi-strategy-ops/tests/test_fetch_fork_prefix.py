@@ -40,8 +40,8 @@ TREE = {"tree": [
 def remote(monkeypatch):
     def _get(host, path, accept, timeout):
         if host == "api.github.com":
-            return 200, json.dumps(TREE).encode()
-        return 200, b"x: 1\n"
+            return 200, json.dumps(TREE).encode(), {}
+        return 200, b"x: 1\n", {}
     monkeypatch.setattr(_fetch, "_get", _get)
 
 
