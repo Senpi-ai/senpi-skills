@@ -7,8 +7,7 @@ description: >-
   with positions as evidence. Use this skill FIRST for ANY portfolio / strategies / positions / balances
   / PnL / trade-history question, BEFORE any raw strategy_get_clearinghouse_state / account_get_portfolio
   / strategy_list MCP call. "How many simulations": simulation_counts. Use for "analyze my strategies", "how are my strategies doing", "analyze my
-  portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is idle",
-  "how are my simulations doing" (call simulation_list once first), and
+  portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is idle", and
   "are my open positions protected? / do they have a stop-loss?", "my saved wallet", "the wallets I added", "my MetaMask
   wallet" (read-only balances and positions of a wallet the user added in Your wallets), and "tell me about my strategies and
   their DSL / what tier are my positions in?", and "what happened to my closed [asset] position / did my
@@ -22,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.39.9"
+  version: "1.39.10"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -358,13 +357,7 @@ trade; only a fill on the strategy wallet (`positions`, `closed`) is. Never narr
 "live", "running" or "a trade". A simulation (virtual money, run by the runtime) is the exception for
 one word: while it runs it is "running", never "live" ("live" means real money), in a status column too.
 "Show my best simulations" ranks them by return unless the user names another measure (Sharpe ratio,
-drawdown, win rate, trade count); say which measure ranks them. **For a question about the user's
-simulations (how they are doing, the best ones, list them), call `simulation_list` once first.** The app
-shows its result as the simulations card, ranked by return. Answer from it in one or two sentences, never a
-table or a list of the rows: the card already shows them. Name the best one and its return. Quote a return
-exactly as the card shows it: two decimals with its sign (+0.22%, -0.15%), and zero as 0.00% with no sign;
-`return_pct` is already a percent (0.22 is 0.22%, never 22%). A measure other than return still follows the
-rule above. A simulation's Sharpe, drawdown, win rate or profit factor: quote `simulation_metrics`, never
+drawdown, win rate, trade count); say which measure ranks them. A simulation's Sharpe, drawdown, win rate or profit factor: quote `simulation_metrics`, never
 your own; a null one: say why (`not_available`).
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark

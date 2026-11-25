@@ -547,21 +547,9 @@ def test_simulations_are_running_and_best_ranks_by_return():
     assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money).") in health
 
 
-def test_a_simulations_question_calls_simulation_list_once_first():
-    paper = _norm(SKILL[SKILL.index("**Paper is not live.**"):SKILL.index("## Judge each strategy")])
-    assert _norm("**For a question about the user's simulations (how they are doing, the best ones, list them), "
-                 "call `simulation_list` once first.** The app shows its result as the simulations card, ranked "
-                 "by return. Answer from it in one or two sentences, never a table or a list of the rows: the card already "
-                 "shows them. Name the best one and its return. Quote a return exactly as the card shows it: two decimals "
-                 "with its sign (+0.22%, -0.15%), and zero as 0.00% with no sign; `return_pct` is already a percent "
-                 "(0.22 is 0.22%, never 22%). A measure other than return still follows the rule above.") in paper
-    assert "return_display" not in paper
-    assert "short line or two" not in paper
-
-
-def test_the_simulations_trigger_names_the_call_in_the_description():
-    head = _norm(SKILL.split("---", 2)[1])
-    assert _norm('"how are my simulations doing" (call simulation_list once first)') in head
+def test_no_rule_points_at_the_parked_simulation_list_tool():
+    assert "simulation_list" not in SKILL
+    assert "simulations card" not in SKILL
 
 
 def test_when_the_deep_dive_is_offered_moved_whole_to_row_details():
