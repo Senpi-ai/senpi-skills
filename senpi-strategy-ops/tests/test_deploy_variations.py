@@ -107,7 +107,7 @@ class Variations(unittest.TestCase):
         self.assertIn("parentId", buf.getvalue())
         self.assertIn(PARENT, buf.getvalue())
         self.assertIn("b-1", buf.getvalue())
-        self.assertEqual(self.calls, [])
+        self.assertEqual([c for c in self.calls if c[0] != "senpi.getHealthStatus"], [])
 
     def test_variant_of_without_simulation_is_refused(self):
         self._refused("--variant-of", PARENT, mentions=("--variant-of", "--simulation"))

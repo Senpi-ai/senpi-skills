@@ -18,7 +18,8 @@ doesn't claim it).
 
 ## Honesty rules
 
-- **The fee from the data, never memory.** Quote `fee.pct` as returned.
+- **The fee from the data, never memory.** Quote `fee.pct` as returned. For an account with no plan
+  and no credits, quote the flat fee in the Senpi MCP's fee rule.
 - **`found: false` on points** means no leaderboard entry yet (base defaults) — present it as
   "you haven't started earning yet," not "0 / error."
 - **Decimals arrive as strings** from several of these tools (e.g. balance_usdc) — the

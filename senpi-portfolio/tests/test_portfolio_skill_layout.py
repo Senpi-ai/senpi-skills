@@ -77,7 +77,7 @@ REPLAY_NEEDLES = (
     "A full read never skips a wallet or the CTAs.",
     "A `timeout` open may have filled: check positions, never suggest a retry.",
     "Confirm before any change; never trade unprompted. Propose; never deploy without confirmation.",
-    "**A running simulation is \"running\", never \"live\"; \"best\" ranks by return** unless a measure is named.",
+    "**Simulations: \"running\", never \"live\"; \"best\" ranks by return** unless a measure is named;",
     "**Source of truth for position facts — read before you answer, even mid-trade.**",
     "**\"In profit\" on an open position is unrealized.**",
     "**A Senpi strategy is one row with all its wallets.**",
@@ -113,6 +113,7 @@ REPLAY_NEEDLES = (
     "so it is counted **once**, never summed.",
     "**Never add the two views' account values or withdrawables yourself** — that double-counts the shared collateral.",
     "Only the Hyperliquid legs can fund strategies — EVM USDC does not bridge in",
+    "Sharpe/drawdown: quote `simulation_metrics`, never compute one.",
 )
 
 # Everything pinned above must end at least this many chars before the 5.7 cut, so a small edit above it
@@ -536,3 +537,15 @@ def test_simulations_are_running_and_best_ranks_by_return():
                  "drawdown, win rate, trade count); say which measure ranks them.") in skill
     health = _ref("runtime-health.md")
     assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money).") in health
+
+
+def test_a_simulations_figures_are_quoted_from_senpi_never_computed():
+    rule = _norm(SKILL)
+    for needle in (
+        "**A simulation's Sharpe, max drawdown, win rate, profit factor or trades** come from Senpi, not from you",
+        "call `strategy_get_pnl_and_account_value_history` with `strategy_wallet` = its wallet and quote its "
+        "`simulation_metrics` as written",
+        "Never compute Sharpe or drawdown from the history or `today_snapshot` (today only).",
+        "A null figure: say Senpi doesn't have it yet and give the reason in `not_available`",
+    ):
+        assert _norm(needle) in rule, needle
