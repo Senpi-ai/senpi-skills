@@ -554,5 +554,10 @@ def test_a_simulations_figures_are_quoted_from_senpi_never_computed():
 # ── 1.38.7: simulation counts come from Senpi ─────────────────────────────────────────────────────────
 def test_how_many_simulations_calls_the_counts_tool_and_never_counts_rows():
     assert '"How many simulations": simulation_counts.' in SKILL.split("license:")[0], "the trigger must be in the description"
-    rule = "call `simulation_counts` and quote its `counts`; never count rows from `simulation_list` or `strategy_list`"
+    rule = "call `simulation_counts` and quote its `counts`; never count rows from `strategy_list`"
     assert rule in _norm(SKILL)
+
+
+# ── 1.38.9: the simulations card is parked, so no rule names simulation_list ────────────────────────────
+def test_no_rule_points_at_the_parked_simulation_list_tool():
+    assert "simulation_list" not in SKILL

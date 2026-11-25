@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.38.8"
+  version: "1.38.9"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -363,7 +363,7 @@ quote its `simulation_metrics` as written (the figures the app shows, over the s
 compute Sharpe or drawdown from the history or `today_snapshot` (today only). A null figure: say Senpi doesn't
 have it yet and give the reason in `not_available` (e.g. too few closed trades). **How many simulations**
 (running, paused, stopped, in total): call `simulation_counts` and quote its `counts`; never count rows
-from `simulation_list` or `strategy_list`, which hold only some of them.
+from `strategy_list`, which holds only some of them.
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
