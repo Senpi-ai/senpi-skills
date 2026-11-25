@@ -112,6 +112,7 @@ REPLAY_NEEDLES = (
     "so it is counted **once**, never summed.",
     "**Never add the two views' account values or withdrawables yourself** — that double-counts the shared collateral.",
     "Only the Hyperliquid legs can fund strategies — EVM USDC does not bridge in",
+    "**A simulation's Sharpe or drawdown:** quote its `simulation_metrics`; never compute one.",
 )
 
 # Everything pinned above must end at least this many chars before the 5.7 cut, so a small edit above it
@@ -524,3 +525,15 @@ def test_mirror_dsl_mandate_contract_and_fields_moved_whole():
     for needle in ("**`strategy_groups[]` — ONE entry per real strategy", "`registry_source`",
                    "**never crashes on a missing/corrupt state file"):
         assert needle in fields, needle
+
+
+def test_a_simulations_figures_are_quoted_from_senpi_never_computed():
+    rule = _norm(SKILL)
+    for needle in (
+        "**A simulation's Sharpe, max drawdown, win rate, profit factor or trades** come from Senpi, not from you",
+        "call `strategy_get_pnl_and_account_value_history` with `strategy_wallet` = its wallet and quote its "
+        "`simulation_metrics` as written",
+        "Never compute Sharpe or drawdown from the history or `today_snapshot` (today only).",
+        "A null figure: say Senpi doesn't have it yet and give the reason in `not_available`",
+    ):
+        assert _norm(needle) in rule, needle
