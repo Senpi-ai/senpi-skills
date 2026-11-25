@@ -79,8 +79,7 @@ REPLAY_NEEDLES = (
     "Confirm before any change; never trade unprompted. Propose; never deploy without confirmation.",
     "**A running simulation is \"running\"**, never \"live\"/\"active\"; its data is never \"live\".",
     "**\"Best\" ranks by return** unless told otherwise.",
-    "**Sharpe, drawdown:** its `simulation_metrics` from `strategy_get_pnl_and_account_value_history` "
-    "(`strategy_wallet` = its wallet).",
+    "**Sharpe:** from `strategy_get_pnl_and_account_value_history` (`strategy_wallet` = its wallet).",
     "**Source of truth for position facts — read before you answer, even mid-trade.**",
     "**\"In profit\" on an open position is unrealized.**",
     "**A Senpi strategy is one row with all its wallets.**",
