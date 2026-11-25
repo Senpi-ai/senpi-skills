@@ -582,3 +582,10 @@ def test_who_the_deep_dive_question_names_moved_whole_to_row_details():
     assert _norm("`book.deep_dive.order` holds only wallets with a non-zero value, an open position, or a value that "
                  "couldn't load: an empty $0 Senpi main wallet is a row of the list, never an option of the "
                  "question.") in details
+
+
+def test_a_simulations_figures_are_quoted_from_senpi_never_computed():
+    assert _norm(
+        "A simulation's Sharpe, drawdown, win rate or profit factor: quote `simulation_metrics`, never your own; "
+        "a null one: say why (`not_available`)."
+    ) in _norm(SKILL)

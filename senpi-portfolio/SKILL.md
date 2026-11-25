@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.39.7"
+  version: "1.39.8"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -364,7 +364,8 @@ shows its result as the simulations card, ranked by return. Answer from it in on
 table or a list of the rows: the card already shows them. Name the best one and its return. Quote a return
 exactly as the card shows it: two decimals with its sign (+0.22%, -0.15%), and zero as 0.00% with no sign;
 `return_pct` is already a percent (0.22 is 0.22%, never 22%). A measure other than return still follows the
-rule above.
+rule above. A simulation's Sharpe, drawdown, win rate or profit factor: quote `simulation_metrics`, never
+your own; a null one: say why (`not_available`).
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
