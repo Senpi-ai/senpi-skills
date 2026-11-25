@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.17.2"
+  version: "3.17.4"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -81,6 +81,11 @@ starts here — a thesis, an X take, "what should I trade?", "recommend a strate
   deploying a template. Say it when asked; never use it as a reason to pick a template.
 - **Never ask for a budget to start building** — see the funding heads-up below; the number is asked once,
   at deploy.
+
+**An open ask** ("help me create a strategy", "set me up") with no thesis yet: before finding a base, ask the two
+opening questions in [`references/opening-questions.md`](references/opening-questions.md), one per call, each through
+`ask_user_question` with every option's `description` and `allow_text: true` (plain text where the tool is absent).
+Never also write the question in your reply. A typed answer counts the same as a tapped one; the answers open the thesis.
 
 ## ⛔ Never guess syntax — get it from the source (your memory is NOT authoritative)
 
