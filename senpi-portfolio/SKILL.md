@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.38.7"
+  version: "1.38.8"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -46,9 +46,9 @@ book total, or verdicts and figures already shown unless the user asks for them 
 | *"analyze my positions / my positions vs the market / net exposure / concentration / idle drag"* | `positions` | `references/analysis-framework.md` |
 | *"analyze my portfolio / how am I doing"* (the full read) | `money` → `strategies` → `positions`, narrating between | `references/output-contract.md`, `references/runtime-health.md` (liveness) |
 | "what happened to my closed X / did my trade go through / do I still hold X" | `strategies` (`closed`), `positions` | "Source of truth" below |
-| "go deeper on X" (the deep-dive answer) | a strategy: `strategies`; a wallet they added: its row; the Senpi main wallet: `embedded_wallet` | — |
+| "go deeper on X" | a strategy: `strategies`; a wallet they added: its row; the Senpi main wallet: `embedded_wallet` | — |
 | add / change / remove a stop or DSL | nothing here — this skill reads; offer it, then `senpi-trade` | "This skill reads" below |
-| score / rate / grade my trading | `quant-desk` on these wallets | — |
+| score / rate / grade my trading | `quant-desk` | — |
 | "where am I leaking / did a stop fail / exit quality", trade history | `senpi-improve-trades` | — |
 | what a JSON field means | — | `references/output-fields.md` |
 | a read failed: `meta.degraded`, `meta.warnings`, `reconciles: false`, a `null` figure | re-run that step | `references/output-contract.md` ("Resilience") |
@@ -56,7 +56,7 @@ book total, or verdicts and figures already shown unless the user asks for them 
 | close / pause / keep / top up ONE wallet of a strategy | — | the no-no below: whole strategy only |
 | a yes to CTA 1 / CTA 2, or a digit after the CTAs | the levers / build for the idle (author) | `references/output-contract.md` |
 
-**Still true on every follow-up** (in full further down):
+**Still true on every follow-up**:
 - **A failed read is not $0 or flat.** App-scoped token → can't read the account; failed clearinghouse
   read → positions may be incomplete; realized PnL that didn't load → *unavailable*, never `$0`;
   `totals.reconciles == false` → stop, re-run, then trust per-wallet figures. A full read never skips a
