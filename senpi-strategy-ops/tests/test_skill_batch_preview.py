@@ -80,7 +80,7 @@ class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
 
 class NoBudgetNamedStartsAt1000(unittest.TestCase):
     def test_one_simulation_with_no_budget_named_confirms_1000(self):
-        self.assertIn("No budget named: $1,000.", STEP_075)
+        self.assertIn("No budget named: $1,000 for a new simulation.", STEP_075)
         self.assertNotIn("No budget named: ask for it", SKILL)
 
     def test_one_simulation_whose_dry_run_is_refused_still_waits_for_the_yes(self):
