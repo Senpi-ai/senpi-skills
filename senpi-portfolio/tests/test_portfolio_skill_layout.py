@@ -589,3 +589,8 @@ def test_a_simulations_figures_are_quoted_from_senpi_never_computed():
         "A simulation's Sharpe, drawdown, win rate or profit factor: quote `simulation_metrics`, never your own; "
         "a null one: say why (`not_available`)."
     ) in _norm(SKILL)
+
+
+# ── simulation counts come from Senpi ────────────────────────────────────────────────────────────────
+def test_how_many_simulations_calls_the_counts_tool_and_never_counts_rows():
+    assert '"How many simulations": simulation_counts.' in SKILL.split("license:")[0], "the trigger must be in the description"
