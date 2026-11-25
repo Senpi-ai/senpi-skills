@@ -79,7 +79,8 @@ REPLAY_NEEDLES = (
     "Confirm before any change; never trade unprompted. Propose; never deploy without confirmation.",
     "**A running simulation is \"running\"**, never \"live\"/\"active\"; its data is never \"live\".",
     "**\"Best\" ranks by return** unless told otherwise.",
-    "**Sharpe:** from `strategy_get_pnl_and_account_value_history` (`strategy_wallet` = its wallet).",
+    "**Sharpe or drawdown:** quote `simulation_metrics` from `strategy_get_pnl_and_account_value_history` "
+    "(`strategy_wallet` = its wallet); never compute one.",
     "**Source of truth for position facts — read before you answer, even mid-trade.**",
     "**\"In profit\" on an open position is unrealized.**",
     "**A Senpi strategy is one row with all its wallets.**",
@@ -582,3 +583,15 @@ def test_who_the_deep_dive_question_names_moved_whole_to_row_details():
     assert _norm("`book.deep_dive.order` holds only wallets with a non-zero value, an open position, or a value that "
                  "couldn't load: an empty $0 Senpi main wallet is a row of the list, never an option of the "
                  "question.") in details
+
+
+def test_a_simulations_figures_are_quoted_from_senpi_never_computed():
+    rule = _norm(SKILL)
+    for needle in (
+        "**A simulation's Sharpe, max drawdown, win rate, profit factor or trades** come from Senpi, not from you",
+        "call `strategy_get_pnl_and_account_value_history` with `strategy_wallet` = its wallet and quote its "
+        "`simulation_metrics` as written",
+        "Never compute Sharpe or drawdown from the history or `today_snapshot` (today only).",
+        "A null figure: say Senpi doesn't have it yet and give the reason in `not_available`",
+    ):
+        assert _norm(needle) in rule, needle

@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.39.7"
+  version: "1.39.8"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -67,8 +67,8 @@ book total, or verdicts and figures already shown unless the user asks for them 
   confirmation. CTA 2: build their own (author, forking the closest template when one fits); name none here.
 - **There is no restart verb; close → redeploy is a last resort, asked first.** ("Liveness")
 - **A running simulation is "running"**, never "live"/"active"; its data is never "live". **"Best" ranks
-  by return** unless told otherwise. **Sharpe:** from `strategy_get_pnl_and_account_value_history`
-  (`strategy_wallet` = its wallet).
+  by return** unless told otherwise. **Sharpe or drawdown:** quote `simulation_metrics` from
+  `strategy_get_pnl_and_account_value_history` (`strategy_wallet` = its wallet); never compute one.
 
 > **Source of truth for position facts — read before you answer, even mid-trade.** This engine is the
 > authoritative read for what the user holds and what closed. **Before any statement about a position —
@@ -364,7 +364,11 @@ shows its result as the simulations card, ranked by return. Answer from it in on
 table or a list of the rows: the card already shows them. Name the best one and its return. Quote a return
 exactly as the card shows it: two decimals with its sign (+0.22%, -0.15%), and zero as 0.00% with no sign;
 `return_pct` is already a percent (0.22 is 0.22%, never 22%). A measure other than return still follows the
-rule above.
+rule above. **A simulation's Sharpe, max drawdown, win rate, profit factor or trades** come
+from Senpi, not from you: call `strategy_get_pnl_and_account_value_history` with `strategy_wallet` = its wallet and
+quote its `simulation_metrics` as written (the figures the app shows, over the simulation's whole life). Never
+compute Sharpe or drawdown from the history or `today_snapshot` (today only). A null figure: say Senpi doesn't
+have it yet and give the reason in `not_available` (e.g. too few closed trades).
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
