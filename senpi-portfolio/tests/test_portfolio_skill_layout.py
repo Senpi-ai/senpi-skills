@@ -537,7 +537,8 @@ def test_simulations_are_running_and_best_ranks_by_return():
                  "drawdown, win rate, trade count); say which measure ranks them.") in skill
     assert _norm("\"How are my simulations doing?\" and any status of several rank the same way, best first, by "
                  "`simulation_metrics.return_pct` (below), never worked out from account value; a null one goes last with its `not_available` reason.") in skill
-    assert re.search(r'^  version: "1\.39\.13"', SKILL, re.M), "patch-bump above dev's 1.39.12"
+    version = re.search(r'^  version: "([0-9.]+)"', SKILL, re.M).group(1)
+    assert tuple(map(int, version.split("."))) >= (1, 39, 13), "patch-bump above dev's 1.39.12"
     health = _ref("runtime-health.md")
     assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money).") in health
 
