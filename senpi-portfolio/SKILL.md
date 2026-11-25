@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.39.12"
+  version: "1.39.13"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -65,7 +65,7 @@ book total, or verdicts and figures already shown unless the user asks for them 
 - **Acting on a CTA:** Confirm before any change; never trade unprompted. Propose; never deploy without
   confirmation. CTA 2: build their own (author, forking the closest template when one fits); name none here.
 - **There is no restart verb; close → redeploy is a last resort, asked first.** ("Liveness")
-- **Simulations: "running", never "live"; "best" or any status ranks by return** unless a measure is named; Sharpe/drawdown: quote `simulation_metrics`, never compute one.
+- **Simulations: "running", never "live"; "best" or any status ranks by return** unless a measure is named; return/Sharpe/drawdown: quote `simulation_metrics` from `strategy_get_pnl_and_account_value_history`, never compute one.
 
 > **Source of truth for position facts — read before you answer, even mid-trade.** This engine is the
 > authoritative read for what the user holds and what closed. **Before any statement about a position —
@@ -117,7 +117,7 @@ wallet appended after the money map. Origin is the kind column (`kind`: `managed
 The rest of this section is about the **read-only rows** — the user's **saved wallets**, Hyperliquid
 wallets they added in Your wallets by pasting the address, and trade by hand. A saved wallet is their
 claim: call them "your wallets" or "the wallets you added", and never imply Senpi checked who controls
-them. Their raw reads: "row details" below.
+them.
 
 - **Quote the access line verbatim** — every wallet carries it as `access`, and it is the whole answer to
   "can you trade it / close it / set a stop on it":
@@ -136,7 +136,7 @@ them. Their raw reads: "row details" below.
   this replaces CTA 1 and CTA 2:
   > **Want me to review the trades on it, or score it on the quant desk?**
 
-**Closing — the deep-dive question comes first** (the two CTAs follow, in "Mandatory closing").
+**Closing — the deep-dive question comes first.**
 
 **First, when `book.deep_dive.offer` is true** (more than one wallet with something to go deeper on —
 any user, with or without a Senpi strategy), ask the deep-dive question and name the wallets in

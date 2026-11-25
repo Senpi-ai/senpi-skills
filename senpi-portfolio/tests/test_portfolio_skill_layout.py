@@ -113,7 +113,7 @@ REPLAY_NEEDLES = (
     "so it is counted **once**, never summed.",
     "**Never add the two views' account values or withdrawables yourself** — that double-counts the shared collateral.",
     "Only the Hyperliquid legs can fund strategies — EVM USDC does not bridge in",
-    "Sharpe/drawdown: quote `simulation_metrics`, never compute one.",
+    "return/Sharpe/drawdown: quote `simulation_metrics` from `strategy_get_pnl_and_account_value_history`, never compute one.",
 )
 
 # Everything pinned above must end at least this many chars before the 5.7 cut, so a small edit above it
@@ -537,7 +537,7 @@ def test_simulations_are_running_and_best_ranks_by_return():
                  "drawdown, win rate, trade count); say which measure ranks them.") in skill
     assert _norm("\"How are my simulations doing?\" and any status of several rank the same way, best first, by "
                  "`simulation_metrics.return_pct` (below), never worked out from account value; a null one goes last with its `not_available` reason.") in skill
-    assert re.search(r'^  version: "1\.39\.12"', SKILL, re.M), "patch-bump above dev's 1.39.11"
+    assert re.search(r'^  version: "1\.39\.13"', SKILL, re.M), "patch-bump above dev's 1.39.12"
     health = _ref("runtime-health.md")
     assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money).") in health
 
