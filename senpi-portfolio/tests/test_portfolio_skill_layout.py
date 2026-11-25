@@ -78,7 +78,7 @@ REPLAY_NEEDLES = (
     "A `timeout` open may have filled: check positions, never suggest a retry.",
     "Confirm before any change; never trade unprompted. Propose; never deploy without confirmation.",
     "**A running simulation is \"running\"**, never \"live\"/\"active\"; its data is never \"live\".",
-    "**\"Best\" ranks by return** unless told otherwise.",
+    "**\"Best\" or any status ranks by return** unless told otherwise.",
     "**Sharpe:** from `strategy_get_pnl_and_account_value_history` (`strategy_wallet` = its wallet).",
     "**Source of truth for position facts — read before you answer, even mid-trade.**",
     "**\"In profit\" on an open position is unrealized.**",
@@ -543,6 +543,9 @@ def test_simulations_are_running_and_best_ranks_by_return():
     assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money), in a status column too.") in skill
     assert _norm("\"Show my best simulations\" ranks them by return unless the user names another measure (Sharpe ratio, "
                  "drawdown, win rate, trade count); say which measure ranks them.") in skill
+    assert _norm("\"How are my simulations doing?\" and any status of several rank the same way, best first, by "
+                 "`simulation_metrics.return_pct` (below); a null one goes last with its `not_available` reason.") in skill
+    assert re.search(r'^  version: "1\.39\.11"', SKILL, re.M), "patch-bump above dev's 1.39.10"
     health = _ref("runtime-health.md")
     assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money).") in health
 

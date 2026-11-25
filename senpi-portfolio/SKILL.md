@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.39.10"
+  version: "1.39.11"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -65,8 +65,8 @@ book total, or verdicts and figures already shown unless the user asks for them 
 - **Acting on a CTA:** Confirm before any change; never trade unprompted. Propose; never deploy without
   confirmation. CTA 2: build their own (author, forking the closest template when one fits); name none here.
 - **There is no restart verb; close → redeploy is a last resort, asked first.** ("Liveness")
-- **A running simulation is "running"**, never "live"/"active"; its data is never "live". **"Best" ranks
-  by return** unless told otherwise. **Sharpe:** from `strategy_get_pnl_and_account_value_history`
+- **A running simulation is "running"**, never "live"/"active"; its data is never "live". **"Best" or any
+  status ranks by return** unless told otherwise. **Sharpe:** from `strategy_get_pnl_and_account_value_history`
   (`strategy_wallet` = its wallet).
 
 > **Source of truth for position facts — read before you answer, even mid-trade.** This engine is the
@@ -357,7 +357,10 @@ trade; only a fill on the strategy wallet (`positions`, `closed`) is. Never narr
 "live", "running" or "a trade". A simulation (virtual money, run by the runtime) is the exception for
 one word: while it runs it is "running", never "live" ("live" means real money), in a status column too.
 "Show my best simulations" ranks them by return unless the user names another measure (Sharpe ratio,
-drawdown, win rate, trade count); say which measure ranks them. A simulation's Sharpe, drawdown, win rate or profit factor: quote `simulation_metrics`, never
+drawdown, win rate, trade count); say which measure ranks them.
+"How are my simulations doing?" and any status of several rank the same way, best first, by
+`simulation_metrics.return_pct` (below); a null one goes last with its `not_available` reason.
+A simulation's Sharpe, drawdown, win rate or profit factor: quote `simulation_metrics`, never
 your own; a null one: say why (`not_available`).
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark

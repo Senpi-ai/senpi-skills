@@ -60,7 +60,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | Skill | Ver | Role |
 |---|---|---|
 | **Analyze** | | |
-| [`senpi-portfolio`](senpi-portfolio/) | 1.39.10 | All-wallet portfolio, positions, DSL protection, per-strategy mandate reads; every wallet — Senpi and the ones you added — in one list by value, managed and read-only subtotals |
+| [`senpi-portfolio`](senpi-portfolio/) | 1.39.11 | All-wallet portfolio, positions, DSL protection, per-strategy mandate reads; every wallet — Senpi and the ones you added — in one list by value, managed and read-only subtotals |
 | [`senpi-market-pulse`](senpi-market-pulse/) | 1.11.1 | Daily cross-asset market read (crypto, equities, commodities, macro, funding regime); the positions check includes your saved wallets, read-only |
 | [`senpi-smart-money`](senpi-smart-money/) | 1.8.1 | Where the most-profitable wallets are positioned vs. the crowd, and what they just did; the alignment check includes your saved wallets, read-only |
 | [`senpi-signals`](senpi-signals/) | 2.12.1 | Non-obvious market developments (funding extremes, proven cohort vs the 4h crowd, momentum events, cross-asset laggards), ranked through a trade lens and a news lens — read from Senpi's backend, the same Senpi Signals the app and the browser extension show; on demand, no cron |
@@ -71,7 +71,7 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | **Run a strategy** | | |
 | [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.57.3 | Conversational picker — rank the catalog against your worldview; each pick's exits and position size quoted from its full card; holdings context includes your saved wallets (read-only, never a budget) |
 | [`senpi-strategy-author`](senpi-strategy-author/) | 3.17.5 | Build/edit a DSL-protected strategy package, one decision at a time |
-| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.35.10 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
+| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.35.11 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
 | [`senpi-trade`](senpi-trade/) | 1.12.2 | Direct trade or mirror a specific trader — manual positions + copy trading, one decision at a time |
 | [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.2.1 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
 | **Move money / positioning** | | |
