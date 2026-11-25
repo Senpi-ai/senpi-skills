@@ -537,3 +537,10 @@ def test_a_simulations_figures_are_quoted_from_senpi_never_computed():
         "A null figure: say Senpi doesn't have it yet and give the reason in `not_available`",
     ):
         assert _norm(needle) in rule, needle
+
+
+# ── 1.38.7: simulation counts come from Senpi ─────────────────────────────────────────────────────────
+def test_how_many_simulations_calls_the_counts_tool_and_never_counts_rows():
+    assert '"How many simulations": simulation_counts.' in SKILL.split("license:")[0], "the trigger must be in the description"
+    rule = "call `simulation_counts` and quote its `counts`; never count rows from `simulation_list` or `strategy_list`"
+    assert rule in _norm(SKILL)

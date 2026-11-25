@@ -6,7 +6,7 @@ description: >-
   dump. Leads at the STRATEGY level: each strategy judged against its OWN mandate (is it doing its job?),
   with positions as evidence. Use this skill FIRST for ANY portfolio / strategies / positions / balances
   / PnL / trade-history question, BEFORE any raw strategy_get_clearinghouse_state / account_get_portfolio
-  / strategy_list MCP call. Use for "analyze my strategies", "how are my strategies doing", "analyze my
+  / strategy_list MCP call. "How many simulations": simulation_counts. Use for "analyze my strategies", "how are my strategies doing", "analyze my
   portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is idle", and
   "are my open positions protected? / do they have a stop-loss?", "my saved wallet", "the wallets I added", "my MetaMask
   wallet" (read-only balances and positions of a wallet the user added in Your wallets), and "tell me about my strategies and
@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.38.6"
+  version: "1.38.7"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -357,7 +357,9 @@ trade; only a fill on the strategy wallet (`positions`, `closed`) is. Never narr
 from Senpi, not from you: call `strategy_get_pnl_and_account_value_history` with `strategy_wallet` = its wallet and
 quote its `simulation_metrics` as written (the figures the app shows, over the simulation's whole life). Never
 compute Sharpe or drawdown from the history or `today_snapshot` (today only). A null figure: say Senpi doesn't
-have it yet and give the reason in `not_available` (e.g. too few closed trades).
+have it yet and give the reason in `not_available` (e.g. too few closed trades). **How many simulations**
+(running, paused, stopped, in total): call `simulation_counts` and quote its `counts`; never count rows
+from `simulation_list` or `strategy_list`, which hold only some of them.
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
