@@ -28,6 +28,14 @@ class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
         self.assertIn('"requestId":', params)
         self.assertIn('"budgetUsd":', params)
 
+    def test_a_budget_per_variation_goes_in_its_variant_never_the_total(self):
+        params = re.search(r"startBatch --json --params '(\{.*?\})'", VARIATIONS).group(1)
+        self.assertIn('{"label":"<name>","budgetUsd":<its budget>,"settings":{…}}', params)
+        self.assertIn("never their total as the batch's `budgetUsd`", VARIATIONS)
+        self.assertIn("each row's `budgetUsd`", VARIATIONS)
+        start = VARIATIONS[VARIATIONS.find("After the yes, start them all"):VARIATIONS.find("The box validates and starts them")]
+        self.assertIn('{"label":"<name>","budgetUsd":<its budget>,"settings":{"<key>":<value>}}', start)
+
     def test_nothing_is_created_before_the_yes(self):
         self.assertIn("create nothing until the user says yes", VARIATIONS)
         self.assertIn("show the new batch and its cost and ask again", VARIATIONS)
@@ -76,8 +84,15 @@ class NoBudgetNamedStartsAt1000(unittest.TestCase):
         self.assertNotIn("No budget named: ask for it", SKILL)
 
     def test_one_simulation_whose_dry_run_is_refused_still_waits_for_the_yes(self):
-        self.assertIn("A refused dry run (a package of several wallets) still gets that message", STEP_075)
         self.assertIn("and waits for the yes; then `create <id> --simulation --user-said-yes`.", STEP_075)
+        self.assertIn("A refused dry run gets the same.", STEP_075)
+
+    def test_a_package_of_several_wallets_is_known_before_any_dry_run_and_skips_it(self):
+        rule = STEP_075[STEP_075.find("A package of several wallets"):STEP_075.find("A refused dry run gets the same.")]
+        self.assertIn("`wallet_count` above 1", rule)
+        self.assertIn("`deploy.py validate <id>`", rule)
+        self.assertIn("takes no dry run", rule)
+        self.assertIn('"billed by the hour" with no number, and waits for the yes', rule)
 
 
 if __name__ == "__main__":

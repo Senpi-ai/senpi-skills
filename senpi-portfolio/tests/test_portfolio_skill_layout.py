@@ -77,6 +77,7 @@ REPLAY_NEEDLES = (
     "A full read never skips a wallet or the CTAs.",
     "A `timeout` open may have filled: check positions, never suggest a retry.",
     "Confirm before any change; never trade unprompted. Propose; never deploy without confirmation.",
+    "**Simulations: \"running\", never \"live\"; \"best\" ranks by return** unless a measure is named;",
     "**Source of truth for position facts — read before you answer, even mid-trade.**",
     "**\"In profit\" on an open position is unrealized.**",
     "**A Senpi strategy is one row with all its wallets.**",
@@ -112,6 +113,7 @@ REPLAY_NEEDLES = (
     "so it is counted **once**, never summed.",
     "**Never add the two views' account values or withdrawables yourself** — that double-counts the shared collateral.",
     "Only the Hyperliquid legs can fund strategies — EVM USDC does not bridge in",
+    "Sharpe/drawdown: quote `simulation_metrics`, never compute one.",
 )
 
 # Everything pinned above must end at least this many chars before the 5.7 cut, so a small edit above it
@@ -524,3 +526,38 @@ def test_mirror_dsl_mandate_contract_and_fields_moved_whole():
     for needle in ("**`strategy_groups[]` — ONE entry per real strategy", "`registry_source`",
                    "**never crashes on a missing/corrupt state file"):
         assert needle in fields, needle
+
+
+# "Show my best simulations" opens this skill first, so it carries the simulation wording rule: a
+# simulation is "running", never "live", and "best" means return unless the user names another measure.
+def test_simulations_are_running_and_best_ranks_by_return():
+    skill = _norm(SKILL)
+    assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money), in a status column too.") in skill
+    assert _norm("\"Show my best simulations\" ranks them by return unless the user names another measure (Sharpe ratio, "
+                 "drawdown, win rate, trade count); say which measure ranks them.") in skill
+    health = _ref("runtime-health.md")
+    assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money).") in health
+
+
+def test_a_simulations_figures_are_quoted_from_senpi_never_computed():
+    rule = _norm(SKILL)
+    for needle in (
+        "**A simulation's Sharpe, max drawdown, win rate, profit factor or trades** come from Senpi, not from you",
+        "call `strategy_get_pnl_and_account_value_history` with `strategy_wallet` = its wallet and quote its "
+        "`simulation_metrics` as written",
+        "Never compute Sharpe or drawdown from the history or `today_snapshot` (today only).",
+        "A null figure: say Senpi doesn't have it yet and give the reason in `not_available`",
+    ):
+        assert _norm(needle) in rule, needle
+
+
+# ── 1.38.7: simulation counts come from Senpi ─────────────────────────────────────────────────────────
+def test_how_many_simulations_calls_the_counts_tool_and_never_counts_rows():
+    assert '"How many simulations": simulation_counts.' in SKILL.split("license:")[0], "the trigger must be in the description"
+    rule = "call `simulation_counts` and quote its `counts`; never count rows from `strategy_list`"
+    assert rule in _norm(SKILL)
+
+
+# ── 1.38.9: the simulations card is parked, so no rule names simulation_list ────────────────────────────
+def test_no_rule_points_at_the_parked_simulation_list_tool():
+    assert "simulation_list" not in SKILL
