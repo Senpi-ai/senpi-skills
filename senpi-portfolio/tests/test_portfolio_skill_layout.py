@@ -61,7 +61,7 @@ REPLAY_NEEDLES = (
     "| close / pause / keep / top up ONE wallet of a strategy | — | the no-no below: whole strategy only |",
     "| a yes to CTA 1 / CTA 2, or a digit after the CTAs | the levers / build for the idle (author) | "
     "`references/output-contract.md` |",
-    "CTA 2: build their own (author, forking the closest template when one fits); name none here.",
+    "CTA 2: build their own (author: from scratch or a template that fits, simulated first); name none here.",
     "| a read failed: `meta.degraded`, `meta.warnings`, `reconciles: false`, a `null` figure | re-run that step | "
     "`references/output-contract.md` (\"Resilience\") |",
     "| `strategies` | `references/dsl.md` (protection), `references/mandate.md` (verdicts), `references/runtime-health.md` "

@@ -5,22 +5,23 @@ description: >-
   at a time. The DEFAULT for every strategy ask: a thesis or an X take, "build a
   strategy", "I have a trading idea", "what should I trade?" (as a strategy ask,
   not a market read), "recommend a strategy" (naming stocks or coins keeps it one: "a
-  basket like Apple, Microsoft and Nvidia" gets templates from discover, never stock
+  basket like Apple, Microsoft and Nvidia" is built with those assets, never stock
   research), "set me up", and mandates ("trade for me", "you decide", "be
   aggressive": one or two questions make it a thesis, then build). Also ANY
   strategy that needs DSL (stop-loss, trailing stop, profit-lock ladder): raw MCP
   strategy_create* / create_position calls can't carry a DSL and must never stand
-  up a named or protected strategy; a strategy built here does. Finds the closest
-  template FIRST (senpi-strategy-discover) as the BASE the user forks and makes theirs (a
-  lever shifted, a rule of their own) before it goes live; scratch when nothing fits.
-  Simulations exist: `--simulation` in senpi-strategy-ops, only when the user asks for one. Otherwise
-  test with `senpi validate` and a $10-floor live run, never a scanner re-run on a timer. Never asks for a budget to build (asked once, at
+  up a named or protected strategy; a strategy built here does. Builds from scratch
+  with the user, or from a template only when they want one and it fits (no template
+  search first). Then proposes a few variations (scoring, thresholds, entry and exit
+  management) to simulate before live (ops `--simulation`, after their yes), or live
+  as-is if they choose; straight to live when they ask for live. Never a scanner
+  re-run on a timer. Never asks for a budget to build (asked once, at
   deploy); exits default to letting winners run, stated in price at leverage; the
   user names what you build. NOT for installing (senpi-strategy-ops).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.17.1"
+  version: "3.18.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -58,29 +59,17 @@ much risk). Your job is to draw those out, one question at a time, and compile t
 > "succeeds," the position is gone, and the user eats the round-trip. If the user hasn't said which of
 > (A)/(B) they want, **ask before placing anything** — and never route (B) into a managed wallet to save a step.
 
-## Start here — THEIR strategy, forked from a template when one fits
+## Start here — THEIR strategy: build it, simulate a few versions, then go live
 
-The user is the driver and Senpi is the tool: what goes live is theirs, shaped by them. Every strategy ask
-starts here — a thesis, an X take, "what should I trade?", "recommend a strategy", "set me up".
+The user is the driver and Senpi is the tool: what goes live is theirs, shaped by them. Every strategy ask starts here — a thesis, an X take, "what should I trade?", "recommend a strategy", "set me up". The arc you recommend is **build → simulate a few variations → take the best one live**. It is a recommendation, never a gate: read the user, and their call wins at every step.
 
-- **Find a base first.** Hand their idea to `senpi-strategy-discover` (their words as `--theme`, any stocks or coins they name as `--assets`: a named ticker never turns the ask into research on that asset, and checking tickers against `market_list_instruments` is a build step, after the base). A template
-  fits only if it trades the same idea (the market, the edge, the horizon), not just the same asset; if
-  you'd call it "not a tight fit", it doesn't fit. If one fits, offer it once, by name, as the base of
-  *their* strategy (*"**Cougar** is close to what you described — want to start from it and make it
-  yours?"*). No close fit → build from scratch with the interview below, without naming the near misses;
-  never force a bad-fit template, and never a menu of unrelated ones.
-- **A mandate is still their strategy.** "Trade for me", "you pick", "be aggressive": ask the one or two
-  questions that turn it into a thesis (what they believe will move, how much risk they take), then find a
-  base or build. Never hand-pick positions for them.
-- **Fork it, don't just install it.** Ops deploys a template as their fork (`<User>'s <Template>`) after its
-  walkthrough (ops Step 0.75); help them make it theirs before it goes live — shift a lever, or add a rule
-  of their own (this skill's edit path, "Editing an existing strategy", on the fork). If they want it
-  unchanged, ask once what they'd change; if they decline, ops deploys it — no re-pitch.
-- **Scratch is always there** — the interview below, when nothing fits or they'd rather start clean.
-- **Cost is a fact, never a sales line.** Building takes roughly two to three times the agent work of
-  deploying a template. Say it when asked; never use it as a reason to pick a template.
-- **Never ask for a budget to start building** — see the funding heads-up below; the number is asked once,
-  at deploy.
+- **Offer the start; don't pre-pick it.** Build it from scratch together (the interview below), or start from a template if they would like one. A specific idea leads with building; an open ask with no idea yet can offer either. Search templates (`senpi-strategy-discover`: their words as `--theme`, any stocks or coins they name as `--assets`) only when they want one or name one, never before; a named ticker never turns the ask into research on that asset, and checking tickers against `market_list_instruments` is a build step. A template fits only if it trades the same idea (the market, the edge, the horizon), not just the same asset; if you'd call it "not a tight fit", it doesn't fit: say none fits and build. One fitting template, by name, never a menu.
+- **A mandate is still their strategy.** "Trade for me", "you pick", "be aggressive": ask the one or two questions that turn it into a thesis (what they believe will move, how much risk they take), then build. Never hand-pick positions for them.
+- **Then propose the test, unprompted.** Once there is a design (built here, or a template they picked), offer it as designed plus a few variations to run as simulations, each changing one thing the design left open (scoring, a scanner threshold, entry management, exit management) and saying in plain words what it tests, with how often it should trade, the virtual budget and the credits an hour. Then ask once: simulate these first (your recommendation), or take it live as it is now? Picking and wording them: [`references/variations.md`](references/variations.md). Ops shows the list and its cost and starts nothing before their yes.
+- **Follow the user.** No simulation pitch when they ask to launch a strategy live, or to take a simulation live (ops `--from-simulation`): go. After a no, don't ask again in that conversation. When their recent strategies went straight live (`status.py --recent` in senpi-strategy-ops), lead with "go live now, or simulate a few options first?". A lasting preference they state ("I don't simulate") goes in MEMORY.md in their words, and you follow it.
+- **Make a template theirs.** Ops deploys a template as their fork (`<User>'s <Template>`); the variations are how they make it theirs, and so is a lever or a rule of their own ("Editing an existing strategy"). If they want it unchanged, it goes as it is, with no re-pitch.
+- **Cost is a fact, never a sales line.** Building takes roughly two to three times the agent work of deploying a template, and every simulation uses credits each hour it runs. Say it when asked and in the test plan; never use it to steer them to a template or away from a test.
+- **Never ask for a budget to start building** — see the funding heads-up below; the real-money number is asked once, at deploy.
 
 ## ⛔ Never guess syntax — get it from the source (your memory is NOT authoritative)
 
@@ -122,7 +111,7 @@ Before Decision 1, read the **deployable** balance ONCE: `account_get_portfolio`
 Never `total_withdrawable`, never `total_balance_usd` — committed capital. **0 is a fact, not a missing read**: no `or` chain.
 Never say "$total free": say what is free, and that freeing the rest means withdrawing from a strategy — their call. [`references/deployable-balance.md`](references/deployable-balance.md). **~$11.50/wallet opens a wallet** (`deploy.py create` reserves the
 ~$1.50 fee first; exactly $10 refuses with `[E_FUNDS_BELOW_FLOOR]`) — **not what the strategy needs to trade**: under the design's own minimum it installs, scans and never opens.
-No design exists yet, so check the floor here; Handoff step 1 quotes the minimum. That floor is also how a strategy is **tested** live. A simulation runs it with no real funds only when the user asks for one (`--simulation`, in senpi-strategy-ops), and a scan re-run on a timer is a model call per tick, not a simulation; an offline backtest follows the rules in [`references/shadow-testing.md`](references/shadow-testing.md).
+No design exists yet, so check the floor here; Handoff step 1 quotes the minimum. That floor is also the smallest live test. The recommended test comes first, as simulations on virtual money (Start here; `--simulation`, in senpi-strategy-ops), and a scan re-run on a timer is a model call per tick, not a simulation; an offline backtest follows the rules in [`references/shadow-testing.md`](references/shadow-testing.md).
 
 - **Balance ≥ ~$11.50/wallet, or unreadable** → say nothing about funding and move on. Unreadable
   means move on too — no retry loop, no blocking; funding is re-checked at deploy anyway.
@@ -418,6 +407,8 @@ loop every time:
 > `dsl_preset` is **forward-only** — new entries only, never a position already open (other `exit:` fields
 > like `order_type` DO reach open ones); and a changed `strategy.wallet`, a renamed or moved external
 > scanner or a changed `action_type` still forces close-and-redeploy — a market exit. Below: the not-yet-live path.
+
+**Simulations come first unless they chose live** (Start here). On a yes to the test plan, ops runs it: the package's first simulation from its directory (`deploy.py create <dir> --simulation`), the variations as a batch from that simulation (ops **Running variations**). The live steps below follow when they pick a winner (`--from-simulation`) or choose live.
 
 1. **Confirm with the user** — budget + "ready to deploy?" Funding a wallet is real money and one-way, so
    this is an explicit yes, not an assumption. This is the first and only time the budget is asked.

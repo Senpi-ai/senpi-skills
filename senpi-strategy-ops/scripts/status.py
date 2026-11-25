@@ -5,6 +5,7 @@
   python3 status.py <id>       # only the <id> package
   python3 status.py --json
   python3 status.py --simulation  # simulations only (`strategy_list {simulation: true}`); without it, live only
+  python3 status.py --recent      # how their recent strategies started: straight live, or from a simulation
 
 Reads live truth (MCP strategy_list ∪ openclaw runtime list) — NOT the ephemeral deploy state. If that
 strategy read cannot be made, this REFUSES (non-zero) instead of printing "No open strategies." — an
@@ -50,6 +51,7 @@ import argparse
 import json
 import sys
 from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -97,6 +99,48 @@ def _openclaw_available(why=None):
     """`openclaw --version` answered. A SIGKILLed probe is out of memory, never "no openclaw": `why`
     receives its `Cause` (see `_cli.openclaw_available`)."""
     return _cli.openclaw_available(why=why)
+
+
+# The day simulations reached users: a live start before it had no simulation to come from, so it says
+# nothing about how this user likes to start. Set to the prod launch day when simulations ship.
+SIMULATIONS_SINCE = "2026-12-01"
+
+
+def _created(o):
+    """A strategy's `createdAt` as an aware UTC datetime, or None when it is missing or unreadable."""
+    v = o.get("createdAt") if isinstance(o, dict) else None
+    try:
+        ts = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+
+
+def recent(mcp, days=30, now=None, why=None):
+    """How the user's recent strategies started, for the sim-or-live question: `{"since", "live_started",
+    "from_simulation"}`, or None when the strategy list could not be read.
+
+    Counts the package strategies (a `skillName`, no trader: copy-trading and manual wallets are not a
+    strategy someone started) created live since the later of `days` ago and SIMULATIONS_SINCE, and how
+    many of them were taken live from a simulation (`identity.fromSimulationId`). Every status counts: a
+    strategy started live and closed since is still how they chose to start. A read for the agent's
+    judgment, never a gate."""
+    now = now or datetime.now(timezone.utc)
+    since = max(now - timedelta(days=days),
+                datetime.fromisoformat(SIMULATIONS_SINCE).replace(tzinfo=timezone.utc))
+    rows = _cli.list_strategies_or_none(mcp, timeout=30, why=why)
+    if rows is None:
+        return None
+    live = from_sim = 0
+    for s in rows:
+        o = _cli.strategy_obj(s)
+        created = _created(o)
+        if not _cli.strategy_skill(s) or o.get("traderAddress") or created is None or created < since:
+            continue
+        live += 1
+        if ((o.get("identity") or {}).get("fromSimulationId")):
+            from_sim += 1
+    return {"since": since.date().isoformat(), "live_started": live, "from_simulation": from_sim}
 
 
 def _read_or_refuse(rows, why, simulation=False):
@@ -249,8 +293,22 @@ def main(argv):
                     help="Skip the per-runtime health check (status -r) — just running/stopped from the list.")
     ap.add_argument("--simulation", action="store_true",
                     help="Simulations only (strategy_list {simulation: true}). Without it, live strategies only.")
+    ap.add_argument("--recent", action="store_true",
+                    help="How their recent strategies started: straight live, or taken live from a simulation.")
+    ap.add_argument("--days", type=int, default=30, help="With --recent: how far back to look (default 30).")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv[1:])
+
+    if a.recent:
+        why = []
+        r = _read_or_refuse(recent(MCPClient(), days=a.days, why=why), why)
+        if a.json:
+            print(json.dumps({"world": "live", "recent": r}, indent=2))
+        else:
+            n, k = r["live_started"], r["from_simulation"]
+            print(f"Since {r['since']}: {n} strateg{'y' if n == 1 else 'ies'} started live, "
+                  f"{k} of them from a simulation.")
+        return 0
 
     rwhy, kills, hwhy = [], [], []
     rows, orphans, cli_ok = build(MCPClient(), a.package, deep=not a.fast, simulation=a.simulation, rwhy=rwhy,
