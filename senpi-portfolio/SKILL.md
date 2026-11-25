@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.38.9"
+  version: "1.39.11"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -357,6 +357,8 @@ trade; only a fill on the strategy wallet (`positions`, `closed`) is. Never narr
 one word: while it runs it is "running", never "live" ("live" means real money), in a status column too.
 "Show my best simulations" ranks them by return unless the user names another measure (Sharpe ratio,
 drawdown, win rate, trade count); say which measure ranks them.
+"How are my simulations doing?" and any status of several rank the same way, best first, by
+`simulation_metrics.return_pct` (below); a null one goes last with its `not_available` reason.
 **A simulation's Sharpe, max drawdown, win rate, profit factor or trades** come
 from Senpi, not from you: call `strategy_get_pnl_and_account_value_history` with `strategy_wallet` = its wallet and
 quote its `simulation_metrics` as written (the figures the app shows, over the simulation's whole life). Never

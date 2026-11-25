@@ -535,6 +535,9 @@ def test_simulations_are_running_and_best_ranks_by_return():
     assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money), in a status column too.") in skill
     assert _norm("\"Show my best simulations\" ranks them by return unless the user names another measure (Sharpe ratio, "
                  "drawdown, win rate, trade count); say which measure ranks them.") in skill
+    assert _norm("\"How are my simulations doing?\" and any status of several rank the same way, best first, by "
+                 "`simulation_metrics.return_pct` (below); a null one goes last with its `not_available` reason.") in skill
+    assert re.search(r'^  version: "1\.39\.11"', SKILL, re.M), "patch-bump above dev's 1.39.10"
     health = _ref("runtime-health.md")
     assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money).") in health
 
