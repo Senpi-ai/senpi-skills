@@ -29,11 +29,11 @@ SCANNERS**, not a clean "running." When `runtime_registered` (or `not_running` /
 `null`, the registry read did not answer — say **"could not verify on this host,"** never "running" and
 never "not running."
 
-**Runtime-verified liveness — `runtime_health`.** ("Telemetry" here is `openclaw senpi status` on the
+**Runtime-verified liveness — `runtime_health`.** ("Telemetry" here is `senpi status` on the
 user's own box — the runtime's own view of itself, not the internal telemetry stack. Don't say
 "telemetry reports…" to a user; it sounds like we are reading something they cannot see.) Beyond "is a
 runtime registered," the engine asks the
-runtime itself (`openclaw senpi status`) whether it's actually *working*, and sets `runtime_health` per
+runtime itself (`senpi status`) whether it's actually *working*, and sets `runtime_health` per
 strategy and per group. Narrate it honestly — a registered runtime is not automatically a healthy one:
 - **`live`** — registered, and the runtime reports itself healthy. Only this earns "running / protected."
 - **`recovering`** — the engine's own `degraded`: **the last scan errored, once.** `consecutiveErrorCount`
@@ -84,7 +84,9 @@ from memory. If the fee read fails, say the number is gross and why.
 
 **Paper is not live.** A `senpi validate` tick, a scanner signal, a simulation or an estimate is not a
 trade; only a fill on the strategy wallet (`positions`, `closed`) is. Never narrate a shadow run as
-"live", "running" or "a trade" — the user then manages a position that does not exist.
+"live", "running" or "a trade" — the user then manages a position that does not exist. A simulation
+(virtual money, run by the runtime) is the exception for one word: while it runs it is "running", never
+"live" ("live" means real money).
 
 ### When it IS genuinely broken, act — don't hand the user a to-do
 
@@ -104,13 +106,13 @@ the ladder finds it.
    skill's. Its **`degraded`** is this skill's **`recovering`** (one errored tick); its **`unhealthy`** is
    this skill's **`degraded`** (the real fault). Reading its "degraded" as ours is how a confirmation step
    confirms the wrong thing.
-2. **`openclaw senpi scanner -r <rt>`** — is it alive at all? An external scanner is live when `alive=` is
+2. **`senpi scanner -r <rt>`** — is it alive at all? An external scanner is live when `alive=` is
    recent (older runtimes print `alive=` as epoch ms). Then read the row's `health` (the engine's words):
    `degraded`/`unhealthy` with `last=error` and a fresh `alive` is a past delivery error (read `reason`),
    not a dead scanner; `unhealthy` with `inFlight=true`, or a crash-loop reason, is a real fault;
    `health=unknown` with `alive=—` is a child not heard from yet. Its run count (`runs=` on older runtimes)
    moves only on an accepted signal or an error, so 0 is normal.
-3. **Re-run the deploy** — a deploy interrupted by a gateway restart does not resume on its own, and
+3. **Re-run the deploy** — a deploy interrupted by a runtime restart does not resume on its own, and
    re-running reconciles rather than duplicating. This is the fix for `not_running` after a broken deploy.
 4. **`close.py` → redeploy** — **last resort, and ask first.** It is a market exit of every open position
    and a fresh wallet. Never reach for it to clear an error you have not diagnosed.
@@ -133,7 +135,7 @@ Support rather than inventing a step they can take.
   Never `live` / `recovering` / `degraded` / `not_running` / `unverified` — those don't apply to it. Judge it on `mirror_of` +
   `mirror_multiplier` + `stop_loss_pct` / `take_profit_pct`, never on a runtime it was never meant to have.
 
-**Minimum runtime — `openclaw senpi runtime list --json`.** The engine asks the runtime for its own
+**Minimum runtime — `senpi runtime list --json`.** The engine asks the runtime for its own
 inventory through that command (it never reads the runtime's private state files). It is a **newer
 runtime build than some hosts carry**; a box whose `@senpi-ai/runtime` predates it exits non-zero on the
 `--json` flag, and you will see **every** runtime-sourced field `null` on **every** strategy —

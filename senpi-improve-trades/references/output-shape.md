@@ -21,7 +21,7 @@ The step(s) to run per intent are in the `SKILL.md` Router; the lever is in its 
 | **1.** *"Am I getting shaken out too early? / how are my exits firing?"* | `dsl_close_reason_mix` — terminal mix overall + by asset_class + by strategy, plus the **premature** bucket (`trailing_floor`/`weak_peak`/`max_retrace`, or a low tier locked on a small ROE) |
 | **2.** *"What did my own limits block? / what couldn't I take?"* | `blocked_summary` / `missed_signals` — tallied by `reason_code` (`no_slots`/`no_margin`/`risk_gate_*`/`asset_banned`/…) |
 | **3.** *"Where am I leaking? / fees"* | `leaks` — `order.failed` (order rejected), `dsl.sl_sync_failed`/`dsl.handoff_failed` (protection gaps → a naked leg), `runtime.paused` (risk halts) — **plus** premature exits (from `dsl_close_reason_mix`) + fee drag (from `execution_quality`) |
-| **4.** *"Walk me through / explain my [asset] trade"* | Run **`openclaw senpi explain <ASSET> --runtime <id> --json`** directly — the native opened→dsl→close+reason lifecycle for that asset (oldest-first, threaded by position id) |
+| **4.** *"Walk me through / explain my [asset] trade"* | Run **`senpi explain <ASSET> --runtime <id> --json`** directly — the native opened→dsl→close+reason lifecycle for that asset (oldest-first, threaded by position id) |
 | **5.** *"What am I paying in fees — maker vs taker?"* | `execution_quality` — maker/taker fill tally + `maker_ratio` from `order.filled` |
 | **6.** *"Why is [strategy] losing?"* | That strategy's slice: `dsl_close_reason_mix.by_strategy[label]` + `blocked_summary.by_strategy[label]` + `strategies[label]` realized PnL + mandate |
 

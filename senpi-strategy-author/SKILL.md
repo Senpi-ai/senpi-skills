@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.17.1"
+  version: "3.17.4"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -82,6 +82,11 @@ starts here — a thesis, an X take, "what should I trade?", "recommend a strate
 - **Never ask for a budget to start building** — see the funding heads-up below; the number is asked once,
   at deploy.
 
+**An open ask** ("help me create a strategy", "set me up") with no thesis yet: before finding a base, ask the two
+opening questions in [`references/opening-questions.md`](references/opening-questions.md), one per call, each through
+`ask_user_question` with every option's `description` and `allow_text: true` (plain text where the tool is absent).
+Never also write the question in your reply. A typed answer counts the same as a tapped one; the answers open the thesis.
+
 ## ⛔ Never guess syntax — get it from the source (your memory is NOT authoritative)
 
 You are an LLM. **Every identifier you emit from memory or plausibility is a silent failure** — a wrong
@@ -102,7 +107,9 @@ ticker, field name, enum value, unit, MCP tool/arg, or output key compiles fine,
 and ask — never paper over the gap with a plausible value.** This is not optional polish; it is the
 single most common way a strategy silently does nothing.
 
-**And when you cannot check a source, run the code.** `openclaw senpi validate <recipe-dir> --stage import`
+`senpi …` is the runtime's own CLI and works while the agent sleeps; where it answers *not installed on this box yet*, run the same command as `openclaw senpi …` (same flags, output and exit codes).
+
+**And when you cannot check a source, run the code.** `senpi validate <recipe-dir> --stage import`
 loads every scanner file in about a second, with no credentials and no wallet — the fastest way to
 find out that a name you were confident about does not resolve. Use it while you write, not only at
 the end. **`<recipe-dir>` is the directory holding the `runtime.yaml`** — the package root for the
@@ -284,9 +291,9 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
 9. **THE GATE — `senpi validate`. Authoring is not done until this is green.**
    ```
    # FLAT (stage 2's default: no `instances:` list) — the recipe is at the root, so the root is the target:
-   openclaw senpi validate /data/workspace/strategies/<id>
+   senpi validate /data/workspace/strategies/<id>
    # `instances:` LISTED — one run per instance, each pointed at its own dir:
-   openclaw senpi validate /data/workspace/strategies/<id>/<instance>
+   senpi validate /data/workspace/strategies/<id>/<instance>
    ```
    **Point it at the directory holding that instance's `runtime.yaml`.** It resolves ONE recipe, so
    the target is whichever directory holds one: the package **root** for the flat layout you built at
@@ -341,12 +348,12 @@ or shut down anything the user is already running. So:
 
 - **Default to running it alongside.** If the user already has a strategy live, the new one gets its
   **own new wallet** and runs concurrently. **Never tell the user they must stop an existing strategy
-  to start a new one — that is wrong.** "You're already running X, so this needs its own wallet"
-  is a one-line statement of fact, not a blocker.
-- **Multiple strategies / wallets at once is normal and encouraged** — a long book beside a short
-  hedge, a swing leg beside a scalp leg, several theses in parallel. Each is fully isolated (its own
-  wallet, slots, risk gates); they don't share margin or interfere. A "fund" that is one long
-  strategy + one short hedge is just **two instances / two wallets**, deployed and running together.
+  to start a new one** — wallets never block each other; only the strategy limits can (running and new
+  per cycle). Closing one frees only a running slot, and is the user's choice. "You're already running X, so this needs its own wallet" is a fact.
+- **Multiple strategies / wallets at once is normal — within the user's strategy limits.** Each is fully
+  isolated (own wallet, slots, risk gates), but every wallet is one strategy against the plan's limits:
+  before proposing more than one, call `strategy_get_limits`; when `enforced` is true, size the proposal
+  to `runningLeft` and `startsLeft` (a `null` left is no limit); another plan's limits come from the `senpi-account-status` plan table, never memory. If `strategy_get_limits` fails (`SERR185`, a timeout, `NOT_FOUND`), retry once at most (never after `NOT_FOUND`), then propose as if there were no limits and say nothing about it: the deploy and strategy-manager still enforce them. If a multi-wallet design does not fit, say so and quote `summary`; never drop one leg of a hedged design to make it fit. A long book + short hedge "fund" is **two instances / two wallets**, two slots.
 - **Funding the new wallet** ($10/wallet floor) comes from the embedded wallet at deploy. If the
   embedded wallet is short on USDC because funds are in other strategies, **offer options** — deposit
   more, or `strategy_withdraw_funds` from an existing strategy (it keeps running) and fund the new
@@ -412,7 +419,7 @@ loop every time:
 
 > **Was this an edit to a strategy that is ALREADY LIVE?** (you changed the scoring / scanner / DSL of a
 > deployed package — "make my live strategy more aggressive", re-tune, re-score) — then hand it to
-> **`senpi-strategy-ops`**, which applies it IN PLACE with `openclaw senpi update`: no close, no fresh
+> **`senpi-strategy-ops`**, which applies it IN PLACE with `senpi update`: no close, no fresh
 > wallet, no market exit — call it an **update**, never a "redeploy". **Re-running `create` will NOT apply it** — the deploy verb is idempotent, so it
 > adopts the existing wallet and leaves the deployed scanner as it is. Tell the user two things:
 > `dsl_preset` is **forward-only** — new entries only, never a position already open (other `exit:` fields
@@ -438,9 +445,9 @@ loop every time:
    [`refusal-playbook.md`](../senpi-strategy-ops/references/refusal-playbook.md).
 4. **GATE — the deploy report's `overall`**: `live` (every instance installed **and** a scanner tick
    observed) is the only value you may call live. `installed-unobserved` means the tick was not seen in
-   the window — say exactly that and re-read `openclaw senpi scanner -r <runtime_id>` in a few minutes;
+   the window — say exactly that and re-read `senpi scanner -r <runtime_id>` in a few minutes;
    `refused` / `failed` name their cause — fix it and re-run. Re-read the verdict **read-only** with
-   `openclaw senpi deploy status` (or `status.py <id>` / `deploy.py verify <id>`, both read-only). The
+   `senpi deploy status` (or `status.py <id>` / `deploy.py verify <id>`, both read-only). The
    command that RESUMES a deploy is `deploy.py runtime <id>` (or `create <id> --budget <usd>`): that one
    installs, starts trading, and can create+fund a wallet — reach for it only when you mean to resume.
    **Never tell the user it's live until a report says `overall: live`.**
