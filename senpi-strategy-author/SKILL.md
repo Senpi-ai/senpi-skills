@@ -71,6 +71,11 @@ The user is the driver and Senpi is the tool: what goes live is theirs, shaped b
 - **Cost is a fact, never a sales line.** Building takes roughly two to three times the agent work of deploying a template, and every simulation uses credits each hour it runs. Say it when asked and in the test plan; never use it to steer them to a template or away from a test.
 - **Never ask for a budget to start building** — see the funding heads-up below; the real-money number is asked once, at deploy.
 
+**An open ask** ("help me create a strategy", "set me up") with no thesis yet: before building, ask the two
+opening questions in [`references/opening-questions.md`](references/opening-questions.md), one per call, each through
+`ask_user_question` with every option's `description` and `allow_text: true` (plain text where the tool is absent).
+Never also write the question in your reply. A typed answer counts the same as a tapped one; the answers open the thesis you build.
+
 ## ⛔ Never guess syntax — get it from the source (your memory is NOT authoritative)
 
 You are an LLM. **Every identifier you emit from memory or plausibility is a silent failure** — a wrong
