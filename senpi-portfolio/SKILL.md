@@ -6,7 +6,7 @@ description: >-
   dump. Leads at the STRATEGY level: each strategy judged against its OWN mandate (is it doing its job?),
   with positions as evidence. Use this skill FIRST for ANY portfolio / strategies / positions / balances
   / PnL / trade-history question, BEFORE any raw strategy_get_clearinghouse_state / account_get_portfolio
-  / strategy_list MCP call. Use for "analyze my strategies", "how are my strategies doing", "analyze my
+  / strategy_list MCP call. "How many simulations": simulation_counts. Use for "analyze my strategies", "how are my strategies doing", "analyze my
   portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is idle",
   "how are my simulations doing" (call simulation_list once first), and
   "are my open positions protected? / do they have a stop-loss?", "my saved wallet", "the wallets I added", "my MetaMask
@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.39.8"
+  version: "1.39.9"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -49,7 +49,7 @@ book total, or verdicts and figures already shown unless the user asks for them 
 | "what happened to my closed X / did my trade go through / do I still hold X" | `strategies` (`closed`), `positions` | "Source of truth" below |
 | "go deeper on X" (the deep-dive answer) | a strategy: `strategies`; a wallet they added: its row; the Senpi main wallet: `embedded_wallet` | — |
 | add / change / remove a stop or DSL | nothing here — this skill reads; offer it, then `senpi-trade` | "This skill reads" below |
-| score / rate / grade my trading | `quant-desk` on these wallets | — |
+| score my trading | `quant-desk` | — |
 | "where am I leaking / did a stop fail / exit quality", trade history | `senpi-improve-trades` | — |
 | what a JSON field means | — | `references/output-fields.md` |
 | a read failed: `meta.degraded`, `meta.warnings`, `reconciles: false`, a `null` figure | re-run that step | `references/output-contract.md` ("Resilience") |
