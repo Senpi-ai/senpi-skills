@@ -61,7 +61,7 @@ REPLAY_NEEDLES = (
     "| close / pause / keep / top up ONE wallet of a strategy | — | the no-no below: whole strategy only |",
     "| a yes to CTA 1 / CTA 2, or a digit after the CTAs | the levers / build for the idle (author) | "
     "`references/output-contract.md` |",
-    "CTA 2: build their own (author, forking the closest template when one fits); name none here.",
+    "CTA 2: build their own (author: from scratch or a template that fits, simulated first); name none here.",
     "| a read failed: `meta.degraded`, `meta.warnings`, `reconciles: false`, a `null` figure | re-run that step | "
     "`references/output-contract.md` (\"Resilience\") |",
     "| `strategies` | `references/dsl.md` (protection), `references/mandate.md` (verdicts), `references/runtime-health.md` "
@@ -545,7 +545,8 @@ def test_simulations_are_running_and_best_ranks_by_return():
                  "drawdown, win rate, trade count); say which measure ranks them.") in skill
     assert _norm("\"How are my simulations doing?\" and any status of several rank the same way, best first, by "
                  "`simulation_metrics.return_pct` (below), never worked out from account value; a null one goes last with its `not_available` reason.") in skill
-    assert re.search(r'^  version: "1\.39\.13"', SKILL, re.M), "patch-bump above dev's 1.39.12"
+    version = re.search(r'^  version: "([0-9.]+)"', SKILL, re.M).group(1)
+    assert tuple(map(int, version.split("."))) >= (1, 39, 13), "patch-bump above dev's 1.39.12"
     health = _ref("runtime-health.md")
     assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money).") in health
 

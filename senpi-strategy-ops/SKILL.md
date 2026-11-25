@@ -3,7 +3,7 @@ name: senpi-strategy-ops
 description: >-
   Deploy / monitor / close a NAMED Senpi trading strategy. Monitoring is on demand:
   never an agent-turn cron to watch a strategy — the runtime
-  supervises it at zero model cost. Simulations: virtual money on a copy of Hyperliquid, no real balance read or moved; pass `--simulation` only when the user asks.
+  supervises it at zero model cost. Simulations: virtual money on a copy of Hyperliquid, no real balance read or moved; recommended before live, after the user's yes.
   Use when the user names a strategy to run — "install spider", "deploy polar",
   "set up kodiak", "reinstall athena", "run the spider strategy", "is my strategy live?",
   "what am I running", "list my strategies" (→ status.py), "why isn't polar trading?" /
@@ -39,7 +39,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.35.11"
+  version: "3.36.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -128,7 +128,7 @@ fresh `senpi validate` before the next `create`. **`UNPROVEN` (exit 2) is not a 
 package that has not returned `PASS`. The proof: [`references/lifecycle.md`](references/lifecycle.md).
 
 **Step 0.75 — the walkthrough (REQUIRED before a live deploy's budget question).**
-The package is on disk (Step 0.5). Read their username first (`user_get_me` → `userName`; none → ask what to call it). Before you ask for a dollar, read `strategy.yaml` (`catalog:`)
+**Simulate first, unless asked for live:** offer a new start as is plus 2–4 variations as simulations, or live now (author's `references/variations.md`; started under **Running variations**). A live ask ("deploy spider live with $50") or taking a simulation live: no pitch. A bare "install spider" gets it in one line. `status.py --recent` mostly straight live: ask "go live now, or simulate a few options first?". The package is on disk (Step 0.5). Read their username first (`user_get_me` → `userName`; none → ask what to call it). Before you ask for a dollar, read `strategy.yaml` (`catalog:`)
 and each instance's `runtime.yaml` and say it **all in bullets — plain words, no YAML, no config keys**:
 **what it does** (three bullets: the signal · when it enters · how it exits), **how it is set** (the
 post-live block's four lines), **two levers** worth a look (one for `tier: starter`) — each named by what

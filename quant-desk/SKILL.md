@@ -47,7 +47,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.50.4"
+  version: "1.51.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -429,8 +429,8 @@ to restate numbers differently). `--fresh` ignores the 10-minute cache. `--days 
 2. **Fix the biggest leak** — the top leak's title and its counterfactual $; the one-line fix.
 3. **Keep the agents on** — "say *hire my quant* and senpi runs this desk on your book — risk guard,
    smart money, market regime, leak finder — and can code your best setup into a strategy you approve,
-   deployed as **your** strategy" → `senpi-strategy-author` (it forks the closest template to the edge when
-   one fits), then `senpi-strategy-ops`.
+   deployed as **your** strategy" → `senpi-strategy-author` (it builds it with them, from scratch or a template
+   that fits the edge, simulated first), then `senpi-strategy-ops`.
 
 ### Handing off on *hire my quant*
 

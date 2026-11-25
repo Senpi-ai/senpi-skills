@@ -5,7 +5,7 @@ skip. The expensive way — scheduling the agent to *watch* the strategy — is 
 disappears in days while the strategy itself does nothing.
 
 **Paper trading is a simulation, and only a simulation.** It runs through senpi-strategy-ops (`--simulation`),
-only when the user asks for one. Nothing you schedule can stand in for it: a scanner re-run on a timer is a model call per tick, not a simulation, and
+the recommended test before live (SKILL.md, Start here). Nothing you schedule can stand in for it: a scanner re-run on a timer is a model call per tick, not a simulation, and
 it never sees fills, slippage, funding or the DSL. A one-shot offline backtest over historical candles is
 fine — no scheduler, no model call per tick, no venue contact — as long as it never wires to a trade tool
 and follows [the rules below](#an-offline-backtest--the-rules).

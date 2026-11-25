@@ -3,13 +3,13 @@ name: senpi-strategy-discover
 description: >-
   Find the Senpi template that best fits the user's idea, as the BASE of their own
   strategy: they fork it and make it theirs (a lever shifted, a rule of their own)
-  before it goes live. Called by senpi-strategy-author to find a base for a thesis,
-  and directly when the user asks to browse ("show me your templates", "a
-  ready-made fund") or names a template. Strategy asks ("what should I trade?",
-  "recommend a strategy", "trade for me") start in senpi-strategy-author, which runs
-  this first; one that names stocks or coins ("a basket like Apple, Microsoft and
-  Nvidia") is still a strategy ask, answered with templates, never with research on
-  the assets. Every pick
+  before it goes live, usually by simulating a few variations of it first. Use it when
+  the user wants a template: they ask to browse ("show me your templates", "a
+  ready-made fund"), name one, or choose a template start in senpi-strategy-author.
+  Strategy asks ("what should I trade?", "recommend a strategy", "trade for me")
+  start in senpi-strategy-author, which builds them; one that names stocks or coins
+  ("a basket like Apple, Microsoft and Nvidia") is still a strategy ask, built with
+  those assets, never with research on the assets. Every pick
   deploys as `<User>'s <Template>` (or a name of their own) after ops walks them
   through it. You talk and RANK (their worldview as `--theme`); a
   hidden engine (scripts/discover.py) fetches data + filters. NOT for installing a
@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.57.3"
+  version: "2.59.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -116,11 +116,13 @@ they want, rank the eligible set, and recommend in a natural voice. It must neve
 - **Don't re-ask what they've told you.** If they named an asset/direction, use it; only ask real gaps.
 - **Never say "safe."** Be honest about risk; surface **EVERY** entry in a candidate's `caveats[]`
   **verbatim** — never omit, merge, or soften them.
-- **Asked by author for a base, a pick has to fit** the thesis: the same idea (the market, the edge, the
+- **A template for their idea has to fit** it: the same idea (the market, the edge, the
   horizon), not just the same asset. If the top card doesn't fit, say no template fits and hand back to
   author to build; never offer the best of a poor list.
 - **Every pick gets made theirs.** Ops' walkthrough ends on what they want to change (a lever, a rule of
   their own); unchanged only if they decline. Never dead-end: no fit → build it with them (author).
+- **After a pick, offer the test.** It as it is plus a few variations as simulations first (recommended), or
+  live as it is: their call, unless they already asked for live (author's Start here).
 
 ## How to run the engine
 
@@ -259,8 +261,8 @@ otherwise put it in `--theme` and rank on `archetype_label`/`belief_plain`/`thes
      buffer — then **confirm before install** ("you've got ~$X free; I'd put ~$Y in Rhino, ~$Z in Spider —
      good?"). Never invent a number the user hasn't confirmed, and never default everyone to the floor.
    - If funds are unavailable (`user_context` missing/errored), ask for the budget rather than assuming.
-   - **"Can I try it first / paper trade it?"** — a simulation runs it without real funds when the user
-     asks for one (`--simulation`, in senpi-strategy-ops). Otherwise the trial IS a live run at
+   - **"Can I try it first / paper trade it?"** — yes: a simulation runs it on virtual money (`--simulation`,
+     in senpi-strategy-ops), the recommended test before live. A live trial is a run at
      the floor, after `senpi validate` proves it runs — and the floor is the card's `min_budget`, which is
      the number to quote. The $10 platform floor is the per-wallet minimum inside it, never the number to
      give a user. Say so, and never offer to watch it on a timer — an `openclaw cron` job is a model call

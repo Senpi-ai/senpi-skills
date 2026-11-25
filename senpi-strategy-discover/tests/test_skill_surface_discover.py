@@ -120,19 +120,21 @@ def _description(skill):
     return " ".join(fm.split("description:", 1)[1].split("license:", 1)[0].split())
 
 
-def test_a_strategy_ask_that_names_stocks_still_routes_to_templates():
+def test_a_strategy_ask_that_names_stocks_stays_a_strategy_ask():
     """Blind test, 16 Nov 2026: "a long-term basket of quality megacap stocks, the likes of Apple,
     Microsoft and Nvidia" never reached discover; the agent listed instruments 13 times and wrote a
     stock-research note. The same ask without tickers ran discover and picked Kudu. Routing is read
-    from the descriptions before any file is opened, so both strategy skills say it there."""
+    from the descriptions before any file is opened, so both strategy skills say it there. Since
+    25 Nov 2026 author builds it with those assets and searches templates only when the user wants one."""
     author, disc = _description("senpi-strategy-author"), _description("senpi-strategy-discover")
     assert "naming stocks or coins keeps it one" in author and "never stock research" in author
-    assert "Finds the closest template FIRST" in author
+    assert "no template search first" in author
     assert "is still a strategy ask" in disc and "never with research on the assets" in disc
     body = " ".join(open(os.path.join(os.path.dirname(SKILL), "..", "senpi-strategy-author", "SKILL.md"),
                          encoding="utf-8").read().split())
     assert "a named ticker never turns the ask into research on that asset" in body
-    assert "checking tickers against `market_list_instruments` is a build step, after the base" in body
+    assert "checking tickers against `market_list_instruments` is a build step" in body
+    assert "Find a base first" not in body, "templates are searched only when the user wants one"
 
 
 def test_card_format_never_prints_the_raw_tier_field():
