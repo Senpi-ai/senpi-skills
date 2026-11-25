@@ -79,7 +79,7 @@ REPLAY_NEEDLES = (
     "Confirm before any change; never trade unprompted. Propose; never deploy without confirmation.",
     "**A running simulation is \"running\"**, never \"live\"/\"active\"; its data is never \"live\".",
     "**\"Best\" or any status ranks by return** unless told otherwise.",
-    "**Sharpe:** from `strategy_get_pnl_and_account_value_history` (`strategy_wallet` = its wallet).",
+    "**Return, Sharpe:** quote `simulation_metrics` from `strategy_get_pnl_and_account_value_history` (`strategy_wallet` = its wallet), never compute one.",
     "**Source of truth for position facts — read before you answer, even mid-trade.**",
     "**\"In profit\" on an open position is unrealized.**",
     "**A Senpi strategy is one row with all its wallets.**",
@@ -545,7 +545,7 @@ def test_simulations_are_running_and_best_ranks_by_return():
                  "drawdown, win rate, trade count); say which measure ranks them.") in skill
     assert _norm("\"How are my simulations doing?\" and any status of several rank the same way, best first, by "
                  "`simulation_metrics.return_pct` (below), never worked out from account value; a null one goes last with its `not_available` reason.") in skill
-    assert re.search(r'^  version: "1\.39\.12"', SKILL, re.M), "patch-bump above dev's 1.39.11"
+    assert re.search(r'^  version: "1\.39\.13"', SKILL, re.M), "patch-bump above dev's 1.39.12"
     health = _ref("runtime-health.md")
     assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money).") in health
 
