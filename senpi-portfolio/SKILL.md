@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.39.11"
+  version: "1.39.12"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -359,8 +359,8 @@ one word: while it runs it is "running", never "live" ("live" means real money),
 "Show my best simulations" ranks them by return unless the user names another measure (Sharpe ratio,
 drawdown, win rate, trade count); say which measure ranks them.
 "How are my simulations doing?" and any status of several rank the same way, best first, by
-`simulation_metrics.return_pct` (below); a null one goes last with its `not_available` reason.
-A simulation's Sharpe, drawdown, win rate or profit factor: quote `simulation_metrics`, never
+`simulation_metrics.return_pct` (below), never worked out from account value; a null one goes last with its `not_available` reason.
+A simulation's return, Sharpe, drawdown, win rate or profit factor: quote `simulation_metrics`, never
 your own; a null one: say why (`not_available`).
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
