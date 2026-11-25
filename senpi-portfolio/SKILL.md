@@ -359,7 +359,7 @@ one word: while it runs it is "running", never "live" ("live" means real money),
 "Show my best simulations" ranks them by return unless the user names another measure (Sharpe ratio,
 drawdown, win rate, trade count); say which measure ranks them.
 "How are my simulations doing?" and any status of several rank the same way, best first, by
-`simulation_metrics.return_pct`; a null one goes last with its `not_available` reason.
+`simulation_metrics.return_pct` (below); a null one goes last with its `not_available` reason.
 A simulation's Sharpe, drawdown, win rate or profit factor: quote `simulation_metrics`, never
 your own; a null one: say why (`not_available`).
 
