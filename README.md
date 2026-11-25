@@ -50,7 +50,7 @@ A Senpi agent's abilities are **skills**. Each one packages a tested multi-step 
 | Skill | Ver | Role |
 |---|---|---|
 | **Analyze** | | |
-| [`senpi-portfolio`](senpi-portfolio/) | 1.39.11 | Every wallet in one list by value (Senpi strategy wallets and the wallets you added), with positions, stop protection, each strategy's mandate, and managed and read-only subtotals |
+| [`senpi-portfolio`](senpi-portfolio/) | 1.39.12 | Every wallet in one list by value (Senpi strategy wallets and the wallets you added), with positions, stop protection, each strategy's mandate, and managed and read-only subtotals |
 | [`senpi-market-pulse`](senpi-market-pulse/) | 1.11.0 | The day's cross-asset read: crypto, stocks, commodities, macro and the funding regime; the positions check includes your saved wallets, read-only |
 | [`senpi-smart-money`](senpi-smart-money/) | 1.8.0 | Where the most profitable wallets are positioned against the crowd, and what they just did; the alignment check includes your saved wallets, read-only |
 | [`senpi-signals`](senpi-signals/) | 2.12.0 | Non-obvious market developments (funding extremes, the proven cohort against the 4h crowd, momentum events, cross-asset laggards), ranked through a trade lens and a news lens, from the same Senpi Signals the app and the browser extension show |

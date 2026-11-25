@@ -536,8 +536,8 @@ def test_simulations_are_running_and_best_ranks_by_return():
     assert _norm("\"Show my best simulations\" ranks them by return unless the user names another measure (Sharpe ratio, "
                  "drawdown, win rate, trade count); say which measure ranks them.") in skill
     assert _norm("\"How are my simulations doing?\" and any status of several rank the same way, best first, by "
-                 "`simulation_metrics.return_pct` (below); a null one goes last with its `not_available` reason.") in skill
-    assert re.search(r'^  version: "1\.39\.11"', SKILL, re.M), "patch-bump above dev's 1.39.10"
+                 "`simulation_metrics.return_pct` (below), never worked out from account value; a null one goes last with its `not_available` reason.") in skill
+    assert re.search(r'^  version: "1\.39\.12"', SKILL, re.M), "patch-bump above dev's 1.39.11"
     health = _ref("runtime-health.md")
     assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money).") in health
 
@@ -545,7 +545,7 @@ def test_simulations_are_running_and_best_ranks_by_return():
 def test_a_simulations_figures_are_quoted_from_senpi_never_computed():
     rule = _norm(SKILL)
     for needle in (
-        "**A simulation's Sharpe, max drawdown, win rate, profit factor or trades** come from Senpi, not from you",
+        "**A simulation's return, Sharpe, max drawdown, win rate, profit factor or trades** come from Senpi, not from you",
         "call `strategy_get_pnl_and_account_value_history` with `strategy_wallet` = its wallet and quote its "
         "`simulation_metrics` as written",
         "Never compute Sharpe or drawdown from the history or `today_snapshot` (today only).",
