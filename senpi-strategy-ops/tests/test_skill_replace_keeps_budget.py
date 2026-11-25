@@ -23,7 +23,7 @@ class ReplacementKeepsTheReplacedBudget(unittest.TestCase):
 
     def test_the_budget_goes_on_every_quote_and_start_path(self):
         self.assertIn("in each variant's `budgetUsd`", RULE)
-        self.assertIn("`--budget` on the `--dry-run` quote and the `--user-said-yes` create", RULE)
+        self.assertIn("`--budget` on the `--dry-run` quote and on any `--user-said-yes` create (the fork's too)", RULE)
 
     def test_the_quote_before_the_yes_states_it(self):
         self.assertIn("the quote states that budget", RULE)

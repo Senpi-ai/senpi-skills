@@ -77,7 +77,7 @@ REPLAY_NEEDLES = (
     "A full read never skips a wallet or the CTAs.",
     "A `timeout` open may have filled: check positions, never suggest a retry.",
     "Confirm before any change; never trade unprompted. Propose; never deploy without confirmation.",
-    "**Simulations: \"running\", never \"live\"; \"best\" ranks by return** unless a measure is named;",
+    "**Simulations: \"running\", never \"live\"; \"best\" or any status ranks by return** unless a measure is named;",
     "**Source of truth for position facts — read before you answer, even mid-trade.**",
     "**\"In profit\" on an open position is unrealized.**",
     "**A Senpi strategy is one row with all its wallets.**",

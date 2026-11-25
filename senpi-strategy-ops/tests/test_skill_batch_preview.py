@@ -15,7 +15,7 @@ STEP_075 = SKILL[SKILL.find("**Step 0.75"):SKILL.find("**Step 1 ")]
 class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
     def test_each_variation_is_listed_with_what_it_changes_and_its_budget(self):
         self.assertIn("every variation of the count, each with its name, what it changes", VARIATIONS)
-        self.assertIn("and its budget ($1,000 when none is named); the total budget;", VARIATIONS)
+        self.assertIn("and its budget ($1,000 when none is named, or for a replacement the replaced one's); the total budget;", VARIATIONS)
 
     def test_the_cost_comes_from_the_runtime_dry_run(self):
         self.assertIn("senpi call senpi.simulations.startBatch --json --params", VARIATIONS)

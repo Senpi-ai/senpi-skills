@@ -61,7 +61,7 @@ A Senpi agent's abilities are **skills**. Each one packages a tested multi-step 
 | **Run a strategy** | | |
 | [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.58.2 | Picks strategies for you: ranks the catalog against your view of the market and quotes each pick's exits and position size from its card; your holdings are context (saved wallets read-only, never a budget) |
 | [`senpi-strategy-author`](senpi-strategy-author/) | 3.17.1 | Builds or edits a strategy package with DSL exits, one decision at a time |
-| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.35.10 | Deploys, monitors and closes a named strategy (`deploy.py`, `close.py`) |
+| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.35.11 | Deploys, monitors and closes a named strategy (`deploy.py`, `close.py`) |
 | [`senpi-trade`](senpi-trade/) | 1.12.1 | Direct trades, and copy trading of a specific trader, one decision at a time |
 | [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.1.17 | The runtime contract: `scan(inputs, ctx)`, `runtime.yaml` and the DSL |
 | **Move money / positioning** | | |
