@@ -28,6 +28,14 @@ class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
         self.assertIn('"requestId":', params)
         self.assertIn('"budgetUsd":', params)
 
+    def test_a_budget_per_variation_goes_in_its_variant_never_the_total(self):
+        params = re.search(r"startBatch --json --params '(\{.*?\})'", VARIATIONS).group(1)
+        self.assertIn('{"label":"<name>","budgetUsd":<its budget>,"settings":{…}}', params)
+        self.assertIn("never their total as the batch's `budgetUsd`", VARIATIONS)
+        self.assertIn("each row's `budgetUsd`", VARIATIONS)
+        start = VARIATIONS[VARIATIONS.find("After the yes, start them all"):VARIATIONS.find("The box validates and starts them")]
+        self.assertIn('{"label":"<name>","budgetUsd":<its budget>,"settings":{"<key>":<value>}}', start)
+
     def test_nothing_is_created_before_the_yes(self):
         self.assertIn("create nothing until the user says yes", VARIATIONS)
         self.assertIn("show the new batch and its cost and ask again", VARIATIONS)
