@@ -544,8 +544,8 @@ def test_simulations_are_running_and_best_ranks_by_return():
     assert _norm("\"Show my best simulations\" ranks them by return unless the user names another measure (Sharpe ratio, "
                  "drawdown, win rate, trade count); say which measure ranks them.") in skill
     assert _norm("\"How are my simulations doing?\" and any status of several rank the same way, best first, by "
-                 "`simulation_metrics.return_pct` (below); a null one goes last with its `not_available` reason.") in skill
-    assert re.search(r'^  version: "1\.39\.11"', SKILL, re.M), "patch-bump above dev's 1.39.10"
+                 "`simulation_metrics.return_pct` (below), never worked out from account value; a null one goes last with its `not_available` reason.") in skill
+    assert re.search(r'^  version: "1\.39\.12"', SKILL, re.M), "patch-bump above dev's 1.39.11"
     health = _ref("runtime-health.md")
     assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money).") in health
 
@@ -577,7 +577,7 @@ def test_who_the_deep_dive_question_names_moved_whole_to_row_details():
 
 def test_a_simulations_figures_are_quoted_from_senpi_never_computed():
     assert _norm(
-        "A simulation's Sharpe, drawdown, win rate or profit factor: quote `simulation_metrics`, never your own; "
+        "A simulation's return, Sharpe, drawdown, win rate or profit factor: quote `simulation_metrics`, never your own; "
         "a null one: say why (`not_available`)."
     ) in _norm(SKILL)
 
