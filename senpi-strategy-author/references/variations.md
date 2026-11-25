@@ -49,7 +49,7 @@ looser trailing stop* (exit management), *half the leverage* (entry management).
 
 - **Time first.** A strategy that trades about once a week needs weeks of running before a ranking means
   anything. Say when it is worth looking; never set a timer to look for them.
-- **Rank by return after fees** (ops ranks by return unless they name another measure), with the trade count
+- **Rank as senpi-strategy-ops ranks simulations** (its return is already after fees), with the trade count
   and the drawdown beside it: a variation with two trades has proved little.
 - **Recommend, then take it live on their yes.** Ops takes that simulation live as it ran
   (`--from-simulation`), with a real-money budget asked then. A simulated result is a record of a simulation,
