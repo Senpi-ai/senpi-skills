@@ -14,7 +14,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "4.1.18"
+  version: "4.2.2"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -73,14 +73,14 @@ Keep the thesis logic in a sibling pure **`scoring.py`** (no I/O, no MCP) so it 
 
 ## Runtime commands (essentials)
 
-The plugin registers a `senpi` command group on the gateway. Deploying a strategy and checking it:
+The runtime runs as its own daemon beside OpenClaw. `senpi …` is the runtime's own CLI and works while the agent sleeps; where it answers *not installed on this box yet*, run the same command as `openclaw senpi …` (same flags, output and exit codes). Deploying a strategy and checking it:
 
 ```bash
 openclaw plugins install @senpi-ai/runtime
-openclaw senpi validate <dir-with-runtime.yaml>        # THE GATE, pre-money: one real tick, no wallet; a PASS records the proof deploy requires
-openclaw senpi deploy -p <package-dir> --budget <usd>  # ONE verb, detached: funds preflight → wallet create+fund → install → one observed tick
-openclaw senpi deploy status                           # the job's verified report (read-only); poll it with deploy.py status, below
-openclaw senpi runtime list                            # id, source, status ("running — NO ENTRY SCANNERS" = scanners never wired)
+senpi validate <dir-with-runtime.yaml>        # THE GATE, pre-money: one real tick, no wallet; a PASS records the proof deploy requires
+senpi deploy -p <package-dir> --budget <usd>  # ONE verb, detached: funds preflight → wallet create+fund → install → one observed tick
+senpi deploy status                           # the job's verified report (read-only); poll it with deploy.py status, below
+senpi runtime list                            # id, source, status ("running — NO ENTRY SCANNERS" = scanners never wired)
 ```
 
 **Deploy a package through `senpi-strategy-ops`' `deploy.py create <id> --budget <usd>`**, which
@@ -88,7 +88,7 @@ resolves the package, runs the structural preflight and drives that same verb. T
 gates — the live-universe check (`[E_UNIVERSE_NOT_LIVE]`, pre-money), the funds preflight, the
 `skillName`/`skillVersion` attribution and the verified tick. **`runtime create` is internal**: it
 installs a runtime and skips every one of those, so it is not the deploy path. Then run
-**`python3 deploy.py status`** until the job is terminal (it calls the gateway directly, ~1 s per read)
+**`python3 deploy.py status`** until the job is terminal (it calls the runtime directly with `senpi call`, ~1 s per read)
 and relay its report; do NOT re-run `create` to check on a deploy.
 
 **`senpi validate` is the gate every deploy runs through** — it loads the scanners and runs one
@@ -96,16 +96,16 @@ real tick with no wallet and no funding, and a full unscoped PASS at live depth 
 `.senpi-proof.json` `senpi deploy` refuses to fund a package without. Run it before `deploy`, once per
 instance, pointed at the directory holding that instance's `runtime.yaml`.
 
-**To CHANGE a strategy that is already live** → `openclaw senpi update`, not a delete-and-redeploy.
+**To CHANGE a strategy that is already live** → `senpi update`, not a delete-and-redeploy.
 Deleting a runtime abandons its DSL position files, so every open position loses the trailing stop
 the strategy already promised and its replacement re-adopts from scratch at whatever price it
 finds. `update` swaps the components in place and keeps DSL state, scanner stores and action
 history — no wallet is created, nothing is funded, and no position is closed.
 
 ```bash
-openclaw senpi update ./pkg                       # PLAN — what changes, what it leaves alone
-openclaw senpi update ./pkg --apply               # commit (needs the same proof deploy needs)
-openclaw senpi update ./pkg --apply --code-only   # assert only scan.py changed; refuses if not
+senpi update ./pkg                       # PLAN — what changes, what it leaves alone
+senpi update ./pkg --apply               # commit (needs the same proof deploy needs)
+senpi update ./pkg --apply --code-only   # assert only scan.py changed; refuses if not
 ```
 
 It plans by default; `--apply` is the only way to commit. `phase2.tiers` is what users call the **ratchet**;
@@ -123,16 +123,16 @@ the message before retrying.
 
 **Saved is not applied.** Without `--apply`, `update` changes nothing, and only the first line of its
 output says so — `Dry run for <runtime_id> — nothing has been applied.` — so never pipe
-`openclaw senpi` output through `tail` or `head`. A scanner imports `scan.py` once, when it starts, so
-a running strategy keeps its old code until `--apply` restarts its scanners (a crash or a gateway
+`senpi` output through `tail` or `head`. A scanner imports `scan.py` once, when it starts, so
+a running strategy keeps its old code until `--apply` restarts its scanners (a crash or a runtime
 restart would load the edit too, unannounced). `senpi validate` runs the copy on disk, never the
 running one, and re-running `deploy` on a strategy that is already running applies nothing. The edit
 is live once the apply exits `0` with `Updated <runtime_id>.` as its first line and no `WARNING` that
 its external scanners are NOT running, and the running strategy shows it:
 
 ```bash
-openclaw senpi events -r <runtime_id> --name runtime.updated   # an entry for this apply (code-only edits too)
-openclaw senpi update ./pkg --id <runtime_id>                  # read-only: a recipe edit that landed plans "The recipe is unchanged."
+senpi events -r <runtime_id> --name runtime.updated   # an entry for this apply (code-only edits too)
+senpi update ./pkg --id <runtime_id>                  # read-only: a recipe edit that landed plans "The recipe is unchanged."
 ```
 
 Until both reads show it, tell the user the edit is **saved, not applied**. What a tick keeps and what
@@ -176,7 +176,7 @@ that run through another tool or script. A trade the user set to "Always allow" 
 | `references/runtime-concepts.md` | How the runtime behaves end to end: the runtime pipeline, `position_tracker`, and the two-phase DSL exit engine |
 | `references/runtime-yaml.md` | The `runtime.yaml` schema — every section, the `external_scanner` fields, the risk guard-rails |
 | `references/scan-contract.md` | The author contract in depth: `scan(inputs, ctx)`, the `ctx` surface, the signal shape, and `scoring.py` |
-| `references/runtime-cli.md` | The full `openclaw senpi …` command surface — **validate** (the pre-deploy gate: flags, depths, exit codes, the proof it records), deploy, runtime, dsl, action, status/state, skills, guide |
+| `references/runtime-cli.md` | The full `senpi …` command surface — **validate** (the pre-deploy gate: flags, depths, exit codes, the proof it records), deploy, runtime, dsl, action, status/state, skills, guide |
 | `references/dsl-protection-check.md` | **Verify open positions are DSL-protected** — the PROTECTED / UNPROTECTED / STOP-NOT-ON-VENUE verdict + the open-vs-tracked reconciliation |
 
 ## Package naming (load-bearing)

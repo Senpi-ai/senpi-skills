@@ -37,11 +37,11 @@ class _RunCli:
 
     def __call__(self, args, timeout=60):
         with self.lock:
-            self.calls.append(list(args))
+            self.calls.append(["openclaw", "senpi", *args[args.index("validate"):]])
             self.timeouts.append(timeout)
         if self.barrier is not None:
             self.barrier.wait()
-        return self.answers.get(args[3], (0, "PASS", ""))
+        return self.answers.get(args[args.index("validate") + 1], (0, "PASS", ""))
 
 
 class _Patched(unittest.TestCase):
@@ -85,8 +85,8 @@ class ASimulationValidateMeasures(_Patched):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             code = deploy.run_deploy(pkg, a, lambda m: None)
         self.assertEqual(code, 0)
-        self.assertEqual(fake.argv_for("validate"),
-                         [["openclaw", "senpi", "validate", "/pkg/spider", "--stage", "live", "--measure"]])
+        self.assertEqual([a[a.index("validate"):] for a in fake.argv_for("validate")],
+                         [["validate", "/pkg/spider", "--stage", "live", "--measure"]])
 
 
 class InstancesValidateSideBySide(_Patched):

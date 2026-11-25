@@ -40,7 +40,8 @@ PORTFOLIO = os.path.join(HERE, "..", "scripts", "portfolio.py")
 
 SHARED_HELPERS = {"run_cli": "_run_cli", "_extract_json": "_extract_json", "_cli_env": "_cli_env",
                   "_kill_tree": "_kill_tree", "_spawn": "_spawn", "gateway_argv": "gateway_argv",
-                  "killed_note": "killed_note"}
+                  "openclaw_gateway_argv": "openclaw_gateway_argv",
+                  "senpi_sent_nothing": "senpi_sent_nothing", "killed_note": "killed_note"}
 
 for _d in (os.path.join(HERE, "..", "scripts"),
            os.path.join(HERE, "..", "..", "senpi-improve-trades", "scripts"),
@@ -98,8 +99,17 @@ def test_review_group_kill_matches_its_origin():
 
 
 def test_review_gateway_argv_matches_its_origin():
-    assert _fn_source(OPS_CLI, "gateway_argv") == _fn_source(REVIEW, "gateway_argv"), (
-        "gateway_argv in review.py has drifted from gateway_argv in _cli.py")
+    for name in ("gateway_argv", "openclaw_gateway_argv", "senpi_sent_nothing"):
+        assert _fn_source(OPS_CLI, name) == _fn_source(REVIEW, name), (
+            f"{name} in review.py has drifted from {name} in _cli.py")
+
+
+def test_the_no_fallback_gate_pattern_is_the_same_everywhere():
+    """`senpi_sent_nothing` is the one rule that keeps a runtime call from being sent twice (senpi,
+    then openclaw). Its pattern is data, not a function, so the function parity above misses it."""
+    pattern = _cli._SENPI_SENT_NOTHING.pattern
+    assert portfolio._SENPI_SENT_NOTHING.pattern == pattern
+    assert review._SENPI_SENT_NOTHING.pattern == pattern
 
 
 def test_first_written_vendor_parity():

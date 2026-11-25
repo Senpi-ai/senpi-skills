@@ -122,7 +122,7 @@ class TestUpdate(UpdateHarness):
     def test_plan_points_the_verb_at_the_instance_dir_with_a_selector(self):
         rc, out, err = self.run_update()
         self.assertEqual(rc, 0)
-        self.assertEqual(self.calls, [["openclaw", "senpi", "update", str(self.tmp / "main"), "--id", "spider-main"]])
+        self.assertEqual(self.calls, [["senpi", "update", str(self.tmp / "main"), "--id", "spider-main"]])
         self.assertIn('{"plan": "ok"}', out)                      # the verb's stdout, verbatim
         self.assertIn("PLAN only — nothing changed", err)
         self.assertIn("--apply", err)
@@ -138,7 +138,7 @@ class TestUpdate(UpdateHarness):
         rc, _out, err = self.run_update(apply=True)
         self.assertEqual(rc, 2)
         self.assertEqual(self.calls, [])
-        self.assertIn(f"openclaw senpi validate {self.tmp / 'main'}", err)
+        self.assertIn(f"senpi validate {self.tmp / 'main'}", err)
 
     def test_apply_with_a_proof_passes_apply_and_code_only_through(self):
         (self.tmp / "main" / deploy.PROOF_FILE).write_text("{}")
@@ -169,7 +169,7 @@ class TestUpdate(UpdateHarness):
         self.assertIn("--id", err)
         rc, _out, _err = self.run_update(runtime_id="spider-hedge")
         self.assertEqual(rc, 0)
-        self.assertEqual(self.calls[0][3:], [str(self.tmp / "hedge"), "--id", "spider-hedge"])
+        self.assertEqual(self.calls[0][2:], [str(self.tmp / "hedge"), "--id", "spider-hedge"])
 
     def test_the_verbs_refusal_is_relayed_with_its_code(self):
         self.reply = (2, "", "[E_UPDATE_PROOF_MISMATCH] the proof covers other bytes — re-run validate\n")
