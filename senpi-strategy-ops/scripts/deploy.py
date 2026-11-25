@@ -502,6 +502,8 @@ def _start_params(pkg, a):
     # `--max-wait` is the JOB's wallet-ACTIVE budget, not just this script's poll budget. Forward it.
     if getattr(a, "max_wait", None) is not None:
         params["maxWaitSec"] = int(a.max_wait)
+    if getattr(a, "simulation", False) and getattr(a, "user_said_yes", False):
+        params["userSaidYes"] = True
     return params
 
 
@@ -572,26 +574,93 @@ def _gw(method, params, rpc_ms, wall_s, min_wall_s=1):
 
 # ---------- the request id on senpi.deploy.start (K2) ----------
 
-def start_request_ids_supported(log, as_json=False):
-    """`senpi.getHealthStatus` → True (`deploy.capabilities.deployStartRequestId` is true), False (a
-    readable answer without it: the runtime does not honour an id), or None (the read failed, so
-    whether it does is unknown). Only True lets anything rely on an id.
+def _deploy_capabilities(as_json=False):
+    """`senpi.getHealthStatus` → `(kind, caps)`: `caps` is the `deploy.capabilities` dict (empty when
+    the answer has none), or None when the read failed.
 
-    A SIGKILLed read exits with the out-of-memory stop BEFORE the START: nothing is dispatched into a
-    box that kills its reads (the START would be killed too, and its outcome unknown)."""
+    A SIGKILLed read exits with the out-of-memory stop BEFORE anything is started: nothing is
+    dispatched into a box that kills its reads (the START would be killed too, outcome unknown)."""
     r = _gw("senpi.getHealthStatus", {}, _cli.READ_RPC_MS, _cli.READ_WALL_S)
     if _cli.is_sigkill(r["rc"]):
         sys.exit(_cli.emit_oom("  " + _cli.oom_stop(
             "NOTHING WAS DISPATCHED: no job started, no wallet created, no funds moved.",
             "the box is out of memory, so the deploy was not started"), as_json, {"deployId": None}))
     if r["kind"] != "ok" or not isinstance(r["payload"], dict):
-        log(f"  (senpi.getHealthStatus: {r['kind']}; START request id support unknown)")
-        return None
+        return r["kind"], None
     deploy_part = r["payload"].get("deploy")
     caps = deploy_part.get("capabilities") if isinstance(deploy_part, dict) else None
-    ok = isinstance(caps, dict) and caps.get("deployStartRequestId") is True
+    return "ok", caps if isinstance(caps, dict) else {}
+
+
+def start_request_ids_supported(log, as_json=False):
+    """`senpi.getHealthStatus` → True (`deploy.capabilities.deployStartRequestId` is true), False (a
+    readable answer without it: the runtime does not honour an id), or None (the read failed, so
+    whether it does is unknown). Only True lets anything rely on an id."""
+    kind, caps = _deploy_capabilities(as_json)
+    if caps is None:
+        log(f"  (senpi.getHealthStatus: {kind}; START request id support unknown)")
+        return None
+    ok = caps.get("deployStartRequestId") is True
     log(f"  (senpi.getHealthStatus: ok; START request ids {'supported' if ok else 'not advertised'})")
     return ok
+
+
+def _credits(v):
+    return f"{v:g}" if isinstance(v, (int, float)) and not isinstance(v, bool) else None
+
+
+def _quote_lines(payload):
+    """The runtime's simulation quote in words. A field the runtime did not send is left out."""
+    per_hour, per_day = _credits(payload.get("creditsPerHour")), _credits(payload.get("creditsPerDay"))
+    after, left = _credits(payload.get("creditsPerHourAfter")), _credits(payload.get("creditsLeft"))
+    budget = payload.get("budgetUsd")
+    lines = []
+    if isinstance(budget, (int, float)) and not isinstance(budget, bool):
+        lines.append(f"  Budget: {_usd(budget)} of virtual money.")
+    if per_hour:
+        lines.append(f"  This simulation: {per_hour} credits an hour" + (f", {per_day} a day." if per_day else "."))
+    elif per_day:
+        lines.append(f"  This simulation: {per_day} credits a day.")
+    if after:
+        lines.append(f"  Everything you run, once it starts: {after} credits an hour.")
+    if left:
+        lines.append(f"  {left} credits left.")
+    if isinstance(payload.get("next"), str) and payload["next"]:
+        lines.append(f"  {payload['next']}")
+    return lines
+
+
+def _simulation_dry_run(pkg, method, params, a):
+    """`--dry-run --simulation`: the runtime's own quote when it advertises
+    `deploy.capabilities.simulationYesGate`, else the planned command and no number. `dryRun` is
+    never sent to a runtime without the capability: an older one ignores it and STARTS."""
+    kind, caps = _deploy_capabilities(getattr(a, "json", False))
+    if not (isinstance(caps, dict) and caps.get("simulationYesGate") is True):
+        print("planned: " + shlex.join(_cli.gateway_argv(method, params, START_RPC_MS)))
+        print("  The cost cannot be quoted on this runtime, and nothing was started. Tell the user the "
+              "simulation is billed by the hour until it is stopped, with no number, and ask.")
+        raise SystemExit(0)
+    quote_params = {k: v for k, v in params.items() if k != "userSaidYes"}
+    quote_params["dryRun"] = True
+    r = _gw(method, quote_params, START_RPC_MS, START_WALL_S)
+    payload = r["payload"] if isinstance(r["payload"], dict) else {}
+    if r["kind"] == "ok" and payload.get("dryRun") is True:
+        print(f"Quote for {pkg.id} as a simulation (virtual money, nothing real moves):")
+        for line in _quote_lines(payload):
+            print(line)
+        print("Nothing was started.")
+        raise SystemExit(0)
+    if r["kind"] == "ok":
+        print(f"{method} answered without a quote"
+              + (f" and named job {payload['deployId']}" if payload.get("deployId") else "")
+              + ". A simulation MAY HAVE STARTED: read `deploy.py status` before anything else.",
+              file=sys.stderr)
+        raise SystemExit(EXIT_INTERNAL)
+    print(r["message"] or f"{method}: {r['kind']}", file=sys.stderr)
+    print("The cost could not be quoted. A quote starts nothing. Tell the user the simulation is billed "
+          "by the hour until it is stopped, with no number, and ask. A failed quote is never a reason "
+          "to start another way.", file=sys.stderr)
+    raise SystemExit(EXIT_CODES["refused"] if r["kind"] == "refused" else EXIT_INTERNAL)
 
 
 def _journal_read(pkg_id):
@@ -854,6 +923,8 @@ def start_deploy(pkg, a, log):
     method = _start_method(a)
     simulation = getattr(a, "simulation", False)
     if getattr(a, "dry_run", False):
+        if simulation:
+            _simulation_dry_run(pkg, method, params, a)
         print("planned: " + shlex.join(_cli.gateway_argv(method, params, START_RPC_MS)))
         raise SystemExit(0)
     # A caller that never read the capability (no `request_ids`) neither sends an id nor touches the

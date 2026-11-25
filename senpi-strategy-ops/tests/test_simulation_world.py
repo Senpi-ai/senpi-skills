@@ -1059,7 +1059,7 @@ class DeploySimulation(unittest.TestCase):
         with contextlib.redirect_stdout(buf), self.assertRaises(SystemExit):
             deploy.start_deploy(self._pkg(), self._args(True, dry_run=True), lambda m: None)
         self.assertIn("senpi.deploy.startSimulation", buf.getvalue())
-        self.assertEqual(self.calls, [])
+        self.assertEqual([c for c in self.calls if c[0] != "senpi.getHealthStatus"], [])
 
     def test_a_runtime_without_start_simulation_refuses_and_never_steers_to_live(self):
         self.answer = _gw("unknown_method", message="unknown method: senpi.deploy.startSimulation")
