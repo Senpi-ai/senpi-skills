@@ -26,4 +26,4 @@ as a short list, each with its title and a one-line description. The user can pi
 - The first answer sets the risk appetite and the shape. Steady growth means smaller swings and fewer trades. Catch
   big moves means wider exits and fewer, larger trades. Earn in any market allows both long and short.
 - The second answer sets how many of the build decisions you ask and how many you propose.
-- Then mine the answers as the thesis and find a base, as the skill describes.
+- Then mine the answers as the thesis and build it with them, as the skill describes; a template only if they want one.

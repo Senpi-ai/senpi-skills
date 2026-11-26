@@ -1,8 +1,8 @@
 """The satellite skills hand a strategy ask to senpi-strategy-author; they never pitch a template by name.
 
-Strategy conversations start in senpi-strategy-author, which forks the closest template when one
-fits the user's idea (found through senpi-strategy-discover's ranking) and builds from scratch when
-none does. So the surfaces below that close with an offer (a market read, a smart-money read, a
+Strategy conversations start in senpi-strategy-author, which builds the user's own strategy, from
+scratch or from a template they want that fits (found through senpi-strategy-discover's ranking), and
+proposes a few variations to simulate before it goes live. So the surfaces below that close with an offer (a market read, a smart-money read, a
 portfolio, a signals sweep, a trade review, a mirror) hand off to author and name no template
 themselves. Hand-written copy rots silently: one edit to a closing section and a named pitch is back
 with nothing failing.

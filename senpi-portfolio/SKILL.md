@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.39.13"
+  version: "1.40.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -63,7 +63,7 @@ book total, or verdicts and figures already shown unless the user asks for them 
   wallet or the CTAs. A `timeout` open may have filled: check positions, never suggest a retry.
   ("Resilience")
 - **Acting on a CTA:** Confirm before any change; never trade unprompted. Propose; never deploy without
-  confirmation. CTA 2: build their own (author, forking the closest template when one fits); name none here.
+  confirmation. CTA 2: build their own (author: from scratch or a template that fits, simulated first); name none here.
 - **There is no restart verb; close → redeploy is a last resort, asked first.** ("Liveness")
 - **Simulations: "running", never "live"; "best" or any status ranks by return** unless a measure is named; return/Sharpe/drawdown: quote `simulation_metrics` from `strategy_get_pnl_and_account_value_history`, never compute one.
 

@@ -75,8 +75,8 @@ The word "strategy" is overloaded in Senpi and the wrong path is the most common
   positions) or `strategy_create` (copy-trader). No recommendation, no package.
 - **Strategic** — "Help me pick a strategy", "What should I trade?", "Recommend a strategy", "Build a
   strategy", a thesis, "trade for me", or anything needing a DSL exit → **`senpi-strategy-author`**
-  (fork-first: the closest template is the base the user forks and makes their own; scratch when
-  nothing fits). Browsing, or a named template → **`senpi-strategy-discover`** (the picker over
+  (builds it with the user from scratch, or from a template when they want one and it fits; then
+  proposes a few variations to simulate before live). Browsing, or a named template → **`senpi-strategy-discover`** (the picker over
   `catalog.json`; the pick deploys as their fork). A
   NAMED strategy to install/monitor/close ("deploy spider") → **`senpi-strategy-ops`**.
 - **Ambiguous** — ask the user before acting. A single disambiguation question costs nothing.
@@ -92,7 +92,7 @@ is author → ops.
 ## ▶ Writing or editing a trading strategy? Start here
 
 Do **not** improvise a strategy from scratch. **`senpi-strategy-author/SKILL.md`** owns the flow
-(fork-first start → the 7-decision interview → staged build), and its
+(the start → the 7-decision interview → staged build → simulations, then live), and its
 **`references/creating-a-strategy.md`** is the self-contained build guide — archetype table with a
 **Clone from** column of real packages under `strategies/`, the `scan(inputs, ctx)` skeleton, a
 complete `runtime.yaml`, DSL presets, and the gotchas.
