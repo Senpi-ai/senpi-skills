@@ -131,6 +131,7 @@ exit:
     weak_peak_cut:
       enabled: false
     phase1:
+      # HARD STOP: max_loss_pct is an exchange stop-loss at -max_loss_pct ROE from entry; enabled: false turns off the trailing only, never the stop.
       enabled: false                  # trailing OFF — a floor below entry can ratchet a winner into a loss
       max_loss_pct: 24.0              # 6.00% of price at 4x — the measured adverse p90 (5.96%)
       retrace_threshold: 24           # INERT while phase1.enabled is false
