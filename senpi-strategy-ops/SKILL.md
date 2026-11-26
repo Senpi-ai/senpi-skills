@@ -36,6 +36,7 @@ description: >-
   ONE SIMULATION OR SEVERAL: relay `deploy.py plan` as given (budget choices only from its
   `--budget-choices`); no start (batch, `create`, fork) before "yes", "simulate", "go" or a tapped
   budget ("your call" is not one). `create --simulation` needs `--user-said-yes`: only after that.
+  "make my simulation public"; "Fork simulation <id>".
 license: Apache-2.0
 metadata:
   author: Senpi
@@ -65,10 +66,10 @@ python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py status      
 python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/status.py                            # what am I running? (+ health)
 python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/close.py <id> | --all                # teardown one strategy | EVERY open strategy and simulation
 ```
+**Public simulations and forks.** Private until the owner asks. "Make <sim / group> public" or "private" → `simulation_set_public` (`public` true/false; `ids`, or `groupId` = `identity.group.id` from `strategy_list {simulation: true}`); free, no quote. Say others see its name, settings, results and chart under an anonymous label, never its wallet, positions or fills. "Fork simulation <id>": `simulation_public_get {id}`; `forkable` false → quote `forkBlockedReason` and stop. Else `senpi deploy --fork-of <id> --dry-run` (`--budget` if named), show the quote, end the turn: the request is never the yes. After their yes, the same with `--user-said-yes` for `--dry-run`, then `senpi deploy fork-status <requestId>`. "… and change X" is not applied: say so.
 **"Install"/"reinstall <name>" = `deploy.py create <id>`** — a strategy is a package, not an openclaw/clawhub skill; not on disk just means fetch it by id. **Fund through `deploy.py create|runtime <id>`, not through the bare verb.** Both resolve the package,
 run the structural preflight, then start the runtime's `senpi deploy` job, poll it, and relay its
-report **verbatim**. The wrapper's value is resolution, that structural pass and the verbatim relay —
-**not** a gate the verb lacks: the live-universe gate is the verb's own and it fires **pre-money**.
+report **verbatim**; the live-universe gate is the verb's own, **pre-money**. Both call `openclaw gateway call senpi.*` (~1 s; the verbs take 30-160 s on 10.x): read the job with **`deploy.py status`**.
 **Always tear down through `close.py`** (one `<id>` or `--all`) — it deletes the runtime *and* closes
 the strategy. A raw `strategy_close` MCP call closes the strategy but **leaves the runtime
 registered**, which collides on the next deploy.
@@ -90,16 +91,6 @@ inside a skill directory**: a package written there is destroyed on the next ski
 package is authoritative; an invalid one surfaces its real errors and is never silently replaced by a
 remote fetch. Mechanics + state machine: [`references/lifecycle.md`](references/lifecycle.md) · manifest schema: [`references/strategy-yaml-schema.md`](references/strategy-yaml-schema.md).
 
-**Say how often it will trade before you fund it.** One line: the number and what makes it go quiet —
-a measured rate if you have one, otherwise the CEILING from `max_entries_per_day`, `slots` and the
-cooldowns, said as a ceiling. A user who is not told reads normal silence as breakage. Never quote a rate off the package NAME. Detail:
-[`trade-frequency.md`](../senpi-strategy-discover/references/trade-frequency.md).
-**A strategy with a concentration sibling: name it once before you fund.** If the requested id's family
-(`catalog.varies`) holds a member with fewer `max_slots` / higher `leverage_max`, say so in ONE line with
-what a stop costs on each (`max_loss_pct x marginPct / 100`), then deploy the one they NAMED unless they
-switch. Read the axis off those two fields, never off tags (`penguin-x5` is tagged `concentrated` at HALF
-the leverage). Wording: [`variant-families.md`](../senpi-strategy-discover/references/variant-families.md).
-
 ## Deploy — one lifecycle: start the verb, poll `status` until terminal
 
 > **`status` is the gate, not a suggestion.** A strategy is LIVE only when the deploy report's `overall`
@@ -114,9 +105,7 @@ no match → hand to **senpi-strategy-discover**.
 **Step 0.5 — preflight (required).** `deploy.py validate <id>` reports every structural + render
 issue in **one pass**, with **no money moved and nothing installed** — a bare catalog id is fetched to
 disk, which is also how it resolves that id to a package directory. It also **reports** the live
-universe, the gate the deploy verb enforces pre-money, so `validate` is the cheap early read of it,
-not the thing holding it. That read is a **network call** (`market_list_instruments`) needing
-`SENPI_AUTH_TOKEN`, and it can take a few seconds.
+universe the verb gates pre-money (a network read needing `SENPI_AUTH_TOKEN`).
 
 **Preflight is two questions, two commands.** `openclaw senpi validate <recipe-dir>` answers **does it
 run** — one real tick against live read-only data, no wallet and no funding — and **a `PASS` is also
@@ -148,6 +137,16 @@ name/group/description, `forked_from`), proves it and deploys it; `--name "<thei
 their own; `deploy.py fork <template>` makes the copy first when levers move (the edit path on the fork,
 then `create <dir>`). A user ID is never a name; with no username to read, a bare template id is **refused**. The
 lever language, the name rules, the fork, and — for a VARIANT template — the one extra bullet naming what it varies from: [`references/walkthrough.md`](references/walkthrough.md). **One simulation skips it** ("simulate Hawk with $50"): no walkthrough, no levers, no name line. Quote it with `deploy.py plan <id>` (`--budget` if they named one; `--budget-choices` only to offer amounts) and relay what it prints as given: its cost is this simulation's, never `creditsPerHourAfter`. A named setting is a batch dry run under **Running variations** with that one variant, quoted the same way. No budget named: $1,000 for a new simulation. **A replacement** ("replace X with a version that…", "improve X and replace the running one", or closing X and starting its package or variation again) starts at X's `initialBudget` from `strategy_list {simulation: true}` unless the user names one: in each variant's `budgetUsd`, or `--budget` on the `--dry-run` quote and on any `--user-said-yes` create (the fork's too); the quote states that budget. Create nothing before the yes; on the yes, start it with the same call, `"dryRun":false`, `"userSaidYes":true` and a new `requestId`, then report its row as for a batch. A package of several wallets (`wallet_count` above 1 on its catalog card, or more than `(1 instance(s))` from `deploy.py validate <id>`) takes no dry run, since the batch refuses it: it gets that message, its cost "billed by the hour" with no number, and waits for the yes; then `create <id> --simulation --user-said-yes`. A refused dry run gets the same. **A local package** (no catalog id): quote with `deploy.py create <dir> --simulation --dry-run --budget <usd>`, ask, end the turn; on the yes, `create <dir> --simulation --user-said-yes`; never call `senpi.deploy.startSimulation` yourself. A live deploy, a simulation going live and several simulations keep what they have.
+
+**Say how often it will trade before you fund it.** One line: the number and what makes it go quiet —
+a measured rate if you have one, otherwise the CEILING from `max_entries_per_day`, `slots` and the
+cooldowns, said as a ceiling. A user who is not told reads normal silence as breakage. Never quote a rate off the package NAME. Detail:
+[`trade-frequency.md`](../senpi-strategy-discover/references/trade-frequency.md).
+**A strategy with a concentration sibling: name it once before you fund.** If the requested id's family
+(`catalog.varies`) holds a member with fewer `max_slots` / higher `leverage_max`, say so in ONE line with
+what a stop costs on each (`max_loss_pct x marginPct / 100`), then deploy the one they NAMED unless they
+switch. Read the axis off those two fields, never off tags (`penguin-x5` is tagged `concentrated` at HALF
+the leverage). Wording: [`variant-families.md`](../senpi-strategy-discover/references/variant-families.md).
 
 **Step 1 — start the deploy.** Budget splits across instances by `funding_share`, **min $10 each** (the
 platform wallet floor) — **ask for the amount now — after the walkthrough, never before it — and confirm
@@ -219,11 +218,9 @@ statuses that resolve on their own are (a PAUSED strategy never becomes ACTIVE b
 refused, not waited for — see the PAUSED section of
 [`references/refusal-playbook.md`](references/refusal-playbook.md)).
 
-> **Behaviour change from the old three-step flow.** `create` used to refuse an already-running `<id>`
-> and to close a runtime-less one to force a fresh wallet; the verb **adopts** instead. Two
-> consequences worth saying out loud to the user: deploy **never adds funds to a wallet that already
-> exists** (ask for $500 against a wallet holding $100 and the report says the $500 was NOT added — top
-> up separately, or close it and fund a new one — a market exit), and "re-run to get a fresh wallet" is no longer a thing.
+> **The verb adopts an existing wallet; tell the user** it **never adds funds to it** ($500 asked against
+> a wallet holding $100: the report says the $500 was NOT added — top up separately, or close it and fund
+> a new one, a market exit), and re-running never makes a fresh wallet.
 
 **Packages with no exit block are refused before anything is funded** — worth knowing *before* you
 build or pick one; the refusal names the offending instances and computes its own re-check block
@@ -277,14 +274,10 @@ Then always close with the **How it runs** block below. `funded` is the backend'
 
 ### The funded path — `deploy.py create|runtime`
 
-`deploy.py` no longer deploys anything itself. Each of its **two** money-moving subcommands resolves the
-package (forking a template under the user's Senpi username first — `--name` for words of their own on
-`create`), runs the structural preflight, then starts the **same** verb — which holds the live-universe
-gate itself, pre-money — polls it, and prints its report verbatim. Both keep the same flags and the
-verb's exit codes. **The old `== 2` habit no longer catches a failure**: the pre-verb script exited 2 on
-failure, this one exits 3, so anything branching on `== 2` alone silently treats every failed deploy as
-a success. Branch on the whole table. **`create` and `runtime` are one path under two names** — either
-one resumes, adopting whatever already exists.
+Both resolve the package, preflight it, start the **same** verb and print its report verbatim, with
+the verb's exit codes: a failure exits 3, never 2, so **branch on the whole table**, never `== 2`
+alone. **`create` and `runtime` are one path under two names** — either resumes, adopting what exists.
+Depth: [`references/lifecycle.md`](references/lifecycle.md).
 
 > **`deploy.py verify <id>` is READ-ONLY** — it starts no deploy, funds nothing, installs nothing and
 > **fetches nothing** (on-disk packages only). It quotes MCP `strategy_list` + `openclaw senpi runtime
@@ -292,10 +285,8 @@ one resumes, adopting whatever already exists.
 > this package's; it never re-derives a status or a number. Exit codes are its own: **`0`** verified ·
 > **`3`** not verified (it names, per instance, what is missing and the one non-destructive next step
 > for that state) · **`1`** could not check (a read it needs failed — that is **not** "not live";
-> re-read) · **`9`** out of memory: stop, don't retry or poll now; safe again when `status.py` exits `0`. **The resume is always `create`/`runtime`, never `verify`.** Where it quotes a wallet's
-> `skillName` stamp, that is a **quote and never proof of who created the wallet**: any caller of the
-> creation tool can write any stamp, so a raw-MCP create or an older/differently-cased id of your own
-> renders the same row. Mechanics, the states it will and will not steer at, and the codes it can name:
+> re-read) · **`9`** out of memory: stop, don't retry or poll now; safe again when `status.py` exits `0`. **The resume is always `create`/`runtime`, never `verify`.** A wallet's `skillName` stamp it
+> quotes is **never proof of who created the wallet** (any caller can write any stamp). Mechanics, the states it will and will not steer at, and the codes it can name:
 > [`references/lifecycle.md`](references/lifecycle.md) ·
 > [`references/refusal-playbook.md`](references/refusal-playbook.md).
 
