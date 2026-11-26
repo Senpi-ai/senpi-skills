@@ -16,8 +16,10 @@ the agent says. Both are printed by every verb that makes or deploys a fork.
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import hashlib
 import json
+import os
 import re
 import shutil
+import tempfile
 from pathlib import Path
 
 import _pkg
@@ -160,11 +162,15 @@ def _set_parent(text, ref, ff):
 
 
 def _parent_ref(pkg, parent_ff, fork_of, authored):
-    """The ref a copy of `pkg` records in `forked_from.parent`, or None when the source's own is kept."""
+    """The ref a copy of `pkg` records in `forked_from.parent`, or None when nothing is written: the source's
+    own parent is kept, or a fork with neither a parent nor a template id leaves the copy without one."""
     if fork_of is not None:
         return str(fork_of).strip()
-    if parent_ff:
-        return None if str(parent_ff.get("parent") or "").strip() else f"template:{parent_ff.get('id')}"
+    if parent_ff is not None:
+        if str(parent_ff.get("parent") or "").strip():
+            return None
+        tid = str(parent_ff.get("id") if parent_ff.get("id") is not None else "").strip()
+        return f"template:{tid}" if tid else None
     return f"custom:{pkg.id}" if authored else f"template:{pkg.id}"
 
 
@@ -197,6 +203,27 @@ def _ignore(_dir, names):
     return [n for n in names if n in SKIP_NAMES or n.startswith(".senpi-fetch-") or ".bak-" in n]
 
 
+def _existing(pkg, dest, parent_ff, fork_of, info, log):
+    """`dest` already exists: return it as the copy when it is a fork of the same template (and, with
+    `fork_of`, records that parent), else refuse. Nothing is written."""
+    if parent_ff is not None:
+        raise ForkError(f"{dest} exists — deploy it by directory if it is this copy, or pass --name <another name>")
+    try:
+        have = _pkg.load(dest)
+    except _pkg.BadPackage as e:
+        raise ForkError(f"{dest} exists but is not a package ({e}) — move it aside or pass --name <another name>")
+    ff = (have.manifest or {}).get("forked_from") or {}
+    if ff.get("id") != pkg.id:
+        raise ForkError(f"{dest} exists and is not a fork of {pkg.id} — pass --name <another name>")
+    if fork_of is not None and str(ff.get("parent") or "").strip() != str(fork_of).strip():
+        raise ForkError(f"{dest} exists and was not copied from {str(fork_of).strip()} (its parent is "
+                        f"{ff.get('parent') or 'not recorded'}) — pass --name <another name>")
+    info["reused"] = True
+    info["display"] = (have.catalog or {}).get("name") or info["display"]
+    log(f"  fork {info['id']} already exists ({info['display']}, from {ff.get('id')} {ff.get('version')}) — using it")
+    return dest, info
+
+
 def fork(pkg, root, owner=None, name=None, fork_of=None, authored=False, log=lambda m: None):
     """Make (or reuse) the user's fork of `pkg` under `root`. Returns `(dir, info)`.
 
@@ -209,7 +236,8 @@ def fork(pkg, root, owner=None, name=None, fork_of=None, authored=False, log=lam
 
     The copy records `forked_from.parent`: `fork_of` (the strategy id it starts from) when given, else the
     source's own parent, else `template:<forked_from.id>` for a fork, `custom:<id>` for an `authored` package
-    and `template:<id>` for a catalog one. `fork_of` needs `name`; a reused directory is left as it is."""
+    and `template:<id>` for a catalog one. `fork_of` needs `name`; a reused directory is left as it is, and
+    with `fork_of` it is reused only when its parent is `fork_of`."""
     if fork_of is not None:
         if not str(fork_of).strip():
             raise ForkError("--fork-of needs the id of the strategy this copy starts from")
@@ -228,24 +256,16 @@ def fork(pkg, root, owner=None, name=None, fork_of=None, authored=False, log=lam
         dict(id=pkg.id, version=str(pkg.version))
     info = dict(id=fid, display=display, forked_from=lineage,
                 runtimes=[f"{fid}-{i.name}" for i in pkg.instances], dir=str(dest), reused=False)
-    if dest.exists() and parent_ff is not None:
-        raise ForkError(f"{dest} exists — deploy it by directory if it is this copy, or pass --name <another name>")
     if dest.exists():
-        try:
-            have = _pkg.load(dest)
-        except _pkg.BadPackage as e:
-            raise ForkError(f"{dest} exists but is not a package ({e}) — move it aside or pass --name <another name>")
-        ff = (have.manifest or {}).get("forked_from") or {}
-        if ff.get("id") != pkg.id:
-            raise ForkError(f"{dest} exists and is not a fork of {pkg.id} — pass --name <another name>")
-        info["reused"] = True
-        info["display"] = (have.catalog or {}).get("name") or display
-        log(f"  fork {fid} already exists ({info['display']}, from {ff.get('id')} {ff.get('version')}) — using it")
-        return dest, info
+        return _existing(pkg, dest, parent_ff, fork_of, info, log)
     root.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(pkg.dir, dest, ignore=_ignore)
+    # The copy is built and validated in a staging directory inside `root`, then renamed to `dest` in
+    # one step; a run stopped before the rename leaves only the staging directory.
+    staging = Path(tempfile.mkdtemp(prefix=f".senpi-fork-{fid}-", dir=root))
+    built = staging / fid
     try:
-        man = dest / "strategy.yaml"
+        shutil.copytree(pkg.dir, built, ignore=_ignore)
+        man = built / "strategy.yaml"
         text = man.read_text()
         text = _set_top_key(text, "id", fid)
         text = _set_catalog_name(text, display)
@@ -259,18 +279,23 @@ def fork(pkg, root, owner=None, name=None, fork_of=None, authored=False, log=lam
         origin = f"copied from {(pkg.catalog or {}).get('name') or pkg.id}" if parent_ff is not None else \
             f"forked from {title} {pkg.version}"
         for inst in pkg.instances:
-            rp = dest / inst.runtime_rel
+            rp = built / inst.runtime_rel
             t = rp.read_text()
             t = _set_top_key(t, "name", f"{fid}-{inst.name}")
             t = _set_top_key(t, "group", fid)
             t = _prefix_description(t, f"{display} — {origin}.")
             rp.write_text(t)
-        forked = _pkg.load(dest)
-        errs = _pkg.validate(forked)
+        errs = _pkg.validate(_pkg.load(built))
         if errs:
             raise ForkError("the fork did not validate — nothing kept: " + "; ".join(errs))
-    except Exception:
-        shutil.rmtree(dest, ignore_errors=True)
-        raise
+        try:
+            os.rename(built, dest)
+        except OSError:
+            if not dest.exists():
+                raise
+            log(f"  {dest} was made by another run while this one copied")
+            return _existing(pkg, dest, parent_ff, fork_of, info, log)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
     log(f"  {'copied' if parent_ff is not None else 'forked'} {pkg.id} {pkg.version} → {dest} ({display})")
     return dest, info

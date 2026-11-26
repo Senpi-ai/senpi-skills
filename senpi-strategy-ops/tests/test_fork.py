@@ -486,21 +486,96 @@ def test_fork_of_is_written_as_given_and_a_blank_one_is_refused(tmp_path):
 
 def test_the_reuse_path_writes_nothing(tmp_path):
     pkg = _pkg.load(_template(tmp_path))
-    # a fork with no parent line: reuse adds none
+    # a fork with no parent line: reuse without --fork-of adds none
     legacy, _ = _fork.fork(pkg, tmp_path, name="Shield Wall", fork_of=SIM)
     man = legacy / "strategy.yaml"
     man.write_text(_without_parent(man.read_text()))
     before = _snapshot(legacy)
-    for kw in (dict(name="Shield Wall", fork_of=LIVE), dict(name="Shield Wall")):
-        again, info = _fork.fork(pkg, tmp_path, **kw)
-        assert again == legacy and info["reused"]
-        assert _snapshot(legacy) == before
-    # a fork that carries a parent keeps it, whatever --fork-of says on reuse
+    again, info = _fork.fork(pkg, tmp_path, name="Shield Wall")
+    assert again == legacy and info["reused"] and _snapshot(legacy) == before
+    # a fork that carries a parent keeps it
     carried, _ = _fork.fork(pkg, tmp_path, owner="Ignas")
     before = _snapshot(carried)
-    again, info = _fork.fork(pkg, tmp_path, owner="Ignas", name="ignas-phalanx", fork_of=LIVE)
+    again, info = _fork.fork(pkg, tmp_path, owner="Ignas")
     assert again == carried and info["reused"] and _snapshot(carried) == before
     assert _parent_of(carried) == "template:phalanx"
+
+
+def test_fork_of_reuses_a_copy_only_when_it_has_that_parent(tmp_path):
+    pkg = _pkg.load(_template(tmp_path))
+    first, _ = _fork.fork(pkg, tmp_path, name="Shield Wall", fork_of=SIM)
+    before = _snapshot(first)
+    again, info = _fork.fork(pkg, tmp_path, name="Shield Wall", fork_of=SIM)      # the same command again resumes
+    assert again == first and info["reused"] and _snapshot(first) == before
+    with pytest.raises(_fork.ForkError, match="--name"):                          # another parent is refused
+        _fork.fork(pkg, tmp_path, name="Shield Wall", fork_of=LIVE)
+    assert _snapshot(first) == before and _parent_of(first) == SIM
+    carried, _ = _fork.fork(pkg, tmp_path, owner="Ignas")                          # parent template:phalanx
+    legacy, _ = _fork.fork(pkg, tmp_path, name="Wide Stop")
+    (legacy / "strategy.yaml").write_text(_without_parent((legacy / "strategy.yaml").read_text()))   # no parent
+    for d, kw in ((carried, dict(owner="Ignas", name="ignas-phalanx")), (legacy, dict(name="Wide Stop"))):
+        before = _snapshot(d)
+        with pytest.raises(_fork.ForkError, match="--name"):
+            _fork.fork(pkg, tmp_path, fork_of=LIVE, **kw)
+        assert _snapshot(d) == before
+    out = _run(["create", "phalanx", "--budget", "100", "--dry-run", "--name", "Shield Wall", "--fork-of", LIVE], tmp_path)
+    assert out.returncode == 2 and "--name" in out.stderr and "planned:" not in out.stdout, (out.stdout, out.stderr)
+    assert _parent_of(first) == SIM
+
+
+@pytest.mark.parametrize("ff", ['forked_from:\n  version: "1.1.0"\n\n', 'forked_from:\n  id:\n  version: "1.1.0"\n\n',
+                                "forked_from: {}\n"])
+def test_a_copy_of_a_fork_with_no_template_id_and_no_parent_has_no_parent(tmp_path, ff):
+    src = _template(tmp_path / "src", manifest=FORK_MANIFEST.replace("forked_from:\n@BLOCK@\n", ff))
+    dest, _ = _fork.fork(_pkg.load(src), tmp_path, name="Wide Stop")
+    assert (_pkg.load(dest).manifest["forked_from"] or {}).get("parent") is None
+    assert "parent:" not in (dest / "strategy.yaml").read_text()
+    dest, _ = _fork.fork(_pkg.load(src), tmp_path, name="Tight Stop", fork_of=SIM)   # --fork-of still names one
+    assert _parent_of(dest) == SIM
+
+
+def _runtime_name(d):
+    return _pkg.load(d).instances[0].runtime_doc.get("name")
+
+
+def test_a_second_run_into_the_same_name_never_sees_a_half_made_copy(tmp_path, monkeypatch):
+    pkg = _pkg.load(_template(tmp_path))
+    real, other = _fork._prefix_description, []
+
+    def racing(text, prefix):                       # the manifest is written, the runtimes are not yet
+        if not other:
+            other.append(None)
+            d, info = _fork.fork(pkg, tmp_path, name="Shield Wall", fork_of=SIM)
+            other[0] = (d, info["reused"], _runtime_name(d))
+        return real(text, prefix)
+
+    monkeypatch.setattr(_fork, "_prefix_description", racing)
+    dest, info = _fork.fork(pkg, tmp_path, name="Shield Wall", fork_of=SIM)
+    assert other[0] == (dest, False, "shield-wall-main")   # the other run made its own whole copy
+    assert info["reused"] and _runtime_name(dest) == "shield-wall-main" and _parent_of(dest) == SIM
+    assert _pkg.validate(_pkg.load(dest)) == []
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["phalanx", "shield-wall"]   # no staging left
+
+
+def test_a_copy_killed_half_way_leaves_nothing_under_its_name(tmp_path):
+    _template(tmp_path)
+    code = ("import os, signal, sys; sys.path.insert(0, sys.argv[1]); import _fork, _pkg\n"
+            "_fork._prefix_description = lambda t, p: os.kill(os.getpid(), signal.SIGKILL)\n"
+            "_fork.fork(_pkg.load(sys.argv[2] + '/phalanx'), sys.argv[2], name='Shield Wall', fork_of='" + SIM + "')\n")
+    out = subprocess.run([sys.executable, "-c", code, os.path.join(HERE, "..", "scripts"), str(tmp_path)],
+                         capture_output=True, text=True, timeout=60)
+    assert out.returncode == -9, (out.returncode, out.stderr)
+    assert not (tmp_path / "shield-wall").exists()
+    dest, info = _fork.fork(_pkg.load(tmp_path / "phalanx"), tmp_path, name="Shield Wall", fork_of=SIM)
+    assert not info["reused"] and _runtime_name(dest) == "shield-wall-main"
+
+
+def test_a_copy_that_fails_while_copying_leaves_nothing_under_its_name(tmp_path):
+    src = _template(tmp_path)
+    (src / "main" / "scanners" / "gone.py").symlink_to(tmp_path / "missing.py")
+    with pytest.raises(Exception):
+        _fork.fork(_pkg.load(src), tmp_path, name="Shield Wall")
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["phalanx"]
 
 
 def test_cli_fork_of_on_the_fork_verb_and_on_create_with_a_name(tmp_path):
