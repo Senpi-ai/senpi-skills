@@ -159,7 +159,10 @@ class SkillTextCarriesTheYes(unittest.TestCase):
     SKILL = " ".join((Path(__file__).resolve().parents[1] / "SKILL.md").read_text().split())
 
     def test_every_batch_start_sends_the_yes(self):
-        self.assertEqual(self.SKILL.count('"dryRun":false`, `"userSaidYes":true'), 2)
+        self.assertEqual(self.SKILL.count('"dryRun":false`, `"userSaidYes":true'), 1)  # parentId, differing budgets
+        self.assertIn("`deploy.py start-plan <catalog id> --user-said-yes`", self.SKILL)
+        self.assertIn("`deploy.py start-plan <id> --user-said-yes`", self.SKILL)
+        self.assertIn('Never send `startBatch` with `"dryRun":false` yourself', self.SKILL)
 
     def test_a_local_package_is_quoted_with_plan(self):
         self.assertIn("**A local package** (no catalog id): `deploy.py plan <dir>`, relayed, end the turn", self.SKILL)

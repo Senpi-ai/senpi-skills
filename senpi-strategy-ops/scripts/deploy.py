@@ -2536,12 +2536,15 @@ _PLAN_UNCHANGED_LABELS = {"as-designed", "as-is", "as-written", "base", "baselin
 
 
 def parse_plan_variant(text):
-    """`label|key=value|what it tests` -> {label, key, value, tests}. A variation changes exactly one
-    setting, so a second `=` or a `,` between settings is refused rather than read as two changes."""
+    """`label|key=value|what it tests[|how often it trades]` -> {label, key, value, tests, trades}. A
+    variation changes exactly one setting, so a second `=` or a `,` between settings is refused rather
+    than read as two changes."""
     parts = [p.strip() for p in text.split("|")]
-    if len(parts) != 3 or not all(parts):
-        raise PlanInputError(f"--variant {text!r}: expected 'label|key=value|what it tests'")
-    label, setting, tests = parts
+    if len(parts) not in (3, 4) or not all(parts):
+        raise PlanInputError(f"--variant {text!r}: expected 'label|key=value|what it tests' "
+                             f"(and, if it trades at another pace, '|how often it trades')")
+    label, setting, tests = parts[:3]
+    trades = parts[3] if len(parts) == 4 else None
     if not _VARIANT_LABEL.match(label):
         raise PlanInputError(f"--variant {text!r}: the label is 1-40 letters, digits, '-', '_' or '.'")
     if label.lower() in _PLAN_UNCHANGED_LABELS:
@@ -2552,7 +2555,7 @@ def parse_plan_variant(text):
     if not sep or not key or not raw or "=" in raw or "," in key:
         raise PlanInputError(f"--variant {text!r}: a variation changes exactly one setting (key=value); "
                              f"make each change its own variation")
-    return {"label": label, "key": key, "value": _plan_value(raw), "tests": tests}
+    return {"label": label, "key": key, "value": _plan_value(raw), "tests": tests, "trades": trades}
 
 
 def parse_budget_choices(text):
@@ -2601,8 +2604,7 @@ def _plan_quote(ref, variants, budget, local):
         after = after - each + each * n if isinstance(after, (int, float)) else None
         return [each] * n, after, [], None
     params = {"requestId": f"quote-{ref}-{int(time.time())}", "strategy": ref, "budgetUsd": budget, "dryRun": True,
-              "variants": [{"label": "as-designed", "settings": {}}]
-              + [{"label": v["label"], "settings": {v["key"]: v["value"]}} for v in variants]}
+              "variants": _plan_variants(variants)}
     r = _gw("senpi.simulations.startBatch", params, START_RPC_MS, START_WALL_S)
     payload = r["payload"] if isinstance(r["payload"], dict) else {}
     rows = payload.get("rows") if r["kind"] == "ok" and payload.get("dryRun") is True else None
@@ -2615,6 +2617,14 @@ def _plan_quote(ref, variants, budget, local):
         return None, None, refusals, None if refusals else "the quote named no credits an hour"
     after = payload.get("creditsPerHourAfter")
     return each, after if isinstance(after, (int, float)) else None, [], None
+
+
+def _plan_variants(variants):
+    """The batch a plan quotes and starts: the design as it is first, then each variation; a single
+    variation is one simulation with that setting, alone."""
+    rows = [{"label": v["label"], "settings": v["settings"] if "settings" in v else {v["key"]: v["value"]}}
+            for v in variants]
+    return rows if len(rows) == 1 else [{"label": "as-designed", "settings": {}}] + rows
 
 
 def _plan_credits(each, flat=False):
@@ -2639,21 +2649,44 @@ def _plan_cost(b, each, n_variants):
 
 
 def render_plan(name, design, trades, variants, quotes):
-    """The plan the agent relays as given, in as few lines as it takes: what it is, each variation, the
-    cost of every budget offered, the question. `quotes` maps each budget to its quote (per_hour_each, after)."""
-    about = (design + (f", trading {trades}" if trades else "")) if design else (f"trading {trades}" if trades else "")
-    if variants:
-        lines = [f"Test plan for {name} on virtual money (nothing real moves): {about}. Simulations:",
-                 "1. As designed."]
+    """The plan the agent relays as given. Every fact sits on the line of the simulation it belongs to
+    (what it is, how often it trades, its budget, its credits an hour), so no line can be dropped without
+    dropping a simulation. `quotes` maps each budget to its quote (per_hour_each, after)."""
+    budgets = list(quotes)
+    one = budgets[0] if len(budgets) == 1 else None
+
+    def facts(what, pace, i):
+        bits = [what] if what else []
+        if pace:
+            bits.append(f"trades {pace}")
+        if one is not None:
+            each = quotes[one][0][i]
+            bits += [_plan_money(one), f"{each:g} credits an hour" + ("" if variants else f" ({each * 24:g} a day)")]
+        return " · ".join(bits)
+
+    if len(variants) == 1:
+        v = variants[0]
+        shown = v["value"] if isinstance(v["value"], str) else json.dumps(v["value"])
+        what = f"{v['label']}: {v['tests']} ({v['key']} = {shown})"
+        variants = []
+        lines = [f"Simulation of {name}, on virtual money (nothing real moves): {facts(what, v.get('trades') or trades, 0)}"]
+    elif variants:
+        lines = [f"Test plan for {name}, on virtual money (nothing real moves):",
+                 f"1. As designed: {facts(design, trades, 0)}"]
         for i, v in enumerate(variants, start=2):
             shown = v["value"] if isinstance(v["value"], str) else json.dumps(v["value"])
-            lines.append(f"{i}. {v['label']}: {v['tests']} ({v['key']} = {shown})")
+            what = f"{v['tests']} ({v['key']} = {shown})"
+            lines.append(f"{i}. {v['label']}: {facts(what, v.get('trades') or trades, i - 1)}")
     else:
-        lines = [f"Simulation of {name} on virtual money (nothing real moves)" + (f": {about}." if about else ".")]
-    budgets = list(quotes)
-    if len(budgets) == 1:
-        lines.append(f"{_plan_cost(budgets[0], quotes[budgets[0]][0], len(variants))}. Nothing has started.")
-        lines.append(PLAN_QUESTION if variants else "Start it?")
+        lines = [f"Simulation of {name}, on virtual money (nothing real moves): {facts(design, trades, 0)}"]
+    if one is not None:
+        each = quotes[one][0]
+        if variants:
+            lines.append(f"All {len(each)}: {sum(each):g} credits an hour ({sum(each) * 24:g} a day). Nothing has started.")
+            lines.append(PLAN_QUESTION)
+        else:
+            lines[0] += ". Nothing has started."
+            lines.append("Start it?")
     else:
         choices = " · ".join(f"{_plan_money(b)} ({_plan_credits(quotes[b][0], flat=True)})" for b in budgets)
         lines.append(("Budget each: " if variants else "Budget: ") + choices + ". Nothing starts until you pick one.")
@@ -2662,7 +2695,9 @@ def render_plan(name, design, trades, variants, quotes):
 
 
 def _plan_after_yes(ref, variants, local):
-    yes = ("Only an explicit yes starts them: \"yes\", \"simulate\", \"go\", a budget they tapped or typed. "
+    yes = ("Show it and end your turn. Only an explicit yes in their NEXT message starts them: \"yes\", "
+           "\"simulate\", \"go\", a budget they tapped or typed; the request that asked for this plan is not "
+           "the yes. "
            "\"Your call\", \"sounds good\", \"you pick\" and silence are not a yes: recommend simulating and ask "
            "the question again. On \"live\", the live walkthrough takes over; never start a simulation. "
            "A simulation needs no deposit and no funds: never tell them to deposit first.")
@@ -2672,8 +2707,8 @@ def _plan_after_yes(ref, variants, local):
                "<label>`, set its one setting, `create <fork dir> --simulation --user-said-yes --variant-of "
                "<the design's simulation id> --batch <one id>`).")
     else:
-        how = ("After the yes: the same senpi.simulations.startBatch call with \"dryRun\": false, \"userSaidYes\": "
-               "true, a new requestId and the budget they chose, then `deploy.py batch-wait <requestId>`.")
+        how = (f"After the yes: `deploy.py start-plan {ref} --user-said-yes` (with `--budget <the one they "
+               f"picked>` when it offered choices). It starts exactly what this plan quoted.")
     return yes + "\n" + how
 
 
@@ -2682,10 +2717,14 @@ def cmd_plan(a):
     one message the agent relays as given. Starts nothing."""
     try:
         variants = [parse_plan_variant(t) for t in (a.variant or [])]
-        if len(variants) == 1 or len(variants) > 4:
+        if len(variants) > 4:
             raise PlanInputError("a test plan has two to four variations (--variant), each changing one "
-                                 "setting; with none it quotes the one simulation the user asked for")
-        if variants and not (a.design and a.trades):
+                                 "setting; one --variant quotes one simulation with that setting, none the "
+                                 "strategy as it is")
+        if len(variants) == 1 and _plan_is_local(a.package):
+            raise PlanInputError("the user's own package takes a setting by editing it: change it in the "
+                                 "package, then plan it with no --variant")
+        if len(variants) > 1 and not (a.design and a.trades):
             raise PlanInputError("a test plan needs --design (one sentence) and --trades (how often it "
                                  "should trade)")
         if len({v["label"] for v in variants}) != len(variants):
@@ -2734,6 +2773,8 @@ def _plan_quote_and_print(a, variants, budgets):
 
 PLAN_RECORD_DIR = ".simulation-plans"
 PLAN_RECORD_TTL_S = 6 * 3600
+# A start this soon after its plan came in the same turn: the user has not seen the plan yet.
+PLAN_MIN_GAP_S = 15
 _MISSING = object()
 
 
@@ -2752,6 +2793,7 @@ def _write_plan_record(ref, budgets, variants):
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"at": time.time(), "package": str(ref), "budgets": budgets,
+                                    "local": _plan_is_local(ref),
                                     "variants": [{"label": v["label"], "settings": {v["key"]: v["value"]}}
                                                  for v in variants]}))
     except OSError as e:
@@ -2767,11 +2809,58 @@ def _plan_on_record(ref, budget):
         return "no plan was shown for it"
     if not isinstance(rec, dict) or not isinstance(rec.get("at"), (int, float)):
         return "no plan was shown for it"
-    if time.time() - rec["at"] > PLAN_RECORD_TTL_S:
+    age = time.time() - rec["at"]
+    if age > PLAN_RECORD_TTL_S:
         return "its plan is more than 6 hours old"
+    if age < PLAN_MIN_GAP_S:
+        return ("its plan was printed in this same turn, so the user has not seen it: show it, end your turn, "
+                "and start only on the yes in their next message")
     if not any(isinstance(q, (int, float)) and abs(q - budget) < 0.005 for q in rec.get("budgets") or []):
         return f"its plan did not quote {_plan_money(budget)}"
     return None
+
+
+def _no_plan_exit(ref, budget_flag, why):
+    print(f"[E_NO_PLAN] Nothing was started: {why}. A simulation starts only after the user saw it quoted "
+          f"by plan and said yes.\n"
+          f"  Next: run `deploy.py plan {ref}{budget_flag}` (with --design, --trades and the --variant "
+          f"lines for a test plan) if it was not shown, relay what it prints as given, and end your turn. "
+          f"After an explicit yes in their next message, re-run this command.", file=sys.stderr)
+    sys.exit(EXIT_CODES["refused"])
+
+
+def cmd_start_plan(a):
+    """Starts exactly the catalog batch `plan` quoted, at a budget it quoted, after the user's yes."""
+    if not a.user_said_yes:
+        print(f"[E_NEEDS_USER_YES] Nothing was started. Show the plan from `deploy.py plan {a.package}`, end "
+              f"your turn, and re-run this with --user-said-yes after an explicit yes in their next message.",
+              file=sys.stderr)
+        return EXIT_CODES["refused"]
+    budget = a.budget if a.budget is not None else PLAN_BUDGET_USD
+    budget_flag = "" if a.budget is None else f" --budget {a.budget:g}"
+    why = _plan_on_record(a.package, budget)
+    if why is not None:
+        _no_plan_exit(a.package, budget_flag, why)
+    rec = json.loads(_plan_record_path(a.package).read_text())
+    if rec.get("local"):
+        print(f"[INVALID_REQUEST] {a.package} is the user's own package: start it with `deploy.py create "
+              f"{a.package} --simulation --user-said-yes`. Nothing was started.", file=sys.stderr)
+        return EXIT_CODES["refused"]
+    request_id = f"plan-{_plan_key(a.package)}-{int(time.time())}"
+    params = {"requestId": request_id, "strategy": _plan_key(a.package), "budgetUsd": budget, "dryRun": False,
+              "userSaidYes": True,
+              "variants": _plan_variants(rec.get("variants") or [])}
+    begin_command_budget(START_WALL_S + BATCH_WAIT_BUDGET)
+    try:
+        r = _gw("senpi.simulations.startBatch", params, START_RPC_MS, START_WALL_S)
+        if r["kind"] != "ok":
+            print(f"The start was not confirmed ({r['message'] or r['kind']}). Read `deploy.py batch-wait "
+                  f"{request_id}` before anything else; never start it again.", file=sys.stderr)
+            return EXIT_INTERNAL
+        print(f"Started the plan as request {request_id}.")
+        return cmd_batch_wait(argparse.Namespace(request_id=request_id, budget=BATCH_WAIT_BUDGET, json=False))
+    finally:
+        end_command_budget()
 
 
 def _start_needs_its_plan(pkg, a):
@@ -2783,15 +2872,8 @@ def _start_needs_its_plan(pkg, a):
         return
     budget = a.budget if a.budget is not None else PLAN_BUDGET_USD
     why = _plan_on_record(a.package, budget)
-    if why is None:
-        return
-    budget_flag = "" if a.budget is None else f" --budget {a.budget:g}"
-    print(f"[E_NO_PLAN] Nothing was started: {why}. A simulation starts only after the user saw it quoted "
-          f"by plan and said yes.\n"
-          f"  Next: run `deploy.py plan {a.package}{budget_flag}` (with --design, --trades and the --variant "
-          f"lines for a test plan), relay what it prints as given, and end your turn. After an explicit yes, "
-          f"re-run this command.", file=sys.stderr)
-    sys.exit(EXIT_CODES["refused"])
+    if why is not None:
+        _no_plan_exit(a.package, "" if a.budget is None else f" --budget {a.budget:g}", why)
 
 
 def _design_value(ref, key):
@@ -2976,6 +3058,14 @@ def _main(argv):
                      help=f"Seconds to wait at most (default {BATCH_WAIT_BUDGET}).")
     pbw.add_argument("--json", action="store_true")
 
+    psp = sub.add_parser("start-plan",
+                         help="Start exactly the catalog batch `deploy.py plan` quoted, after the user's yes in "
+                              "their next message.")
+    psp.add_argument("package", help="The catalog id the plan quoted (e.g. hawk).")
+    psp.add_argument("--budget", type=float, default=None, help="The budget they picked, when the plan offered choices.")
+    psp.add_argument("--user-said-yes", dest="user_said_yes", action="store_true",
+                     help="The user said an explicit yes to the plan in a message after it was shown.")
+
     pp = sub.add_parser("plan",
                         help="READ-ONLY: quote a strategy and two to four one-setting variations as simulations "
                              "and print the test plan to relay as given. Starts nothing.")
@@ -3025,6 +3115,8 @@ def _main(argv):
         return 0
     if a.cmd == "batch-wait":
         sys.exit(cmd_batch_wait(a))
+    if a.cmd == "start-plan":
+        sys.exit(cmd_start_plan(a))
     if a.cmd == "plan":
         sys.exit(cmd_plan(a))
 

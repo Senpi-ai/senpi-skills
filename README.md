@@ -60,8 +60,8 @@ A Senpi agent's abilities are **skills**. Each one packages a tested multi-step 
 | [`senpi-account-status`](senpi-account-status/) | 1.11.4 | Points and rank, the Senpi trading fee (none on a paid plan or with credits), referrals, and the AI credits meter with the live credit balance (chat and tool turns spend plan credits, never trading money); the plan catalog, what running out of credits stops (the AI, simulations and the strategies on the agent; exchange stop-losses and mirror strategies stay) and what a lapsed plan pauses |
 | **Run a strategy** | | |
 | [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.59.0 | Picks strategies for you: ranks the catalog against your view of the market and quotes each pick's exits and position size from its card; your holdings are context (saved wallets read-only, never a budget) |
-| [`senpi-strategy-author`](senpi-strategy-author/) | 3.21.0 | Builds or edits a strategy package with DSL exits, one decision at a time |
-| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.39.0 | Deploys, monitors and closes a named strategy (`deploy.py`, `close.py`) |
+| [`senpi-strategy-author`](senpi-strategy-author/) | 3.22.0 | Builds or edits a strategy package with DSL exits, one decision at a time |
+| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.40.0 | Deploys, monitors and closes a named strategy (`deploy.py`, `close.py`) |
 | [`senpi-trade`](senpi-trade/) | 1.13.0 | Direct trades, and copy trading of a specific trader, one decision at a time |
 | [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.1.18 | The runtime contract: `scan(inputs, ctx)`, `runtime.yaml` and the DSL |
 | **Move money / positioning** | | |
