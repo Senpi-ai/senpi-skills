@@ -437,11 +437,36 @@ def test_fork_of_without_a_name_is_refused(tmp_path, kw):
     assert sorted(p.name for p in tmp_path.iterdir()) == before             # nothing written
 
 
-@pytest.mark.skip(reason="_fork has no signal yet that tells an authored package from a catalog one")
 def test_an_authored_copy_records_custom_as_the_parent(tmp_path):
-    pkg = _pkg.load(_template(tmp_path, manifest=MANIFEST.replace("  tier: advanced\n", "")))
-    dest, _ = _fork.fork(pkg, tmp_path, name="Shield Wall")
+    pkg = _pkg.load(_template(tmp_path))
+    dest, _ = _fork.fork(pkg, tmp_path, name="Shield Wall", authored=True)
     assert _parent_of(dest) == "custom:phalanx"
+    assert _without_parent((dest / "strategy.yaml").read_text()) == _catalog_copy_expected("shield-wall", "Shield Wall")
+    dest, _ = _fork.fork(pkg, tmp_path, name="Wide Stop", authored=True, fork_of=SIM)   # --fork-of still wins
+    assert _parent_of(dest) == SIM
+
+
+def test_cli_an_explicit_directory_is_authored_and_a_bare_id_is_a_template(tmp_path):
+    _template(tmp_path)
+    out = _run(["fork", str(tmp_path / "phalanx"), "--name", "Shield Wall", "--json"], tmp_path)
+    assert out.returncode == 0, out.stderr
+    assert _parent_of(tmp_path / "shield-wall") == "custom:phalanx"
+    out = _run(["create", str(tmp_path / "phalanx"), "--budget", "100", "--dry-run", "--name", "Wide Stop"], tmp_path)
+    assert out.returncode == 0, out.stderr
+    assert _parent_of(tmp_path / "wide-stop") == "custom:phalanx"
+    out = _run(["fork", "phalanx", "--name", "Tight Stop", "--json"], tmp_path)
+    assert out.returncode == 0, out.stderr
+    assert _parent_of(tmp_path / "tight-stop") == "template:phalanx"
+
+
+def test_fork_of_is_written_as_given_and_a_blank_one_is_refused(tmp_path):
+    pkg = _pkg.load(_template(tmp_path))
+    odd = 'a "b": #c \\ d'
+    dest, _ = _fork.fork(pkg, tmp_path, name="Shield Wall", fork_of=odd)
+    assert _parent_of(dest) == odd
+    with pytest.raises(_fork.ForkError, match="--fork-of"):
+        _fork.fork(pkg, tmp_path, name="Wide Stop", fork_of="  ")
+    assert not (tmp_path / "wide-stop").exists()
 
 
 def test_the_reuse_path_writes_nothing(tmp_path):

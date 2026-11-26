@@ -4,9 +4,9 @@
 It copies a catalog package to `<strategies root>/<owner>-<template>/` (or `<their-words>/`) and
 rewrites the four things that carry identity: the manifest `id`, its `catalog.name`, each runtime's
 `name`/`group` linkage and the first line of its `description` (the mandate senpi-portfolio reads
-back). `forked_from` records the lineage. Everything else stays byte-identical — the edits are
-textual, never a YAML re-dump, so comments and layout survive. Levers are moved afterwards with the
-normal edit path, never here.
+back). `forked_from` records the lineage, and `forked_from.parent` the node the copy's deploys count
+under. Everything else stays byte-identical — the edits are textual, never a YAML re-dump, so comments
+and layout survive. Levers are moved afterwards with the normal edit path, never here.
 
 Two names, on purpose. The backend strategy name is derived by the deploy verb from the package id
 and allows only `[A-Za-z0-9_-]` (and the backend lowercases it), so the id is `ignas-phalanx`. The
@@ -15,6 +15,7 @@ the agent says. Both are printed by every verb that makes or deploys a fork.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import hashlib
+import json
 import re
 import shutil
 from pathlib import Path
@@ -111,12 +112,44 @@ def _set_catalog_name(text, display):
     return "\n".join(lines)
 
 
-def _add_forked_from(text, template_id, version):
-    block = f'forked_from:\n  id: {template_id}\n  version: "{version}"'
+def _add_forked_from(text, template_id, version, parent):
+    block = f'forked_from:\n  id: {template_id}\n  version: "{version}"\n  parent: {json.dumps(parent, ensure_ascii=False)}'
     lines = text.split("\n")
     at = next(i for i, l in enumerate(lines) if re.match(r"^version:", l))     # validate requires `version`
     lines.insert(at + 1, block)
     return "\n".join(lines)
+
+
+def _set_parent(text, ref):
+    """Write `parent: <ref>` into the column-0 `forked_from:` block, replacing a `parent:` already there."""
+    lines = text.split("\n")
+    start = next((i for i, l in enumerate(lines) if re.match(r"^forked_from:\s*(#.*)?$", l)), None)
+    if start is None:
+        raise ForkError("strategy.yaml's `forked_from` is not a block mapping, so the copy's parent cannot be written")
+    block = []
+    for i in range(start + 1, len(lines)):
+        l = lines[i]
+        if l.strip() and not l.startswith((" ", "\t")) and not l.startswith("#"):
+            break                                   # the block ended
+        if l.strip() and not l.lstrip().startswith("#"):
+            block.append(i)
+    indent = re.match(r"^(\s*)", lines[block[0]]).group(1) if block else "  "
+    value = f"{indent}parent: {json.dumps(ref, ensure_ascii=False)}"
+    at = next((i for i in block if re.match(rf"^{indent}parent:", lines[i])), None)
+    if at is None:
+        lines.insert(start + 1, value)
+    else:
+        lines[at] = value
+    return "\n".join(lines)
+
+
+def _parent_ref(pkg, parent_ff, fork_of, authored):
+    """The ref a copy of `pkg` records in `forked_from.parent`, or None when the source's own is kept."""
+    if fork_of is not None:
+        return str(fork_of).strip()
+    if parent_ff:
+        return None if str(parent_ff.get("parent") or "").strip() else f"template:{parent_ff.get('id')}"
+    return f"custom:{pkg.id}" if authored else f"template:{pkg.id}"
 
 
 def _prefix_description(text, prefix):
@@ -148,7 +181,7 @@ def _ignore(_dir, names):
     return [n for n in names if n in SKIP_NAMES or n.startswith(".senpi-fetch-") or ".bak-" in n]
 
 
-def fork(pkg, root, owner=None, name=None, log=lambda m: None):
+def fork(pkg, root, owner=None, name=None, fork_of=None, authored=False, log=lambda m: None):
     """Make (or reuse) the user's fork of `pkg` under `root`. Returns `(dir, info)`.
 
     Reuse is by lineage: an existing directory is returned untouched when it is a fork of this same
@@ -156,7 +189,17 @@ def fork(pkg, root, owner=None, name=None, log=lambda m: None):
     onto it). Any other occupant of the name is refused rather than overwritten.
 
     A package that is already a fork is copied, edits and all, only under `name`: that is how a variation
-    of a user's own strategy starts. The copy keeps the template lineage and is never reused."""
+    of a user's own strategy starts. The copy keeps the template lineage and is never reused.
+
+    The copy records `forked_from.parent`: `fork_of` (the strategy id it starts from) when given, else the
+    source's own parent, else `template:<forked_from.id>` for a fork, `custom:<id>` for an `authored` package
+    and `template:<id>` for a catalog one. `fork_of` needs `name`; a reused directory is left as it is."""
+    if fork_of is not None:
+        if not str(fork_of).strip():
+            raise ForkError("--fork-of needs the id of the strategy this copy starts from")
+        if not (name and str(name).strip()):
+            raise ForkError("a copy started from a running strategy needs a name of its own: ask what to call it "
+                            "and pass --name <their words>")
     parent_ff = (pkg.manifest or {}).get("forked_from")
     if parent_ff is not None and not (name and str(name).strip()):
         ff = parent_ff or {}
@@ -190,8 +233,11 @@ def fork(pkg, root, owner=None, name=None, log=lambda m: None):
         text = man.read_text()
         text = _set_top_key(text, "id", fid)
         text = _set_catalog_name(text, display)
+        ref = _parent_ref(pkg, parent_ff, fork_of, authored)
         if parent_ff is None:
-            text = _add_forked_from(text, pkg.id, pkg.version)
+            text = _add_forked_from(text, pkg.id, pkg.version, ref)
+        elif ref is not None:
+            text = _set_parent(text, ref)
         man.write_text(text)
         title = short_title((pkg.catalog or {}).get("name"), pkg.id)
         origin = f"copied from {(pkg.catalog or {}).get('name') or pkg.id}" if parent_ff is not None else \
