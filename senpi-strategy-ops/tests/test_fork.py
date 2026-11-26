@@ -325,7 +325,7 @@ def test_a_fork_made_under_the_old_uncut_id_is_the_one_a_live_deploy_reuses(tmp_
     assert info["runtimes"] == [f"{LEGACY_ID}-main"] and info["dir"] == str(legacy)
     assert (legacy / ".deploy-state.json").read_text() == '{"live": true}'            # untouched
     made = sorted(p.name for p in tmp_path.iterdir() if (p / "strategy.yaml").is_file())
-    assert made == ["phalanx", LEGACY_ID], made                                       # no second fork beside it
+    assert made == sorted(["phalanx", LEGACY_ID]), made                                      # no second fork beside it
 
 
 def test_a_simulation_never_reuses_an_old_id_too_long_to_run_as_one(tmp_path):

@@ -107,7 +107,7 @@ class SkillText(unittest.TestCase):
 
     def test_the_ops_skill_names_the_call_verb_for_each_method(self):
         text = SKILL_TEXTS[0].read_text()
-        for method in ("senpi.packages.get", "senpi.simulations.startBatch", "senpi.simulations.batchStatus"):
+        for method in ("senpi.packages.list", "senpi.packages.get", "senpi.simulations.startBatch"):
             self.assertIn(f"deploy.py call {method}", text)
 
 
