@@ -23,44 +23,41 @@ class TheRulesAreInTheFirstRead(unittest.TestCase):
         self.assertLessEqual(RULE_AT + len(RULE_RAW), FIRST_READ)
 
     def test_the_description_routes_both_asks_here(self):
-        self.assertIn('"make my simulation public / private" (→ simulation_set_public)', HEAD)
-        self.assertIn('"Fork simulation <id>" (→ simulation_public_get, then deploy --fork-of)', HEAD)
+        self.assertIn('"make my simulation public"; "Fork simulation <id>".', HEAD)
 
 
 class Publish(unittest.TestCase):
     def test_simulations_are_private_until_the_owner_asks(self):
-        self.assertIn("Simulations are private until their owner asks.", RULE)
+        self.assertIn("Private until the owner asks.", RULE)
 
     def test_publish_and_unpublish_call_the_tool_with_ids_or_the_group(self):
-        self.assertIn('"Make <simulation / group> public" or "make it private" → `simulation_set_public` '
-                      "(`public: true` or `false`) with their `id`s, or a whole group's `identity.group.id` as "
-                      "`groupId`, from `strategy_list {simulation: true}`", RULE)
+        self.assertIn('"Make <sim / group> public" or "private" → `simulation_set_public` (`public` true/false; '
+                      "`ids`, or `groupId` = `identity.group.id` from `strategy_list {simulation: true}`)", RULE)
 
     def test_publishing_is_free_so_it_takes_no_quote(self):
-        self.assertIn("It is free: no quote.", RULE)
+        self.assertIn("free, no quote.", RULE)
 
     def test_the_answer_says_what_is_shown_and_what_never_is(self):
-        self.assertIn("say what signed-in users now see: its name, settings, results and chart, with the owner "
-                      'as an anonymous label such as "Trader 4f2a"; never its wallet, positions or fills.', RULE)
+        self.assertIn("Say others see its name, settings, results and chart under an anonymous label, never its "
+                      "wallet, positions or fills.", RULE)
 
 
 class Fork(unittest.TestCase):
     def test_the_source_is_read_first_and_an_unforkable_one_stops(self):
-        self.assertIn('"Fork simulation <id> for me": `simulation_public_get {id}` first; `forkable` false → '
-                      "say why, quoting `forkBlockedReason`, and stop.", RULE)
+        self.assertIn('"Fork simulation <id>": `simulation_public_get {id}`; `forkable` false → quote '
+                      "`forkBlockedReason` and stop.", RULE)
 
     def test_the_fork_is_quoted_and_the_request_is_never_the_yes(self):
-        self.assertIn("`openclaw senpi deploy --fork-of <id> --dry-run`", RULE)
-        self.assertIn("show the quote, ask and end the turn: the fork request is never the yes.", RULE)
+        self.assertIn("`senpi deploy --fork-of <id> --dry-run`", RULE)
+        self.assertIn("show the quote, end the turn: the request is never the yes.", RULE)
 
     def test_only_the_yes_starts_it_and_its_status_is_followed(self):
-        self.assertIn("Only after their yes, the same command with `--user-said-yes` in place of `--dry-run`, "
-                      "then `openclaw senpi deploy fork-status <requestId>`.", RULE)
+        self.assertIn("After their yes, the same with `--user-said-yes` for `--dry-run`, then "
+                      "`senpi deploy fork-status <requestId>`.", RULE)
         self.assertLess(RULE.find("--dry-run"), RULE.find("--user-said-yes"))
 
     def test_a_change_asked_for_on_a_fork_is_said_not_applied(self):
-        self.assertIn('A fork runs the source\'s settings: "… and change X" is not applied, so the quote says so.',
-                      RULE)
+        self.assertIn('"… and change X" is not applied: say so.', RULE)
 
 
 class VersionBumped(unittest.TestCase):

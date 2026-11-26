@@ -36,7 +36,7 @@ description: >-
   ONE SIMULATION OR SEVERAL: no start (batch, `create`, fork) before a yes to the shown list, total
   and cost (one simulation: its cost and "Go?"), even when the dry run is refused.
   `create --simulation` starts nothing without `--user-said-yes`: pass it only after their yes.
-  "make my simulation public / private" (→ simulation_set_public); "Fork simulation <id>" (→ simulation_public_get, then deploy --fork-of).
+  "make my simulation public"; "Fork simulation <id>".
 license: Apache-2.0
 metadata:
   author: Senpi
@@ -66,7 +66,7 @@ python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py status      
 python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/status.py                            # what am I running? (+ health)
 python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/close.py <id> | --all                # teardown one strategy | EVERY open strategy and simulation
 ```
-**Public simulations and forks.** Simulations are private until their owner asks. "Make <simulation / group> public" or "make it private" → `simulation_set_public` (`public: true` or `false`) with their `id`s, or a whole group's `identity.group.id` as `groupId`, from `strategy_list {simulation: true}`. It is free: no quote. Then say what signed-in users now see: its name, settings, results and chart, with the owner as an anonymous label such as "Trader 4f2a"; never its wallet, positions or fills. "Fork simulation <id> for me": `simulation_public_get {id}` first; `forkable` false → say why, quoting `forkBlockedReason`, and stop. Else quote it with `openclaw senpi deploy --fork-of <id> --dry-run` (`--budget <usd>` if they named one), show the quote, ask and end the turn: the fork request is never the yes. Only after their yes, the same command with `--user-said-yes` in place of `--dry-run`, then `openclaw senpi deploy fork-status <requestId>`. A fork runs the source's settings: "… and change X" is not applied, so the quote says so.
+**Public simulations and forks.** Private until the owner asks. "Make <sim / group> public" or "private" → `simulation_set_public` (`public` true/false; `ids`, or `groupId` = `identity.group.id` from `strategy_list {simulation: true}`); free, no quote. Say others see its name, settings, results and chart under an anonymous label, never its wallet, positions or fills. "Fork simulation <id>": `simulation_public_get {id}`; `forkable` false → quote `forkBlockedReason` and stop. Else `senpi deploy --fork-of <id> --dry-run` (`--budget` if named), show the quote, end the turn: the request is never the yes. After their yes, the same with `--user-said-yes` for `--dry-run`, then `senpi deploy fork-status <requestId>`. "… and change X" is not applied: say so.
 **"Install"/"reinstall <name>" = `deploy.py create <id>`** — a strategy is a package, not an openclaw/clawhub skill; not on disk just means fetch it by id. **Fund through `deploy.py create|runtime <id>`, not through the bare verb.** Both resolve the package,
 run the structural preflight, then start the runtime's `senpi deploy` job, poll it, and relay its
 report **verbatim**; the live-universe gate is the verb's own, **pre-money**. Both call `openclaw gateway call senpi.*` (~1 s; the verbs take 30-160 s on 10.x): read the job with **`deploy.py status`**.
