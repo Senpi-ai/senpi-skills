@@ -3135,6 +3135,11 @@ def _main(argv):
                     help="Assert only scanner code changed; the verb refuses if the recipe moved too.")
     pu.add_argument("--json", action="store_true", help="The verb's report as one JSON document on stdout.")
 
+    pcall = sub.add_parser("call", help="Call one runtime method through the gateway (works in plugin and daemon mode): "
+                                         + ", ".join(CALL_METHODS) + ". Prints the answer as JSON.")
+    pcall.add_argument("method", help="One of: " + ", ".join(CALL_METHODS))
+    pcall.add_argument("--params", default="{}", help="The method's params, a JSON object.")
+
     pbw = sub.add_parser("batch-wait",
                          help="READ-ONLY: wait for a started simulation batch (senpi.simulations.batchStatus) "
                               "until no row is still starting, then print each row. Starts nothing.")
@@ -3203,6 +3208,8 @@ def _main(argv):
     if a.cmd == "where":
         print(_pkg.strategies_root())
         return 0
+    if a.cmd == "call":
+        sys.exit(cmd_call(a))
     if a.cmd == "batch-wait":
         sys.exit(cmd_batch_wait(a))
     if a.cmd == "start-plan":
