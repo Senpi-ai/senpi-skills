@@ -20,7 +20,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.17.5"
+  version: "3.17.6"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -83,9 +83,9 @@ starts here — a thesis, an X take, "what should I trade?", "recommend a strate
   at deploy.
 
 **An open ask** ("help me create a strategy", "set me up") with no thesis yet: before finding a base, ask the two
-opening questions in [`references/opening-questions.md`](references/opening-questions.md), one per call, each through
-`ask_user_question` with every option's `description` and `allow_text: true` (plain text where the tool is absent).
-Never also write the question in your reply. A typed answer counts the same as a tapped one; the answers open the thesis.
+opening questions in [`references/opening-questions.md`](references/opening-questions.md), in plain text, one at a
+time, the second only after the first is answered. An answer in the user's own words counts the same as picking an
+option; the answers open the thesis.
 
 ## ⛔ Never guess syntax — get it from the source (your memory is NOT authoritative)
 
