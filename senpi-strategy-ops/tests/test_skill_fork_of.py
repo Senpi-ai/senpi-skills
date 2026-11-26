@@ -1,6 +1,6 @@
 """A copy started from a running strategy names that strategy: the id comes from the client's hand-off
 line `Source strategy id: <id>` and goes to `--fork-of` on the copy and `--from-simulation` on a
-take-live; a batch never sends `forkOf` for it."""
+take-live, and to `forkedFrom` on a variations batch, which never sends `forkOf` for it."""
 
 import re
 import unittest
@@ -22,6 +22,10 @@ class ForkOfNamesTheSourceStrategy(unittest.TestCase):
     def test_the_copy_takes_the_hand_off_id_and_a_batch_never_sends_fork_of(self):
         self.assertIn("`<source id>`: the hand-off's `Source strategy id`", RUNNING)
         self.assertNotIn("forkOf", RUNNING)
+
+    def test_a_variations_batch_names_the_hand_off_strategy_as_forked_from(self):
+        self.assertIn("`Source strategy id` other than that simulation adds "
+                      "`\"forkedFrom\":\"<Source strategy id>\"`", RUNNING)
 
     def test_the_hand_off_copy_is_deploy_py_and_not_the_public_simulation_fork(self):
         self.assertTrue(re.search(r"Source strategy id: <id>.*--fork-of <id>.*deploy\.py fork.*"

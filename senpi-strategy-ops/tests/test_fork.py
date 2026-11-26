@@ -346,7 +346,7 @@ def _without_parent(text):
 
 
 def _catalog_copy_expected(fid, display):
-    """The manifest a catalog copy has always produced, without its parent line."""
+    """The manifest of a catalog copy, without its parent line."""
     return (MANIFEST.replace("\nid: phalanx\n", f"\nid: {fid}\n")
             .replace('  name: "Phalanx — Proven-Cohort Rotation"', f'  name: "{display}"')
             .replace('version: "1.1.0"\n', 'version: "1.1.0"\nforked_from:\n  id: phalanx\n  version: "1.1.0"\n', 1))
@@ -467,12 +467,12 @@ def test_fork_of_is_written_as_given_and_a_blank_one_is_refused(tmp_path):
 def test_the_reuse_path_writes_nothing(tmp_path):
     pkg = _pkg.load(_template(tmp_path))
     # a fork with no parent line: reuse without --fork-of adds none
-    legacy, _ = _fork.fork(pkg, tmp_path, name="Shield Wall", fork_of=SIM)
-    man = legacy / "strategy.yaml"
+    unparented, _ = _fork.fork(pkg, tmp_path, name="Shield Wall", fork_of=SIM)
+    man = unparented / "strategy.yaml"
     man.write_text(_without_parent(man.read_text()))
-    before = _snapshot(legacy)
+    before = _snapshot(unparented)
     again, info = _fork.fork(pkg, tmp_path, name="Shield Wall")
-    assert again == legacy and info["reused"] and _snapshot(legacy) == before
+    assert again == unparented and info["reused"] and _snapshot(unparented) == before
     # a fork that carries a parent keeps it
     carried, _ = _fork.fork(pkg, tmp_path, owner="Ignas")
     before = _snapshot(carried)
@@ -490,12 +490,12 @@ def test_fork_of_reuses_a_copy_only_when_it_has_that_parent(tmp_path):
     with pytest.raises(_fork.ForkError, match="--name"):                          # another parent is refused
         _fork.fork(pkg, tmp_path, name="Shield Wall", fork_of=LIVE)
     assert _snapshot(first) == before and _parent_of(first) == SIM
-    legacy, _ = _fork.fork(pkg, tmp_path, name="Wide Stop")
-    (legacy / "strategy.yaml").write_text(_without_parent((legacy / "strategy.yaml").read_text()))   # no parent
-    before = _snapshot(legacy)
+    unparented, _ = _fork.fork(pkg, tmp_path, name="Wide Stop")
+    (unparented / "strategy.yaml").write_text(_without_parent((unparented / "strategy.yaml").read_text()))   # no parent
+    before = _snapshot(unparented)
     with pytest.raises(_fork.ForkError, match="--name"):
         _fork.fork(pkg, tmp_path, name="Wide Stop", fork_of=LIVE)
-    assert _snapshot(legacy) == before
+    assert _snapshot(unparented) == before
 
 
 @pytest.mark.parametrize("ff", ['forked_from:\n  id:\n  version: "1.1.0"\n\n', "forked_from: {}\n"])
