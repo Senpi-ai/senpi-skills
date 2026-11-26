@@ -37,7 +37,7 @@ division of labor is fixed:
 - **Zero model cost, and the only loop there is.** The runtime ticks every `interval_seconds` without a
   model call. Never put an agent-turn cron beside it — a producer, a re-check, a watcher — each
   firing is a full model call. A strategy is tested with `senpi validate`
-  (one real tick, no wallet), then as a simulation when the user asks for one (`--simulation`, in
+  (one real tick, no wallet), then as a simulation (the recommended test, `--simulation` in
   senpi-strategy-ops) or live at the $10 floor.
 - **The runtime owns everything downstream:** scheduling (`interval_seconds`), spawning +
   supervising + restarting the scanner, validating (`signal_data_schema`) + de-duplicating the
