@@ -537,7 +537,7 @@ def test_simulations_are_running_and_best_ranks_by_return():
                  "drawdown, win rate, trade count); say which measure ranks them.") in skill
     assert _norm("\"How are my simulations doing?\" and any status of several rank the same way, best first, by "
                  "`simulation_metrics.return_pct` (below), never worked out from account value; a null one goes last with its `not_available` reason.") in skill
-    assert re.search(r'^  version: "1\.39\.13"', SKILL, re.M), "patch-bump above dev's 1.39.12"
+    assert re.search(r'^  version: "1\.39\.14"', SKILL, re.M), "patch-bump above the launch line's 1.39.13"
     health = _ref("runtime-health.md")
     assert _norm("while it runs it is \"running\", never \"live\" (\"live\" means real money).") in health
 
@@ -561,6 +561,19 @@ def test_how_many_simulations_calls_the_counts_tool_and_never_counts_rows():
     assert rule in _norm(SKILL)
 
 
-# ── 1.38.9: the simulations card is parked, so no rule names simulation_list ────────────────────────────
-def test_no_rule_points_at_the_parked_simulation_list_tool():
-    assert "simulation_list" not in SKILL
+# ── parked widget rules: the app draws a card from these two reads ──────────────────────────────────────
+def test_a_simulations_question_calls_simulation_list_once_first():
+    paper = _norm(SKILL[SKILL.index("**Paper is not live.**"):SKILL.index("## Judge each strategy")])
+    assert _norm("**A simulations question: call `simulation_list` once first.** Answer in one or two sentences, never a "
+                 "table: the best one and its return (`return_pct` is already a percent).") in paper
+
+
+def test_the_simulations_trigger_names_the_call_in_the_description():
+    head = _norm(SKILL.split("---", 2)[1])
+    assert _norm('"how are my simulations doing" (call simulation_list once first)') in head
+
+
+def test_money_step_makes_the_card_call_and_answers_from_the_engine():
+    skill = _norm(SKILL)
+    assert _norm("**Before every `money` step, call `account_get_portfolio` once** with `{\"forceFetch\": true, \"strategyStatus\": \"ALL\"}`. "
+                 "Your reply comes from the engine, never from that call.") in skill
