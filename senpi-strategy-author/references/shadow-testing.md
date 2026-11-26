@@ -5,7 +5,7 @@ skip. The expensive way — scheduling the agent to *watch* the strategy — is 
 disappears in days while the strategy itself does nothing.
 
 **Paper trading is a simulation, and only a simulation.** It runs through senpi-strategy-ops (`--simulation`),
-only when the user asks for one. Nothing you schedule can stand in for it: a scanner re-run on a timer is a model call per tick, not a simulation, and
+the recommended test before live (SKILL.md, Start here). Nothing you schedule can stand in for it: a scanner re-run on a timer is a model call per tick, not a simulation, and
 it never sees fills, slippage, funding or the DSL. A one-shot offline backtest over historical candles is
 fine — no scheduler, no model call per tick, no venue contact — as long as it never wires to a trade tool
 and follows [the rules below](#an-offline-backtest--the-rules).
@@ -14,12 +14,12 @@ why not. Then offer the two real tests below; "shadow" means exactly one thing h
 
 ## Two real tests, cheapest first
 
-**1. A tick with no wallet — `openclaw senpi validate`.** One real scan against live, read-only market
+**1. A tick with no wallet — `senpi validate`.** One real scan against live, read-only market
 data: no wallet, no funding, no model call. It prints what the scanner *would have emitted* and
 whether the recipe loads. Re-run it as often as you like; it costs nothing but the tick.
 
 ```
-openclaw senpi validate /data/workspace/strategies/<id>      # the dir holding that runtime.yaml
+senpi validate /data/workspace/strategies/<id>      # the dir holding that runtime.yaml
 ```
 
 `PASS` = the code runs and read real data. `UNPROVEN` = it returned before reading anything (an
@@ -72,10 +72,10 @@ the runtime.
 ## Read on demand — every one of these is read-only and free of model cost until you narrate it
 
 ```
-openclaw senpi scanner -r <runtime_id>           # health / alive / errors / signals — is it alive?
-openclaw senpi status -r <runtime_id> --json     # the runtime's own health verdict + risk gates
-openclaw senpi dsl positions                     # what it holds and where each stop sits
-openclaw senpi action history                    # what it did, and why
+senpi scanner -r <runtime_id>           # health / alive / errors / signals — is it alive?
+senpi status -r <runtime_id> --json     # the runtime's own health verdict + risk gates
+senpi dsl positions                     # what it holds and where each stop sits
+senpi action history                    # what it did, and why
 python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/status.py     # the fleet view (health, pauses, config drift)
 ```
 

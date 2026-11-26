@@ -37,8 +37,6 @@ _DEFAULT_MAX_SLOTS = 4
 _DEFAULT_MIN_SCORE = 25.0        # conviction floor
 _DEFAULT_RECENT_TTL = 300        # signal-dedup TTL (s)
 _NEUTRAL_THRESHOLD = 0.5         # |regime_score| below this = cash
-_DEFAULT_MOM_BLOCK_PCT = 1.0      # skip entry if 1h momentum moves > this % against direction
-_DEFAULT_MOM_BARS_1H = 2           # 1h momentum lookback bars
 
 # Static universe — risk assets + defensives, verified live instruments.
 _UNIVERSE = [
@@ -148,23 +146,22 @@ def _read_candles(ctx, asset, intervals=None):
     return candles
 
 def _read_asset_context(ctx, asset):
-    """Read 4h+1h candles + OI velocity + funding for an asset.
+    """Read 4h candles + OI velocity + funding for an asset.
 
-    Returns (candles_4h, candles_1h, oi_velocity, funding_rate) or (None, None, None, None).
+    Returns (candles_4h, oi_velocity, funding_rate) or (None, None, None).
     """
     md = _read(ctx, "market_get_asset_data", {
         "asset": asset,
-        "candle_intervals": ["4h", "1h"],
+        "candle_intervals": ["4h"],
         "include_funding": True,
         "include_order_book": False,
         "dex": _dex_for(asset),
     }, f"market_get_asset_data({asset})")
     if not isinstance(md, dict):
-        return None, None, None, None
+        return None, None, None
 
     candles = md.get("candles", {}) or {}
     c4h = candles.get("4h", []) if isinstance(candles, dict) else []
-    c1h = candles.get("1h", []) if isinstance(candles, dict) else []
 
     # OI velocity (may be null)
     oi_vel = md.get("oi_velocity")
@@ -177,7 +174,7 @@ def _read_asset_context(ctx, asset):
     if isinstance(ctx_data, dict):
         funding = ctx_data.get("funding")
 
-    return c4h, c1h, oi_vel, funding
+    return c4h, oi_vel, funding
 
 # ── SIGNAL EMIT ───────────────────────────────────────────────────────────────
 
@@ -226,8 +223,6 @@ def scan(inputs, ctx):
     min_score = scoring._f(inputs.get("minScore"), _DEFAULT_MIN_SCORE)
     ttl = scoring._f(inputs.get("recentSignalTtlSeconds"), _DEFAULT_RECENT_TTL)
     neutral_threshold = scoring._f(inputs.get("neutralThreshold"), _NEUTRAL_THRESHOLD)
-    mom_block_pct = scoring._f(inputs.get("momBlockPct"), _DEFAULT_MOM_BLOCK_PCT)
-    mom_bars_1h = int(scoring._f(inputs.get("momBars1h"), _DEFAULT_MOM_BARS_1H))
 
     # ── account + held ──
     account_value, positions = _get_account(ctx)
@@ -304,18 +299,8 @@ def scan(inputs, ctx):
             continue
 
         role = scoring.asset_role(asset)
-        c4h, c1h, oi_vel, funding_rate = _read_asset_context(ctx, asset)
+        c4h, oi_vel, funding_rate = _read_asset_context(ctx, asset)
         if not c4h:
-            continue
-
-        # 1h momentum gate — don't enter SHORT into a 1h bounce, don't enter LONG into a 1h dump.
-        # The regime score is a slow signal (funding + haven trends change over days); intraday
-        # counter-trend bounces can stop a regime-correct short. This filter prevents that.
-        mom_1h = scoring.price_momentum(c1h or [], mom_bars_1h)
-        signed_mom = mom_1h if direction == "LONG" else -mom_1h
-        if signed_mom < -mom_block_pct:
-            print(f"[aegis.scan] SKIP {asset} {direction}: 1h momentum {mom_1h:+.2f}% against entry",
-                  file=sys.stderr)
             continue
 
         trend_label, trend_strength = scoring.trend_structure(c4h)

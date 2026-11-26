@@ -403,7 +403,7 @@ warns on fee options the order type ignores.
 
 ## Handoff & the live gate — deploy is `senpi-strategy-ops` (NEVER raw MCP); "done" means verified LIVE
 
-A package an outside AI uploaded (`deploy.py call senpi.packages.list`) is not one you authored: it runs only as simulations and can't go live yet. Say so, and never copy it into the strategies root. Authoring produces the **package** only; going live is a **separate, gated loop**, and a strategy is live
+A package an outside AI uploaded (`senpi call senpi.packages.list`) is not one you authored: it runs only as simulations and can't go live yet. Say so, and never copy it into the strategies root. Authoring produces the **package** only; going live is a **separate, gated loop**, and a strategy is live
 only once **`senpi-strategy-ops` deploys it AND that deploy's report says `overall: live`**. Walk the full
 loop every time:
 

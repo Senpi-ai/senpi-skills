@@ -18,16 +18,16 @@
       "version": "1.1.0"
     },
     "athena": {
-      "behaviour": "419c1c360eb40060",
-      "version": "2.0.0"
+      "behaviour": "e112f5757c65981c",
+      "version": "1.7.0"
     },
     "athena-concentrated": {
-      "behaviour": "a1d8078cbaf0b296",
-      "version": "2.1.0"
+      "behaviour": "99c30bc51bdc9858",
+      "version": "2.0.0"
     },
     "athena-x": {
-      "behaviour": "025a1472f6465aa3",
-      "version": "1.7.0"
+      "behaviour": "907e87f6c41390d3",
+      "version": "1.6.0"
     },
     "badger": {
       "behaviour": "1ae09369039c2ab9",

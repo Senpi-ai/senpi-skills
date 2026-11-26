@@ -205,12 +205,15 @@ class FakeCli:
         return [c for c in self.calls if method in c]
 
     def gateway(self, method=None):
-        """`(method, params)` for every `openclaw gateway call`, optionally only one method's."""
+        """`(method, params)` for every runtime call (`senpi call`, or the `openclaw gateway call`
+        fallback), optionally only one method's."""
         return [(_gw_method(c), _gw_params(c)) for c in self.calls
                 if _gw_method(c) and (method is None or _gw_method(c) == method)]
 
 
 def _gw_method(argv):
+    if list(argv[:2]) == ["senpi", "call"]:
+        return argv[2]
     return argv[3] if list(argv[:3]) == ["openclaw", "gateway", "call"] else None
 
 
@@ -220,8 +223,12 @@ def _gw_params(argv):
 
 # Our wall clock fired: `_spawn` killed the process group. The request MAY have been sent.
 TIMEOUT = (-1, "", "", True, None)
-# `openclaw` never ran.
+# The CLI never ran. `senpi` not running sent nothing, so the call goes on to `openclaw gateway call`:
+# a box with neither answers SPAWN_FAILED twice.
 SPAWN_FAILED = (-1, "", "", False, FileNotFoundError())
+# The box launcher on a box without the runtime daemon (senpi-agent `scripts/senpi-launcher.sh`).
+SENPI_NOT_INSTALLED = (1, "", "senpi: the runtime daemon is not installed on this box yet (it is "
+                              "installed on a box running RUNTIME_MODE=daemon)\n")
 
 
 def _ok(payload):
@@ -284,9 +291,9 @@ class StartDeploy(unittest.TestCase):
                                    budget=500.0, decision_model="samurai-light", tick_wait=0)
         self.assertEqual(did, "dpl-a1b2c3d4")
         argv = fake.calls[0]
-        self.assertEqual(argv[:5], ["openclaw", "gateway", "call", "senpi.deploy.start", "--json"])
+        self.assertEqual(argv[:4], ["senpi", "call", "senpi.deploy.start", "--json"])
         self.assertEqual(argv[argv.index("--timeout") + 1], "30000")
-        self.assertNotIn("senpi", argv[:2])                  # no `openclaw senpi deploy` CLI verb
+        self.assertEqual(len(fake.calls), 1)                 # answered: no openclaw fallback
         # JSON numbers, never strings: the handler's `readNumber` drops a string and silently runs
         # its default budget. `--max-wait` is the JOB's wallet-ACTIVE budget as well as this
         # script's poll budget, so it is forwarded too.
@@ -337,11 +344,11 @@ class StartDeploy(unittest.TestCase):
             self.assertIn("MAY BE RUNNING", err)
 
     def test_a_spawn_failure_dispatched_nothing_and_does_not_claim_a_job_may_be_running(self):
-        out, fake, err = self._start([SPAWN_FAILED], budget=500.0)
+        out, fake, err = self._start([SPAWN_FAILED, SPAWN_FAILED], budget=500.0)
         self.assertEqual(out, ("exit", 1))
         self.assertIn("NOTHING WAS DISPATCHED", err)
         self.assertNotIn("may be running", err.lower())
-        self.assertEqual(len(fake.calls), 1)                 # no recovery reads
+        self.assertEqual([c[0] for c in fake.calls], ["senpi", "openclaw"])   # no recovery reads
 
     def test_a_runtime_without_the_deploy_method_teaches_the_plugin_update(self):
         # `unknown method` means no handler ran: nothing was dispatched. 1, never 2 — no gate said no.
@@ -355,12 +362,13 @@ class StartDeploy(unittest.TestCase):
             self.assertEqual(len(fake.calls), 1)
 
     def test_an_openclaw_that_rejects_the_command_line_dispatched_nothing(self):
-        out, fake, err = self._start([(1, "", "error: unknown option '--params'\n")], budget=500.0)
+        out, fake, err = self._start([SENPI_NOT_INSTALLED, (1, "", "error: unknown option '--params'\n")],
+                                     budget=500.0)
         self.assertEqual(out, ("exit", 1))
         self.assertIn("NOTHING WAS DISPATCHED", err)
         self.assertIn("openclaw --version", err)
         self.assertNotIn("plugins install", err)
-        self.assertEqual(len(fake.calls), 1)
+        self.assertEqual([c[0] for c in fake.calls], ["senpi", "openclaw"])
 
     def test_a_start_with_no_deploy_id_exits_one_and_says_the_job_may_be_running(self):
         # The gateway ACCEPTED the start but named no deployId, so this wrapper cannot follow it.
@@ -382,7 +390,7 @@ class StartDeploy(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 0)
         self.assertEqual(fake.calls, [])
         line = out.getvalue().strip()
-        self.assertTrue(line.startswith("planned: openclaw gateway call senpi.deploy.start --json "
+        self.assertTrue(line.startswith("planned: senpi call senpi.deploy.start --json "
                                         "--timeout 30000 --params "), line)
         argv = shlex.split(line[len("planned: "):])
         self.assertEqual(_gw_params(argv), {"packageDir": "/pkg/spider", "budget": 500.0,
@@ -745,7 +753,7 @@ class RequestIdRetry(_JournalDir, unittest.TestCase):
             self.assertIsNone(self._journal()["resolved"], answer)
 
     def test_a_minted_id_is_closed_when_the_start_was_not_dispatched(self):
-        out, _err = self._start(FakeCli([SPAWN_FAILED]))
+        out, _err = self._start(FakeCli([SPAWN_FAILED, SPAWN_FAILED]))
         self.assertEqual(out, ("exit", 1))
         self.assertEqual(self._journal()["resolved"], "not-dispatched")
 
@@ -1139,7 +1147,7 @@ class RequestIdNotAdvertised(_JournalDir, unittest.TestCase):
         code, out, _err = self._main_create(fake, "--dry-run")
         self.assertEqual(code, 0)
         self.assertEqual(fake.calls, [])
-        self.assertIn("planned: openclaw gateway call senpi.deploy.start", out)
+        self.assertIn("planned: senpi call senpi.deploy.start", out)
 
 
 class Clock:
@@ -1210,7 +1218,7 @@ class OneCommandBudget(_JournalDir, unittest.TestCase):
         # validate's own timeout was clipped to what was left, not its 180 s, and the text says the
         # budget ran out rather than "validate did not PASS … fix what validate reported".
         self.assertLess(max(fake.timeouts), budget)
-        self.assertIn("budget ran out before `openclaw senpi validate` finished", _err)
+        self.assertIn("budget ran out before `senpi validate` finished", _err)
         self.assertNotIn("did not PASS", _err)
 
     def test_a_poll_that_outlives_the_budget_says_so_on_its_last_line(self):
@@ -1720,7 +1728,7 @@ class StatusSubcommand(unittest.TestCase):
         self.assertNotIn("memory", err)
 
     def test_no_openclaw_on_this_host_names_the_agent_box(self):
-        code, _out, err = self._run(["deploy.py", "status"], [SPAWN_FAILED])
+        code, _out, err = self._run(["deploy.py", "status"], [SPAWN_FAILED, SPAWN_FAILED])
         self.assertEqual(code, 1)
         self.assertIn("agent's own box", err)
 
@@ -1815,8 +1823,8 @@ def _verbs(fake):
             out.append("senpi deploy status")
         elif method:
             out.append(method)
-        else:
-            out.append(" ".join(c[1:3]))
+        else:   # a CLI verb: `senpi validate …`, or `openclaw senpi validate …` without the daemon
+            out.append(" ".join(c[1:3] if c[0] == "openclaw" else c[0:2]))
     return out
 
 
@@ -1865,7 +1873,7 @@ class StaleProofRepair(unittest.TestCase):
                                         "senpi deploy", "senpi deploy status"])
         # The re-proof targets the DIRECTORY the gate names — never the manifest instance name.
         self.assertEqual(fake.argv_for("validate")[0],
-                         ["openclaw", "senpi", "validate", "/pkg/spider", "--stage", "live"])
+                         ["senpi", "validate", "/pkg/spider", "--stage", "live"])
         self.assertIn("live", out)
 
     def test_a_killed_re_proof_is_not_a_validate_fail(self):
@@ -1937,7 +1945,7 @@ class StaleProofRepair(unittest.TestCase):
         code, fake, _out, _err = self._run(self._repaired(instance_dir="swing"))
         self.assertEqual(code, 0)
         self.assertEqual(fake.argv_for("validate")[0],
-                         ["openclaw", "senpi", "validate", "/pkg/spider/swing", "--stage", "live"])
+                         ["senpi", "validate", "/pkg/spider/swing", "--stage", "live"])
 
     def test_a_failed_re_validation_surfaces_its_findings_and_never_re_runs_the_deploy(self):
         findings = "FAIL  1 error\n  [E_VALIDATE_SCANNER_CRASHED] scan.py raised ZeroDivisionError"
@@ -2090,7 +2098,7 @@ class StaleProofRepair(unittest.TestCase):
         code, fake, _out, _err = self._run(self._repaired(), pkg=pkg)
         self.assertEqual(code, 0)
         self.assertEqual(fake.argv_for("validate")[0],
-                         ["openclaw", "senpi", "validate", "/pkg/spider/swing", "--stage", "live"])
+                         ["senpi", "validate", "/pkg/spider/swing", "--stage", "live"])
 
     def test_an_instance_dir_that_escapes_the_package_is_never_validated(self):
         # The path is joined onto the package root, so an absolute or `..` value would send a live
@@ -2208,6 +2216,12 @@ class ValidateUniverseHook(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("deploy-ready", out)
         self.assertEqual(err, "")
+
+    def test_a_clean_validate_names_the_test_plan_as_the_next_step(self):
+        self._install_vu(unknown=[])
+        _code, out, _err = self._run_validate()
+        self.assertIn("next: unless they asked for live, propose the test plan: `deploy.py plan", out)
+        self.assertIn("No deposit is needed to simulate.", out)
 
     def test_json_carries_the_universe_error_and_the_note(self):
         self._install_vu(unknown=["xyz:NASDAQ"])
@@ -3447,7 +3461,7 @@ class ValidateReportsProofState(unittest.TestCase):
         out = _run_validate(pkg)
         self.assertIn("scalp", out)
         self.assertIn("NO PROOF", out)
-        self.assertIn("openclaw senpi validate", out)
+        self.assertIn("senpi validate", out)
         self.assertIn("swing", out)
 
     def test_fully_proven_package_says_so(self):

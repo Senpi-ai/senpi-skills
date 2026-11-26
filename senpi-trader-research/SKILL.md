@@ -16,7 +16,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.8.0"
+  version: "1.9.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -301,8 +301,8 @@ End with these two as a real numbered list on **separate lines** — never colla
   default ranking to compare). For the **hands-off** route, hand to **senpi-signals** — it owns the read of
   the live smart-money feed and closes with building a strategy on it (`senpi-strategy-author`). Mirroring
   one wallet and trading the whole cohort's feed are different bets, and the reader is choosing between
-  them. A managed mirror of one wallet is built with `senpi-strategy-author` too (it forks the
-  closest template when one fits).
+  them. A managed mirror of one wallet is built with `senpi-strategy-author` too (from scratch or a
+  template that fits).
 
 ## ⚠ Token scope
 

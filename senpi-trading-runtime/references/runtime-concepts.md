@@ -45,7 +45,7 @@ These are handled for you — you do not write any of it:
 2. **Deliver + validate.** The scaffold validates each signal's `data{}` against the runtime.yaml's
    `signal_data_schema`, then hands accepted signals to the runtime.
 3. **Durable dedup.** Acceptance is a per-`(scanner, asset)` high-water mark plus per-`signal_id`
-   dedup, **persisted before** the trade dispatches — so a gateway restart never double-trades or
+   dedup, **persisted before** the trade dispatches — so a runtime restart never double-trades or
    re-accepts an old signal.
 4. **Transactional state.** `ctx.state` advances only on a clean tick; an exception, timeout, or
    persist failure rolls back the in-memory mutation (state never advances on a failed tick).

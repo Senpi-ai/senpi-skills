@@ -118,7 +118,7 @@ by two rules `deploy.py` validates:
 - every instance's `runtime.yaml` has **`name: <id>-<instance>`** (e.g. `spider-swing`)
 
 So: **forward** = `instances[].runtime` path → the instance's spec; **reverse** (monitor/close, no state file)
-= `openclaw senpi runtime list` rows where `group == <id>`, or MCP `strategy_list` rows where
+= `senpi runtime list` rows where `group == <id>`, or MCP `strategy_list` rows where
 `skillName == <id>`. The manifest's `wallet_env` must appear as `${WALLET_ENV}` in that runtime.yaml.
 
 ## Validation

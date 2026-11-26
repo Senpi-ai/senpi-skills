@@ -6,7 +6,7 @@
 
 ## 0. Before the build — a note on the conversation `SKILL.md` runs
 
-`SKILL.md` owns the fork-first start and the funding heads-up.
+`SKILL.md` owns the start (build it, simulate a few variations, then live) and the funding heads-up.
 
 **Why the funding heads-up happens at minute one and never gates the interview:** users have
 completed the entire interview and build, then hit the funding wall at the last step and left. The
@@ -34,7 +34,7 @@ Your code is **one read-only, pure function**: it reads data and returns candida
 runtime itself — synthesizes the canonical `main` instance from that root `runtime.yaml`, binding
 `wallet_env` to the `${...}` the recipe already uses. That is what makes **one** path serve every
 command in this guide: the package root is the target of `validate_strategy.py`,
-`senpi-strategy-ops/scripts/validate_universe.py`, `deploy.py validate`, `openclaw senpi validate` and `deploy.py create` alike.
+`senpi-strategy-ops/scripts/validate_universe.py`, `deploy.py validate`, `senpi validate` and `deploy.py create` alike.
 The instance is still named `main`, so the recipe's linkage is `name: <id>-main`, `group: <id>` (§6).
 
 **Location is load-bearing:** build under `/data/workspace/strategies/` (`SENPI_STRATEGIES_DIR`
@@ -51,7 +51,7 @@ Beyond the layout itself, taking the exception changes **two things about the co
 
 | | flat (this guide) | multi-instance |
 |---|---|---|
-| `openclaw senpi validate` | `<pkg-root>`, once | `<pkg-root>/<instance>`, **one run per instance** |
+| `senpi validate` | `<pkg-root>`, once | `<pkg-root>/<instance>`, **one run per instance** |
 | the runtime id (`-r`, and the recipe's `name:`) | `<id>-main` | `<id>-<instance>`, one per leg |
 
 **Every other command still takes the package root or the bare id.** `validate_strategy.py` and
@@ -308,16 +308,16 @@ Discovery matches your strategy to users by the `catalog:` block. **Validation o
 
 ```
 python3 /data/.openclaw/skills/senpi-strategy-author/scripts/validate_strategy.py /data/workspace/strategies/<id>   # advisory lint + warns (stop distance, sizing, daily cap) — relay them
-openclaw senpi validate /data/workspace/strategies/<id>                         # THE GATE — must be PASS. The package root (flat, §2)
+senpi validate /data/workspace/strategies/<id>                         # THE GATE — must be PASS. The package root (flat, §2)
 python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/deploy.py create  <id> --budget N            # the whole path: wallet(s) ($10/wallet floor) → install → observed tick
-openclaw senpi deploy status                                                    # read-only: the report; `overall: live` is the gate
+senpi deploy status                                                    # read-only: the report; `overall: live` is the gate
 # teardown / redeploy:  close.py <id>  (flattens positions, returns funds)
 ```
 Want to *watch* it before funding? `senpi validate` is the shadow run, and the runtime watches a funded
 strategy for free — **never schedule agent turns to poll it** (each firing is a model call):
 [`shadow-testing.md`](shadow-testing.md).
 
-**"running" ≠ "operating."** Don't trust `status: running`. Confirm the scanner is **live: a recent `lastAliveAt`** (`openclaw senpi state -r <id>-main --json`, or `alive=` in `openclaw senpi scanner -r <id>-main` — `-r` is the runtime id, so `<id>-<leg>` per leg on §2's exception). Then read `health`: `degraded`/`unhealthy` with `last=error` and a fresh `alive` is a past delivery error (read `reason`), not a dead scanner; `unhealthy` with `inFlight=true`, or a crash-loop reason, is a real fault; `health=unknown` with `alive=—` is a child not heard from yet. Never judge it by the run count: it moves only on an accepted signal or an error, so 0 is normal on a quiet scanner (`runs=0` on older runtimes). Then confirm it **emits a non-empty set on a tick where it should** — a `live` report proves it *ticked*, not that it produced a signal. Those reads are read-only, and so is `deploy.py verify <id>` (it composes them into a per-instance verdict and deploys nothing); the command that moves money is the resume, `deploy.py runtime <id>` / `create <id> --budget <usd>`. This is an **agent-side check** — run it yourself; never ask the user "is it working?".
+**"running" ≠ "operating."** Don't trust `status: running`. Confirm the scanner is **live: a recent `lastAliveAt`** (`senpi state -r <id>-main --json`, or `alive=` in `senpi scanner -r <id>-main` — `-r` is the runtime id, so `<id>-<leg>` per leg on §2's exception). Then read `health`: `degraded`/`unhealthy` with `last=error` and a fresh `alive` is a past delivery error (read `reason`), not a dead scanner; `unhealthy` with `inFlight=true`, or a crash-loop reason, is a real fault; `health=unknown` with `alive=—` is a child not heard from yet. Never judge it by the run count: it moves only on an accepted signal or an error, so 0 is normal on a quiet scanner (`runs=0` on older runtimes). Then confirm it **emits a non-empty set on a tick where it should** — a `live` report proves it *ticked*, not that it produced a signal. Those reads are read-only, and so is `deploy.py verify <id>` (it composes them into a per-instance verdict and deploys nothing); the command that moves money is the resume, `deploy.py runtime <id>` / `create <id> --budget <usd>`. This is an **agent-side check** — run it yourself; never ask the user "is it working?".
 
 ### The gate — `senpi validate`, before any wallet exists
 
@@ -326,7 +326,7 @@ The desk checks above catch *your* bugs. A different and higher-value class only
 Finding them used to require a tiny deploy. It doesn't any more:
 
 ```
-openclaw senpi validate /data/workspace/strategies/<id>
+senpi validate /data/workspace/strategies/<id>
 ```
 **Point it at the directory holding the `runtime.yaml`** — which, for the flat package §2 tells you to
 build, is the package root. It resolves ONE recipe, and the root holds it. (If you built §2's
@@ -363,13 +363,13 @@ both are reported, check both.
 
 Fix what it reports, re-run, and only hand to ops once it says PASS. **A clean lint is not a pass; only `senpi validate` is.**
 
-Two things it deliberately does *not* prove, so don't over-claim on its behalf: branches this tick didn't take, and logic that depends on open positions (it runs against an empty account by default — which is exactly the state a freshly funded strategy starts in). It prints both as `does not prove:` lines on a PASS. **A PASS is therefore a floor, not a finish line: it proves the strategy *runs*, never that its logic is *right*.** Two from testing, both of which passed cleanly — a Supertrend that returned the same direction for every input, so the strategy could never open a long; and a cooldown keyed on `ctx.now_utc`, which does not exist on the ctx surface, so it never fired. Read your own indicator math against a known trend before you call it done. After deploy, still confirm the strategy **operates** — `deploy.py verify <id>`, then an accepted signal in `openclaw senpi state -r <id>-main --json` (`<id>-<leg>` per leg on §2's exception).
+Two things it deliberately does *not* prove, so don't over-claim on its behalf: branches this tick didn't take, and logic that depends on open positions (it runs against an empty account by default — which is exactly the state a freshly funded strategy starts in). It prints both as `does not prove:` lines on a PASS. **A PASS is therefore a floor, not a finish line: it proves the strategy *runs*, never that its logic is *right*.** Two from testing, both of which passed cleanly — a Supertrend that returned the same direction for every input, so the strategy could never open a long; and a cooldown keyed on `ctx.now_utc`, which does not exist on the ctx surface, so it never fired. Read your own indicator math against a known trend before you call it done. After deploy, still confirm the strategy **operates** — `deploy.py verify <id>`, then an accepted signal in `senpi state -r <id>-main --json` (`<id>-<leg>` per leg on §2's exception).
 
 ## 10. The author's checklist (the silent-failure guards)
 
 - `scan()` single-pass + sync; read-only MCP only; `return []` on any error.
 - Pure scoring in `scoring.py`; MCP + state in `scan.py`.
-- **Never hardcode a ticker you didn't verify against the live list.** Every static `universe`/`asset`/`catalog.assets` entry must be a live HL instrument — a fake ticker silently no-trades (`market_get_asset_data` rejects it as an unknown coin — do not retry — and the scan skips it). Check it: `senpi-strategy-ops/scripts/validate_universe.py /data/workspace/strategies/<id>` (read-only; `deploy.py validate` reports the same thing, and `openclaw senpi deploy` REFUSES a dead name pre-money with `[E_UNIVERSE_NOT_LIVE]` — so that deploy funds no wallet, though on a redeploy it says nothing about a wallet the package already has; you find out faster here). Real index = `xyz:XYZ100`, *not* `xyz:NASDAQ`. This applies to the universe a strategy TRADES: an **exclusion** list (`excludeAssets`, `deny*`/`skip*`/`ignore*`) is exempt and never checked on either side, because it names what the strategy refuses to trade — often precisely because the venue carries no instrument for it (stablecoins are the usual case).
+- **Never hardcode a ticker you didn't verify against the live list.** Every static `universe`/`asset`/`catalog.assets` entry must be a live HL instrument — a fake ticker silently no-trades (`market_get_asset_data` rejects it as an unknown coin — do not retry — and the scan skips it). Check it: `senpi-strategy-ops/scripts/validate_universe.py /data/workspace/strategies/<id>` (read-only; `deploy.py validate` reports the same thing, and `senpi deploy` REFUSES a dead name pre-money with `[E_UNIVERSE_NOT_LIVE]` — so that deploy funds no wallet, though on a redeploy it says nothing about a wallet the package already has; you find out faster here). Real index = `xyz:XYZ100`, *not* `xyz:NASDAQ`. This applies to the universe a strategy TRADES: an **exclusion** list (`excludeAssets`, `deny*`/`skip*`/`ignore*`) is exempt and never checked on either side, because it names what the strategy refuses to trade — often precisely because the venue carries no instrument for it (stablecoins are the usual case).
 - Emit a **`marginPct` intent**, not dollars; `marginPct`/`leverage` top-level, not in `data{}`.
 - Declare every `data{}` key in `signal_data_schema`.
 - **A close is a dedicated scanner plus a `CLOSE_POSITION` action, never `direction: CLOSE`** (§6). Every external scanner must be listed by an action; the lint refuses both.
@@ -377,7 +377,7 @@ Two things it deliberately does *not* prove, so don't over-claim on its behalf: 
 - **Anchor on the references:** MCP fields → I/O guide; exit → a named preset; catalog facets → the glossary.
 - Linkage: `group: <id>`, `name: <id>-main` (`<id>-<instance>` per leg when multi-instance), package is `@senpi-ai/runtime`. `funding_share` sums to 1.0 only when `instances:` is declared.
 - **`strategy.wallet` must be the WHOLE value and UPPERCASE** — `"${MY_WALLET}"`, `[A-Z0-9_]` only. A lowercase (`${my_wallet}`) or mid-string (`pre${FOO}`) token passes **every** python lint, `deploy.py validate` included, and is then refused by the runtime when it loads the flat package.
-- Lint (advisory) → **`openclaw senpi validate /data/workspace/strategies/<id>` = PASS (the gate)** → deploy → **confirm it emits/operates**, not just "ticked."
+- Lint (advisory) → **`senpi validate /data/workspace/strategies/<id>` = PASS (the gate)** → deploy → **confirm it emits/operates**, not just "ticked."
 - **A gate in `scan()` must honour `ctx.dry_run`** — otherwise the tick reads nothing and validates as UNPROVEN, which is not a pass.
 - **Never hand a strategy to ops on a clean lint alone.** The lint reads your package; only `senpi validate` runs it. That is what catches the authoring-agent↔runtime language mismatches — and it now costs nothing to find out.
 
@@ -515,8 +515,8 @@ def scan(inputs, ctx):
 **Ship it:**
 ```
 validate_strategy.py strategies/us-rebound          # advisory lint (this one DOES take the package dir)
-openclaw senpi validate strategies/us-rebound      # THE GATE — PASS before ops. The package root: flat, per the manifest above
-deploy.py create us-rebound --budget 200 ; openclaw senpi deploy status   # `overall: live` is the gate
+senpi validate strategies/us-rebound      # THE GATE — PASS before ops. The package root: flat, per the manifest above
+deploy.py create us-rebound --budget 200 ; senpi deploy status   # `overall: live` is the gate
 ```
 …then confirm it **emits** on a tick where ≥4 names confirm — not just that it ticked.
 
@@ -594,7 +594,7 @@ firing". Observed 2026-09-19: a scanner was edited at 01:29 to turn a gate into 
 seconds**, every one of them stopped out within the hour and the risk gate halted the strategy for
 the rest of the day.
 
-**Before editing a live scanner:** run `openclaw senpi validate` against the edited package and read
+**Before editing a live scanner:** run `senpi validate` against the edited package and read
 the tick output, exactly as you would for a new one. If the edit loosens or removes a condition,
 say out loud how many more emits per tick it allows and against which universe. "It isn't firing" is
 a hypothesis about a rate — go measure the rate first (below), because the fix for "too strict" and

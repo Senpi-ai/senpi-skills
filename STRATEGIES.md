@@ -1,8 +1,8 @@
 # Senpi strategy templates for Hyperliquid
 
-Every strategy template in senpi-skills, the open-source library every Senpi agent runs: 145 templates for trading Hyperliquid perps across crypto, stocks, commodities and indices. Each one is a package you can read here, and each has a page on [senpi.ai/strategies](https://senpi.ai/strategies) where your Senpi agent can run it 24/7 on its own strategy wallet, with a stop on every position.
+Every strategy template in senpi-skills, the open-source library every Senpi agent runs: 147 templates for trading Hyperliquid perps across crypto, stocks, commodities and indices. Each one is a package you can read here, and each has a page on [senpi.ai/strategies](https://senpi.ai/strategies) where your Senpi agent can run it 24/7 on its own strategy wallet, with a stop on every position.
 
-Catalog as of 2026-11-20. Generated from [`strategies/catalog.json`](strategies/catalog.json) by `scripts/gen_strategies_md.py`: don't edit this file by hand.
+Catalog as of 2026-11-16. Generated from [`strategies/catalog.json`](strategies/catalog.json) by `scripts/gen_strategies_md.py`: don't edit this file by hand.
 
 | Style | Templates |
 |---|---|
@@ -10,7 +10,7 @@ Catalog as of 2026-11-20. Generated from [`strategies/catalog.json`](strategies/
 | [Trend-Follower](#trend-follower) | 33 |
 | [Single-Market Specialist](#single-market-specialist) | 20 |
 | [Contrarian / Fade](#contrarian--fade) | 17 |
-| [Copy-Trader](#copy-trader) | 14 |
+| [Copy-Trader](#copy-trader) | 16 |
 | [Structural / Neutral](#structural--neutral) | 10 |
 | [Macro Thesis](#macro-thesis) | 4 |
 | [Risk-Parity / All-Weather](#risk-parity--all-weather) | 3 |
@@ -153,6 +153,8 @@ Catalog as of 2026-11-20. Generated from [`strategies/catalog.json`](strategies/
 | Template | What it does | Markets | Direction | Risk |
 |---|---|---|---|---|
 | [Athena](strategies/athena/) ([page](https://senpi.ai/strategies/athena)) | One strategy is one bet. A fund is two that disagree on purpose. | whatever the copied traders trade | Long and short | Moderate |
+| [Athena Concentrated](strategies/athena-concentrated/) ([page](https://senpi.ai/strategies/athena-concentrated)) | This is Athena with one change on its attacking side. Athena runs two arms: phalanx, which follows what proven smart-money traders are buying, and aegis, which hedges. | whatever the copied traders trade | Long and short | Moderate |
+| [Athena-X](strategies/athena-x/) ([page](https://senpi.ai/strategies/athena-x)) | Athena decides WHAT to trade; Athena-X changes HOW MUCH, and loosens two gates that ration entries. | whatever the copied traders trade | Long and short | Aggressive |
 | [Cuckoo](strategies/cuckoo/) ([page](https://senpi.ai/strategies/cuckoo)) | Lets the best strategies on the platform do the work. Every few minutes it finds the top performers, looks at what they're holding right now, and copies whatever the most (and best) of them are piling into together, going long what they're long and short what they're short. | whatever the copied traders trade | Long and short | Moderate |
 | [Jackal](strategies/jackal/) ([page](https://senpi.ai/strategies/jackal)) | Keeps a shortlist of the most profitable traders on Hyperliquid and refreshes it every day. | whatever the copied traders trade | Long and short | Moderate |
 | [Oxpecker](strategies/oxpecker/) ([page](https://senpi.ai/strategies/oxpecker)) | Looks past the leaderboard noise and keeps a shortlist of the steadiest, most-proven traders on Hyperliquid. | whatever the copied traders trade | Long and short | Aggressive |

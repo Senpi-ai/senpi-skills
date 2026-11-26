@@ -41,12 +41,8 @@ class FromSimulation(unittest.TestCase):
         self.addCleanup(lambda: os.environ.__setitem__("SENPI_STRATEGIES_DIR", old) if old is not None
                         else os.environ.pop("SENPI_STRATEGIES_DIR", None))
         self.answer = _gw("timeout")
-        self.health = _gw("ok", payload={"deploy": {"capabilities": {"deployStartRequestId": True,
-                                                                     "simulationYesGate": True}}})
 
         def _gateway(method, params=None, rpc_timeout_ms=None, timeout_s=None):
-            if method == "senpi.getHealthStatus":
-                return self.health
             self.calls.append((method, dict(params or {})))
             return self.answer
         _cli.gateway_call = _gateway
@@ -133,42 +129,6 @@ class FromSimulation(unittest.TestCase):
         code, _err = self._main("runtime", "omega", "--from-simulation", SIMULATION_ID)
         self.assertEqual(code, 2)
         self.assertEqual(self.calls, [])
-
-    def _refused_start(self, a):
-        self.answer = _gw("ok", payload={"deployId": "dpl-1"})
-        err = io.StringIO()
-        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()), \
-                self.assertRaises(SystemExit) as stop:
-            deploy.start_deploy(self._pkg(), a, lambda m: None)
-        return stop.exception.code, err.getvalue()
-
-    def test_a_runtime_that_cannot_take_a_simulation_live_gets_nothing_dispatched(self):
-        # 3.0.301 advertises request ids but not the take-live handling: it would ignore
-        # fromSimulationId and fund the named package at its own settings.
-        self.health = _gw("ok", payload={"deploy": {"capabilities": {"deployStartRequestId": True}}})
-        code, err = self._refused_start(self._args(from_simulation=SIMULATION_ID))
-        self.assertEqual(code, deploy.EXIT_INTERNAL)
-        self.assertEqual(self.calls, [])
-        self.assertIn("Nothing was started", err)
-        self.assertIn("default settings", err)
-
-    def test_a_runtime_with_no_capabilities_at_all_gets_nothing_dispatched(self):
-        self.health = _gw("ok", payload={"statuses": []})
-        code, _err = self._refused_start(self._args(from_simulation=SIMULATION_ID))
-        self.assertEqual(code, deploy.EXIT_INTERNAL)
-        self.assertEqual(self.calls, [])
-
-    def test_an_unreadable_capability_read_dispatches_nothing(self):
-        self.health = _gw("timeout")
-        code, err = self._refused_start(self._args(from_simulation=SIMULATION_ID))
-        self.assertEqual(code, deploy.EXIT_INTERNAL)
-        self.assertEqual(self.calls, [])
-        self.assertIn("Nothing was started", err)
-
-    def test_a_live_deploy_without_a_simulation_needs_no_such_capability(self):
-        self.health = _gw("ok", payload={"deploy": {"capabilities": {"deployStartRequestId": True}}})
-        self._start(self._args())
-        self.assertEqual(self.calls[0][0], "senpi.deploy.start")
 
     def test_a_changed_simulation_id_is_a_changed_request(self):
         other = "simulation-99999999-2222-4333-8444-555555555555"
