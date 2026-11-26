@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.19.0"
+  version: "3.20.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -121,11 +121,11 @@ No design exists yet, so check the floor here; Handoff step 1 quotes the minimum
 - **Balance ≥ ~$11.50/wallet, or unreadable** → say nothing about funding and move on. Unreadable
   means move on too — no retry loop, no blocking; funding is re-checked at deploy anyway.
 - **Balance < ~$11.50/wallet** → tell the user NOW, in one line, then keep building:
-  > "Heads-up before we design: a wallet needs a little over $10 USDC just to open, and your
-  > accessible balance is $<X> — what it needs to trade depends on the design; I'll quote it before
-  > deploy. We can build the whole strategy now and deploy the moment you've topped up — want me to
-  > pull up your deposit info when we're done?"
-  (deposit flow = the `senpi-deposit-withdraw-transfer` skill)
+  > "Heads-up: your accessible balance is $<X>. Building it and simulating it need none of that:
+  > simulations run on virtual money. Taking it live later needs a little over $10 USDC per wallet,
+  > and what it needs to trade depends on the design; I'll quote it then."
+  No deposit offer here or at the end of the build: the test plan comes next (deposit flow = the
+  `senpi-deposit-withdraw-transfer` skill, when they choose live).
 - One heads-up total. NEVER hold the interview hostage on funding, never re-ask
   mid-interview, and never refuse to build.
 - **And never ask for the budget before the build.** "How much are you allocating?" is a deploy-time
@@ -295,7 +295,8 @@ the catalog entry, then unit-test → lint → `senpi validate` → hand to ops.
    and checks each emitted signal against the runtime's own wire schema — **no wallet, no funding, no
    deploy.** Three outcomes:
    - **PASS** (exit 0) — the code loads, a real tick ran, it read live data, and its signals would be
-     accepted. *Now* you may hand to ops.
+     accepted. *Now* propose the test plan (`deploy.py plan`, **Start here**), not a deposit or a live
+     deploy; hand to ops for live only when they choose live.
    - **UNPROVEN** (exit 2) — it ran cleanly and **established nothing**: zero successful reads. **This
      is NOT a pass.** Usually a gate inside `scan()` (a session/time-of-day check) that returned
      early — have it consult `ctx.dry_run` so validation can see a real read.
