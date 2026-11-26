@@ -317,7 +317,15 @@ class Plan(unittest.TestCase):
     def _two_book_quote(self):
         self.start = _answer("ok", {"dryRun": True, "budgetUsd": 1000, "creditsPerHour": 20, "creditsPerDay": 480,
                                     "creditsPerHourAfter": 60,
-                                    "instances": [{"name": "duo-long"}, {"name": "duo-short"}]})
+                                    "instances": [{"name": "long"}, {"name": "short"}]})
+
+    def _package(self, pkg_id, books):
+        pkg = self.root / pkg_id
+        pkg.mkdir()
+        (pkg / "strategy.yaml").write_text(
+            f"id: {pkg_id}\nversion: 1.0.0\ninstances:\n"
+            + "".join(f"  - name: {b}\n    runtime: {b}/runtime.yaml\n" for b in books))
+        return pkg
 
     def _open(self, rows):
         orig = deploy._open_simulations
@@ -325,8 +333,7 @@ class Plan(unittest.TestCase):
         self.addCleanup(lambda: setattr(deploy, "_open_simulations", orig))
 
     def test_variations_of_a_running_design_quote_only_the_variations(self):
-        pkg = self.root / "duo"
-        pkg.mkdir()
+        pkg = self._package("duo", ["long", "short"])
         self._two_book_quote()
         self._open([{"strategyName": "duo-long", "strategyId": "simulation-L", "status": "ACTIVE"},
                     {"strategyName": "duo-short", "strategyId": "simulation-S", "status": "ACTIVE"}])
@@ -340,9 +347,30 @@ class Plan(unittest.TestCase):
         self.assertIn("--variant-of simulation-L", err)
         self.assertNotIn("start the design", err)
 
+    def test_a_running_design_is_matched_by_its_wallet_names_not_its_book_names(self):
+        pkg = self._package("duo", ["long", "short"])
+        self._two_book_quote()
+        self._open([{"strategyName": "long", "strategyId": "simulation-x", "status": "ACTIVE"},
+                    {"strategyName": "short", "strategyId": "simulation-y", "status": "ACTIVE"}])
+        code, out, err = self._run(str(pkg), "--design", "fades BTC and ETH moves", "--trades", "a few times a week",
+                                   *self.VARIANTS)
+        self.assertEqual(code, 0, err)
+        self.assertIn("1. As designed:", out)
+
+    def test_variations_of_a_running_one_book_design_quote_only_the_variations(self):
+        pkg = self._package("solo", ["main"])
+        self.start = _answer("ok", {"dryRun": True, "budgetUsd": 1000, "creditsPerHour": 10, "creditsPerDay": 240,
+                                    "creditsPerHourAfter": 30, "instances": [{"name": "main"}]})
+        self._open([{"strategyName": "solo", "strategyId": "simulation-S", "status": "ACTIVE"}])
+        code, out, err = self._run(str(pkg), "--design", "buys BTC dips", "--trades", "a few times a week",
+                                   *self.VARIANTS)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("As designed", out)
+        self.assertIn("All 2: 20 credits an hour", out)
+        self.assertIn("--variant-of simulation-S", err)
+
     def test_a_design_not_running_on_every_book_is_planned_as_before(self):
-        pkg = self.root / "duo"
-        pkg.mkdir()
+        pkg = self._package("duo", ["long", "short"])
         self._two_book_quote()
         self._open([{"strategyName": "duo-long", "strategyId": "simulation-L", "status": "ACTIVE"}])
         code, out, err = self._run(str(pkg), "--design", "fades BTC and ETH moves", "--trades", "a few times a week",
@@ -351,8 +379,7 @@ class Plan(unittest.TestCase):
         self.assertIn("All 3, 6 simulations: 60 credits an hour", out)
 
     def test_an_unreadable_list_of_simulations_plans_as_before(self):
-        pkg = self.root / "duo"
-        pkg.mkdir()
+        pkg = self._package("duo", ["long", "short"])
         self._two_book_quote()
         self._open(None)
         code, out, err = self._run(str(pkg), "--design", "fades BTC and ETH moves", "--trades", "a few times a week",
