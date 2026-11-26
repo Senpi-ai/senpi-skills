@@ -2532,6 +2532,10 @@ def _plan_value(raw):
     return v if isinstance(v, (int, float, bool)) or v is None else raw
 
 
+_PLAN_UNCHANGED_LABELS = {"as-designed", "as-is", "as-written", "base", "baseline", "control", "default",
+                          "original", "unchanged"}
+
+
 def parse_plan_variant(text):
     """`label|key=value|what it tests` -> {label, key, value, tests}. A variation changes exactly one
     setting, so a second `=` or a `,` between settings is refused rather than read as two changes."""
@@ -2539,9 +2543,11 @@ def parse_plan_variant(text):
     if len(parts) != 3 or not all(parts):
         raise PlanInputError(f"--variant {text!r}: expected 'label|key=value|what it tests'")
     label, setting, tests = parts
-    if not _VARIANT_LABEL.match(label) or label == "as-designed":
-        raise PlanInputError(f"--variant {text!r}: the label is 1-40 letters, digits, '-', '_' or '.', "
-                             f"and not 'as-designed'")
+    if not _VARIANT_LABEL.match(label):
+        raise PlanInputError(f"--variant {text!r}: the label is 1-40 letters, digits, '-', '_' or '.'")
+    if label.lower() in _PLAN_UNCHANGED_LABELS:
+        raise PlanInputError(f"--variant {text!r}: the design as it is is already simulation 1; each "
+                             f"variation changes one setting from it")
     key, sep, raw = setting.partition("=")
     key, raw = key.strip(), raw.strip()
     if not sep or not key or not raw or "=" in raw or "," in key:
@@ -2628,10 +2634,10 @@ def render_plan(name, design, trades, variants, quotes):
         lines = [f"Test plan for {name}: run it as designed plus {len(variants)} variations as simulations, "
                  f"on virtual money (nothing real moves).", "", f"1. As designed: {design}"]
     else:
-        lines = [f"Simulation of {name}, on virtual money (nothing real moves): {design}"]
+        lines = [f"Simulation of {name}, on virtual money (nothing real moves)" + (f": {design}" if design else ".")]
     for i, v in enumerate(variants, start=2):
         lines.append(f"{i}. {v['label']}: {v['tests']} ({v['key']} = {json.dumps(v['value']) if not isinstance(v['value'], str) else v['value']})")
-    lines += ["", f"How often it should trade: {trades}"]
+    lines += [""] + ([f"How often it should trade: {trades}"] if trades else [])
     budgets = list(quotes)
     if len(budgets) == 1:
         b = budgets[0]
@@ -2654,7 +2660,8 @@ def render_plan(name, design, trades, variants, quotes):
 def _plan_after_yes(ref, variants, local):
     yes = ("Only an explicit yes starts them: \"yes\", \"simulate\", \"go\", a budget they tapped or typed. "
            "\"Your call\", \"sounds good\", \"you pick\" and silence are not a yes: recommend simulating and ask "
-           "the question again. On \"live\", the live walkthrough takes over; never start a simulation.")
+           "the question again. On \"live\", the live walkthrough takes over; never start a simulation. "
+           "A simulation needs no deposit and no funds: never tell them to deposit first.")
     if local:
         how = ("After the yes: start the design with `deploy.py create <dir> --simulation --user-said-yes "
                "--budget <their budget>`, then each variation as its own fork (`deploy.py fork <dir> --name "
@@ -2674,6 +2681,9 @@ def cmd_plan(a):
         if len(variants) == 1 or len(variants) > 4:
             raise PlanInputError("a test plan has two to four variations (--variant), each changing one "
                                  "setting; with none it quotes the one simulation the user asked for")
+        if variants and not (a.design and a.trades):
+            raise PlanInputError("a test plan needs --design (one sentence) and --trades (how often it "
+                                 "should trade)")
         if len({v["label"] for v in variants}) != len(variants):
             raise PlanInputError("each variation needs its own label")
         budgets = [a.budget] if a.budget is not None else parse_budget_choices(a.budget_choices)
@@ -2851,8 +2861,8 @@ def _main(argv):
                         help="READ-ONLY: quote a strategy and two to four one-setting variations as simulations "
                              "and print the test plan to relay as given. Starts nothing.")
     pp.add_argument("package", help="Catalog id (e.g. hawk) or the package dir the user's strategy lives in.")
-    pp.add_argument("--design", required=True, help="The strategy as designed, in one plain sentence.")
-    pp.add_argument("--trades", required=True, help="How often it should trade, in plain words.")
+    pp.add_argument("--design", default=None, help="The strategy as designed, in one plain sentence (required with --variant).")
+    pp.add_argument("--trades", default=None, help="How often it should trade, in plain words (required with --variant).")
     pp.add_argument("--variant", action="append", metavar="LABEL|KEY=VALUE|WHAT IT TESTS",
                     help="One variation: a label, exactly one setting, and what it tests. Two to four.")
     pp.add_argument("--budget", type=float, default=None, help="The budget the user named, in USD.")
@@ -3062,6 +3072,10 @@ def _main(argv):
                 proven = ", ".join(f"{n} ✓" for n, s, _ in proofs if s == "proven")
                 print(f"✓ {pkg.id}: structurally deploy-ready ({len(pkg.instances)} instance(s))"
                       + (f" — proven: {proven}" if proven else ""))
+                print(f"next: unless they asked for live, propose the test plan: `deploy.py plan {a.package} "
+                      f"--design \"<one sentence>\" --trades \"<how often>\" --variant \"<label>|<key>=<value>|"
+                      f"<what it tests>\"` (2-4, one setting each), relayed as given. No deposit is needed "
+                      f"to simulate.")
             # The proof gate is the runtime's, and it refuses PRE-MONEY. Naming it here is the whole
             # point: an unproven instance makes the NEXT command fail, not this one.
             for name, d in unproven:
