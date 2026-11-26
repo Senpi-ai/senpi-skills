@@ -70,6 +70,7 @@ run the structural preflight, then start the runtime's `senpi deploy` job, poll 
 report **verbatim**. The wrapper's value is resolution, that structural pass and the verbatim relay —
 **not** a gate the verb lacks: the live-universe gate is the verb's own and it fires **pre-money**.
 Both call `senpi call senpi.*` (~1 s; `openclaw gateway call` only when `senpi` sent nothing): read the job with **`deploy.py status`**.
+"Hard stop?" Yes: `max_loss_pct`, an exchange stop from entry. `phase1.enabled: false` only ends trailing; never "fix" it.
 **Always tear down through `close.py`** (one `<id>` or `--all`) — it deletes the runtime *and* closes
 the strategy. A raw `strategy_close` MCP call closes the strategy but **leaves the runtime
 registered**, which collides on the next deploy.
