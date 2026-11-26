@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.58.0"
+  version: "2.58.2"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -259,7 +259,8 @@ otherwise put it in `--theme` and rank on `archetype_label`/`belief_plain`/`thes
      buffer — then **confirm before install** ("you've got ~$X free; I'd put ~$Y in Rhino, ~$Z in Spider —
      good?"). Never invent a number the user hasn't confirmed, and never default everyone to the floor.
    - If funds are unavailable (`user_context` missing/errored), ask for the budget rather than assuming.
-   - **"Can I try it first / paper trade it?"** — there is no paper-trading mode. The trial IS a live run at
+   - **"Can I try it first / paper trade it?"** — a simulation runs it without real funds when the user
+     asks for one (`--simulation`, in senpi-strategy-ops). Otherwise the trial IS a live run at
      the floor, after `senpi validate` proves it runs — and the floor is the card's `min_budget`, which is
      the number to quote. The $10 platform floor is the per-wallet minimum inside it, never the number to
      give a user. Say so, and never offer to watch it on a timer — an `openclaw cron` job is a model call
@@ -414,7 +415,8 @@ days.
 - **Deploy** → **senpi-strategy-ops** with the chosen **`id` + `version`** (ops creates the wallet(s)
   and runs the install; it re-reads `strategy.yaml` for budget/`funding_split`). **Ops owes the
   walkthrough first** (its Step 0.75: what it does, how it's set, two levers, the fork name) — hand over
-  before any budget question, not after it.
+  before any budget question, not after it. One simulation gets ops' one-message confirm instead (what it does, budget,
+  credits an hour, "go?").
 - **Build-custom** → **senpi-strategy-author** with a **structured intent brief** (the `meta.intent_echo`
   + a one-line summary of what they wanted, including the worldview if they gave one).
 

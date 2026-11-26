@@ -55,7 +55,7 @@ class CreditsAreTheUsageMeter(unittest.TestCase):
         body = _flat(_split(SKILL)[1])
         self.assertIn(SECTION, body)
         for needle in (
-            "I can't read it from here",
+            "I can't read your balance from here",
             "the whole conversation is re-sent each turn",
             "cannot be traded, withdrawn, deposited into a strategy, or moved anywhere",
             '"chatting is free"',
@@ -123,7 +123,7 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
             self.assertIn(plan, section, plan)
         for needle in (
             "Every plan includes every model",
-            "no rollover, no top-ups, no overage",
+            "no rollover, no overage",
             "Upgrading is instant",
             "takes effect at the next renewal",
             "Payment is web only",
@@ -132,15 +132,22 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
 
     def test_the_plan_table_carries_the_published_prices(self):
         # the figures are the point of the section: an agent is told to quote this table, so a price
-        # that drifts is quoted at the user. Names and prose rules are locked above; these are the
-        # numbers (credits from 2026-10-26: Pro $55, Advanced $115, Quant $240).
+        # that drifts is quoted at the user. A plan's credits are not in it: they come from the
+        # subscription page, in credits, never as a dollar amount.
         section = _section(_split(SKILL)[1], PLANS)
         for row in (
-            "| Pro (default) | $50 | $55 (+10%) | 1.5 |",
-            "| Advanced | $100 | $115 (+15%) | 2 |",
-            "| Quant | $200 | $240 (+20%) | 3 |",
+            "| Pro (default) | $50 | 1.5 |",
+            "| Advanced | $100 | 2 |",
+            "| Quant | $200 | 3 |",
         ):
             self.assertIn(row, section, row)
+        self.assertIn("quote them only from the subscription page", _flat(section))
+
+    def test_no_dollar_amount_of_credit_anywhere(self):
+        text = _flat(SKILL.read_text(encoding="utf-8"))
+        for stale in re.findall(r"\$\d+ (?:\(\+\d+%\) )?credits?|\| \$\d+ \(\+\d+%\) \|", text):
+            self.fail(f"a dollar amount of credit: {stale!r}")
+        self.assertNotIn("$25 credits", text)
 
     def test_starter_is_closed_to_new_subscribers_not_offered(self):
         # Starter ($25) is closed to new subscribers: the table offers only open plans, and one
@@ -154,7 +161,7 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
         )
         self.assertNotIn("$25 |", section)
         self.assertIn(
-            "Starter ($25 a month, $25 credits, 1 point per $1 volume) is closed to new subscribers; "
+            "Starter ($25 a month, 1 point per $1 volume) is closed to new subscribers; "
             "people already on it keep it and can upgrade, but cannot return to it after leaving.",
             _flat(section),
         )
@@ -168,16 +175,6 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
             self.assertIn("(Pro, Advanced, Quant, and Starter for people already on it)", text, path)
         if README.is_file():
             self.assertNotIn("Starter/Pro/Advanced/Quant", README.read_text(encoding="utf-8"))
-
-    def test_the_advertised_bonus_matches_the_credits_it_grants(self):
-        # "$100 -> $130 (+30%)" has to be arithmetic, not decoration
-        section = _section(_split(SKILL)[1], PLANS)
-        priced = re.findall(r"\|\s*\$(\d+)\s*\|\s*\$(\d+)\s*\(\+(\d+)%\)", section)
-        self.assertTrue(priced, "no bonus-rate plan row found")
-        for price, credits, pct in priced:
-            self.assertEqual(int(credits), round(int(price) * (1 + int(pct) / 100)),
-                             f"${price} at +{pct}% is ${round(int(price) * (1 + int(pct) / 100))}, "
-                             f"not ${credits}")
 
     def test_the_trial_figure_stays_unpublished(self):
         # plan prices are fixed and quotable; the trial grant has moved more than once, so the
@@ -193,7 +190,7 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
         section = _flat(_section(_split(SKILL)[1], PLANS))
         for needle in (
             "A lapsed plan pauses everything, not just chat",
-            "a renewal payment fails",
+            "a renewal payment fails and no credits are left",
             "every strategy on it stops",
             "a stop-loss already resting on the exchange still triggers",
             "never tell them a subscription is not needed",
@@ -202,10 +199,52 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
         self.assertIn('"no subscription is needed"', _flat(_section(_split(SKILL)[1])))  # Never say
         self.assertIn("what happens when my trial ends?", _flat(_split(SKILL)[0]))  # the router finds it
 
-    def test_the_meter_section_still_defers_the_balance_to_the_page(self):
-        # the catalog being quotable must not leak into the balance: "what is left" is still theirs
+    def test_running_out_of_credits_stops_the_agent_but_not_the_exchange_stops(self):
+        # at zero credits the agent stops, and with it the strategies that run on it. A user told their
+        # live strategies keep running leaves open positions without the stop management they expect
+        text = _flat(_split(SKILL)[1]).lower()
+        for stale in (
+            "but live strategies keep running",
+            "but their live strategies keep running",
+            "but your live strategies keep running",
+            "out of credits is not a lapse",
+            "running out of credits does not",
+        ):
+            self.assertNotIn(stale, text, stale)
+        for needle in (
+            "running out of credits also stops the agent: the ai stops, simulations pause and strategies that run on the agent stop",
+            "stop-losses already on the exchange stay there, mirror strategies keep running, open positions are not closed and funds are untouched",
+            "when `credits.remaining` is 0",
+        ):
+            self.assertIn(needle, text, needle)
+
+    def test_the_balance_rule_is_written_once(self):
+        body = _flat(_split(SKILL)[1])
+        self.assertEqual(body.count("answer with `credits.remaining` as a number of credits"), 1)
+        self.assertNotIn("the balance is read", body)
+        self.assertNotIn('question runs the engine and answers from `credits`', body)
+
+    def test_credits_are_answered_in_credits_from_the_engine(self):
         section = _flat(_section(_split(SKILL)[1]))
-        self.assertIn("how much is **left** depends on your plan and your usage", section)
+        for needle in (
+            "answer with `credits.remaining` as a number of credits",
+            "the time left when `hours_left` is present",
+            "Never convert it to dollars",
+            "When `credits.available` is false",
+            "never invent a number",
+            "Credits also pay for running Hyper Simulations",
+        ):
+            self.assertIn(needle, section, needle)
+        self.assertNotIn("You cannot read the balance", section)
+        self.assertIn("how many credits do I have?", _flat(_split(SKILL)[0]))
+
+    def test_no_dollar_framing_or_plan_capacity_and_top_ups_exist(self):
+        body = _flat(_split(SKILL)[1] + _split(SKILL)[0]).lower()
+        for stale in ("plan capacity", "$1 of credit", "no top-ups", "never read"):
+            self.assertNotIn(stale, body, stale)
+        plans = _flat(_section(_split(SKILL)[1], PLANS))
+        self.assertIn("Credits can also be bought on the subscription page", plans)
+        self.assertIn("quote packs only from that page", plans)
 
 
 class FreeCreditMilestonesHaveEnded(unittest.TestCase):
@@ -275,12 +314,31 @@ class TheFeeFollowsThePlan(unittest.TestCase):
 
     def test_the_standing_answer_quotes_the_fee_the_data_returns(self):
         body = _flat(_split(SKILL)[1])
-        self.assertIn("Quote `fee.pct` as returned: `0%` on a paid plan", body)
-        self.assertIn("the Senpi trading fee (none on a paid plan)", _flat(_split(SKILL)[0]))
+        self.assertIn("Quote `fee.pct` as returned.", body)
+        self.assertNotIn("the flat free rate without one", body)
+        self.assertIn("the Senpi trading fee (none on a paid plan or while the account holds credits)",
+                      _flat(_split(SKILL)[0]))
+
+    def test_a_fee_the_backend_could_not_read_is_never_said_as_zero(self):
+        body = _flat(_split(SKILL)[1])
+        self.assertIn("`null` when the backend could not read it: say the fee could not be read right now, "
+                      "never `0%` and never a rate.", body)
 
     def test_the_presentation_notes_quote_the_same_field(self):
         notes = _flat(NOTES.read_text(encoding="utf-8"))
         self.assertIn("Quote `fee.pct` as returned", notes)
+
+    # "Never state a rate from memory" made agents refuse to give the published no-plan fee at all.
+    def test_the_no_plan_fee_is_quoted_from_the_senpi_mcp(self):
+        body = _flat(_split(SKILL)[1])
+        notes = _flat(NOTES.read_text(encoding="utf-8"))
+        rule = "quote the flat fee in the Senpi MCP's fee rule"
+        for name, text in (("rules", _flat(_section(_split(SKILL)[1], RULES))),
+                           ("plans", _flat(_section(_split(SKILL)[1], PLANS))), ("notes", notes)):
+            self.assertIn(rule, text, name)
+        self.assertNotIn("never state a rate from memory", body)
+        self.assertIn("in the same reply, never an offer to look it up", _flat(_section(_split(SKILL)[1], PLANS)))
+        self.assertNotIn("tenths of a bp", body)
 
 
 class ReferralsPayAShareOfSpend(unittest.TestCase):
@@ -367,6 +425,13 @@ class TheSkillDocumentsTheEnginesOutput(unittest.TestCase):
     def test_the_documented_sections_are_the_returned_sections_in_order(self):
         documented = re.search(r"Returns `\{([^}]*)\}`", _split(SKILL)[1]).group(1)
         self.assertEqual(documented.split(", "), list(self._engine_output()))
+
+    def test_the_documented_credits_fields_are_the_returned_ones(self):
+        body = _split(SKILL)[1]
+        documented = re.search(r"- `credits` — ([^\n]*(?:\n  [^\n]*)*)", body).group(1)
+        fields = re.findall(r"`(\w+)`", documented)
+        out = self._engine_output()["credits"]
+        self.assertEqual([f for f in fields if f in out], list(out))
 
     def test_the_documented_fee_and_points_fields_are_the_returned_ones(self):
         body = _split(SKILL)[1]

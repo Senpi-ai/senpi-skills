@@ -64,8 +64,10 @@ def test_the_output_is_points_fee_and_referral_and_nothing_about_tiers():
         "identity": {"senpi_user_id": "u123", "wallet": "0xme"},
         "points": {"total": 15000.0, "base": 2000.0, "perp": 13000.0, "multiplier": 1.5,
                    "rank": 42.0, "rank_change": 3.0, "found": True},
-        "fee": {"bps": 30.0, "pct": "0.03%"},
+        "fee": {"bps": 50.0, "pct": "0.05%"},
         "referral": {"balance_usdc": 12.5, "wallet": "0xme"},
+        "credits": {"available": True, "remaining": 1234, "burn_per_hour": 10.0,
+                    "hours_left": 123.4, "cycle_end": "2026-12-01T00:00:00.000Z"},
         "meta": {"warnings": []},
     }
 
@@ -89,7 +91,82 @@ def test_the_engine_never_asks_for_the_tier_table():
     status.run(client)
     status._dry(client)
     assert sorted(set(client.tools)) == [
-        "user_get_me", "user_get_referral_rewards", "user_get_senpi_points"]
+        "user_get_credits", "user_get_me", "user_get_referral_rewards",
+        "user_get_senpi_points"]
+
+
+def _credits_with(status_response, **kw):
+    recorded = _recorded()
+    if status_response is None:
+        recorded.pop("user_get_credits")
+    else:
+        recorded["user_get_credits"] = status_response
+    return status.run(status._FixtureClient(recorded))
+
+
+def test_credits_available_reports_the_number_of_credits():
+    r = _result()
+    assert r["credits"]["available"] is True and r["credits"]["remaining"] == 1234
+    assert isinstance(r["credits"]["remaining"], int)
+    assert r["credits"]["hours_left"] == 123.4
+
+
+def test_credits_without_burn_or_hours_keep_them_null():
+    r = _credits_with({"success": True, "data": {"credits": {"remaining": "50"}}})
+    assert r["credits"] == {"available": True, "remaining": 50, "burn_per_hour": None,
+                            "hours_left": None, "cycle_end": None}
+
+
+def test_a_dollar_only_shape_is_unavailable_and_emits_no_dollars():
+    r = _credits_with({"success": True, "data": {
+        "credits": {"remaining_usd": 7.5, "cycle_end": "2026-12-01T00:00:00.000Z"}}})
+    assert r["credits"] == {"available": False}
+    assert "7.5" not in json.dumps(r)
+
+
+def test_null_credits_and_a_failed_or_missing_tool_are_unavailable():
+    for resp in ({"success": True, "data": {"credits": None, "sources_unavailable": ["x"]}},
+                 {"success": False, "error": {"code": "NOT_FOUND"}},
+                 None):
+        r = _credits_with(resp)
+        assert r["credits"] == {"available": False}, resp
+        assert r["points"]["total"] == 15000          # the rest of the standing still returns
+
+
+def test_a_zero_or_negative_balance_reads_as_zero_credits():
+    for remaining in (0, -340, "-340.0"):
+        r = _credits_with({"success": True, "data": {"credits": {"remaining": remaining}}})
+        assert r["credits"]["available"] is True and r["credits"]["remaining"] == 0, remaining
+
+
+def _raising_credits(message):
+    class Raising(status._FixtureClient):
+        def mcp_call(self, tool, timeout=12, **kw):
+            if tool == "user_get_credits":
+                raise RuntimeError(message)
+            return super().mcp_call(tool, timeout=timeout, **kw)
+    return status.run(Raising(_recorded()))
+
+
+def test_a_server_without_the_credits_tool_is_unavailable_without_a_warning():
+    for message in ("JSON-RPC error -32602: Tool user_get_credits not found",
+                    "tool failed: NOT_CONFIGURED: credits are not configured"):
+        r = _raising_credits(message)
+        assert r["credits"] == {"available": False}, message
+        assert r["meta"]["warnings"] == [], message
+
+
+def test_a_raising_credits_call_fails_open_with_a_warning():
+    class Boom(status._FixtureClient):
+        def mcp_call(self, tool, timeout=12, **kw):
+            if tool == "user_get_credits":
+                raise RuntimeError("Unknown tool")
+            return super().mcp_call(tool, timeout=timeout, **kw)
+
+    r = status.run(Boom(_recorded()))
+    assert r["credits"] == {"available": False}
+    assert any("user_get_credits failed" in w for w in r["meta"]["warnings"])
+    assert r["referral"]["balance_usdc"] == 12.5
 
 
 def test_arena_retired():

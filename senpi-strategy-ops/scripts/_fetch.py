@@ -8,6 +8,11 @@ list the repo tree, then download every strategies/<id>/* file via raw.githubuse
 senpi-skills is public, so this works unauthenticated. Override repo/ref via env or pass ref=.
 GITHUB_TOKEN is used if present (private repos / higher rate limit).
 
+Unauthenticated, GitHub allows 60 API calls an hour per IP and a 304 still counts, so the tree
+listing is kept in $SENPI_CATALOG_CACHE_DIR (default ~/.cache/senpi) for ten minutes, in the file the
+runtime's catalog fetch (src/deploy/batch/catalog-fetch.ts) reads and writes too. When GitHub
+refuses, any older listing is used instead.
+
   fetch_package("spider", _pkg.strategies_root())   # -> writes <root>/spider/... , returns the dir
 
 Callers pass the ABSOLUTE durable root (_pkg.strategies_root()), never a CWD-relative path — a
@@ -17,12 +22,16 @@ package fetched into a managed skill dir is destroyed on the next skill update.
 import http.client
 import json
 import os
+import re
 import sys
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = os.environ.get("SENPI_SKILLS_REPO", "Senpi-ai/senpi-skills")
 REF = os.environ.get("SENPI_SKILLS_REF", "main")
 TOKEN = os.environ.get("GITHUB_TOKEN", "")
+LISTING_FRESH_S = 600
 
 
 class FetchError(Exception):
@@ -38,12 +47,82 @@ def _get(host, path, accept, timeout):
         conn.request("GET", path, headers=headers)
         resp = conn.getresponse()
         body = resp.read()
-        return resp.status, body
+        return resp.status, body, {k.lower(): v for k, v in resp.getheaders()}
     finally:
         try:
             conn.close()
         except Exception:  # noqa: BLE001
             pass
+
+
+def _now():
+    return time.time()
+
+
+def _listing_file(repo, ref):
+    root = os.environ.get("SENPI_CATALOG_CACHE_DIR", "").strip() or os.path.join(Path.home(), ".cache", "senpi")
+    return Path(root) / f"catalog-tree-{re.sub(r'[^A-Za-z0-9._-]', '_', f'{repo}@{ref}')}.json"
+
+
+def _read_listing(path, repo, ref):
+    try:
+        listing = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if (not isinstance(listing, dict) or listing.get("repo") != repo or listing.get("ref") != ref
+            or not isinstance(listing.get("fetchedAt"), (int, float)) or not isinstance(listing.get("paths"), list)):
+        return None
+    return listing
+
+
+def _write_listing(path, listing):
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(listing), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        pass  # the listing still serves this fetch; the next one asks GitHub again
+
+
+def _refusal(status, headers, repo, ref, now):
+    def num(name):
+        try:
+            return float(headers.get(name, ""))
+        except ValueError:
+            return 0.0
+    reset = num("x-ratelimit-reset") or (now + num("retry-after") if num("retry-after") else 0)
+    head = (f"GitHub refused the strategy catalog listing for {repo}@{ref} (HTTP {status}: this box's "
+            f"address used up GitHub's 60 unauthenticated calls for the hour)")
+    if not reset:
+        return f"{head}. Try again in an hour."
+    at = datetime.fromtimestamp(reset, timezone.utc).strftime("%H:%M")
+    minutes = max(1, -(-int(reset - now) // 60))
+    return f"{head}. The limit resets at {at} UTC, in {minutes} minute{'' if minutes == 1 else 's'}; try again then."
+
+
+def _catalog_paths(repo, ref, timeout):
+    """Every blob path in the repo at ref: the cached listing while fresh, else GitHub's tree."""
+    now = _now()
+    path = _listing_file(repo, ref)
+    cached = _read_listing(path, repo, ref)
+    if cached and now * 1000 - cached["fetchedAt"] < LISTING_FRESH_S * 1000:
+        return cached["paths"]
+    status, raw, headers = _get("api.github.com", f"/repos/{repo}/git/trees/{ref}?recursive=1",
+                                "application/vnd.github+json", timeout)
+    if status in (403, 429):
+        if cached:
+            return cached["paths"]
+        raise FetchError(_refusal(status, headers, repo, ref, now))
+    if status != 200:
+        raise FetchError(f"GitHub tree API HTTP {status} for {repo}@{ref}")
+    try:
+        tree = json.loads(raw).get("tree", [])
+    except json.JSONDecodeError as e:
+        raise FetchError(f"bad tree JSON from GitHub: {e}")
+    paths = [t["path"] for t in tree if t.get("type") == "blob" and isinstance(t.get("path"), str)]
+    _write_listing(path, {"repo": repo, "ref": ref, "fetchedAt": int(now * 1000), "paths": paths})
+    return paths
 
 
 def _out_path(dest_root, tree_path):
@@ -65,18 +144,10 @@ def fetch_package(strategy_id, dest_root, ref=None, repo=None, timeout=30):
     """
     ref = ref or REF
     repo = repo or REPO
-    # 1. one recursive tree listing → all blob paths under strategies/<id>/
-    status, raw = _get("api.github.com", f"/repos/{repo}/git/trees/{ref}?recursive=1",
-                       "application/vnd.github+json", timeout)
-    if status != 200:
-        raise FetchError(f"GitHub tree API HTTP {status} for {repo}@{ref} "
-                         f"(rate limit? set GITHUB_TOKEN)")
-    try:
-        tree = json.loads(raw).get("tree", [])
-    except json.JSONDecodeError as e:
-        raise FetchError(f"bad tree JSON from GitHub: {e}")
+    # 1. one recursive tree listing (cached) → all blob paths under strategies/<id>/
+    paths = _catalog_paths(repo, ref, timeout)
     prefix = f"strategies/{strategy_id}/"
-    files = [t["path"] for t in tree if t.get("type") == "blob" and t.get("path", "").startswith(prefix)]
+    files = [p for p in paths if p.startswith(prefix)]
     src_prefix, resolved_from = prefix, None
     if not files and "-" in strategy_id:
         # A DEPLOYED package is normally the user's fork, named "<username>-<template>". The fork
@@ -88,15 +159,13 @@ def fetch_package(strategy_id, dest_root, ref=None, repo=None, timeout=30):
         # the first "-": a Senpi username may contain hyphens ("john-doe-athena") and guessing the
         # split point gets those wrong. Longest match first so a template cannot be shadowed by a
         # shorter one that happens to be a suffix of it (athena-x vs athena).
-        templates = {q.split("/", 2)[1] for q in
-                     (b.get("path", "") for b in tree if b.get("type") == "blob")
+        templates = {q.split("/", 2)[1] for q in paths
                      if q.startswith("strategies/") and q.count("/") >= 2}
         base = next((c for c in sorted(templates, key=len, reverse=True)
                      if strategy_id.endswith(f"-{c}")), None)
         if base:
             src_prefix, resolved_from = f"strategies/{base}/", base
-            files = [t["path"] for t in tree
-                     if t.get("type") == "blob" and t.get("path", "").startswith(src_prefix)]
+            files = [p for p in paths if p.startswith(src_prefix)]
     if not files:
         raise FetchError(
             f"strategy {strategy_id!r} not found under strategies/ on {repo}@{ref}. "
@@ -110,7 +179,7 @@ def fetch_package(strategy_id, dest_root, ref=None, repo=None, timeout=30):
     # is both false and points away from the cause.
     dest = Path(dest_root) / strategy_id
     for path in files:
-        status, content = _get("raw.githubusercontent.com", f"/{repo}/{ref}/{path}", "*/*", timeout)
+        status, content, _ = _get("raw.githubusercontent.com", f"/{repo}/{ref}/{path}", "*/*", timeout)
         if status != 200:
             raise FetchError(f"raw fetch HTTP {status} for {path}")
         # Remap onto the requested id. The prefix is ours and only the relative tail comes from the

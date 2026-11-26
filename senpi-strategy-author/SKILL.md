@@ -13,14 +13,14 @@ description: >-
   up a named or protected strategy; a strategy built here does. Finds the closest
   template FIRST (senpi-strategy-discover) as the BASE the user forks and makes theirs (a
   lever shifted, a rule of their own) before it goes live; scratch when nothing fits.
-  No paper-trading mode: test with `senpi validate` and a $10-floor live run, never a
-  scanner re-run on a timer. Never asks for a budget to build (asked once, at
+  Simulations exist: `--simulation` in senpi-strategy-ops, only when the user asks for one. Otherwise
+  test with `senpi validate` and a $10-floor live run, never a scanner re-run on a timer. Never asks for a budget to build (asked once, at
   deploy); exits default to letting winners run, stated in price at leverage; the
   user names what you build. NOT for installing (senpi-strategy-ops).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.17.0"
+  version: "3.17.5"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -82,6 +82,11 @@ starts here — a thesis, an X take, "what should I trade?", "recommend a strate
 - **Never ask for a budget to start building** — see the funding heads-up below; the number is asked once,
   at deploy.
 
+**An open ask** ("help me create a strategy", "set me up") with no thesis yet: before finding a base, ask the two
+opening questions in [`references/opening-questions.md`](references/opening-questions.md), one per call, each through
+`ask_user_question` with every option's `description` and `allow_text: true` (plain text where the tool is absent).
+Never also write the question in your reply. A typed answer counts the same as a tapped one; the answers open the thesis.
+
 ## ⛔ Never guess syntax — get it from the source (your memory is NOT authoritative)
 
 You are an LLM. **Every identifier you emit from memory or plausibility is a silent failure** — a wrong
@@ -122,7 +127,7 @@ Before Decision 1, read the **deployable** balance ONCE: `account_get_portfolio`
 Never `total_withdrawable`, never `total_balance_usd` — committed capital. **0 is a fact, not a missing read**: no `or` chain.
 Never say "$total free": say what is free, and that freeing the rest means withdrawing from a strategy — their call. [`references/deployable-balance.md`](references/deployable-balance.md). **~$11.50/wallet opens a wallet** (`deploy.py create` reserves the
 ~$1.50 fee first; exactly $10 refuses with `[E_FUNDS_BELOW_FLOOR]`) — **not what the strategy needs to trade**: under the design's own minimum it installs, scans and never opens.
-No design exists yet, so check the floor here; Handoff step 1 quotes the minimum. That floor is also how a strategy is **tested**: there is no paper-trading mode, and a scan re-run on a timer is a model call per tick, not a simulation; an offline backtest follows the rules in [`references/shadow-testing.md`](references/shadow-testing.md).
+No design exists yet, so check the floor here; Handoff step 1 quotes the minimum. That floor is also how a strategy is **tested** live. A simulation runs it with no real funds only when the user asks for one (`--simulation`, in senpi-strategy-ops), and a scan re-run on a timer is a model call per tick, not a simulation; an offline backtest follows the rules in [`references/shadow-testing.md`](references/shadow-testing.md).
 
 - **Balance ≥ ~$11.50/wallet, or unreadable** → say nothing about funding and move on. Unreadable
   means move on too — no retry loop, no blocking; funding is re-checked at deploy anyway.
@@ -406,7 +411,7 @@ warns on fee options the order type ignores.
 
 ## Handoff & the live gate — deploy is `senpi-strategy-ops` (NEVER raw MCP); "done" means verified LIVE
 
-Authoring produces the **package** only; going live is a **separate, gated loop**, and a strategy is live
+A package an outside AI uploaded (`deploy.py call senpi.packages.list`) is not one you authored: it runs only as simulations and can't go live yet. Say so, and never copy it into the strategies root. Authoring produces the **package** only; going live is a **separate, gated loop**, and a strategy is live
 only once **`senpi-strategy-ops` deploys it AND that deploy's report says `overall: live`**. Walk the full
 loop every time:
 

@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.25.0"
+  version: "1.25.4"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -136,7 +136,7 @@ imply Senpi checked who controls them. The engine adds every one to the review s
 
 ## HARD RULES (never violate — obey these even if you skim the rest)
 
-**A "measurement framework", recurring analytics, or a scheduled review is read on demand, never an agent-turn cron.** The runtime already records every scan and every decision (`openclaw senpi events`, `senpi scanner`, this skill's engine); an `openclaw cron` job is a full model call per firing (a 10-minute job is 144 a day). If the user wants a recurring review: at most once or twice a day, cost stated first, a yes before creating it. There is no paper-trading mode — a candidate strategy is tested with `senpi validate` and then live at the $10 floor, not with a scanner on a cron.
+**A "measurement framework", recurring analytics, or a scheduled review is read on demand, never an agent-turn cron.** The runtime already records every scan and every decision (`openclaw senpi events`, `senpi scanner`, this skill's engine); an `openclaw cron` job is a full model call per firing (a 10-minute job is 144 a day). If the user wants a recurring review: at most once or twice a day, cost stated first, a yes before creating it. A candidate strategy is tested with `senpi validate`, then as a simulation when the user asks for one (`--simulation`, in senpi-strategy-ops) or live at the $10 floor, never with a scanner on a cron.
 
 0. **Never quote a $ PnL without saying which side of fees it is on.** `realized` and `total` are HL
    `closedPnl` — **GROSS**. Quote `pnl_summary.realized_net` for the closed book and show the fee line; when
@@ -278,10 +278,9 @@ wired, quote the maker ratio as a fee-tier signal, never a fee dollar total. (`p
 trade rows do carry fee $.)
 
 **Fee rate (hard rule 0):** Senpi charges **no builder fee on a paid plan** (Pro, Advanced, Quant, and
-Starter for people already on it); tiers and points no longer change it. Quote fees from the fills,
-never a rate from memory — the rate is not a constant. A fill keeps the fee it was signed with, so an order placed before
-2026-10-26 (a resting stop included) can still carry a builder leg: read it from the fill's own
-`builderFee`.
+Starter for people already on it) **or while the account holds credits** (pay as you go, the initial free credits); tiers and points no longer change it. Quote fees from the fills,
+never a rate from memory — the rate is not a constant. Any order from an account with no plan and no credits carries the Senpi builder fee. A
+fill keeps the fee it was signed with (a resting stop included): read it from the fill's own `builderFee`.
 
 **Quick action 4 — the `explain` command in full.** For "walk me through / explain my BTC trade," the agent
 runs the native lifecycle command directly (it's not in `review.py` — it's the runtime CLI):

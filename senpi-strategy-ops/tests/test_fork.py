@@ -99,6 +99,49 @@ def test_names_follow_the_decided_shape():
     assert _fork.names_for(pkg, name="Mars Base")[0] == "mars-base"        # an M-word is still a name
 
 
+def _stub(pkg_id, *instances):
+    from types import SimpleNamespace
+    return SimpleNamespace(id=pkg_id, instances=[SimpleNamespace(name=n) for n in instances or ("main",)],
+                           catalog={"name": pkg_id.title()})
+
+
+SIMULATION_BASE_MAX = 29   # runtime src/deploy/package.ts: "<id>-<instance>" + "-simulation" fits the 40 cap
+
+
+def _fits_simulation(fid, pkg):
+    return all(len(f"{fid}-{i.name}") <= SIMULATION_BASE_MAX for i in pkg.instances)
+
+
+def test_a_long_username_still_makes_a_simulation_sized_id():
+    hawk = _stub("hawk")
+    fid, display = _fork.names_for(hawk, owner="SparkTurquoiseIceCream")
+    assert _fits_simulation(fid, hawk), fid
+    assert fid.startswith("sparkturquoise") and fid.endswith("-hawk") and display == "SparkTurquoiseIceCream's Hawk"
+    assert _fork.names_for(hawk, owner="SparkTurquoiseIceCream")[0] == fid                       # stable
+
+
+def test_a_long_template_fits_and_stays_one_id_per_strategy():
+    ids = set()
+    for tpl in ("penguins-duo-chase-150bp", "penguins-duo-chase-200bp", "penguins-duo-chase-300bp"):
+        pkg = _stub(tpl)
+        for owner in ("kinsyu", "SparkTurquoiseIceCream"):
+            fid = _fork.names_for(pkg, owner=owner)[0]
+            assert _fits_simulation(fid, pkg) and len(fid) >= _fork.MIN_ID, fid
+            ids.add(fid)
+    assert len(ids) == 6
+    athena = _stub("athena-concentrated", "phalanx", "aegis")
+    assert _fits_simulation(_fork.names_for(athena, owner="SparkTurquoiseIceCream")[0], athena)
+    long_words = _fork.names_for(hawk := _stub("hawk"), name="My very own long strategy name of words")[0]
+    assert _fits_simulation(long_words, hawk) and long_words.startswith("my-very-own")
+
+
+def test_ids_that_already_fit_are_unchanged():
+    assert _fork.names_for(_stub("hawk"), owner="Ignas")[0] == "ignas-hawk"
+    assert _fork.names_for(_stub("phalanx"), owner="Purple Frog_99")[0] == "purple-frog-99-phalanx"
+    assert _fork.names_for(_stub("hawk"), owner="TwentyCharUsername1")[0] == "twentycharusername1-hawk"
+    assert _fork.names_for(_stub("hawk"), name="Shield Wall")[0] == "shield-wall"
+
+
 def test_fork_rewrites_identity_and_nothing_else(tmp_path):
     tpl = _template(tmp_path)
     pkg = _pkg.load(tpl)
@@ -126,6 +169,38 @@ def test_fork_rewrites_identity_and_nothing_else(tmp_path):
     (tmp_path / "shield-wall" / "strategy.yaml").write_text("id: shield-wall\nversion: '1'\ninstances: [{name: main, runtime: r.yaml}]\n")
     with pytest.raises(_fork.ForkError):
         _fork.fork(pkg, tmp_path, name="Shield Wall")
+
+
+def test_a_named_fork_of_a_fork_copies_its_edits_as_an_independent_variation(tmp_path):
+    parent, _ = _fork.fork(_pkg.load(_template(tmp_path)), tmp_path, owner="Alice")
+    rt = parent / "main" / "runtime.yaml"
+    rt.write_text(rt.read_text().replace("tiltThreshold: 65", "tiltThreshold: 72"))   # the parent's own edit
+    (parent / ".deploy-state.json").write_text("{}")                                    # the parent's deploy state
+    dest, info = _fork.fork(_pkg.load(parent), tmp_path, name="Penguin Wide Stop")
+    assert dest == tmp_path / "penguin-wide-stop" and info["runtimes"] == ["penguin-wide-stop-main"] and not info["reused"]
+    assert info["forked_from"] == {"id": "phalanx", "version": "1.1.0"}               # lineage stays the template's
+    man = (dest / "strategy.yaml").read_text()
+    assert "\nid: penguin-wide-stop\n" in man and '  name: "Penguin Wide Stop"' in man
+    assert man.count("forked_from:") == 1 and 'forked_from:\n  id: phalanx\n  version: "1.1.0"' in man
+    text = (dest / "main" / "runtime.yaml").read_text()
+    assert "\nname: penguin-wide-stop-main\n" in text and "\ngroup: penguin-wide-stop\n" in text
+    assert "description: >\n  Penguin Wide Stop — copied from Alice's Phalanx.\n" in text
+    assert "tiltThreshold: 72" in text                                                 # the parent's edit came along
+    assert not (dest / ".deploy-state.json").exists()
+    assert _pkg.validate(_pkg.load(dest)) == []
+    assert "tiltThreshold: 72" in rt.read_text() and "\nname: alice-phalanx-main\n" in rt.read_text()   # parent untouched
+    with pytest.raises(_fork.ForkError, match="exists"):                                # never overwrites a copy
+        _fork.fork(_pkg.load(parent), tmp_path, name="Penguin Wide Stop")
+    with pytest.raises(_fork.ForkError, match="--name"):                                # an owner alone is not a variation name
+        _fork.fork(_pkg.load(parent), tmp_path, owner="Jason")
+
+
+def test_cli_fork_of_a_fork_with_a_name(tmp_path):
+    _fork.fork(_pkg.load(_template(tmp_path)), tmp_path, owner="Alice")
+    out = _run(["fork", str(tmp_path / "alice-phalanx"), "--name", "Penguin Wide Stop", "--json"], tmp_path)
+    assert out.returncode == 0, out.stderr
+    doc = json.loads(out.stdout.strip().splitlines()[-1])
+    assert doc["id"] == "penguin-wide-stop" and doc["errors"] == [] and doc["dir"] == str(tmp_path / "penguin-wide-stop")
 
 
 def test_fork_handles_a_quoted_description_and_a_flat_package(tmp_path):
@@ -221,3 +296,59 @@ def test_create_of_a_bare_template_forks_under_the_username(tmp_path, monkeypatc
     a = argparse.Namespace(cmd="create", package="phalanx", owner=None, name=None, dry_run=True)
     forked = deploy._fork_for_deploy(_pkg.load(tmp_path / "phalanx"), a, log=lambda m: None)
     assert forked.id == "purplefrog-phalanx" and forked.catalog["name"] == "PurpleFrog's Phalanx"
+
+
+LONG_OWNER = "JollyMercuryBeetroot1"          # slugs to 20 characters: `<owner>-phalanx-main` is too long for a simulation
+LEGACY_ID = "jollymercurybeetroot-phalanx"    # the id a fork got before ids were cut to fit a simulation
+
+
+def _fork_at(root, fid, template="phalanx"):
+    """A fork of `template` under `root/fid`, as an older ops version made it."""
+    src = root / "_made"
+    src.mkdir(exist_ok=True)
+    man = MANIFEST.replace("id: phalanx", f"id: {template}")
+    made, _ = _fork.fork(_pkg.load(_template(src, manifest=man)), src, owner="Ignas")
+    dest = root / fid
+    made.rename(dest)
+    for f in (dest / "strategy.yaml", dest / "main" / "runtime.yaml"):
+        f.write_text(f.read_text().replace(f"ignas-{template}", fid))
+    (dest / ".deploy-state.json").write_text('{"live": true}')
+    return dest
+
+
+def test_a_fork_made_under_the_old_uncut_id_is_the_one_a_live_deploy_reuses(tmp_path):
+    pkg = _pkg.load(_template(tmp_path))
+    assert _fork.names_for(pkg, owner=LONG_OWNER)[0] != LEGACY_ID      # the cut id differs from the old one
+    legacy = _fork_at(tmp_path, LEGACY_ID)
+    dest, info = _fork.fork(pkg, tmp_path, owner=LONG_OWNER)
+    assert dest == legacy and info["reused"] and info["id"] == LEGACY_ID
+    assert info["runtimes"] == [f"{LEGACY_ID}-main"] and info["dir"] == str(legacy)
+    assert (legacy / ".deploy-state.json").read_text() == '{"live": true}'            # untouched
+    made = sorted(p.name for p in tmp_path.iterdir() if (p / "strategy.yaml").is_file())
+    assert made == sorted(["phalanx", LEGACY_ID]), made                                      # no second fork beside it
+
+
+def test_a_simulation_never_reuses_an_old_id_too_long_to_run_as_one(tmp_path):
+    pkg = _pkg.load(_template(tmp_path))
+    _fork_at(tmp_path, LEGACY_ID)
+    dest, info = _fork.fork(pkg, tmp_path, owner=LONG_OWNER, simulation=True)
+    assert info["id"] == _fork.names_for(pkg, owner=LONG_OWNER)[0] and not info["reused"]
+    assert _fits_simulation(info["id"], pkg) and dest.name == info["id"]
+
+
+def test_an_old_id_held_by_a_fork_of_another_template_is_not_reused(tmp_path):
+    pkg = _pkg.load(_template(tmp_path))
+    _fork_at(tmp_path, LEGACY_ID, template="hawk")
+    dest, info = _fork.fork(pkg, tmp_path, owner=LONG_OWNER)
+    assert info["id"] == _fork.names_for(pkg, owner=LONG_OWNER)[0] and not info["reused"]
+
+
+def test_create_of_a_template_deploys_the_old_live_fork_not_a_second_one(tmp_path, monkeypatch):
+    deploy = _deploy()
+    _template(tmp_path)
+    legacy = _fork_at(tmp_path, LEGACY_ID)
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path))
+    monkeypatch.setattr(deploy, "_username", lambda: LONG_OWNER)
+    a = argparse.Namespace(cmd="create", package="phalanx", owner=None, name=None, dry_run=True, simulation=False)
+    forked = deploy._fork_for_deploy(_pkg.load(tmp_path / "phalanx"), a, log=lambda m: None)
+    assert forked.id == LEGACY_ID and Path(forked.dir) == legacy

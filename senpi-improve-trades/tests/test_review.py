@@ -1403,6 +1403,8 @@ def test_skill_states_no_builder_fee_on_a_paid_plan_and_no_nonzero_rate():
     assert "user_get_senpi_points" in skill, "the skill must name where to read the user's own fee"
     assert "not a constant" in skill.lower(), "the skill must say the rate is not a constant"
     assert "**no builder fee on a paid plan**" in skill, "the plan rule is not stated"
+    assert "2026-10-26" not in skill, "a builder leg is not only on orders before a date"
+    assert "Any order from an account with no plan and no credits carries the Senpi builder fee" in skill
     for rate in ("0.025%", "0.03%", "0.05%", "0.047% Silver"):
         assert rate not in skill, f"a nonzero Senpi rate is quoted: {rate}"
     assert "A fill keeps the fee it was signed with" in skill, "older fills with a builder leg go unexplained"

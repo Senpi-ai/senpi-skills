@@ -14,7 +14,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "4.1.16"
+  version: "4.1.18"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -36,13 +36,18 @@ division of labor is fixed:
   execute anything.
 - **Zero model cost, and the only loop there is.** The runtime ticks every `interval_seconds` without a
   model call. Never put an agent-turn cron beside it — a producer, a re-check, a watcher — each
-  firing is a full model call. There is no paper-trading mode: a strategy is tested with `senpi validate`
-  (one real tick, no wallet) and then run live at the $10 floor.
+  firing is a full model call. A strategy is tested with `senpi validate`
+  (one real tick, no wallet), then as a simulation when the user asks for one (`--simulation`, in
+  senpi-strategy-ops) or live at the $10 floor.
 - **The runtime owns everything downstream:** scheduling (`interval_seconds`), spawning +
   supervising + restarting the scanner, validating (`signal_data_schema`) + de-duplicating the
   signals you return, **sizing & order execution** (`FEE_OPTIMIZED_LIMIT`), slot accounting,
   `risk.guard_rails`, the two-phase **DSL** trailing-stop exits, and **crash-safe position reconcile**
   on restart.
+- **Every DSL position has a hard stop, including `phase1.enabled: false` (every catalog strategy).**
+  `max_loss_pct` is an exchange stop-loss at -max_loss_pct ROE from entry; `enabled: false` turns off
+  the phase-1 trailing only. Asked "does it have a hard stop?", answer yes with that number, and never
+  offer to "fix" it by enabling phase 1.
 - **What it does NOT own: partial exits.** Every exit the runtime can make (DSL, `CLOSE_POSITION`)
   closes the WHOLE position, and `edit_position` — the only reduce — is blocked to scanners. A rule
   like "take 25% off at +10% ROE and let the rest run" cannot be authored in a runtime package at

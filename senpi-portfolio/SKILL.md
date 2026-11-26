@@ -6,7 +6,7 @@ description: >-
   dump. Leads at the STRATEGY level: each strategy judged against its OWN mandate (is it doing its job?),
   with positions as evidence. Use this skill FIRST for ANY portfolio / strategies / positions / balances
   / PnL / trade-history question, BEFORE any raw strategy_get_clearinghouse_state / account_get_portfolio
-  / strategy_list MCP call. Use for "analyze my strategies", "how are my strategies doing", "analyze my
+  / strategy_list MCP call. "How many simulations": simulation_counts. Use for "analyze my strategies", "how are my strategies doing", "analyze my
   portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is idle", and
   "are my open positions protected? / do they have a stop-loss?", "my saved wallet", "the wallets I added", "my MetaMask
   wallet" (read-only balances and positions of a wallet the user added in Your wallets), and "tell me about my strategies and
@@ -21,7 +21,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.38.0"
+  version: "1.39.13"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -46,9 +46,9 @@ book total, or verdicts and figures already shown unless the user asks for them 
 | *"analyze my positions / my positions vs the market / net exposure / concentration / idle drag"* | `positions` | `references/analysis-framework.md` |
 | *"analyze my portfolio / how am I doing"* (the full read) | `money` → `strategies` → `positions`, narrating between | `references/output-contract.md`, `references/runtime-health.md` (liveness) |
 | "what happened to my closed X / did my trade go through / do I still hold X" | `strategies` (`closed`), `positions` | "Source of truth" below |
-| "go deeper on X" (the deep-dive answer) | a strategy: `strategies`; a wallet they added: its row; the Senpi main wallet: `embedded_wallet` | — |
+| "go deeper on X" | a strategy: `strategies`; a wallet they added: its row; the Senpi main wallet: `embedded_wallet` | — |
 | add / change / remove a stop or DSL | nothing here — this skill reads; offer it, then `senpi-trade` | "This skill reads" below |
-| score / rate / grade my trading | `quant-desk` on these wallets | — |
+| score / rate / grade my trading | `quant-desk` | — |
 | "where am I leaking / did a stop fail / exit quality", trade history | `senpi-improve-trades` | — |
 | what a JSON field means | — | `references/output-fields.md` |
 | a read failed: `meta.degraded`, `meta.warnings`, `reconciles: false`, a `null` figure | re-run that step | `references/output-contract.md` ("Resilience") |
@@ -56,7 +56,7 @@ book total, or verdicts and figures already shown unless the user asks for them 
 | close / pause / keep / top up ONE wallet of a strategy | — | the no-no below: whole strategy only |
 | a yes to CTA 1 / CTA 2, or a digit after the CTAs | the levers / build for the idle (author) | `references/output-contract.md` |
 
-**Still true on every follow-up** (in full further down):
+**Still true on every follow-up**:
 - **A failed read is not $0 or flat.** App-scoped token → can't read the account; failed clearinghouse
   read → positions may be incomplete; realized PnL that didn't load → *unavailable*, never `$0`;
   `totals.reconciles == false` → stop, re-run, then trust per-wallet figures. A full read never skips a
@@ -65,6 +65,7 @@ book total, or verdicts and figures already shown unless the user asks for them 
 - **Acting on a CTA:** Confirm before any change; never trade unprompted. Propose; never deploy without
   confirmation. CTA 2: build their own (author, forking the closest template when one fits); name none here.
 - **There is no restart verb; close → redeploy is a last resort, asked first.** ("Liveness")
+- **Simulations: "running", never "live"; "best" or any status ranks by return** unless a measure is named; return/Sharpe/drawdown: quote `simulation_metrics` from `strategy_get_pnl_and_account_value_history`, never compute one.
 
 > **Source of truth for position facts — read before you answer, even mid-trade.** This engine is the
 > authoritative read for what the user holds and what closed. **Before any statement about a position —
@@ -116,7 +117,7 @@ wallet appended after the money map. Origin is the kind column (`kind`: `managed
 The rest of this section is about the **read-only rows** — the user's **saved wallets**, Hyperliquid
 wallets they added in Your wallets by pasting the address, and trade by hand. A saved wallet is their
 claim: call them "your wallets" or "the wallets you added", and never imply Senpi checked who controls
-them. Their raw reads: "row details" below.
+them.
 
 - **Quote the access line verbatim** — every wallet carries it as `access`, and it is the whole answer to
   "can you trade it / close it / set a stop on it":
@@ -135,7 +136,7 @@ them. Their raw reads: "row details" below.
   this replaces CTA 1 and CTA 2:
   > **Want me to review the trades on it, or score it on the quant desk?**
 
-**Closing — the deep-dive question comes first** (the two CTAs follow, in "Mandatory closing").
+**Closing — the deep-dive question comes first.**
 
 **First, when `book.deep_dive.offer` is true** (more than one wallet with something to go deeper on —
 any user, with or without a Senpi strategy), ask the deep-dive question and name the wallets in
@@ -352,7 +353,19 @@ from memory. If the fee read fails, say the number is gross and why.
 
 **Paper is not live.** A `senpi validate` tick, a scanner signal, a simulation or an estimate is not a
 trade; only a fill on the strategy wallet (`positions`, `closed`) is. Never narrate a shadow run as
-"live", "running" or "a trade".
+"live", "running" or "a trade". A simulation (virtual money, run by the runtime) is the exception for
+one word: while it runs it is "running", never "live" ("live" means real money), in a status column too.
+"Show my best simulations" ranks them by return unless the user names another measure (Sharpe ratio,
+drawdown, win rate, trade count); say which measure ranks them.
+"How are my simulations doing?" and any status of several rank the same way, best first, by
+`simulation_metrics.return_pct` (below), never worked out from account value; a null one goes last with its `not_available` reason.
+**A simulation's return, Sharpe, max drawdown, win rate, profit factor or trades** come
+from Senpi, not from you: call `strategy_get_pnl_and_account_value_history` with `strategy_wallet` = its wallet and
+quote its `simulation_metrics` as written (the figures the app shows, over the simulation's whole life). Never
+compute Sharpe or drawdown from the history or `today_snapshot` (today only). A null figure: say Senpi doesn't
+have it yet and give the reason in `not_available` (e.g. too few closed trades). **How many simulations**
+(running, paused, stopped, in total): call `simulation_counts` and quote its `counts`; never count rows
+from `strategy_list`, which holds only some of them.
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
