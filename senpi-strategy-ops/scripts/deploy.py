@@ -2421,6 +2421,17 @@ def _ownership_flags(p):
                    help="A name of the user's own instead (\"Shield Wall\" → id shield-wall). Wins over --owner.")
 
 
+def _fork_of_flag(p):
+    p.add_argument("--fork-of", dest="fork_of", default=None, metavar="STRATEGY_ID",
+                   help="The strategy this copy starts from (the hand-off's `Source strategy id`), recorded as the "
+                        "copy's forked_from.parent. Needs --name.")
+
+
+def _explicit_dir(package):
+    """True when the package argument is a directory holding strategy.yaml: the author's own package."""
+    return (Path(package) / "strategy.yaml").is_file()
+
+
 def _username():
     """The user's Senpi username (`user_get_me` → data.user.userName), or None when it cannot be read — no
     token, a failed call, or no username on the account. The caller then asks the user; it never falls back
@@ -2467,7 +2478,7 @@ def _fork_for_deploy(pkg, a, log):
     refused and the agent asks what to call it; an explicit directory is the author's own package and is never
     second-guessed."""
     owner, name = getattr(a, "owner", None), getattr(a, "name", None)
-    explicit_dir = (Path(a.package) / "strategy.yaml").is_file()
+    explicit_dir = _explicit_dir(a.package)
     manifest = getattr(pkg, "manifest", None) or {}
     catalog = getattr(pkg, "catalog", None) or {}
     # a catalog template carries a `catalog.tier`; a fork carries `forked_from`; an authored package may
@@ -2484,7 +2495,8 @@ def _fork_for_deploy(pkg, a, log):
                   f"  A user ID is never a name. Nothing was created, funded or installed.", file=sys.stderr)
             sys.exit(EXIT_CODES["refused"])
     try:
-        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=name, log=log,
+        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=name,
+                                fork_of=getattr(a, "fork_of", None), authored=explicit_dir, log=log,
                                 simulation=getattr(a, "simulation", False))
     except _fork.ForkError as e:
         print(f"✗ {pkg.id}: {e}. Nothing was created, funded or installed.", file=sys.stderr)
@@ -2523,7 +2535,8 @@ def _fork_for_deploy(pkg, a, log):
 def cmd_fork(pkg, a, log):
     owner = a.owner or (None if a.name else _username())
     try:
-        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=a.name, log=log)
+        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=a.name, fork_of=a.fork_of,
+                                authored=_explicit_dir(a.package), log=log)
     except _fork.ForkError as e:
         print(f"✗ {pkg.id}: {e}. Nothing was written.", file=sys.stderr)
         return EXIT_CODES["refused"]
@@ -3132,6 +3145,7 @@ def _main(argv):
                     help="With --variant-of: one id shared by every variation started together "
                          "(1-100 chars of A-Z a-z 0-9 _ -).")
     _ownership_flags(pc)
+    _fork_of_flag(pc)
 
     pr = sub.add_parser("runtime", help="Resume/complete the same deploy (installs the runtime(s)).")
     common(pr)
@@ -3155,6 +3169,7 @@ def _main(argv):
                                      "forked_from recorded. No money moves, nothing is installed.")
     common(pf)
     _ownership_flags(pf)
+    _fork_of_flag(pf)
 
     # `verify` is the READ-ONLY check. NONE of the deploy flags does anything here — a check that
     # honours `--budget` is a check that can fund a wallet, which is exactly the trap this command is
@@ -3253,6 +3268,11 @@ def _main(argv):
                if batch is not None and not _BATCH_ID_SHAPE.match(batch) else None)
     if problem:
         print(f"[INVALID_REQUEST] {problem}. Nothing was started.", file=sys.stderr)
+        sys.exit(EXIT_CODES["refused"])
+
+    if getattr(a, "fork_of", None) is not None and not (a.name and a.name.strip()):
+        print("[INVALID_REQUEST] --fork-of needs --name: a copy started from a running strategy gets a name of "
+              "its own. Ask what to call it and pass --name \"<their words>\". Nothing was written.", file=sys.stderr)
         sys.exit(EXIT_CODES["refused"])
 
     src = getattr(a, "from_simulation", None)

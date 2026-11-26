@@ -166,7 +166,7 @@ username (`--owner` only overrides it) and copies the fetched template to `<stra
 prints — never a CWD-relative `strategies/`), leaving out `.deploy-state.json`, any proof and any
 `__pycache__`; rewrites `id`, `catalog.name` (the spoken name), each runtime's `name`/`group` linkage and
 the first line of its `description` (`Ignas's Phalanx — forked from Phalanx 1.1.0.` — the mandate
-`senpi-portfolio` reads back); records `forked_from: {id, version}`; validates the copy; proves it
+`senpi-portfolio` reads back); records `forked_from: {id, version, parent}` (`parent`: `template:<id>`, or the `--fork-of` id); validates the copy; proves it
 (`senpi validate --stage live`); then deploys **the fork**. `--name "<their words>"` names it their
 way. A second `create` reuses the same fork. A user ID passed as a name is refused, and so is a bare template
 id when no username can be read — nothing is created; ask what to call it and pass `--name`. From then on the id is the fork's (`ignas-phalanx`) for `status`, `verify`,
@@ -180,3 +180,17 @@ fee load above 0.5% of the budget a day, and refuses a maker-only entry — rela
 `senpi validate <dir>`), and `deploy.py create <dir> --budget <usd>` — the **directory**.
 
 A fork is a copy: a later fix to the template does not reach it — say so if asked.
+
+## A `Source strategy id` hand-off — the user's own strategy a copy starts from
+
+A client hand-off can carry a line `Source strategy id: <id>`: the user's own strategy the new one starts from.
+- **A copy (fork or create):** `Source strategy id: <id>` adds `--fork-of <id>` to `deploy.py fork`/`create`,
+  always with `--name "<their words>"`; the copy records `<id>` as its `forked_from.parent`. Never
+  `senpi deploy --fork-of`: that verb forks a public simulation, and a `Source strategy id` hand-off is never
+  that, since it names the user's own strategy.
+- **Taking a simulation live:** the hand-off's `Source strategy id` is that `simulation-<id>`; it goes to
+  `--from-simulation`, as SKILL.md's take-live rule says.
+- **A variation that changes code:** `deploy.py fork <that package> --name "<variation name>" --fork-of <source id>`
+  (`<source id>`: the hand-off's `Source strategy id`, else the simulation it varies, else no flag).
+- **A variations batch** never sends `forkOf`: on the `startBatch` call, a hand-off's `Source strategy id` other
+  than that simulation adds `"forkedFrom":"<Source strategy id>"`.
