@@ -165,11 +165,11 @@ def _parent_ref(pkg, parent_ff, fork_of, authored):
     """The ref a copy of `pkg` records in `forked_from.parent`, or None when nothing is written: the source's
     own parent is kept, or a fork with neither a parent nor a template id leaves the copy without one."""
     if fork_of is not None:
-        return str(fork_of).strip()
+        return fork_of
     if parent_ff is not None:
         if str(parent_ff.get("parent") or "").strip():
             return None
-        tid = str(parent_ff.get("id") if parent_ff.get("id") is not None else "").strip()
+        tid = str(parent_ff.get("id") or "").strip()
         return f"template:{tid}" if tid else None
     return f"custom:{pkg.id}" if authored else f"template:{pkg.id}"
 
@@ -200,12 +200,12 @@ def _prefix_description(text, prefix):
 
 
 def _ignore(_dir, names):
-    return [n for n in names if n in SKIP_NAMES or n.startswith(".senpi-fetch-") or ".bak-" in n]
+    return [n for n in names if n in SKIP_NAMES or n.startswith((".senpi-fetch-", ".senpi-fork-")) or ".bak-" in n]
 
 
 def _existing(pkg, dest, parent_ff, fork_of, info, log):
-    """`dest` already exists: return it as the copy when it is a fork of the same template (and, with
-    `fork_of`, records that parent), else refuse. Nothing is written."""
+    """`dest` already exists: reuse it when `pkg` is not itself a fork, `dest` is a fork of `pkg` and, with
+    `fork_of`, `dest` records `fork_of` as its parent; otherwise refuse. Nothing is written."""
     if parent_ff is not None:
         raise ForkError(f"{dest} exists — deploy it by directory if it is this copy, or pass --name <another name>")
     try:
@@ -215,8 +215,8 @@ def _existing(pkg, dest, parent_ff, fork_of, info, log):
     ff = (have.manifest or {}).get("forked_from") or {}
     if ff.get("id") != pkg.id:
         raise ForkError(f"{dest} exists and is not a fork of {pkg.id} — pass --name <another name>")
-    if fork_of is not None and str(ff.get("parent") or "").strip() != str(fork_of).strip():
-        raise ForkError(f"{dest} exists and was not copied from {str(fork_of).strip()} (its parent is "
+    if fork_of is not None and str(ff.get("parent") or "").strip() != fork_of:
+        raise ForkError(f"{dest} exists and was not copied from {fork_of} (its parent is "
                         f"{ff.get('parent') or 'not recorded'}) — pass --name <another name>")
     info["reused"] = True
     info["display"] = (have.catalog or {}).get("name") or info["display"]
@@ -239,7 +239,8 @@ def fork(pkg, root, owner=None, name=None, fork_of=None, authored=False, log=lam
     and `template:<id>` for a catalog one. `fork_of` needs `name`; a reused directory is left as it is, and
     with `fork_of` it is reused only when its parent is `fork_of`."""
     if fork_of is not None:
-        if not str(fork_of).strip():
+        fork_of = str(fork_of).strip()
+        if not fork_of:
             raise ForkError("--fork-of needs the id of the strategy this copy starts from")
         if not (name and str(name).strip()):
             raise ForkError("a copy started from a running strategy needs a name of its own: ask what to call it "

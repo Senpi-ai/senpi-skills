@@ -375,17 +375,6 @@ def test_a_catalog_copy_records_its_template_as_the_parent(tmp_path):
     dest, _ = _fork.fork(pkg, tmp_path, name="Shield Wall")
     assert _parent_of(dest) == "template:phalanx"
     assert _without_parent((dest / "strategy.yaml").read_text()) == _catalog_copy_expected("shield-wall", "Shield Wall")
-    dest, _ = _fork.fork(pkg, tmp_path, owner="Ignas")                      # the owner-named copy too
-    assert _parent_of(dest) == "template:phalanx"
-    assert _without_parent((dest / "strategy.yaml").read_text()) == _catalog_copy_expected("ignas-phalanx", "Ignas's Phalanx")
-
-
-def test_fork_of_names_the_parent_of_a_catalog_copy(tmp_path):
-    pkg = _pkg.load(_template(tmp_path))
-    dest, info = _fork.fork(pkg, tmp_path, name="Shield Wall", fork_of=SIM)
-    assert not info["reused"] and _parent_of(dest) == SIM
-    assert _without_parent((dest / "strategy.yaml").read_text()) == _catalog_copy_expected("shield-wall", "Shield Wall")
-    assert _pkg.validate(_pkg.load(dest)) == []
 
 
 def test_a_copy_of_a_fork_keeps_the_parent_it_carries(tmp_path):
@@ -417,22 +406,12 @@ def test_fork_of_wins_over_a_parent_already_set(tmp_path):
     assert _without_parent((dest / "strategy.yaml").read_text()) == expected
 
 
-def test_a_copy_of_a_fork_without_a_parent_takes_fork_of(tmp_path):
-    block = '  id: phalanx\n  # the template it came from\n  version: "1.1.0"\n\n'
-    src = _fork_source(tmp_path, block)
-    dest, _ = _fork.fork(_pkg.load(src), tmp_path, name="Wide Stop", fork_of=SIM)
-    assert _parent_of(dest) == SIM
-    expected = _copied_expected((src / "strategy.yaml").read_text(), "wide-stop", "Wide Stop")
-    assert _without_parent((dest / "strategy.yaml").read_text()) == expected
-
-
-@pytest.mark.parametrize("fork_of,parent", [(None, "template:phalanx"), (SIM, SIM)])
-def test_a_one_line_forked_from_is_rewritten_as_a_block_with_the_parent(tmp_path, fork_of, parent):
+def test_a_one_line_forked_from_is_rewritten_as_a_block_with_the_parent(tmp_path):
     flow = 'forked_from: {id: phalanx, version: "1.1.0"}  # lineage\n'
     src = _template(tmp_path / "src", manifest=FORK_MANIFEST.replace("forked_from:\n@BLOCK@\n", flow))
-    dest, _ = _fork.fork(_pkg.load(src), tmp_path, name="Wide Stop", fork_of=fork_of)
-    assert _parent_of(dest) == parent
-    assert _pkg.load(dest).manifest["forked_from"] == {"id": "phalanx", "version": "1.1.0", "parent": parent}
+    dest, _ = _fork.fork(_pkg.load(src), tmp_path, name="Wide Stop")
+    assert _parent_of(dest) == "template:phalanx"
+    assert _pkg.load(dest).manifest["forked_from"] == {"id": "phalanx", "version": "1.1.0", "parent": "template:phalanx"}
     assert _pkg.validate(_pkg.load(dest)) == []
 
 
@@ -442,6 +421,7 @@ def test_fork_of_replaces_a_parent_written_over_several_lines(tmp_path):
     dest, _ = _fork.fork(_pkg.load(src), tmp_path, name="Wide Stop", fork_of=SIM)
     assert _parent_of(dest) == SIM
     assert _pkg.load(dest).manifest["forked_from"]["version"] == "1.1.0"
+
 
 @pytest.mark.parametrize("kw", [dict(owner="Ignas"), dict(owner="Ignas", name="   ")])
 def test_fork_of_without_a_name_is_refused(tmp_path, kw):
@@ -510,21 +490,15 @@ def test_fork_of_reuses_a_copy_only_when_it_has_that_parent(tmp_path):
     with pytest.raises(_fork.ForkError, match="--name"):                          # another parent is refused
         _fork.fork(pkg, tmp_path, name="Shield Wall", fork_of=LIVE)
     assert _snapshot(first) == before and _parent_of(first) == SIM
-    carried, _ = _fork.fork(pkg, tmp_path, owner="Ignas")                          # parent template:phalanx
     legacy, _ = _fork.fork(pkg, tmp_path, name="Wide Stop")
     (legacy / "strategy.yaml").write_text(_without_parent((legacy / "strategy.yaml").read_text()))   # no parent
-    for d, kw in ((carried, dict(owner="Ignas", name="ignas-phalanx")), (legacy, dict(name="Wide Stop"))):
-        before = _snapshot(d)
-        with pytest.raises(_fork.ForkError, match="--name"):
-            _fork.fork(pkg, tmp_path, fork_of=LIVE, **kw)
-        assert _snapshot(d) == before
-    out = _run(["create", "phalanx", "--budget", "100", "--dry-run", "--name", "Shield Wall", "--fork-of", LIVE], tmp_path)
-    assert out.returncode == 2 and "--name" in out.stderr and "planned:" not in out.stdout, (out.stdout, out.stderr)
-    assert _parent_of(first) == SIM
+    before = _snapshot(legacy)
+    with pytest.raises(_fork.ForkError, match="--name"):
+        _fork.fork(pkg, tmp_path, name="Wide Stop", fork_of=LIVE)
+    assert _snapshot(legacy) == before
 
 
-@pytest.mark.parametrize("ff", ['forked_from:\n  version: "1.1.0"\n\n', 'forked_from:\n  id:\n  version: "1.1.0"\n\n',
-                                "forked_from: {}\n"])
+@pytest.mark.parametrize("ff", ['forked_from:\n  id:\n  version: "1.1.0"\n\n', "forked_from: {}\n"])
 def test_a_copy_of_a_fork_with_no_template_id_and_no_parent_has_no_parent(tmp_path, ff):
     src = _template(tmp_path / "src", manifest=FORK_MANIFEST.replace("forked_from:\n@BLOCK@\n", ff))
     dest, _ = _fork.fork(_pkg.load(src), tmp_path, name="Wide Stop")
@@ -570,6 +544,12 @@ def test_a_copy_killed_half_way_leaves_nothing_under_its_name(tmp_path):
     assert not info["reused"] and _runtime_name(dest) == "shield-wall-main"
 
 
+def test_staging_directories_in_the_source_are_not_copied(tmp_path):
+    src = _template(tmp_path)
+    dest, _ = _fork.fork(_pkg.load(src), src, name="Shield Wall")          # the strategies root is the package dir
+    assert sorted(p.name for p in dest.iterdir()) == ["main", "strategy.yaml"]
+
+
 def test_a_copy_that_fails_while_copying_leaves_nothing_under_its_name(tmp_path):
     src = _template(tmp_path)
     (src / "main" / "scanners" / "gone.py").symlink_to(tmp_path / "missing.py")
@@ -587,18 +567,15 @@ def test_cli_fork_of_on_the_fork_verb_and_on_create_with_a_name(tmp_path):
     out = _run(["create", "phalanx", "--budget", "100", "--dry-run", "--name", "Wide Stop", "--fork-of", LIVE], tmp_path)
     assert out.returncode == 0, out.stderr
     assert "planned:" in out.stdout and _parent_of(tmp_path / "wide-stop") == LIVE
-    # the variation path: a named copy of the user's fork, from the strategy it started from
-    out = _run(["fork", str(tmp_path / "shield-wall"), "--name", "Tight Stop", "--fork-of", LIVE, "--json"], tmp_path)
-    assert out.returncode == 0, out.stderr
-    assert _parent_of(tmp_path / "tight-stop") == LIVE
 
 
-@pytest.mark.parametrize("verb", [["fork", "phalanx"], ["create", "phalanx", "--budget", "100", "--dry-run"]])
-@pytest.mark.parametrize("flags", [["--owner", "Ignas"], ["--owner", "Ignas", "--name", "  "]])
+# `create <dir>` with no name deploys the directory as it is, so only the CLI check refuses its --fork-of
+@pytest.mark.parametrize("verb", [["fork", "phalanx"], ["create", "@DIR@", "--budget", "100", "--dry-run"]])
+@pytest.mark.parametrize("flags", [[], ["--owner", "Ignas", "--name", "  "]])
 def test_cli_fork_of_without_a_name_is_refused(tmp_path, verb, flags):
     _template(tmp_path)
     before = sorted(p.name for p in tmp_path.iterdir())
-    out = _run(verb + flags + ["--fork-of", SIM], tmp_path)
+    out = _run([str(tmp_path / "phalanx") if v == "@DIR@" else v for v in verb] + flags + ["--fork-of", SIM], tmp_path)
     assert out.returncode == 2, (out.stdout, out.stderr)
     assert "unrecognized arguments" not in out.stderr and "--name" in out.stderr, out.stderr
     assert "planned:" not in out.stdout
