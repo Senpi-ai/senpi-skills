@@ -3169,11 +3169,6 @@ def _main(argv):
                     help="Two to four budgets to offer as choices (e.g. 100,500,1000), each quoted.")
     pp.add_argument("--name", default=None, help="The strategy's name as the user knows it.")
 
-    pcall = sub.add_parser("call", help="Call one runtime method through the gateway (works in plugin and daemon mode): "
-                                         + ", ".join(CALL_METHODS) + ". Prints the answer as JSON.")
-    pcall.add_argument("method", help="One of: " + ", ".join(CALL_METHODS))
-    pcall.add_argument("--params", default="{}", help="The method's params, a JSON object.")
-
     a = ap.parse_args(argv[1:])
 
     variant, batch =getattr(a, "variant_of", None), getattr(a, "batch", None)
@@ -3216,8 +3211,6 @@ def _main(argv):
         sys.exit(cmd_start_plan(a))
     if a.cmd == "plan":
         sys.exit(cmd_plan(a))
-    if a.cmd == "call":
-        sys.exit(cmd_call(a))
 
     log = (lambda m: None) if a.json else (lambda m: print(m))
 
