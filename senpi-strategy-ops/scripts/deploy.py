@@ -608,18 +608,27 @@ def _credits(v):
     return f"{v:g}" if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
-def _quote_lines(payload):
-    """The runtime's simulation quote in words. A field the runtime did not send is left out."""
+def _quote_lines(payload, books=()):
+    """The runtime's simulation quote in words. A field the runtime did not send is left out.
+    Each book (instance) is its own simulation, so a package of several is quoted as that many."""
     per_hour, per_day = _credits(payload.get("creditsPerHour")), _credits(payload.get("creditsPerDay"))
     after, left = _credits(payload.get("creditsPerHourAfter")), _credits(payload.get("creditsLeft"))
     budget = payload.get("budgetUsd")
+    n = len(books)
     lines = []
+    if n > 1:
+        lines.append(f"  This package has {n} books ({', '.join(books)}), each its own simulation, so it starts "
+                     f"{n} simulations. Each variation of it starts {n} more: in the list, the cost and the reply, "
+                     f"give both counts, e.g. \"3 variations, {n} books each: {3 * n} simulations\", and the "
+                     f"rate below times the number of variations.")
     if isinstance(budget, (int, float)) and not isinstance(budget, bool):
-        lines.append(f"  Budget: {_usd(budget)} of virtual money.")
+        lines.append(f"  Budget: {_usd(budget)} of virtual money" + (f", split across the {n} books." if n > 1 else "."))
     if per_hour:
-        lines.append(f"  This simulation: {per_hour} credits an hour" + (f", {per_day} a day." if per_day else "."))
+        what = f"These {n} simulations" if n > 1 else "This simulation"
+        lines.append(f"  {what}: {per_hour} credits an hour" + (f" for all {n}" if n > 1 else "")
+                     + (f", {per_day} a day." if per_day else "."))
     elif per_day:
-        lines.append(f"  This simulation: {per_day} credits a day.")
+        lines.append(f"  {'These %d simulations' % n if n > 1 else 'This simulation'}: {per_day} credits a day.")
     if after:
         lines.append(f"  Everything you run, once it starts: {after} credits an hour.")
     if left:
@@ -645,7 +654,7 @@ def _simulation_dry_run(pkg, method, params, a):
     payload = r["payload"] if isinstance(r["payload"], dict) else {}
     if r["kind"] == "ok" and payload.get("dryRun") is True:
         print(f"Quote for {pkg.id} as a simulation (virtual money, nothing real moves):")
-        for line in _quote_lines(payload):
+        for line in _quote_lines(payload, [i.name for i in pkg.instances if i.name]):
             print(line)
         print("Nothing was started.")
         raise SystemExit(0)
