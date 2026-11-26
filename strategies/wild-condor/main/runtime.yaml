@@ -184,6 +184,7 @@ exit:
       # The ratchet must only ever lock a GAIN, or the position rides to the stop.
       # max_loss_pct := the old retrace (12.0% ROE), which is what the trail was already
       # enforcing, so the per-trade risk cap is UNCHANGED. retrace_threshold is now inert.
+      # HARD STOP: max_loss_pct is an exchange stop-loss at -max_loss_pct ROE from entry; enabled: false turns off the trailing only, never the stop.
       enabled: false
       max_loss_pct: 15.0   # 1.50% of price at 10x — condor 3.4.0 parity. Was 12.0 (= 1.20% of
                            # price), INSIDE the measured 1.38% p75 adverse bounce on this

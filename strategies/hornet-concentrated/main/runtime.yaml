@@ -151,6 +151,7 @@ exit:
       # Trailing DISABLED fleet-wide: the phase-1 floor trails HIGH-WATER, so after a small
       # favourable move it can sit BELOW entry and close a winner at a loss. With it off,
       # max_loss_pct is the SOLE floor beneath entry and the runtime rests it on the exchange.
+      # HARD STOP: max_loss_pct is an exchange stop-loss at -max_loss_pct ROE from entry; enabled: false turns off the trailing only, never the stop.
       enabled: false
       max_loss_pct: 12                   # = 1.20% of price at 10x
       retrace_threshold: 12
