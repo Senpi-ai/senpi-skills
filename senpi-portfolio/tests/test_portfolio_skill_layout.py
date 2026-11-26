@@ -529,11 +529,11 @@ def test_mirror_dsl_mandate_contract_and_fields_moved_whole():
         assert needle in fields, needle
 
 
-def test_money_step_makes_the_card_call_and_answers_from_the_engine():
+def test_no_rule_makes_a_portfolio_card_call():
     skill = _norm(SKILL)
-    assert _norm("**Before every `money` step, call `account_get_portfolio` once with `{\"forceFetch\": true, \"strategyStatus\": \"ALL\"}`, the engine's own read.**") in skill
-    assert _norm("Your reply still comes from the engine: never quote, add or compare that call's figures.") in skill
-    assert _norm("`strategy_list` (except the card call in \"How to run the engine\").") in skill
+    assert "forceFetch" not in SKILL
+    assert "the portfolio card" not in skill
+    assert "except the card call" not in skill
 
 
 # "Show my best simulations" opens this skill first, so it carries the simulation wording rule: a
