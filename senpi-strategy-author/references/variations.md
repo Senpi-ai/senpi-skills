@@ -36,10 +36,11 @@ number you were least sure of. One change per variation, so a result can be trac
 ## Say each one in plain words
 
 Name it by what it changes and what it tests, never by its key: *"Pickier entries: score 7 instead of 5, so
-fewer trades but stronger ones."* Then the list's facts, in one message: how often the strategy should trade
-(so how long until a comparison means anything), the virtual budget each runs with ($1,000 unless they name
-one), the credits an hour from ops' dry run, and one question: simulate these first (recommended), or take it
-live as it is now?
+fewer trades but stronger ones."* Those words go in each `--variant` of ops' `deploy.py plan`, which quotes the
+list and prints it with the rest: how often the strategy should trade (so how long until a comparison means
+anything), the virtual budget each runs with ($1,000 unless they name one), the credits an hour, and one
+question: simulate these first, or take it live as it is now? Relay what it prints as given. A variation set
+to the design's own value is refused: it would test nothing.
 
 Example, for "crypto is entering a decade-long bull market" (BTC and ETH, long): the strategy as designed buys
 pullbacks in an uptrend and gives its exits room; then *deeper pullbacks only* (a scanner threshold), *a
