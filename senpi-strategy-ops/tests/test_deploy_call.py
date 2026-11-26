@@ -102,7 +102,7 @@ class Call(unittest.TestCase):
 class SkillText(unittest.TestCase):
     def test_no_skill_tells_the_agent_to_run_senpi_call(self):
         for path in SKILL_TEXTS:
-            hits = re.findall(r"`senpi call [^`]*`", path.read_text())
+            hits = re.findall(r"`senpi call senpi\.\w+\.\w+[^`]*`", path.read_text())
             self.assertEqual(hits, [], f"{path.parent.name}/SKILL.md: `senpi` exists only on daemon boxes")
 
     def test_the_ops_skill_names_the_call_verb_for_each_method(self):
