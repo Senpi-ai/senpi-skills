@@ -18,18 +18,18 @@ class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
         self.assertIn("and its budget ($1,000 when none is named, or for a replacement the replaced one's); the total budget;", VARIATIONS)
 
     def test_the_cost_comes_from_the_runtime_dry_run(self):
-        self.assertIn("senpi call senpi.simulations.startBatch --json --params", VARIATIONS)
+        self.assertIn("deploy.py call senpi.simulations.startBatch --params", VARIATIONS)
         self.assertIn('"dryRun":true', VARIATIONS)
         self.assertIn("`creditsPerHourAfter`", VARIATIONS)
         self.assertIn("`would_refuse`", VARIATIONS)
 
     def test_the_dry_run_params_are_json(self):
-        params = re.search(r"startBatch --json --params '(\{.*?\})'", VARIATIONS).group(1)
+        params = re.search(r"startBatch --params '(\{.*?\})'", VARIATIONS).group(1)
         self.assertIn('"requestId":', params)
         self.assertIn('"budgetUsd":', params)
 
     def test_a_budget_per_variation_goes_in_its_variant_never_the_total(self):
-        params = re.search(r"startBatch --json --params '(\{.*?\})'", VARIATIONS).group(1)
+        params = re.search(r"startBatch --params '(\{.*?\})'", VARIATIONS).group(1)
         self.assertIn('{"label":"<name>","budgetUsd":<its budget>,"settings":{…}}', params)
         self.assertIn("never their total as the batch's `budgetUsd`", VARIATIONS)
         self.assertIn("each row's `budgetUsd`", VARIATIONS)
