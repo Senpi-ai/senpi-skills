@@ -50,8 +50,8 @@ class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
     def test_one_simulation_skips_the_walkthrough_for_one_message_with_its_cost(self):
         rule = STEP_075[STEP_075.find("**One simulation skips it**"):STEP_075.find("keep what they have.") + 20]
         self.assertIn("no walkthrough, no levers, no name line", rule)
-        self.assertIn("`creditsPerHourAfter`", rule)
-        self.assertIn('"go?"', rule)
+        self.assertIn("Quote it with `deploy.py plan <id>`", rule)
+        self.assertIn("its cost is this simulation's, never `creditsPerHourAfter`", rule)
         self.assertIn("Create nothing before the yes", rule)
         self.assertIn("A live deploy, a simulation going live and several simulations keep what they have.", rule)
 

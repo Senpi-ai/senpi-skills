@@ -2217,6 +2217,12 @@ class ValidateUniverseHook(unittest.TestCase):
         self.assertIn("deploy-ready", out)
         self.assertEqual(err, "")
 
+    def test_a_clean_validate_names_the_test_plan_as_the_next_step(self):
+        self._install_vu(unknown=[])
+        _code, out, _err = self._run_validate()
+        self.assertIn("next: unless they asked for live, propose the test plan: `deploy.py plan", out)
+        self.assertIn("No deposit is needed to simulate.", out)
+
     def test_json_carries_the_universe_error_and_the_note(self):
         self._install_vu(unknown=["xyz:NASDAQ"])
         code, out, _err = self._run_validate("--json")

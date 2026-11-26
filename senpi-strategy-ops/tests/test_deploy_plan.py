@@ -145,6 +145,31 @@ class Plan(unittest.TestCase):
         self.assertIn("Cost: 10 credits an hour (240 a day).", out)
         self.assertEqual(out.strip().splitlines()[-1], "Start it?")
 
+    def test_a_variation_that_changes_nothing_is_refused(self):
+        code, out, err = self._run("hawk", "--design", "d", "--trades", "t",
+                                   "--variant", "baseline|leverage=5|the design as is",
+                                   "--variant", "ok|leverage=3|half leverage")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("already simulation 1", err)
+        self.assertEqual(self.calls, [])
+
+    def test_one_simulation_needs_no_design_or_trades(self):
+        code, out, err = self._run("hawk")
+        self.assertEqual(code, 0, err)
+        self.assertIn("Simulation of hawk, on virtual money (nothing real moves).", out)
+        self.assertNotIn("How often", out)
+        self.assertIn("Cost: 10 credits an hour (240 a day).", out)
+
+    def test_a_test_plan_needs_design_and_trades(self):
+        code, _out, err = self._run("hawk", *self.VARIANTS)
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("--design", err)
+        self.assertEqual(self.calls, [])
+
+    def test_the_agent_is_told_a_simulation_needs_no_deposit(self):
+        _, _, err = self._catalog()
+        self.assertIn("A simulation needs no deposit", err)
+
     def test_fewer_than_two_variations_is_not_a_test_plan(self):
         code, out, err = self._run("hawk", "--design", "d", "--trades", "t",
                                    "--variant", "ok|leverage=3|half leverage")
