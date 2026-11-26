@@ -67,15 +67,16 @@ class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
         self.assertIn("never a reason to start another way", refused)
 
     def test_the_description_holds_the_rule_for_a_refused_dry_run(self):
-        description = SKILL[SKILL.find("description:"):SKILL.find("license:")]
-        self.assertIn("no start (batch, `create`, fork) before a yes to the shown list, total and cost", description)
-        self.assertIn("even when the dry run is refused", description)
+        description = " ".join(SKILL[SKILL.find("description:"):SKILL.find("license:")].split())
+        self.assertIn("relay `deploy.py plan` as given", description)
+        self.assertIn("no start (batch, `create`, fork) before \"yes\", \"simulate\", \"go\" or a tapped budget", description)
 
     def test_the_description_holds_the_rule_for_one_simulation_of_several_wallets(self):
         description = " ".join(SKILL[SKILL.find("description:"):SKILL.find("license:")].split())
         self.assertIn("ONE SIMULATION OR SEVERAL", description)
-        self.assertIn("one simulation: its cost and \"Go?\"", description)
-        self.assertIn("`create --simulation` starts nothing without `--user-said-yes`: pass it only after their yes.", description)
+        self.assertIn("budget choices only from its `--budget-choices`", description)
+        self.assertIn("(\"your call\" is not one)", description)
+        self.assertIn("`create --simulation` needs `--user-said-yes`: only after that.", description)
 
 
 class NoBudgetNamedStartsAt1000(unittest.TestCase):

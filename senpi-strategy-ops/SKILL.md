@@ -33,13 +33,13 @@ description: >-
   spoken as "Ignas's Phalanx"; `--name` for their own words), as-is or with levers moved. The id (spider, polar, kodiak) is the package folder. NOT for choosing WHICH strategy
   (senpi-strategy-discover) or authoring / editing the strategy files themselves, nor for a user who
   wants their own (senpi-strategy-author).
-  ONE SIMULATION OR SEVERAL: no start (batch, `create`, fork) before a yes to the shown list, total
-  and cost (one simulation: its cost and "Go?"), even when the dry run is refused.
-  `create --simulation` starts nothing without `--user-said-yes`: pass it only after their yes.
+  ONE SIMULATION OR SEVERAL: relay `deploy.py plan` as given (budget choices only from its
+  `--budget-choices`); no start (batch, `create`, fork) before "yes", "simulate", "go" or a tapped
+  budget ("your call" is not one). `create --simulation` needs `--user-said-yes`: only after that.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.36.0"
+  version: "3.37.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -128,7 +128,7 @@ fresh `openclaw senpi validate` before the next `create`. **`UNPROVEN` (exit 2) 
 package that has not returned `PASS`. The proof: [`references/lifecycle.md`](references/lifecycle.md).
 
 **Step 0.75 — the walkthrough (REQUIRED before a live deploy's budget question).**
-**Simulate first, unless asked for live:** offer a new start as is plus 2–4 variations as simulations, or live now (author's `references/variations.md`; started under **Running variations**). A live ask ("deploy spider live with $50") or taking a simulation live: no pitch. A bare "install spider" gets it in one line. `status.py --recent` mostly straight live: ask "go live now, or simulate a few options first?". The package is on disk (Step 0.5). Read their username first (`user_get_me` → `userName`; none → ask what to call it). Before you ask for a dollar, read `strategy.yaml` (`catalog:`)
+**Simulate first, unless asked for live:** a new start gets `deploy.py plan` (as is plus 2–4 one-setting variations, quoted), relayed as given. A live ask ("deploy spider live with $50") or taking a simulation live: no pitch. A bare "install spider" gets it in one line. `status.py --recent` mostly straight live: ask "go live now, or simulate a few options first?". The package is on disk (Step 0.5). Read their username first (`user_get_me` → `userName`; none → ask what to call it). Before you ask for a dollar, read `strategy.yaml` (`catalog:`)
 and each instance's `runtime.yaml` and say it **all in bullets — plain words, no YAML, no config keys**:
 **what it does** (three bullets: the signal · when it enters · how it exits), **how it is set** (the
 post-live block's four lines), **two levers** worth a look (one for `tier: starter`) — each named by what
