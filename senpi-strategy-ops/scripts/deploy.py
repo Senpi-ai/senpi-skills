@@ -662,6 +662,87 @@ def _simulation_dry_run(pkg, method, params, a):
     raise SystemExit(EXIT_CODES["refused"] if r["kind"] == "refused" else EXIT_INTERNAL)
 
 
+def _take_live_needs_the_runtime(a):
+    """`fromSimulationId` goes only to a runtime advertising `simulationYesGate`; every release that
+    does also deploys the package the simulation ran. An older one ignores the param and funds the
+    named package at its own settings."""
+    kind, caps = _deploy_capabilities(getattr(a, "json", False))
+    if isinstance(caps, dict) and caps.get("simulationYesGate") is True:
+        return
+    why = (f"what this box's runtime supports could not be read (senpi.getHealthStatus: {kind}). Re-run "
+           f"this command once; if it fails again, stop" if caps is None else
+           "this box's runtime cannot take a simulation live yet: it would deploy the strategy at its "
+           "default settings, not the ones the simulation ran")
+    print(f"[E_TAKE_LIVE_NOT_SUPPORTED] Nothing was started, no wallet was created and no funds moved: {why}.\n"
+          f"  Tell the user taking this simulation live is not available on their agent yet. Never deploy the "
+          f"strategy another way in its place.", file=sys.stderr)
+    raise SystemExit(EXIT_INTERNAL)
+
+
+# `call`: the runtime methods the skill text names, through the gateway. `senpi call` runs only where
+# the runtime daemon is installed; `openclaw gateway call` answers in plugin mode too.
+CALL_METHODS = {"senpi.packages.list": False, "senpi.packages.get": False,
+                "senpi.simulations.startBatch": True, "senpi.simulations.batchStatus": False}
+
+
+def _call_start_without_plan(method, params):
+    """Why a real catalog batch start sent through `call` has no plan behind it, or None. Only what `plan`
+    cannot quote passes without one: variations of a running simulation (`parentId`) and budgets that differ."""
+    if method != "senpi.simulations.startBatch" or params.get("dryRun") is True or params.get("parentId"):
+        return None
+    strategy = params.get("strategy")
+    if not isinstance(strategy, str) or not strategy:
+        return None
+    budget = params.get("budgetUsd", PLAN_BUDGET_USD)
+    own = {v.get("budgetUsd") for v in params.get("variants") or [] if isinstance(v, dict)} - {None}
+    if own - {budget}:
+        return None
+    if not isinstance(budget, (int, float)) or isinstance(budget, bool):
+        return None
+    return _plan_on_record(strategy, float(budget))
+
+
+def cmd_call(a):
+    """Exit 0 with the answer as JSON · 2 refused (or not callable here; nothing sent) · 1 no answer."""
+    if a.method not in CALL_METHODS:
+        print(f"[INVALID_REQUEST] `call` takes {', '.join(CALL_METHODS)}. Nothing was sent. Deploys and "
+              f"closes go through create, runtime and close.py.", file=sys.stderr)
+        return EXIT_CODES["refused"]
+    try:
+        params = json.loads(a.params)
+    except ValueError as e:
+        params, bad = None, str(e)
+    if not isinstance(params, dict):
+        print(f"[INVALID_REQUEST] --params must be a JSON object"
+              f"{': ' + bad if params is None else ''}. Nothing was sent.", file=sys.stderr)
+        return EXIT_CODES["refused"]
+    starts = CALL_METHODS[a.method]
+    why = _call_start_without_plan(a.method, params)
+    if why is not None:
+        strategy = params.get("strategy")
+        print(f"[E_NO_PLAN] Nothing was started: {why}. A catalog batch starts only as `plan` quoted it, after "
+              f"the user's yes in a later message.\n"
+              f"  Next: `deploy.py plan {strategy}` (with the --variant lines), relay it as given, end your turn; "
+              f"on their yes, `deploy.py start-plan {strategy} --user-said-yes`.", file=sys.stderr)
+        return EXIT_CODES["refused"]
+    r = _gw(a.method, params, START_RPC_MS if starts else _cli.READ_RPC_MS,
+            START_WALL_S if starts else _cli.READ_WALL_S)
+    if _cli.is_sigkill(r["rc"]):
+        return _cli.emit_oom("  " + _cli.oom_stop(
+            "Whether it ran is not known." if starts else "Nothing was changed by this read.",
+            "the box is out of memory"), False, {"method": a.method})
+    if r["kind"] == "ok":
+        print(json.dumps(r["payload"], indent=2))
+        return 0
+    print(r["message"] or f"{a.method}: {r['kind']}", file=sys.stderr)
+    if r["kind"] == "unknown_method":
+        print(f"  This box's runtime does not have {a.method} yet. Nothing was started.", file=sys.stderr)
+    elif starts and r["kind"] in ("transport", "timeout"):
+        print(f"  No answer came back: the batch MAY have started. Read it with `deploy.py batch-wait "
+              f"<its requestId>` before anything else.", file=sys.stderr)
+    return EXIT_CODES["refused"] if r["kind"] == "refused" else EXIT_INTERNAL
+
+
 def _journal_read(pkg_id):
     return _journal.read(pkg_id)
 
@@ -926,6 +1007,8 @@ def start_deploy(pkg, a, log):
             _simulation_dry_run(pkg, method, params, a)
         print("planned: " + shlex.join(_cli.gateway_argv(method, params, START_RPC_MS)))
         raise SystemExit(0)
+    if params.get("fromSimulationId"):
+        _take_live_needs_the_runtime(a)
     # A caller that never read the capability (no `request_ids`) neither sends an id nor touches the
     # journal; `main` always reads it for create/runtime.
     if not hasattr(a, "request_ids"):
@@ -2391,7 +2474,8 @@ def _fork_for_deploy(pkg, a, log):
                   f"  A user ID is never a name. Nothing was created, funded or installed.", file=sys.stderr)
             sys.exit(EXIT_CODES["refused"])
     try:
-        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=name, log=log)
+        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=name, log=log,
+                                simulation=getattr(a, "simulation", False))
     except _fork.ForkError as e:
         print(f"✗ {pkg.id}: {e}. Nothing was created, funded or installed.", file=sys.stderr)
         sys.exit(EXIT_CODES["refused"])
@@ -3079,6 +3163,11 @@ def _main(argv):
                     help="Two to four budgets to offer as choices (e.g. 100,500,1000), each quoted.")
     pp.add_argument("--name", default=None, help="The strategy's name as the user knows it.")
 
+    pcall = sub.add_parser("call", help="Call one runtime method through the gateway (works in plugin and daemon mode): "
+                                         + ", ".join(CALL_METHODS) + ". Prints the answer as JSON.")
+    pcall.add_argument("method", help="One of: " + ", ".join(CALL_METHODS))
+    pcall.add_argument("--params", default="{}", help="The method's params, a JSON object.")
+
     a = ap.parse_args(argv[1:])
 
     variant, batch =getattr(a, "variant_of", None), getattr(a, "batch", None)
@@ -3119,6 +3208,8 @@ def _main(argv):
         sys.exit(cmd_start_plan(a))
     if a.cmd == "plan":
         sys.exit(cmd_plan(a))
+    if a.cmd == "call":
+        sys.exit(cmd_call(a))
 
     log = (lambda m: None) if a.json else (lambda m: print(m))
 
