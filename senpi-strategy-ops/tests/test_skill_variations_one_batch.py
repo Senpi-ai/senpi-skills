@@ -13,16 +13,15 @@ VARIATIONS = SKILL[SKILL.find("**Running variations**"):SKILL.find("**A variatio
 class SettingsOnlyVariationsStartAsOneBatch(unittest.TestCase):
     def test_settings_only_variations_take_one_start_batch_call(self):
         self.assertIn("variations that change only settings start as one batch", VARIATIONS)
-        self.assertIn('`"dryRun":false`', VARIATIONS)
-        self.assertIn("no fork, no edit, no `create`", VARIATIONS)
+        self.assertIn("`deploy.py start-plan <catalog id> --user-said-yes`: it starts exactly that batch, no fork, "
+                      "no `create`", VARIATIONS)
 
     def test_each_variant_carries_its_label_and_settings(self):
-        self.assertIn('{"label":"<name>","budgetUsd":<its budget>,"settings":{"<key>":<value>}}', VARIATIONS)
+        self.assertIn('--variant "<label>|<key>=<value>|<what it tests>"', VARIATIONS)
+        self.assertIn('{"label":"<name>","budgetUsd":<its budget>,"settings":{…}}', VARIATIONS)
 
-    def test_progress_is_one_batch_wait_with_batch_status_as_the_fallback(self):
-        self.assertIn("run `deploy.py batch-wait <that requestId>` once", VARIATIONS)
-        params = re.search(r"senpi\.simulations\.batchStatus --json --params '(\{.*?\})'", VARIATIONS).group(1)
-        self.assertIn('"requestId":', params)
+    def test_progress_is_one_batch_wait(self):
+        self.assertIn("`deploy.py batch-wait <requestId>` once more", VARIATIONS)
 
     def test_the_quote_dry_runs_the_same_variants(self):
         self.assertIn("as you will start them", VARIATIONS)

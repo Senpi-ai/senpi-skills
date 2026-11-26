@@ -312,7 +312,7 @@ def test_the_rules_past_the_replay_stay_in_skill_md():
                    "Translate `closeReason`, never paste the enum:",
                    "**Scope the ask.** When the user names a trade count",
                    "Get it from the runtime registry (`installed_runtimes.json`, the same source the engine reads "
-                   "for mandates — each entry's `id`) or from `openclaw senpi runtime list`."):
+                   "for mandates — each entry's `id`) or from `senpi runtime list`."):
         assert needle in sk, needle
 
 
@@ -349,7 +349,7 @@ DUPLICATED = {
         "the giveaway.",
         "You need the **runtime id**, which is the key the event log is addressed by. Get it from the runtime "
         "registry (`installed_runtimes.json`, the same source the engine reads for mandates — each entry's "
-        "`id`) or from `openclaw senpi runtime list`.",
+        "`id`) or from `senpi runtime list`.",
         "the ROE it closed at — already at the REAL leverage, so quote it",
         "the full `DslState`, which already holds every number users ask for. Quote these rather than "
         "computing anything:",

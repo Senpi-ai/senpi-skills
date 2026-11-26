@@ -18,23 +18,22 @@ class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
         self.assertIn("and its budget ($1,000 when none is named, or for a replacement the replaced one's); the total budget;", VARIATIONS)
 
     def test_the_cost_comes_from_the_runtime_dry_run(self):
-        self.assertIn("senpi call senpi.simulations.startBatch --json --params", VARIATIONS)
+        self.assertIn("deploy.py call senpi.simulations.startBatch --params", VARIATIONS)
         self.assertIn('"dryRun":true', VARIATIONS)
         self.assertIn("`creditsPerHourAfter`", VARIATIONS)
         self.assertIn("`would_refuse`", VARIATIONS)
 
     def test_the_dry_run_params_are_json(self):
-        params = re.search(r"startBatch --json --params '(\{.*?\})'", VARIATIONS).group(1)
+        params = re.search(r"startBatch --params '(\{.*?\})'", VARIATIONS).group(1)
         self.assertIn('"requestId":', params)
         self.assertIn('"budgetUsd":', params)
 
     def test_a_budget_per_variation_goes_in_its_variant_never_the_total(self):
-        params = re.search(r"startBatch --json --params '(\{.*?\})'", VARIATIONS).group(1)
+        params = re.search(r"startBatch --params '(\{.*?\})'", VARIATIONS).group(1)
         self.assertIn('{"label":"<name>","budgetUsd":<its budget>,"settings":{…}}', params)
         self.assertIn("never their total as the batch's `budgetUsd`", VARIATIONS)
         self.assertIn("each row's `budgetUsd`", VARIATIONS)
-        start = VARIATIONS[VARIATIONS.find("After the yes, start them all"):VARIATIONS.find("The box validates and starts them")]
-        self.assertIn('{"label":"<name>","budgetUsd":<its budget>,"settings":{"<key>":<value>}}', start)
+        self.assertIn("except for what `plan` cannot quote (`parentId`, budgets that differ)", VARIATIONS)
 
     def test_nothing_is_created_before_the_yes(self):
         self.assertIn("create nothing until the user says yes", VARIATIONS)
@@ -50,14 +49,17 @@ class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
     def test_one_simulation_skips_the_walkthrough_for_one_message_with_its_cost(self):
         rule = STEP_075[STEP_075.find("**One simulation skips it**"):STEP_075.find("keep what they have.") + 20]
         self.assertIn("no walkthrough, no levers, no name line", rule)
-        self.assertIn("`creditsPerHourAfter`", rule)
-        self.assertIn('"go?"', rule)
+        self.assertIn("Quote it with `deploy.py plan <id>`", rule)
+        self.assertIn("its cost is this simulation's, never `creditsPerHourAfter`", rule)
         self.assertIn("Create nothing before the yes", rule)
         self.assertIn("A live deploy, a simulation going live and several simulations keep what they have.", rule)
 
     def test_a_first_batch_starts_its_parent_from_the_list(self):
         self.assertIn("the first variation of the list is the parent", VARIATIONS)
         self.assertIn("Never start a base the list did not show; 5 asked = 5 simulations.", VARIATIONS)
+
+    def test_a_package_of_several_books_counts_each_book_as_a_simulation(self):
+        self.assertIn("Each book (`instances`) is its own simulation: 2 books × 5 variations = 10, so the list, the cost and the reply give both counts.", VARIATIONS)
 
     def test_a_refused_dry_run_still_shows_the_batch_and_waits(self):
         self.assertIn("nothing starts before the user says yes to the list, on every start path", VARIATIONS)
@@ -67,15 +69,16 @@ class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
         self.assertIn("never a reason to start another way", refused)
 
     def test_the_description_holds_the_rule_for_a_refused_dry_run(self):
-        description = SKILL[SKILL.find("description:"):SKILL.find("license:")]
-        self.assertIn("no start (batch, `create`, fork) before a yes to the shown list, total and cost", description)
-        self.assertIn("even when the dry run is refused", description)
+        description = " ".join(SKILL[SKILL.find("description:"):SKILL.find("license:")].split())
+        self.assertIn("relay `deploy.py plan` as given", description)
+        self.assertIn("no start (batch, `create`, fork) before \"yes\", \"simulate\", \"go\" or a tapped budget", description)
 
     def test_the_description_holds_the_rule_for_one_simulation_of_several_wallets(self):
         description = " ".join(SKILL[SKILL.find("description:"):SKILL.find("license:")].split())
         self.assertIn("ONE SIMULATION OR SEVERAL", description)
-        self.assertIn("one simulation: its cost and \"Go?\"", description)
-        self.assertIn("`create --simulation` starts nothing without `--user-said-yes`: pass it only after their yes.", description)
+        self.assertIn("budget choices only from its `--budget-choices`", description)
+        self.assertIn("(\"your call\" is not one)", description)
+        self.assertIn("`create --simulation` needs `--user-said-yes`: only after that.", description)
 
 
 class NoBudgetNamedStartsAt1000(unittest.TestCase):

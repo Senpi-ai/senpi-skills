@@ -978,7 +978,7 @@ def test_events_are_a_direct_gateway_call_reading_the_raw_answer():
     finally:
         review._run_grouped = real_run
     assert entries == [{"name": "dsl.closed"}]
-    assert seen["cmd"][:4] == ["openclaw", "gateway", "call", "senpi.getEvents"]
+    assert seen["cmd"][:3] == ["senpi", "call", "senpi.getEvents"]
     assert seen["cmd"][seen["cmd"].index("--timeout") + 1] == str(review.EVENTS_RPC_MS)
     params = json.loads(seen["cmd"][-1])
     assert params["runtimeId"] == "rt-1" and params["limit"] == review.EVENTS_PULL and "since" in params
@@ -1438,3 +1438,70 @@ def test_a_ratchet_sourced_exit_never_attributes_the_close_to_the_user():
     assert "does NOT mean the user closed it" in shape
     assert "never closed by its stop" in skill or "not closed by its stop" in skill
     assert "CLOSED_OFF_LADDER" in shape and "CLOSED_OFF_LADDER" in skill
+
+
+# ── runtime split: the event read goes through `senpi call`; the registry lives with the daemon ──
+def _events_with(senpi, openclaw=None):
+    import subprocess as _sp
+    calls = []
+
+    def _answer(cmd, timeout):
+        calls.append((list(cmd), timeout))
+        a = senpi if cmd[0] == "senpi" else openclaw
+        if isinstance(a, BaseException):
+            raise a
+        return _sp.CompletedProcess(cmd, a[0], a[1], a[2])
+    real_run = review._run_grouped
+    review._run_grouped = _answer
+    meta = {}
+    try:
+        return review._fetch_events("rt-1", NOW_MS, meta), calls, meta
+    finally:
+        review._run_grouped = real_run
+
+
+_ENTRIES = (0, json.dumps({"entries": [{"name": "dsl.closed"}]}), "")
+
+
+def test_events_fall_back_to_openclaw_only_when_senpi_sent_nothing():
+    not_installed = (1, "", "senpi: the runtime daemon is not installed on this box yet\n")
+    unreachable = (1, json.dumps({"ok": False, "error": {"type": "gateway_transport_error", "kind": "unreachable",
+                                                         "message": "nothing was sent", "sent": "nothing"}}), "")
+    for nothing in (not_installed, unreachable, FileNotFoundError()):
+        entries, calls, _meta = _events_with(nothing, _ENTRIES)
+        assert entries == [{"name": "dsl.closed"}], nothing
+        assert [c[0][0] for c in calls] == ["senpi", "openclaw"], nothing
+        assert calls[1][1] <= review.EVENTS_CALL_TIMEOUT_S            # what is left of the same clock
+
+
+def test_events_never_fall_back_after_a_maybe_sent_answer():
+    import subprocess as _sp
+    maybe = (1, json.dumps({"ok": False, "error": {"type": "gateway_transport_error", "kind": "timeout",
+                                                   "message": "gateway timeout", "sent": "maybe"}}), "")
+    for answer in (maybe, _sp.TimeoutExpired("senpi", 8)):
+        entries, calls, meta = _events_with(answer, _ENTRIES)
+        assert entries == [] and [c[0][0] for c in calls] == ["senpi"], answer
+        assert meta.get("warnings"), answer
+
+
+def test_no_cli_at_all_marks_telemetry_dead():
+    entries, _calls, meta = _events_with(FileNotFoundError(), FileNotFoundError())
+    assert entries == [] and meta.get("_telemetry_dead") is True
+
+
+def test_the_registry_is_read_from_the_daemons_state_dir_first(tmp_path, monkeypatch):
+    daemon, openclaw = tmp_path / "runtime-state", tmp_path / "senpi-state"
+    for d in (daemon, openclaw):
+        d.mkdir()
+    (openclaw / review.REGISTRY_FILENAME).write_text("{}")
+    monkeypatch.setenv("SENPI_STATE_DIR", str(openclaw))
+    monkeypatch.setenv(review.DAEMON_STATE_DIR_ENV, str(daemon))
+    monkeypatch.setattr(review, "DAEMON_STATE_DIR", str(tmp_path / "absent"))
+    # No registry in the daemon's folder (no daemon, or nothing deployed yet): today's path.
+    assert review._resolve_state_dir() == str(openclaw)
+    (daemon / review.REGISTRY_FILENAME).write_text("{}")
+    assert review._resolve_state_dir() == str(daemon)
+    # The launcher exports SENPI_DAEMON_STATE_DIR only to `senpi`; the agent finds the default folder.
+    monkeypatch.delenv(review.DAEMON_STATE_DIR_ENV)
+    monkeypatch.setattr(review, "DAEMON_STATE_DIR", str(daemon))
+    assert review._resolve_state_dir() == str(daemon)

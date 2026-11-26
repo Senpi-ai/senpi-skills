@@ -84,6 +84,13 @@ def names_for(pkg, owner=None, name=None):
     return fid, display
 
 
+def legacy_id(pkg, owner=None, name=None):
+    """The id a fork got before ids were cut to fit a simulation (capped at 40, not 29)."""
+    if name and str(name).strip():
+        return slug(name)
+    return f"{slug(owner, MAX_OWNER)}-{pkg.id}"[:MAX_ID].strip("-")
+
+
 def _set_top_key(text, key, value):
     """Replace the first column-0 `key:` line, or insert one before the first non-comment line."""
     pat = re.compile(rf"(?m)^{re.escape(key)}:[ \t]*.*$")
@@ -224,12 +231,24 @@ def _existing(pkg, dest, parent_ff, fork_of, info, log):
     return dest, info
 
 
-def fork(pkg, root, owner=None, name=None, fork_of=None, authored=False, log=lambda m: None):
+def _same_lineage(dest, template_id):
+    try:
+        have = _pkg.load(dest)
+    except _pkg.BadPackage:
+        return False
+    return ((have.manifest or {}).get("forked_from") or {}).get("id") == template_id
+
+
+def fork(pkg, root, owner=None, name=None, fork_of=None, authored=False, log=lambda m: None, simulation=False):
     """Make (or reuse) the user's fork of `pkg` under `root`. Returns `(dir, info)`.
 
     Reuse is by lineage: an existing directory is returned untouched when it is a fork of this same
     template (a live fork keeps its deploy state; a fork is a copy, so a newer template is not grafted
     onto it). Any other occupant of the name is refused rather than overwritten.
+
+    A live deploy also reuses a fork of this template at its `legacy_id`: forks made before the cut may
+    be live, and a second fork beside one funds a second strategy. A simulation never does, since the
+    runtime refuses an id that long as a simulation.
 
     A package that is already a fork is copied, edits and all, only under `name`: that is how a variation
     of a user's own strategy starts. The copy keeps the template lineage and is never reused.
@@ -252,6 +271,10 @@ def fork(pkg, root, owner=None, name=None, fork_of=None, authored=False, log=lam
                         f"directory, or copy it with its edits under --name <their words>")
     fid, display = names_for(pkg, owner, name)
     root = Path(root)
+    old = legacy_id(pkg, owner, name)
+    if (parent_ff is None and not simulation and old != fid and not (root / fid).exists()
+            and (root / old).is_dir() and _same_lineage(root / old, pkg.id)):
+        fid = old
     dest = root / fid
     lineage = dict(id=str(parent_ff.get("id")), version=str(parent_ff.get("version"))) if parent_ff else \
         dict(id=pkg.id, version=str(pkg.version))

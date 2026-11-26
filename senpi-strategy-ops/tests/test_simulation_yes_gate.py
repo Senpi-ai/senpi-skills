@@ -111,6 +111,24 @@ class SimulationYesGate(unittest.TestCase):
                      QUOTE["next"], "Nothing was started."):
             self.assertIn(fact, text)
 
+    def test_a_two_book_quote_counts_simulations_not_packages(self):
+        books = [types.SimpleNamespace(name="long"), types.SimpleNamespace(name="short")]
+        self._pkg = lambda: types.SimpleNamespace(dir=str(self.root / "omega"), id="omega", version="1.0.0",
+                                                  instances=books)
+        code, text = self._run(self._args(dry_run=True))
+        self.assertEqual(code, 0)
+        for fact in ("2 books (long, short)", "starts 2 simulations", "12 credits an hour for all 2",
+                     "3 variations, 2 books each: 6 simulations"):
+            self.assertIn(fact, text)
+        self.assertNotIn("This simulation:", text)
+
+    def test_a_one_book_quote_keeps_its_words(self):
+        self._pkg = lambda: types.SimpleNamespace(dir=str(self.root / "omega"), id="omega", version="1.0.0",
+                                                  instances=[types.SimpleNamespace(name="main")])
+        code, text = self._run(self._args(dry_run=True))
+        self.assertIn("This simulation: 12 credits an hour", text)
+        self.assertNotIn("books", text)
+
     def test_a_missing_quote_field_is_left_out_not_invented(self):
         self.quote = _answer("ok", {"dryRun": True, "creditsPerHour": 12, "creditsLeft": None})
         code, text = self._run(self._args(dry_run=True))
@@ -159,10 +177,13 @@ class SkillTextCarriesTheYes(unittest.TestCase):
     SKILL = " ".join((Path(__file__).resolve().parents[1] / "SKILL.md").read_text().split())
 
     def test_every_batch_start_sends_the_yes(self):
-        self.assertEqual(self.SKILL.count('"dryRun":false`, `"userSaidYes":true'), 2)
+        self.assertEqual(self.SKILL.count('"dryRun":false`, `"userSaidYes":true'), 1)  # parentId, differing budgets
+        self.assertIn("`deploy.py start-plan <catalog id> --user-said-yes`", self.SKILL)
+        self.assertIn("`deploy.py start-plan <id> --user-said-yes`", self.SKILL)
+        self.assertIn('Never send `startBatch` with `"dryRun":false` yourself', self.SKILL)
 
-    def test_a_local_package_is_quoted_with_the_dry_run(self):
-        self.assertIn("deploy.py create <dir> --simulation --dry-run --budget <usd>", self.SKILL)
+    def test_a_local_package_is_quoted_with_plan(self):
+        self.assertIn("**A local package** (no catalog id): `deploy.py plan <dir>`, relayed, end the turn", self.SKILL)
         self.assertIn("create <dir> --simulation --user-said-yes", self.SKILL)
 
     def test_the_method_is_never_called_directly(self):

@@ -18,7 +18,7 @@ def test_risk_gates_documents_the_halt_latch():
     assert "## Halt latch (gates 1 and 2)" in text
     assert "with `false` it never auto-resets" in text
     assert "Editing a threshold does not release a latch." in text
-    assert "survives gateway restarts and updates" in text
+    assert "survives runtime restarts and updates" in text
     assert "without their explicit approval" in text
     assert "(default `false` = ~24h carry)" not in text
 
