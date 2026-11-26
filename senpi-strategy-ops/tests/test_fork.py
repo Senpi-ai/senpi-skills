@@ -5,6 +5,7 @@ rewritten and everything else untouched; `deploy.py create <template>` without a
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -296,3 +297,194 @@ def test_create_of_a_bare_template_forks_under_the_username(tmp_path, monkeypatc
     a = argparse.Namespace(cmd="create", package="phalanx", owner=None, name=None, dry_run=True)
     forked = deploy._fork_for_deploy(_pkg.load(tmp_path / "phalanx"), a, log=lambda m: None)
     assert forked.id == "purplefrog-phalanx" and forked.catalog["name"] == "PurpleFrog's Phalanx"
+
+
+# ---------- forked_from.parent: the copy step records which node the copy counts under ----------
+
+SIM = "simulation-3f2a6b1c-9d4e-4a5b-8c7d-0e1f2a3b4c5d"
+LIVE = "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+
+FORK_MANIFEST = """\
+# Alice's copy — a comment that must survive the next copy
+schema_version: 1
+
+id: alice-phalanx
+version: "1.1.0"
+
+catalog:
+  name: "Alice's Phalanx"
+  emoji: "🛡️"
+  tier: advanced
+
+forked_from:
+@BLOCK@
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: PHALANX_WALLET
+    funding_share: 1.0
+"""
+
+
+def _parent_of(dest):
+    """`forked_from.parent` of the copy, read by PyYAML (through `_pkg.load`) and by the vendored parser."""
+    import _yaml
+    text = (dest / "strategy.yaml").read_text()
+    via_pkg = (_pkg.load(dest).manifest.get("forked_from") or {}).get("parent")
+    via_vendored = (_yaml.safe_load(text).get("forked_from") or {}).get("parent")
+    assert via_pkg == via_vendored, (via_pkg, via_vendored)
+    assert isinstance(via_pkg, str), via_pkg
+    return via_pkg
+
+
+def _without_parent(text):
+    """The manifest with its one `parent:` line taken out: everything else must be the source's bytes."""
+    lines = text.split("\n")
+    at = [i for i, l in enumerate(lines) if re.match(r"^[ \t]+parent:", l)]
+    assert len(at) == 1, f"expected exactly one parent line, found {len(at)}:\n{text}"
+    return "\n".join(lines[:at[0]] + lines[at[0] + 1:])
+
+
+def _catalog_copy_expected(fid, display):
+    """The manifest a catalog copy has always produced, without its parent line."""
+    return (MANIFEST.replace("\nid: phalanx\n", f"\nid: {fid}\n")
+            .replace('  name: "Phalanx — Proven-Cohort Rotation"', f'  name: "{display}"')
+            .replace('version: "1.1.0"\n', 'version: "1.1.0"\nforked_from:\n  id: phalanx\n  version: "1.1.0"\n', 1))
+
+
+def _fork_source(root, block):
+    """A user's fork on disk (manifest id `alice-phalanx`, template `phalanx`) whose forked_from block is `block`."""
+    d = _template(root / "src", manifest=FORK_MANIFEST.replace("@BLOCK@\n", block))
+    rt = d / "main" / "runtime.yaml"
+    rt.write_text(rt.read_text().replace("name: phalanx-main", "name: alice-phalanx-main")
+                  .replace("group: phalanx", "group: alice-phalanx"))
+    return d
+
+
+def _copied_expected(src_text, fid, display):
+    return (src_text.replace("\nid: alice-phalanx\n", f"\nid: {fid}\n")
+            .replace('  name: "Alice\'s Phalanx"', f'  name: "{display}"'))
+
+
+def _snapshot(d):
+    return {p.relative_to(d): p.read_bytes() for p in sorted(Path(d).rglob("*")) if p.is_file()}
+
+
+def test_a_catalog_copy_records_its_template_as_the_parent(tmp_path):
+    pkg = _pkg.load(_template(tmp_path))
+    dest, _ = _fork.fork(pkg, tmp_path, name="Shield Wall")
+    assert _parent_of(dest) == "template:phalanx"
+    assert _without_parent((dest / "strategy.yaml").read_text()) == _catalog_copy_expected("shield-wall", "Shield Wall")
+    dest, _ = _fork.fork(pkg, tmp_path, owner="Ignas")                      # the owner-named copy too
+    assert _parent_of(dest) == "template:phalanx"
+    assert _without_parent((dest / "strategy.yaml").read_text()) == _catalog_copy_expected("ignas-phalanx", "Ignas's Phalanx")
+
+
+@pytest.mark.parametrize("source_id", [SIM, LIVE])
+def test_fork_of_names_the_parent_of_a_catalog_copy(tmp_path, source_id):
+    pkg = _pkg.load(_template(tmp_path))
+    dest, info = _fork.fork(pkg, tmp_path, name="Shield Wall", fork_of=source_id)
+    assert not info["reused"] and _parent_of(dest) == source_id
+    assert _without_parent((dest / "strategy.yaml").read_text()) == _catalog_copy_expected("shield-wall", "Shield Wall")
+    assert _pkg.validate(_pkg.load(dest)) == []
+
+
+def test_a_copy_of_a_fork_keeps_the_parent_it_carries(tmp_path):
+    block = f'  id: phalanx\n  parent: {SIM}\n  # the template it came from\n  version: "1.1.0"\n\n'
+    src = _fork_source(tmp_path, block)
+    dest, _ = _fork.fork(_pkg.load(src), tmp_path, name="Wide Stop")
+    assert _parent_of(dest) == SIM
+    expected = _copied_expected((src / "strategy.yaml").read_text(), "wide-stop", "Wide Stop")
+    assert (dest / "strategy.yaml").read_text() == expected                 # the block is copied as it was
+    assert _pkg.validate(_pkg.load(dest)) == []
+
+
+def test_a_copy_of_a_fork_without_a_parent_records_the_forks_template(tmp_path):
+    block = '  id: phalanx\n  # the template it came from\n  version: "1.1.0"\n\n'
+    src = _fork_source(tmp_path, block)
+    dest, _ = _fork.fork(_pkg.load(src), tmp_path, name="Wide Stop")
+    assert _parent_of(dest) == "template:phalanx"                           # forked_from.id, not the source's own id
+    expected = _copied_expected((src / "strategy.yaml").read_text(), "wide-stop", "Wide Stop")
+    assert _without_parent((dest / "strategy.yaml").read_text()) == expected
+    assert _pkg.validate(_pkg.load(dest)) == []
+
+
+@pytest.mark.parametrize("carried", [SIM, "template:phalanx", "custom:alice-own"])
+def test_fork_of_wins_over_a_parent_already_set(tmp_path, carried):
+    block = f'  id: phalanx\n  parent: {carried}\n  # the template it came from\n  version: "1.1.0"\n\n'
+    src = _fork_source(tmp_path, block)
+    dest, _ = _fork.fork(_pkg.load(src), tmp_path, name="Wide Stop", fork_of=LIVE)
+    assert _parent_of(dest) == LIVE
+    expected = _without_parent(_copied_expected((src / "strategy.yaml").read_text(), "wide-stop", "Wide Stop"))
+    assert _without_parent((dest / "strategy.yaml").read_text()) == expected
+
+
+def test_a_copy_of_a_fork_without_a_parent_takes_fork_of(tmp_path):
+    block = '  id: phalanx\n  # the template it came from\n  version: "1.1.0"\n\n'
+    src = _fork_source(tmp_path, block)
+    dest, _ = _fork.fork(_pkg.load(src), tmp_path, name="Wide Stop", fork_of=SIM)
+    assert _parent_of(dest) == SIM
+    expected = _copied_expected((src / "strategy.yaml").read_text(), "wide-stop", "Wide Stop")
+    assert _without_parent((dest / "strategy.yaml").read_text()) == expected
+
+
+@pytest.mark.parametrize("kw", [dict(owner="Ignas"), dict(owner="Ignas", name="   ")])
+def test_fork_of_without_a_name_is_refused(tmp_path, kw):
+    pkg = _pkg.load(_template(tmp_path))
+    before = sorted(p.name for p in tmp_path.iterdir())
+    with pytest.raises(_fork.ForkError, match="--name"):
+        _fork.fork(pkg, tmp_path, fork_of=SIM, **kw)
+    assert sorted(p.name for p in tmp_path.iterdir()) == before             # nothing written
+
+
+@pytest.mark.skip(reason="_fork has no signal yet that tells an authored package from a catalog one")
+def test_an_authored_copy_records_custom_as_the_parent(tmp_path):
+    pkg = _pkg.load(_template(tmp_path, manifest=MANIFEST.replace("  tier: advanced\n", "")))
+    dest, _ = _fork.fork(pkg, tmp_path, name="Shield Wall")
+    assert _parent_of(dest) == "custom:phalanx"
+
+
+def test_the_reuse_path_writes_nothing(tmp_path):
+    pkg = _pkg.load(_template(tmp_path))
+    # a fork with no parent line: reuse adds none
+    legacy, _ = _fork.fork(pkg, tmp_path, name="Shield Wall", fork_of=SIM)
+    man = legacy / "strategy.yaml"
+    man.write_text(_without_parent(man.read_text()))
+    before = _snapshot(legacy)
+    for kw in (dict(name="Shield Wall", fork_of=LIVE), dict(name="Shield Wall")):
+        again, info = _fork.fork(pkg, tmp_path, **kw)
+        assert again == legacy and info["reused"]
+        assert _snapshot(legacy) == before
+    # a fork that carries a parent keeps it, whatever --fork-of says on reuse
+    carried, _ = _fork.fork(pkg, tmp_path, owner="Ignas")
+    before = _snapshot(carried)
+    again, info = _fork.fork(pkg, tmp_path, owner="Ignas", name="ignas-phalanx", fork_of=LIVE)
+    assert again == carried and info["reused"] and _snapshot(carried) == before
+    assert _parent_of(carried) == "template:phalanx"
+
+
+def test_cli_fork_of_on_the_fork_verb_and_on_create_with_a_name(tmp_path):
+    _template(tmp_path)
+    out = _run(["fork", "phalanx", "--name", "Shield Wall", "--fork-of", SIM, "--json"], tmp_path)
+    assert out.returncode == 0, out.stderr
+    doc = json.loads(out.stdout.strip().splitlines()[-1])
+    assert doc["errors"] == [] and _parent_of(tmp_path / "shield-wall") == SIM
+    out = _run(["create", "phalanx", "--budget", "100", "--dry-run", "--name", "Wide Stop", "--fork-of", LIVE], tmp_path)
+    assert out.returncode == 0, out.stderr
+    assert "planned:" in out.stdout and _parent_of(tmp_path / "wide-stop") == LIVE
+    # the variation path: a named copy of the user's fork, from the strategy it started from
+    out = _run(["fork", str(tmp_path / "shield-wall"), "--name", "Tight Stop", "--fork-of", LIVE, "--json"], tmp_path)
+    assert out.returncode == 0, out.stderr
+    assert _parent_of(tmp_path / "tight-stop") == LIVE
+
+
+@pytest.mark.parametrize("verb", [["fork", "phalanx"], ["create", "phalanx", "--budget", "100", "--dry-run"]])
+@pytest.mark.parametrize("flags", [["--owner", "Ignas"], ["--owner", "Ignas", "--name", "  "]])
+def test_cli_fork_of_without_a_name_is_refused(tmp_path, verb, flags):
+    _template(tmp_path)
+    before = sorted(p.name for p in tmp_path.iterdir())
+    out = _run(verb + flags + ["--fork-of", SIM], tmp_path)
+    assert out.returncode == 2, (out.stdout, out.stderr)
+    assert "unrecognized arguments" not in out.stderr and "--name" in out.stderr, out.stderr
+    assert "planned:" not in out.stdout
+    assert sorted(p.name for p in tmp_path.iterdir()) == before             # no copy made
