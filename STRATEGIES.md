@@ -2,7 +2,7 @@
 
 Every strategy template in senpi-skills, the open-source library every Senpi agent runs: 147 templates for trading Hyperliquid perps across crypto, stocks, commodities and indices. Each one is a package you can read here, and each has a page on [senpi.ai/strategies](https://senpi.ai/strategies) where your Senpi agent can run it 24/7 on its own strategy wallet, with a stop on every position.
 
-Catalog as of 2026-11-16. Generated from [`strategies/catalog.json`](strategies/catalog.json) by `scripts/gen_strategies_md.py`: don't edit this file by hand.
+Catalog as of 2026-11-25. Generated from [`strategies/catalog.json`](strategies/catalog.json) by `scripts/gen_strategies_md.py`: don't edit this file by hand.
 
 | Style | Templates |
 |---|---|

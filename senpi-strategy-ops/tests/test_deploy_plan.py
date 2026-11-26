@@ -530,6 +530,34 @@ class ACatalogPlanStartsFromItsRecord(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual([v["settings"] for v in self._starts()[0]["variants"]], [{"leverage": 3}])
 
+    def _call_start(self, **params):
+        body = {"requestId": "r-1", "strategy": "hawk", "budgetUsd": 1000, "dryRun": False, "userSaidYes": True,
+                "variants": [{"label": "as-designed", "settings": {}}], **params}
+        return self._main("call", "senpi.simulations.startBatch", "--params", json.dumps(body))
+
+    def test_a_catalog_start_through_call_needs_its_plan_too(self):
+        code, _out, err = self._call_start()
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("[E_NO_PLAN]", err)
+        self.assertIn("deploy.py start-plan hawk --user-said-yes", err)
+        self.assertEqual(self.calls, [])
+
+    def test_a_catalog_start_through_call_after_its_plan_is_sent(self):
+        self._plan()
+        code, _out, err = self._call_start()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self._starts()), 1)
+
+    def test_a_dry_run_through_call_needs_no_plan(self):
+        code, _out, err = self._call_start(dryRun=True)
+        self.assertEqual(code, 0, err)
+
+    def test_a_variation_of_a_running_simulation_through_call_needs_no_plan(self):
+        body = {"requestId": "r-2", "parentId": "simulation-1", "budgetUsd": 1000, "dryRun": False,
+                "userSaidYes": True, "variants": [{"label": "lev3", "settings": {"leverage": 3}}]}
+        code, _out, err = self._main("call", "senpi.simulations.startBatch", "--params", json.dumps(body))
+        self.assertEqual(code, 0, err)
+
     def test_the_plan_tells_the_agent_to_start_with_start_plan(self):
         _code, _out, err = self._main("plan", "hawk", "--design", "d", "--trades", "t")
         self.assertIn("deploy.py start-plan hawk --user-said-yes", err)

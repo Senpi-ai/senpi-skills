@@ -686,6 +686,23 @@ CALL_METHODS = {"senpi.packages.list": False, "senpi.packages.get": False,
                 "senpi.simulations.startBatch": True, "senpi.simulations.batchStatus": False}
 
 
+def _call_start_without_plan(method, params):
+    """Why a real catalog batch start sent through `call` has no plan behind it, or None. Only what `plan`
+    cannot quote passes without one: variations of a running simulation (`parentId`) and budgets that differ."""
+    if method != "senpi.simulations.startBatch" or params.get("dryRun") is True or params.get("parentId"):
+        return None
+    strategy = params.get("strategy")
+    if not isinstance(strategy, str) or not strategy:
+        return None
+    budget = params.get("budgetUsd", PLAN_BUDGET_USD)
+    own = {v.get("budgetUsd") for v in params.get("variants") or [] if isinstance(v, dict)} - {None}
+    if own - {budget}:
+        return None
+    if not isinstance(budget, (int, float)) or isinstance(budget, bool):
+        return None
+    return _plan_on_record(strategy, float(budget))
+
+
 def cmd_call(a):
     """Exit 0 with the answer as JSON · 2 refused (or not callable here; nothing sent) · 1 no answer."""
     if a.method not in CALL_METHODS:
@@ -701,6 +718,14 @@ def cmd_call(a):
               f"{': ' + bad if params is None else ''}. Nothing was sent.", file=sys.stderr)
         return EXIT_CODES["refused"]
     starts = CALL_METHODS[a.method]
+    why = _call_start_without_plan(a.method, params)
+    if why is not None:
+        strategy = params.get("strategy")
+        print(f"[E_NO_PLAN] Nothing was started: {why}. A catalog batch starts only as `plan` quoted it, after "
+              f"the user's yes in a later message.\n"
+              f"  Next: `deploy.py plan {strategy}` (with the --variant lines), relay it as given, end your turn; "
+              f"on their yes, `deploy.py start-plan {strategy} --user-said-yes`.", file=sys.stderr)
+        return EXIT_CODES["refused"]
     r = _gw(a.method, params, START_RPC_MS if starts else _cli.READ_RPC_MS,
             START_WALL_S if starts else _cli.READ_WALL_S)
     if _cli.is_sigkill(r["rc"]):

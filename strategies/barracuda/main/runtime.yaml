@@ -42,6 +42,7 @@ scanners:
     type: external_scanner
     path: ./scanners
     entrypoint: scan.py
+    class_mb: 512                     # the memory class this scanner measures at on every start
     # Cadence sized from telemetry, not intuition (2026-09-08): over 24 h the worst tick across
     # live users was 95,046 ms — i.e. this scan ALREADY exceeded a 90 s budget and was killed by it,
     # which permanently poisons the MCP session (see close_all_scanner below). p90 worst was 85,916 ms
