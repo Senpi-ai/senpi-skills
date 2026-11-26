@@ -141,6 +141,7 @@ exit:
       # The ratchet must only ever lock a GAIN, or the position rides to the stop.
       # max_loss_pct IS the stop (ROE %; price distance = max_loss_pct / leverage).
       # retrace_threshold is inert while trailing is off.
+      # HARD STOP: max_loss_pct is an exchange stop-loss at -max_loss_pct ROE from entry; enabled: false turns off the trailing only, never the stop.
       enabled: false
       max_loss_pct: 12.0  # 12% ROE = 4.0% of price at 3x (1.2.0; was 8.0 = 2.7% of price)
       retrace_threshold: 8                  # inert (phase-1 trailing disabled)

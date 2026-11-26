@@ -44,6 +44,10 @@ division of labor is fixed:
   signals you return, **sizing & order execution** (`FEE_OPTIMIZED_LIMIT`), slot accounting,
   `risk.guard_rails`, the two-phase **DSL** trailing-stop exits, and **crash-safe position reconcile**
   on restart.
+- **Every DSL position has a hard stop, including `phase1.enabled: false` (every catalog strategy).**
+  `max_loss_pct` is an exchange stop-loss at -max_loss_pct ROE from entry; `enabled: false` turns off
+  the phase-1 trailing only. Asked "does it have a hard stop?", answer yes with that number, and never
+  offer to "fix" it by enabling phase 1.
 - **What it does NOT own: partial exits.** Every exit the runtime can make (DSL, `CLOSE_POSITION`)
   closes the WHOLE position, and `edit_position` — the only reduce — is blocked to scanners. A rule
   like "take 25% off at +10% ROE and let the rest run" cannot be authored in a runtime package at
