@@ -65,7 +65,7 @@ class VersionBumped(unittest.TestCase):
         version = re.search(r'^  version: "([0-9.]+)"', RAW, re.M).group(1)
         readme = (OPS.parent / "README.md").read_text()
         self.assertIn(f"| [`senpi-strategy-ops`](senpi-strategy-ops/) | {version} |", readme)
-        self.assertGreaterEqual(tuple(map(int, version.split("."))), (3, 37, 1))
+        self.assertGreaterEqual(tuple(int(p) for p in version.split(".")), (3, 37, 1))
 
 
 if __name__ == "__main__":
