@@ -14,7 +14,7 @@ TAKE_LIVE = SKILL[SKILL.find("**Taking a simulation live**"):SKILL.find("**Runni
 class TakingASimulationLiveKeepsItsSettings(unittest.TestCase):
     def test_the_settings_are_read_from_the_simulation(self):
         self.assertIn(
-            "senpi call senpi.packages.get --json --params '{\"simulationId\":\"simulation-<id>\"}'",
+            "deploy.py call senpi.packages.get --params '{\"simulationId\":\"simulation-<id>\"}'",
             TAKE_LIVE)
         self.assertIn("its `strategyId` and `settings`", TAKE_LIVE)
 
