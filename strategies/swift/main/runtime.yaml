@@ -113,6 +113,7 @@ exit:
       enabled: true
       interval_in_minutes: 45
     phase1:
+      # HARD STOP: max_loss_pct is an exchange stop-loss at -max_loss_pct ROE from entry; enabled: false turns off the trailing only, never the stop.
       enabled: false
       max_loss_pct: 5.0
       retrace_threshold: 5            # INERT while phase1.enabled is false
