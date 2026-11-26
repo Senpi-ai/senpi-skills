@@ -296,6 +296,30 @@ class Plan(unittest.TestCase):
         self.assertIn("All 3: 30 credits an hour (720 a day).", out)
         self.assertEqual(out.strip().splitlines()[-1], QUESTION)
 
+    def test_a_package_of_two_books_counts_each_book_as_a_simulation(self):
+        pkg = self.root / "duo"
+        pkg.mkdir()
+        self.start = _answer("ok", {"dryRun": True, "budgetUsd": 1000, "creditsPerHour": 20, "creditsPerDay": 480,
+                                    "creditsPerHourAfter": 20,
+                                    "instances": [{"name": "duo-long", "creditsPerHour": 10},
+                                                  {"name": "duo-short", "creditsPerHour": 10}]})
+        code, out, err = self._run(str(pkg), "--design", "fades BTC and ETH moves", "--trades", "a few times a week",
+                                   *self.VARIANTS)
+        self.assertEqual(code, 0, err)
+        self.assertIn("It has 2 books (duo-long, duo-short), so each line below starts 2 simulations.", out)
+        self.assertIn("All 3, 6 simulations: 60 credits an hour (1440 a day).", out)
+        self.assertEqual(out.strip().splitlines()[-1], QUESTION)
+        self.assertIn('count simulations, not variations: "3 variations, 2 books each: 6 simulations"', err)
+
+    def test_one_simulation_of_two_books_says_it_starts_two(self):
+        pkg = self.root / "duo"
+        pkg.mkdir()
+        self.start = _answer("ok", {"dryRun": True, "budgetUsd": 1000, "creditsPerHour": 20, "creditsPerDay": 480,
+                                    "instances": [{"name": "duo-long"}, {"name": "duo-short"}]})
+        code, out, err = self._run(str(pkg))
+        self.assertEqual(code, 0, err)
+        self.assertIn("It has 2 books (duo-long, duo-short), so it starts 2 simulations.", out)
+
     def test_an_unclear_reply_is_not_a_yes(self):
         _, _, err = self._catalog()
         self.assertIn("\"Your call\", \"sounds good\", \"you pick\" and silence are not a yes", err)
