@@ -135,6 +135,7 @@ exit:
       enabled: false                  # a flat stretch after the release is not a failed thesis
       interval_in_minutes: 120        # inert while disabled
     phase1:
+      # HARD STOP: max_loss_pct is an exchange stop-loss at -max_loss_pct ROE from entry; enabled: false turns off the trailing only, never the stop.
       enabled: false
       max_loss_pct: 12.0              # 12% ROE = 3.0% of price at 4x (1.0: 8.0 = 1.6% of price at 5x — 88% of live closes were that stop)
       retrace_threshold: 8            # INERT while phase1.enabled is false

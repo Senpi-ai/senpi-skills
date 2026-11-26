@@ -135,6 +135,7 @@ exit:
       enabled: false
       interval_in_minutes: 60
     phase1:
+      # HARD STOP: max_loss_pct is an exchange stop-loss at -max_loss_pct ROE from entry; enabled: false turns off the trailing only, never the stop.
       enabled: false
       max_loss_pct: 15                     # 1.50% of price at 10x = ~12% of equity at 80% margin
       retrace_threshold: 12
