@@ -69,7 +69,6 @@ python3 /data/.openclaw/skills/senpi-strategy-ops/scripts/close.py <id> | --all 
 run the structural preflight, then start the runtime's `senpi deploy` job, poll it, and relay its
 report **verbatim**. The wrapper's value is resolution, that structural pass and the verbatim relay —
 **not** a gate the verb lacks: the live-universe gate is the verb's own and it fires **pre-money**.
-Both call `openclaw gateway call senpi.*` (~1 s; the verbs take 30-160 s on 10.x): read the job with **`deploy.py status`**.
 **Always tear down through `close.py`** (one `<id>` or `--all`) — it deletes the runtime *and* closes
 the strategy. A raw `strategy_close` MCP call closes the strategy but **leaves the runtime
 registered**, which collides on the next deploy.
@@ -82,6 +81,7 @@ selective" ([`references/liveness-verification.md`](references/liveness-verifica
 the wallet it adopts, `create --budget` funds a NEW one (say the amount). PAUSED has no resume: tell the user,
 run nothing. **What is being closed decides the verb.** Trades ("close my trades", "the shorts", "flatten") → **flatten, keep it running** ([steps](references/lifecycle.md#flatten--close-the-trades-keep-the-strategy)): `strategy_close_positions` naming only the coins they asked for — never `coins: []`, never omit `coins` (that offboards the wallet). Close only on the *strategy* ("close / tear down <strategy>", "withdraw", "return funds") → `close.py`, or a yes to "the strategy shuts down, every position closes at market, funds return to main". Unsure → ask.
 A bare "stop" / "pause" / "stop trading" is ambiguous: ask once, "turn on watch-only (no new entries; open positions keep their DSL stops) or close everything at market?" Watch-only is `decision_mode: none` (below). Never call the MCP `strategy_pause` on a runtime strategy: it is for mirror strategies and has no resume.
+"Hard stop?" Yes: `max_loss_pct`, an exchange stop from entry. `phase1.enabled: false` only ends trailing; never "fix" it.
 Pass the **strategy `id`** for a CATALOG strategy (what `senpi-strategy-discover` hands over, e.g.
 `spider`), fetched from the remote if not on disk; for a **locally-authored package, pass its DIRECTORY
 path**. Either way the package belongs in the **durable strategies root** (`SENPI_STRATEGIES_DIR` if
