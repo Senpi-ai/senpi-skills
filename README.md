@@ -70,8 +70,8 @@ Every analytical skill follows the **hidden-engine pattern**: a vendored, stdlib
 | [`senpi-account-status`](senpi-account-status/) | 1.11.8 | Points and rank, the Senpi trading fee (none on a paid plan or with credits), referrals, strategy limits and usage (`strategy_get_limits`), and the AI-credits usage meter with the live credit balance. Carries the plan catalog (Pro/Advanced/Quant; Starter closed to new subscribers), the end of the free-credit milestones, what running out of credits pauses (the AI and simulations, not live strategies) and what a lapsed plan pauses |
 | **Run a strategy** | | |
 | [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.59.0 | Conversational picker — rank the catalog against your worldview; each pick's exits and position size quoted from its full card; holdings context includes your saved wallets (read-only, never a budget) |
-| [`senpi-strategy-author`](senpi-strategy-author/) | 3.18.1 | Build/edit a DSL-protected strategy package, one decision at a time |
-| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.36.0 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
+| [`senpi-strategy-author`](senpi-strategy-author/) | 3.19.0 | Build/edit a DSL-protected strategy package, one decision at a time |
+| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.37.0 | Deploy / monitor / close a named strategy (`deploy.py`, `close.py`) |
 | [`senpi-trade`](senpi-trade/) | 1.13.0 | Direct trade or mirror a specific trader — manual positions + copy trading, one decision at a time |
 | [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.2.2 | The runtime contract reference: `scan(inputs, ctx)`, `runtime.yaml`, DSL |
 | **Move money / positioning** | | |
