@@ -120,12 +120,21 @@ def _add_forked_from(text, template_id, version, parent):
     return "\n".join(lines)
 
 
-def _set_parent(text, ref):
-    """Write `parent: <ref>` into the column-0 `forked_from:` block, replacing a `parent:` already there."""
+def _set_parent(text, ref, ff):
+    """Write `parent: <ref>` into the column-0 `forked_from:` block, replacing a `parent:` already there.
+    A one-line flow mapping (`forked_from: {id: x, version: y}`) is rewritten as a block from `ff`, its
+    parsed value."""
     lines = text.split("\n")
     start = next((i for i, l in enumerate(lines) if re.match(r"^forked_from:\s*(#.*)?$", l)), None)
     if start is None:
-        raise ForkError("strategy.yaml's `forked_from` is not a block mapping, so the copy's parent cannot be written")
+        flow = next((i for i, l in enumerate(lines) if re.match(r"^forked_from:\s*\{.*\}\s*(#.*)?$", l)), None)
+        if flow is None:
+            raise ForkError("strategy.yaml's `forked_from` is neither a block nor a one-line mapping, so the "
+                            "copy's parent cannot be written")
+        items = {**ff, "parent": ref}
+        lines[flow:flow + 1] = ["forked_from:"] + [
+            f"  {k}: {json.dumps(v, ensure_ascii=False, default=str)}" for k, v in items.items()]
+        return "\n".join(lines)
     block = []
     for i in range(start + 1, len(lines)):
         l = lines[i]
@@ -135,11 +144,18 @@ def _set_parent(text, ref):
             block.append(i)
     indent = re.match(r"^(\s*)", lines[block[0]]).group(1) if block else "  "
     value = f"{indent}parent: {json.dumps(ref, ensure_ascii=False)}"
-    at = next((i for i in block if re.match(rf"^{indent}parent:", lines[i])), None)
+    at = next((i for i in block if re.match(rf"^{indent}parent:(\s|$)", lines[i])), None)
     if at is None:
         lines.insert(start + 1, value)
-    else:
-        lines[at] = value
+        return "\n".join(lines)
+    end = at + 1                                    # the old value's continuation lines go with it
+    for j in range(at + 1, len(lines)):
+        l = lines[j]
+        if l.strip() and len(l) - len(l.lstrip()) <= len(indent):
+            break
+        if l.strip():
+            end = j + 1
+    lines[at:end] = [value]
     return "\n".join(lines)
 
 
@@ -237,7 +253,7 @@ def fork(pkg, root, owner=None, name=None, fork_of=None, authored=False, log=lam
         if parent_ff is None:
             text = _add_forked_from(text, pkg.id, pkg.version, ref)
         elif ref is not None:
-            text = _set_parent(text, ref)
+            text = _set_parent(text, ref, parent_ff)
         man.write_text(text)
         title = short_title((pkg.catalog or {}).get("name"), pkg.id)
         origin = f"copied from {(pkg.catalog or {}).get('name') or pkg.id}" if parent_ff is not None else \

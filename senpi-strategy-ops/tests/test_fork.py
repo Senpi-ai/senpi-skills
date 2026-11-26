@@ -380,11 +380,10 @@ def test_a_catalog_copy_records_its_template_as_the_parent(tmp_path):
     assert _without_parent((dest / "strategy.yaml").read_text()) == _catalog_copy_expected("ignas-phalanx", "Ignas's Phalanx")
 
 
-@pytest.mark.parametrize("source_id", [SIM, LIVE])
-def test_fork_of_names_the_parent_of_a_catalog_copy(tmp_path, source_id):
+def test_fork_of_names_the_parent_of_a_catalog_copy(tmp_path):
     pkg = _pkg.load(_template(tmp_path))
-    dest, info = _fork.fork(pkg, tmp_path, name="Shield Wall", fork_of=source_id)
-    assert not info["reused"] and _parent_of(dest) == source_id
+    dest, info = _fork.fork(pkg, tmp_path, name="Shield Wall", fork_of=SIM)
+    assert not info["reused"] and _parent_of(dest) == SIM
     assert _without_parent((dest / "strategy.yaml").read_text()) == _catalog_copy_expected("shield-wall", "Shield Wall")
     assert _pkg.validate(_pkg.load(dest)) == []
 
@@ -409,9 +408,8 @@ def test_a_copy_of_a_fork_without_a_parent_records_the_forks_template(tmp_path):
     assert _pkg.validate(_pkg.load(dest)) == []
 
 
-@pytest.mark.parametrize("carried", [SIM, "template:phalanx", "custom:alice-own"])
-def test_fork_of_wins_over_a_parent_already_set(tmp_path, carried):
-    block = f'  id: phalanx\n  parent: {carried}\n  # the template it came from\n  version: "1.1.0"\n\n'
+def test_fork_of_wins_over_a_parent_already_set(tmp_path):
+    block = f'  id: phalanx\n  parent: {SIM}\n  # the template it came from\n  version: "1.1.0"\n\n'
     src = _fork_source(tmp_path, block)
     dest, _ = _fork.fork(_pkg.load(src), tmp_path, name="Wide Stop", fork_of=LIVE)
     assert _parent_of(dest) == LIVE
@@ -427,6 +425,23 @@ def test_a_copy_of_a_fork_without_a_parent_takes_fork_of(tmp_path):
     expected = _copied_expected((src / "strategy.yaml").read_text(), "wide-stop", "Wide Stop")
     assert _without_parent((dest / "strategy.yaml").read_text()) == expected
 
+
+@pytest.mark.parametrize("fork_of,parent", [(None, "template:phalanx"), (SIM, SIM)])
+def test_a_one_line_forked_from_is_rewritten_as_a_block_with_the_parent(tmp_path, fork_of, parent):
+    flow = 'forked_from: {id: phalanx, version: "1.1.0"}  # lineage\n'
+    src = _template(tmp_path / "src", manifest=FORK_MANIFEST.replace("forked_from:\n@BLOCK@\n", flow))
+    dest, _ = _fork.fork(_pkg.load(src), tmp_path, name="Wide Stop", fork_of=fork_of)
+    assert _parent_of(dest) == parent
+    assert _pkg.load(dest).manifest["forked_from"] == {"id": "phalanx", "version": "1.1.0", "parent": parent}
+    assert _pkg.validate(_pkg.load(dest)) == []
+
+
+def test_fork_of_replaces_a_parent_written_over_several_lines(tmp_path):
+    block = '  id: phalanx\n  parent: >-\n    template:phalanx\n\n  version: "1.1.0"\n\n'
+    src = _fork_source(tmp_path, block)
+    dest, _ = _fork.fork(_pkg.load(src), tmp_path, name="Wide Stop", fork_of=SIM)
+    assert _parent_of(dest) == SIM
+    assert _pkg.load(dest).manifest["forked_from"]["version"] == "1.1.0"
 
 @pytest.mark.parametrize("kw", [dict(owner="Ignas"), dict(owner="Ignas", name="   ")])
 def test_fork_of_without_a_name_is_refused(tmp_path, kw):
