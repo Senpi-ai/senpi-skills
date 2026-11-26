@@ -2679,38 +2679,41 @@ def _plan_is_local(ref):
 
 def _plan_quote(ref, variants, budget, local):
     """One quote at `budget` for the design and every variation. Returns (per_hour_each, total_after,
-    refusals, error): per_hour_each is a list (one per simulation, design first) or None."""
+    refusals, error, books): per_hour_each is a list (one per line of the plan, design first) or None;
+    books names the package's instances when it has several, each its own simulation per line."""
     if local:
         kind, caps = _deploy_capabilities(False)
         if not (isinstance(caps, dict) and caps.get("simulationYesGate") is True):
-            return None, None, [], "this runtime cannot quote a simulation"
+            return None, None, [], "this runtime cannot quote a simulation", []
         r = _gw("senpi.deploy.startSimulation",
                 {"packageDir": str(_pkg.resolve_pkg_dir(ref)), "budget": budget, "dryRun": True},
                 START_RPC_MS, START_WALL_S)
         payload = r["payload"] if isinstance(r["payload"], dict) else {}
         if r["kind"] != "ok" or payload.get("dryRun") is not True:
-            return None, None, [], r["message"] or f"the quote answered {r['kind']}"
+            return None, None, [], r["message"] or f"the quote answered {r['kind']}", []
         each = payload.get("creditsPerHour")
         if not isinstance(each, (int, float)) or isinstance(each, bool):
-            return None, None, [], "the quote named no credits an hour"
+            return None, None, [], "the quote named no credits an hour", []
+        insts = payload.get("instances") if isinstance(payload.get("instances"), list) else []
+        books = [i["name"] for i in insts if isinstance(i, dict) and isinstance(i.get("name"), str)]
         n = 1 + len(variants)
         after = payload.get("creditsPerHourAfter")
         after = after - each + each * n if isinstance(after, (int, float)) else None
-        return [each] * n, after, [], None
+        return [each] * n, after, [], None, books if len(books) > 1 else []
     params = {"requestId": f"quote-{ref}-{int(time.time())}", "strategy": ref, "budgetUsd": budget, "dryRun": True,
               "variants": _plan_variants(variants)}
     r = _gw("senpi.simulations.startBatch", params, START_RPC_MS, START_WALL_S)
     payload = r["payload"] if isinstance(r["payload"], dict) else {}
     rows = payload.get("rows") if r["kind"] == "ok" and payload.get("dryRun") is True else None
     if not isinstance(rows, list) or len(rows) != len(params["variants"]):
-        return None, None, [], r["message"] or f"the quote answered {r['kind']}"
+        return None, None, [], r["message"] or f"the quote answered {r['kind']}", []
     refusals = [f"{row.get('label')}: {row.get('detail') or row.get('reason')}"
                 for row in rows if row.get("status") == "would_refuse"]
     each = [row.get("creditsPerHour") for row in rows]
     if refusals or not all(isinstance(c, (int, float)) and not isinstance(c, bool) for c in each):
-        return None, None, refusals, None if refusals else "the quote named no credits an hour"
+        return None, None, refusals, None if refusals else "the quote named no credits an hour", []
     after = payload.get("creditsPerHourAfter")
-    return each, after if isinstance(after, (int, float)) else None, [], None
+    return each, after if isinstance(after, (int, float)) else None, [], None, []
 
 
 def _plan_variants(variants):
@@ -2742,7 +2745,7 @@ def _plan_cost(b, each, n_variants):
     return f"{_plan_money(b)} each, {_plan_credits(each)}"
 
 
-def render_plan(name, design, trades, variants, quotes):
+def render_plan(name, design, trades, variants, quotes, books=()):
     """The plan the agent relays as given. Every fact sits on the line of the simulation it belongs to
     (what it is, how often it trades, its budget, its credits an hour), so no line can be dropped without
     dropping a simulation. `quotes` maps each budget to its quote (per_hour_each, after)."""
@@ -2765,7 +2768,9 @@ def render_plan(name, design, trades, variants, quotes):
         variants = []
         lines = [f"Simulation of {name}, on virtual money (nothing real moves): {facts(what, v.get('trades') or trades, 0)}"]
     elif variants:
-        lines = [f"Test plan for {name}, on virtual money (nothing real moves):",
+        lines = [f"Test plan for {name}, on virtual money (nothing real moves):"
+                 + (f" It has {len(books)} books ({', '.join(books)}), so each line below starts {len(books)} "
+                    f"simulations." if books else ""),
                  f"1. As designed: {facts(design, trades, 0)}"]
         for i, v in enumerate(variants, start=2):
             shown = v["value"] if isinstance(v["value"], str) else json.dumps(v["value"])
@@ -2776,10 +2781,12 @@ def render_plan(name, design, trades, variants, quotes):
     if one is not None:
         each = quotes[one][0]
         if variants:
-            lines.append(f"All {len(each)}: {sum(each):g} credits an hour ({sum(each) * 24:g} a day). Nothing has started.")
+            sims = f", {len(each) * len(books)} simulations" if books else ""
+            lines.append(f"All {len(each)}{sims}: {sum(each):g} credits an hour ({sum(each) * 24:g} a day). Nothing has started.")
             lines.append(PLAN_QUESTION)
         else:
-            lines[0] += ". Nothing has started."
+            lines[0] += "." + (f" It has {len(books)} books ({', '.join(books)}), so it starts {len(books)} "
+                               f"simulations." if books else "") + " Nothing has started."
             lines.append("Start it?")
     else:
         choices = " · ".join(f"{_plan_money(b)} ({_plan_credits(quotes[b][0], flat=True)})" for b in budgets)
@@ -2788,7 +2795,7 @@ def render_plan(name, design, trades, variants, quotes):
     return "\n".join(lines)
 
 
-def _plan_after_yes(ref, variants, local):
+def _plan_after_yes(ref, variants, local, books=()):
     yes = ("Show it and end your turn. Only an explicit yes in their NEXT message starts them: \"yes\", "
            "\"simulate\", \"go\", a budget they tapped or typed; the request that asked for this plan is not "
            "the yes. "
@@ -2800,6 +2807,9 @@ def _plan_after_yes(ref, variants, local):
                "--budget <their budget>`, then each variation as its own fork (`deploy.py fork <dir> --name "
                "<label>`, set its one setting, `create <fork dir> --simulation --user-said-yes --variant-of "
                "<the design's simulation id> --batch <one id>`).")
+        if books:
+            how += (f" Each line starts {len(books)} simulations, one per book, so in the reply count simulations, "
+                    f"not variations: \"3 variations, {len(books)} books each: {3 * len(books)} simulations\".")
     else:
         how = (f"After the yes: `deploy.py start-plan {ref} --user-said-yes` (with `--budget <the one they "
                f"picked>` when it offered choices). It starts exactly what this plan quoted.")
@@ -2847,7 +2857,7 @@ def _plan_quote_and_print(a, variants, budgets):
     name = a.name or Path(a.package.rstrip("/")).name
     quotes = {}
     for b in budgets:
-        each, after, refusals, error = _plan_quote(a.package, variants, b, local)
+        each, after, refusals, error, books = _plan_quote(a.package, variants, b, local)
         if refusals:
             print(f"The quote at {_plan_money(b)} would refuse: " + "; ".join(refusals)
                   + ". Fix those variations (or the budget) and run plan again. Nothing was started.", file=sys.stderr)
@@ -2859,8 +2869,8 @@ def _plan_quote_and_print(a, variants, budgets):
             _write_plan_record(a.package, budgets, variants)
             return EXIT_INTERNAL
         quotes[b] = (each, after)
-    print(render_plan(name, a.design, a.trades, variants, quotes))
-    print("\n" + _plan_after_yes(a.package, variants, local), file=sys.stderr)
+    print(render_plan(name, a.design, a.trades, variants, quotes, books))
+    print("\n" + _plan_after_yes(a.package, variants, local, books), file=sys.stderr)
     _write_plan_record(a.package, list(quotes), variants)
     return 0
 
