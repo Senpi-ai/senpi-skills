@@ -2725,9 +2725,20 @@ def _open_simulations():
         return None
 
 
+def _design_wallet_names(ref):
+    """The strategy names the deploy verb gives this local package's books (`<id>-<book>`, or the bare
+    `<id>` for one book), or [] when the package cannot be read."""
+    try:
+        pkg = _pkg.load(ref)
+    except (_pkg.BadPackage, OSError):
+        return []
+    return [_wallet_name(pkg, inst) for inst in pkg.instances]
+
+
 def _running_design(names):
     """The simulation id of the design when every one of its books already runs as a simulation under
-    its own name, else None. `create <dir> --simulation` adopts those instead of starting new ones."""
+    its wallet name (`_design_wallet_names`), else None. `create <dir> --simulation` adopts those
+    instead of starting new ones."""
     rows = _open_simulations() if names else None
     if not rows:
         return None
@@ -2903,7 +2914,7 @@ def _plan_quote_and_print(a, variants, budgets):
             _write_plan_record(a.package, budgets, variants)
             return EXIT_INTERNAL
         if local and len(variants) > 1 and running is None:
-            running = _running_design(names) or False
+            running = _running_design(_design_wallet_names(a.package)) or False
         if running:
             after = after - each[0] if isinstance(after, (int, float)) else None
             each = each[1:]
