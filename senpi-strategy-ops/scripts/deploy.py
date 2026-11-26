@@ -2680,7 +2680,7 @@ def _plan_is_local(ref):
 def _plan_quote(ref, variants, budget, local):
     """One quote at `budget` for the design and every variation. Returns (per_hour_each, total_after,
     refusals, error, books): per_hour_each is a list (one per line of the plan, design first) or None;
-    books names the package's instances when it has several, each its own simulation per line."""
+    books names the package's instances (a local package's, from its quote), each its own simulation per line."""
     if local:
         kind, caps = _deploy_capabilities(False)
         if not (isinstance(caps, dict) and caps.get("simulationYesGate") is True):
@@ -2699,7 +2699,7 @@ def _plan_quote(ref, variants, budget, local):
         n = 1 + len(variants)
         after = payload.get("creditsPerHourAfter")
         after = after - each + each * n if isinstance(after, (int, float)) else None
-        return [each] * n, after, [], None, books if len(books) > 1 else []
+        return [each] * n, after, [], None, books
     params = {"requestId": f"quote-{ref}-{int(time.time())}", "strategy": ref, "budgetUsd": budget, "dryRun": True,
               "variants": _plan_variants(variants)}
     r = _gw("senpi.simulations.startBatch", params, START_RPC_MS, START_WALL_S)
@@ -2714,6 +2714,29 @@ def _plan_quote(ref, variants, budget, local):
         return None, None, refusals, None if refusals else "the quote named no credits an hour", []
     after = payload.get("creditsPerHourAfter")
     return each, after if isinstance(after, (int, float)) else None, [], None, []
+
+
+def _open_simulations():
+    """The user's open simulations from `strategy_list`, or None when it could not be read."""
+    try:
+        return _cli.list_strategies_or_none(MCPClient(), timeout=STATUS_TIMEOUT, statuses=_cli.LIVE_STATUSES,
+                                            simulation=True)
+    except Exception:  # noqa: BLE001 — an unreadable list plans as if nothing ran
+        return None
+
+
+def _running_design(names):
+    """The simulation id of the design when every one of its books already runs as a simulation under
+    its own name, else None. `create <dir> --simulation` adopts those instead of starting new ones."""
+    rows = _open_simulations() if names else None
+    if not rows:
+        return None
+    found = {}
+    for row in rows:
+        for n in names:
+            if _cli.strategy_name_match(_cli.strategy_name(row), n) and _cli.strategy_id_of(row):
+                found.setdefault(n, _cli.strategy_id_of(row))
+    return found[names[0]] if len(found) == len(names) else None
 
 
 def _plan_variants(variants):
@@ -2745,7 +2768,7 @@ def _plan_cost(b, each, n_variants):
     return f"{_plan_money(b)} each, {_plan_credits(each)}"
 
 
-def render_plan(name, design, trades, variants, quotes, books=()):
+def render_plan(name, design, trades, variants, quotes, books=(), running=False):
     """The plan the agent relays as given. Every fact sits on the line of the simulation it belongs to
     (what it is, how often it trades, its budget, its credits an hour), so no line can be dropped without
     dropping a simulation. `quotes` maps each budget to its quote (per_hour_each, after)."""
@@ -2768,14 +2791,18 @@ def render_plan(name, design, trades, variants, quotes, books=()):
         variants = []
         lines = [f"Simulation of {name}, on virtual money (nothing real moves): {facts(what, v.get('trades') or trades, 0)}"]
     elif variants:
-        lines = [f"Test plan for {name}, on virtual money (nothing real moves):"
-                 + (f" It has {len(books)} books ({', '.join(books)}), so each line below starts {len(books)} "
-                    f"simulations." if books else ""),
-                 f"1. As designed: {facts(design, trades, 0)}"]
-        for i, v in enumerate(variants, start=2):
+        head = (f"Test plan for {name}, on virtual money (nothing real moves): {len(variants)} variations of your "
+                f"running {name} simulation, which keeps running as it is." if running else
+                f"Test plan for {name}, on virtual money (nothing real moves):")
+        lines = [head + (f" It has {len(books)} books ({', '.join(books)}), so each line below starts "
+                         f"{len(books)} simulations." if books else "")]
+        if not running:
+            lines.append(f"1. As designed: {facts(design, trades, 0)}")
+        first = 1 if running else 2
+        for i, v in enumerate(variants, start=first):
             shown = v["value"] if isinstance(v["value"], str) else json.dumps(v["value"])
             what = f"{v['tests']} ({v['key']} = {shown})"
-            lines.append(f"{i}. {v['label']}: {facts(what, v.get('trades') or trades, i - 1)}")
+            lines.append(f"{i}. {v['label']}: {facts(what, v.get('trades') or trades, i - first + (0 if running else 1))}")
     else:
         lines = [f"Simulation of {name}, on virtual money (nothing real moves): {facts(design, trades, 0)}"]
     if one is not None:
@@ -2795,14 +2822,21 @@ def render_plan(name, design, trades, variants, quotes, books=()):
     return "\n".join(lines)
 
 
-def _plan_after_yes(ref, variants, local, books=()):
+def _plan_after_yes(ref, variants, local, books=(), running=None):
     yes = ("Show it and end your turn. Only an explicit yes in their NEXT message starts them: \"yes\", "
            "\"simulate\", \"go\", a budget they tapped or typed; the request that asked for this plan is not "
            "the yes. "
            "\"Your call\", \"sounds good\", \"you pick\" and silence are not a yes: recommend simulating and ask "
            "the question again. On \"live\", the live walkthrough takes over; never start a simulation. "
            "A simulation needs no deposit and no funds: never tell them to deposit first.")
-    if local:
+    if local and running:
+        how = (f"After the yes: the design already runs (simulation {running}); start nothing for it. Start each "
+               f"variation as its own fork (`deploy.py fork <dir> --name <label>`, set its one setting, `create "
+               f"<fork dir> --simulation --user-said-yes --variant-of {running} --batch <one id>`).")
+        if books:
+            how += (f" Each line starts {len(books)} simulations, one per book, so in the reply count simulations, "
+                    f"not variations: \"3 variations, {len(books)} books each: {3 * len(books)} simulations\".")
+    elif local:
         how = ("After the yes: start the design with `deploy.py create <dir> --simulation --user-said-yes "
                "--budget <their budget>`, then each variation as its own fork (`deploy.py fork <dir> --name "
                "<label>`, set its one setting, `create <fork dir> --simulation --user-said-yes --variant-of "
@@ -2855,9 +2889,9 @@ def cmd_plan(a):
 def _plan_quote_and_print(a, variants, budgets):
     local = _plan_is_local(a.package)
     name = a.name or Path(a.package.rstrip("/")).name
-    quotes = {}
+    quotes, running = {}, None
     for b in budgets:
-        each, after, refusals, error, books = _plan_quote(a.package, variants, b, local)
+        each, after, refusals, error, names = _plan_quote(a.package, variants, b, local)
         if refusals:
             print(f"The quote at {_plan_money(b)} would refuse: " + "; ".join(refusals)
                   + ". Fix those variations (or the budget) and run plan again. Nothing was started.", file=sys.stderr)
@@ -2868,9 +2902,15 @@ def _plan_quote_and_print(a, variants, budgets):
                   f"until it is stopped, with no number, and ask.", file=sys.stderr)
             _write_plan_record(a.package, budgets, variants)
             return EXIT_INTERNAL
+        if local and len(variants) > 1 and running is None:
+            running = _running_design(names) or False
+        if running:
+            after = after - each[0] if isinstance(after, (int, float)) else None
+            each = each[1:]
         quotes[b] = (each, after)
-    print(render_plan(name, a.design, a.trades, variants, quotes, books))
-    print("\n" + _plan_after_yes(a.package, variants, local, books), file=sys.stderr)
+    books = names if len(names) > 1 else []
+    print(render_plan(name, a.design, a.trades, variants, quotes, books, running=bool(running)))
+    print("\n" + _plan_after_yes(a.package, variants, local, books, running or None), file=sys.stderr)
     _write_plan_record(a.package, list(quotes), variants)
     return 0
 

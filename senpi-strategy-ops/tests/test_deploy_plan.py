@@ -99,6 +99,9 @@ class Plan(unittest.TestCase):
                 return self.start
             raise AssertionError(f"unexpected gateway call {method}")
         _cli.gateway_call = _gateway
+        orig_open = getattr(deploy, "_open_simulations", None)
+        deploy._open_simulations = lambda: []
+        self.addCleanup(lambda: setattr(deploy, "_open_simulations", orig_open))
 
     def tearDown(self):
         _cli.gateway_call = self._orig
@@ -310,6 +313,51 @@ class Plan(unittest.TestCase):
         self.assertIn("All 3, 6 simulations: 60 credits an hour (1440 a day).", out)
         self.assertEqual(out.strip().splitlines()[-1], QUESTION)
         self.assertIn('count simulations, not variations: "3 variations, 2 books each: 6 simulations"', err)
+
+    def _two_book_quote(self):
+        self.start = _answer("ok", {"dryRun": True, "budgetUsd": 1000, "creditsPerHour": 20, "creditsPerDay": 480,
+                                    "creditsPerHourAfter": 60,
+                                    "instances": [{"name": "duo-long"}, {"name": "duo-short"}]})
+
+    def _open(self, rows):
+        orig = deploy._open_simulations
+        deploy._open_simulations = lambda: rows
+        self.addCleanup(lambda: setattr(deploy, "_open_simulations", orig))
+
+    def test_variations_of_a_running_design_quote_only_the_variations(self):
+        pkg = self.root / "duo"
+        pkg.mkdir()
+        self._two_book_quote()
+        self._open([{"strategyName": "duo-long", "strategyId": "simulation-L", "status": "ACTIVE"},
+                    {"strategyName": "duo-short", "strategyId": "simulation-S", "status": "ACTIVE"}])
+        code, out, err = self._run(str(pkg), "--design", "fades BTC and ETH moves", "--trades", "a few times a week",
+                                   *self.VARIANTS)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("As designed", out)
+        self.assertIn("2 variations of your running duo simulation, which keeps running as it is", out)
+        self.assertIn("1. pickier:", out)
+        self.assertIn("All 2, 4 simulations: 40 credits an hour (960 a day).", out)
+        self.assertIn("--variant-of simulation-L", err)
+        self.assertNotIn("start the design", err)
+
+    def test_a_design_not_running_on_every_book_is_planned_as_before(self):
+        pkg = self.root / "duo"
+        pkg.mkdir()
+        self._two_book_quote()
+        self._open([{"strategyName": "duo-long", "strategyId": "simulation-L", "status": "ACTIVE"}])
+        code, out, err = self._run(str(pkg), "--design", "fades BTC and ETH moves", "--trades", "a few times a week",
+                                   *self.VARIANTS)
+        self.assertIn("1. As designed:", out)
+        self.assertIn("All 3, 6 simulations: 60 credits an hour", out)
+
+    def test_an_unreadable_list_of_simulations_plans_as_before(self):
+        pkg = self.root / "duo"
+        pkg.mkdir()
+        self._two_book_quote()
+        self._open(None)
+        code, out, err = self._run(str(pkg), "--design", "fades BTC and ETH moves", "--trades", "a few times a week",
+                                   *self.VARIANTS)
+        self.assertIn("1. As designed:", out)
 
     def test_one_simulation_of_two_books_says_it_starts_two(self):
         pkg = self.root / "duo"
