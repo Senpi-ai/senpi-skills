@@ -1151,7 +1151,9 @@ class DeploySimulation(unittest.TestCase):
         os.environ["SENPI_STRATEGIES_DIR"] = tmp
         self.addCleanup(lambda: os.environ.__setitem__("SENPI_STRATEGIES_DIR", old_root) if old_root is not None
                         else os.environ.pop("SENPI_STRATEGIES_DIR", None))
-        deploy._write_plan_record("omega", [30.0], [])  # the user saw omega quoted at $30 by `plan`
+        deploy._write_plan_record("omega", [30.0], [])  # the user saw omega quoted at $30 by `plan`,
+        rec = deploy._plan_record_path("omega")            # in a turn before this one
+        rec.write_text(json.dumps({**json.loads(rec.read_text()), "at": time.time() - deploy.PLAN_MIN_GAP_S - 1}))
         try:
             for argv in (["create", "omega", "--budget", "30", "--simulation", "--user-said-yes"],
                          ["runtime", "omega", "--simulation", "--user-said-yes"],
