@@ -59,6 +59,9 @@ class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
         self.assertIn("the first variation of the list is the parent", VARIATIONS)
         self.assertIn("Never start a base the list did not show; 5 asked = 5 simulations.", VARIATIONS)
 
+    def test_a_package_of_several_books_counts_each_book_as_a_simulation(self):
+        self.assertIn("Each book (`instances`) is its own simulation: 2 books × 5 variations = 10, so the list, the cost and the reply give both counts.", VARIATIONS)
+
     def test_a_refused_dry_run_still_shows_the_batch_and_waits(self):
         self.assertIn("nothing starts before the user says yes to the list, on every start path", VARIATIONS)
         self.assertLess(VARIATIONS.find("on every start path"), VARIATIONS.find("takes the fork path"))
