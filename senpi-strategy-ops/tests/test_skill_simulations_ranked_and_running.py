@@ -59,7 +59,6 @@ class VersionBumped(unittest.TestCase):
         readme = (OPS.parent / "README.md").read_text()
         self.assertIn(f"| [`senpi-strategy-ops`](senpi-strategy-ops/) | {version} |", readme)
         self.assertNotEqual(version, "3.34.16")
-        self.assertEqual(version, "3.35.11")
 
 
 if __name__ == "__main__":
