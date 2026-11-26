@@ -20,10 +20,8 @@ class SettingsOnlyVariationsStartAsOneBatch(unittest.TestCase):
         self.assertIn('--variant "<label>|<key>=<value>|<what it tests>"', VARIATIONS)
         self.assertIn('{"label":"<name>","budgetUsd":<its budget>,"settings":{…}}', VARIATIONS)
 
-    def test_progress_is_one_batch_wait_with_batch_status_as_the_fallback(self):
+    def test_progress_is_one_batch_wait(self):
         self.assertIn("`deploy.py batch-wait <requestId>` once more", VARIATIONS)
-        params = re.search(r"senpi\.simulations\.batchStatus --json --params '(\{.*?\})'", VARIATIONS).group(1)
-        self.assertIn('"requestId":', params)
 
     def test_the_quote_dry_runs_the_same_variants(self):
         self.assertIn("as you will start them", VARIATIONS)

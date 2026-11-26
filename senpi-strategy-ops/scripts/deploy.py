@@ -663,6 +663,62 @@ def _simulation_dry_run(pkg, method, params, a):
     raise SystemExit(EXIT_CODES["refused"] if r["kind"] == "refused" else EXIT_INTERNAL)
 
 
+def _take_live_needs_the_runtime(a):
+    """`fromSimulationId` goes only to a runtime advertising `simulationYesGate`; every release that
+    does also deploys the package the simulation ran. An older one ignores the param and funds the
+    named package at its own settings."""
+    kind, caps = _deploy_capabilities(getattr(a, "json", False))
+    if isinstance(caps, dict) and caps.get("simulationYesGate") is True:
+        return
+    why = (f"what this box's runtime supports could not be read (senpi.getHealthStatus: {kind}). Re-run "
+           f"this command once; if it fails again, stop" if caps is None else
+           "this box's runtime cannot take a simulation live yet: it would deploy the strategy at its "
+           "default settings, not the ones the simulation ran")
+    print(f"[E_TAKE_LIVE_NOT_SUPPORTED] Nothing was started, no wallet was created and no funds moved: {why}.\n"
+          f"  Tell the user taking this simulation live is not available on their agent yet. Never deploy the "
+          f"strategy another way in its place.", file=sys.stderr)
+    raise SystemExit(EXIT_INTERNAL)
+
+
+# `call`: the runtime methods the skill text names, through the gateway. `senpi call` runs only where
+# the runtime daemon is installed; `openclaw gateway call` answers in plugin mode too.
+CALL_METHODS = {"senpi.packages.list": False, "senpi.packages.get": False,
+                "senpi.simulations.startBatch": True, "senpi.simulations.batchStatus": False}
+
+
+def cmd_call(a):
+    """Exit 0 with the answer as JSON · 2 refused (or not callable here; nothing sent) · 1 no answer."""
+    if a.method not in CALL_METHODS:
+        print(f"[INVALID_REQUEST] `call` takes {', '.join(CALL_METHODS)}. Nothing was sent. Deploys and "
+              f"closes go through create, runtime and close.py.", file=sys.stderr)
+        return EXIT_CODES["refused"]
+    try:
+        params = json.loads(a.params)
+    except ValueError as e:
+        params, bad = None, str(e)
+    if not isinstance(params, dict):
+        print(f"[INVALID_REQUEST] --params must be a JSON object"
+              f"{': ' + bad if params is None else ''}. Nothing was sent.", file=sys.stderr)
+        return EXIT_CODES["refused"]
+    starts = CALL_METHODS[a.method]
+    r = _gw(a.method, params, START_RPC_MS if starts else _cli.READ_RPC_MS,
+            START_WALL_S if starts else _cli.READ_WALL_S)
+    if _cli.is_sigkill(r["rc"]):
+        return _cli.emit_oom("  " + _cli.oom_stop(
+            "Whether it ran is not known." if starts else "Nothing was changed by this read.",
+            "the box is out of memory"), False, {"method": a.method})
+    if r["kind"] == "ok":
+        print(json.dumps(r["payload"], indent=2))
+        return 0
+    print(r["message"] or f"{a.method}: {r['kind']}", file=sys.stderr)
+    if r["kind"] == "unknown_method":
+        print(f"  This box's runtime does not have {a.method} yet. Nothing was started.", file=sys.stderr)
+    elif starts and r["kind"] in ("transport", "timeout"):
+        print(f"  No answer came back: the batch MAY have started. Read it with `deploy.py batch-wait "
+              f"<its requestId>` before anything else.", file=sys.stderr)
+    return EXIT_CODES["refused"] if r["kind"] == "refused" else EXIT_INTERNAL
+
+
 def _journal_read(pkg_id):
     return _journal.read(pkg_id)
 
@@ -927,6 +983,8 @@ def start_deploy(pkg, a, log):
             _simulation_dry_run(pkg, method, params, a)
         print("planned: " + shlex.join(_cli.gateway_argv(method, params, START_RPC_MS)))
         raise SystemExit(0)
+    if params.get("fromSimulationId"):
+        _take_live_needs_the_runtime(a)
     # A caller that never read the capability (no `request_ids`) neither sends an id nor touches the
     # journal; `main` always reads it for create/runtime.
     if not hasattr(a, "request_ids"):
@@ -2392,7 +2450,8 @@ def _fork_for_deploy(pkg, a, log):
                   f"  A user ID is never a name. Nothing was created, funded or installed.", file=sys.stderr)
             sys.exit(EXIT_CODES["refused"])
     try:
-        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=name, log=log)
+        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=name, log=log,
+                                simulation=getattr(a, "simulation", False))
     except _fork.ForkError as e:
         print(f"✗ {pkg.id}: {e}. Nothing was created, funded or installed.", file=sys.stderr)
         sys.exit(EXIT_CODES["refused"])
@@ -3051,6 +3110,11 @@ def _main(argv):
                     help="Assert only scanner code changed; the verb refuses if the recipe moved too.")
     pu.add_argument("--json", action="store_true", help="The verb's report as one JSON document on stdout.")
 
+    pcall = sub.add_parser("call", help="Call one runtime method through the gateway (works in plugin and daemon mode): "
+                                         + ", ".join(CALL_METHODS) + ". Prints the answer as JSON.")
+    pcall.add_argument("method", help="One of: " + ", ".join(CALL_METHODS))
+    pcall.add_argument("--params", default="{}", help="The method's params, a JSON object.")
+
     pbw = sub.add_parser("batch-wait",
                          help="READ-ONLY: wait for a started simulation batch (senpi.simulations.batchStatus) "
                               "until no row is still starting, then print each row. Starts nothing.")
@@ -3114,6 +3178,8 @@ def _main(argv):
     if a.cmd == "where":
         print(_pkg.strategies_root())
         return 0
+    if a.cmd == "call":
+        sys.exit(cmd_call(a))
     if a.cmd == "batch-wait":
         sys.exit(cmd_batch_wait(a))
     if a.cmd == "start-plan":
