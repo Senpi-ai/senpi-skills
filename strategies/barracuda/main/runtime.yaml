@@ -42,6 +42,7 @@ scanners:
     type: external_scanner
     path: ./scanners
     entrypoint: scan.py
+    class_mb: 512                     # the memory class this scanner measures at on every start
     # Cadence sized from telemetry, not intuition (2026-09-08): over 24 h the worst tick across
     # live users was 95,046 ms — i.e. this scan ALREADY exceeded a 90 s budget and was killed by it,
     # which permanently poisons the MCP session (see close_all_scanner below). p90 worst was 85,916 ms
@@ -184,6 +185,7 @@ exit:
       # The ratchet must only ever lock a GAIN, or the position rides to the stop.
       # max_loss_pct := the old retrace (7.0% ROE), which is what the trail was already
       # enforcing, so the per-trade risk cap is UNCHANGED. retrace_threshold is now inert.
+      # HARD STOP: max_loss_pct is an exchange stop-loss at -max_loss_pct ROE from entry; enabled: false turns off the trailing only, never the stop.
       enabled: false
       max_loss_pct: 7.0   # was 15.0 — set to the old retrace so the risk cap is unchanged
       retrace_threshold: 7

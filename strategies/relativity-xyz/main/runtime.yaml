@@ -147,6 +147,7 @@ exit:
       enabled: false
       interval_in_minutes: 360
     phase1:
+      # HARD STOP: max_loss_pct is an exchange stop-loss at -max_loss_pct ROE from entry; enabled: false turns off the trailing only, never the stop.
       enabled: false                  # the fork had this true with retrace_threshold: 100, which is
                                       #   an inert trail anyway (a 100% retrace never fires). Every
                                       #   catalog template runs it false: phase-1 trailing ratchets

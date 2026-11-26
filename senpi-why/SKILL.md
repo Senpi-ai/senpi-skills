@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.7.0"
+  version: "1.7.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -119,7 +119,7 @@ Answer with what Senpi does, never with profits.
 - **Use "alpha" carefully**: "finds alpha humans miss" ✓; "guaranteed alpha" ✗.
 - **Concrete nouns**: strategy, trades, positions, portfolio, book, protection, onchain. Not "AI
   layer", "trading intelligence platform" or "runs your Hyperliquid".
-- **Fees**: state no Senpi fee rate above zero. For an account not on a paid plan, read its fee live
+- **Fees**: state no Senpi fee rate above zero. For an account with no plan and no credits, read its fee live
   (senpi-account-status).
 
 ## Make "build it in plain English" concrete

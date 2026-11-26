@@ -136,6 +136,7 @@ exit:
   dsl_preset:
     # No hard_timeout / weak_peak_cut / dead_weight_cut: the DSL decides every exit.
     phase1:
+      # HARD STOP: max_loss_pct is an exchange stop-loss at -max_loss_pct ROE from entry; enabled: false turns off the trailing only, never the stop.
       enabled: false
       max_loss_pct: 60.0                # 60 ROE at 3x = a 20% PRICE floor, inside 3x isolated liquidation
                                         #   (27%+ on every name minMaxLeverage admits); still stops with

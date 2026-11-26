@@ -114,6 +114,7 @@ exit:
       # Trailing DISABLED (fleet-wide): a floor that trails high-water can sit below entry and
       # close a winner at a loss. The ratchet only ever locks a GAIN; otherwise the hold rides
       # to the absolute floor below. retrace_threshold is inert.
+      # HARD STOP: max_loss_pct is an exchange stop-loss at -max_loss_pct ROE from entry; enabled: false turns off the trailing only, never the stop.
       enabled: false
       max_loss_pct: 30.0   # 2.0.0: back to the card's 30% ROE = 15% of price at 2x (10% ROE was 5% of price: half of all holds stopped inside ~8 days)
       retrace_threshold: 10                 # v2: trail into profit (was 25)

@@ -101,6 +101,7 @@ exit:
       interval_in_minutes: 480
       min_value: 4.0
     phase1:
+      # HARD STOP: max_loss_pct is an exchange stop-loss at -max_loss_pct ROE from entry; enabled: false turns off the trailing only, never the stop.
       enabled: false                  # trailing OFF — a floor below entry can ratchet a winner into a loss
       max_loss_pct: 16.7              # 16.7% margin loss cap = 3.33% price on 5x — the SAME
                                       # price width Athena has at 3x (10/3).

@@ -50,23 +50,23 @@ A Senpi agent's abilities are **skills**. Each one packages a tested multi-step 
 | Skill | Ver | Role |
 |---|---|---|
 | **Analyze** | | |
-| [`senpi-portfolio`](senpi-portfolio/) | 1.38.0 | Every wallet in one list by value (Senpi strategy wallets and the wallets you added), with positions, stop protection, each strategy's mandate, and managed and read-only subtotals |
+| [`senpi-portfolio`](senpi-portfolio/) | 1.40.0 | Every wallet in one list by value (Senpi strategy wallets and the wallets you added), with positions, stop protection, each strategy's mandate, and managed and read-only subtotals |
 | [`senpi-market-pulse`](senpi-market-pulse/) | 1.11.0 | The day's cross-asset read: crypto, stocks, commodities, macro and the funding regime; the positions check includes your saved wallets, read-only |
 | [`senpi-smart-money`](senpi-smart-money/) | 1.8.0 | Where the most profitable wallets are positioned against the crowd, and what they just did; the alignment check includes your saved wallets, read-only |
 | [`senpi-signals`](senpi-signals/) | 2.12.0 | Non-obvious market developments (funding extremes, the proven cohort against the 4h crowd, momentum events, cross-asset laggards), ranked through a trade lens and a news lens, from the same Senpi Signals the app and the browser extension show |
-| [`senpi-trader-research`](senpi-trader-research/) | 1.8.0 | Ranks and vets Hyperliquid traders before you copy them: copyability, minimum budget, the live book; your saved wallets go to the Quant Desk, never the copy shortlist |
-| [`senpi-improve-trades`](senpi-improve-trades/) | 1.25.0 | Reviews your trading from the telemetry event log: P&L net of fees, exit quality, give-back from the peak, missed signals, leaks and crashes; saved wallets are reviewed read-only as manual trades, in one book with your Senpi strategies |
-| [`quant-desk`](quant-desk/) | 1.50.0 | **Quant Desk**: "run quant desk" on any Hyperliquid address reads 90 days of fills, fees and funding, scores six 0-100 dimensions and an overall quant score, prices each leak, audits protection, and compares the wallet with the proven and hot cohorts. With no address it finds candidates by account size; `--book` reads a Senpi user's whole book. Public data, read-only |
-| [`senpi-account-status`](senpi-account-status/) | 1.10.0 | Points and rank, the Senpi trading fee (none on a paid plan), referrals, and the AI credits meter (chat and tool turns spend plan credits, never trading money); the plan catalog and what a lapsed plan pauses |
+| [`senpi-trader-research`](senpi-trader-research/) | 1.9.0 | Ranks and vets Hyperliquid traders before you copy them: copyability, minimum budget, the live book; your saved wallets go to the Quant Desk, never the copy shortlist |
+| [`senpi-improve-trades`](senpi-improve-trades/) | 1.25.4 | Reviews your trading from the telemetry event log: P&L net of fees, exit quality, give-back from the peak, missed signals, leaks and crashes; saved wallets are reviewed read-only as manual trades, in one book with your Senpi strategies |
+| [`quant-desk`](quant-desk/) | 1.51.0 | **Quant Desk**: "run quant desk" on any Hyperliquid address reads 90 days of fills, fees and funding, scores six 0-100 dimensions and an overall quant score, prices each leak, audits protection, and compares the wallet with the proven and hot cohorts. With no address it finds candidates by account size; `--book` reads a Senpi user's whole book. Public data, read-only |
+| [`senpi-account-status`](senpi-account-status/) | 1.11.4 | Points and rank, the Senpi trading fee (none on a paid plan or with credits), referrals, and the AI credits meter with the live credit balance (chat and tool turns spend plan credits, never trading money); the plan catalog, what running out of credits stops (the AI, simulations and the strategies on the agent; exchange stop-losses and mirror strategies stay) and what a lapsed plan pauses |
 | **Run a strategy** | | |
-| [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.58.0 | Picks strategies for you: ranks the catalog against your view of the market and quotes each pick's exits and position size from its card; your holdings are context (saved wallets read-only, never a budget) |
-| [`senpi-strategy-author`](senpi-strategy-author/) | 3.17.0 | Builds or edits a strategy package with DSL exits, one decision at a time |
-| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.34.0 | Deploys, monitors and closes a named strategy (`deploy.py`, `close.py`) |
-| [`senpi-trade`](senpi-trade/) | 1.12.0 | Direct trades, and copy trading of a specific trader, one decision at a time |
-| [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.1.16 | The runtime contract: `scan(inputs, ctx)`, `runtime.yaml` and the DSL |
+| [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.59.0 | Picks strategies for you: ranks the catalog against your view of the market and quotes each pick's exits and position size from its card; your holdings are context (saved wallets read-only, never a budget) |
+| [`senpi-strategy-author`](senpi-strategy-author/) | 3.23.0 | Builds or edits a strategy package with DSL exits, one decision at a time |
+| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.41.0 | Deploys, monitors and closes a named strategy (`deploy.py`, `close.py`) |
+| [`senpi-trade`](senpi-trade/) | 1.13.0 | Direct trades, and copy trading of a specific trader, one decision at a time |
+| [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.1.18 | The runtime contract: `scan(inputs, ctx)`, `runtime.yaml` and the DSL |
 | **Move money / positioning** | | |
 | [`senpi-deposit-withdraw-transfer`](senpi-deposit-withdraw-transfer/) | 1.6.4 | Moving money: funds in through the funding card (a deposit address or an in-card USDC purchase), out through the app; top-ups checked against perps first, withdrawals at the exact available amount, fees stated before money moves |
-| [`senpi-why`](senpi-why/) | 1.7.0 | What makes Senpi different: your AI quant reads the market, reviews your trading and runs your strategy 24/7, wherever you trade |
+| [`senpi-why`](senpi-why/) | 1.7.1 | What makes Senpi different: your AI quant reads the market, reviews your trading and runs your strategy 24/7, wherever you trade |
 
 Skills compose: `improve-trades` pulls in `market-pulse`, `smart-money` and `portfolio`; `discover` hands a chosen package to `ops`; `author` hands a built package to `ops`. The agent routes by intent, and no skill re-implements another.
 

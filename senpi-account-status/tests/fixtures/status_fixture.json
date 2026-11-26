@@ -30,9 +30,9 @@
       "lastUpdated": "2026-07-05T14:05:01.922Z",
       "loyaltyTier": "SILVER",
       "loyaltyTierIcon": "🥈",
-      "loyaltyTierFee": 30,
-      "builderFeePercent": "0.03%",
-      "nextTierFee": "0.03%",
+      "loyaltyTierFee": 50,
+      "builderFeePercent": "0.05%",
+      "nextTierFee": "0.05%",
       "monthlyPoints": 120,
       "maintenanceActive": true,
       "maintenanceStatus": null,
@@ -53,6 +53,13 @@
       "wallet_address": "0xme",
       "balance_usdc": "12.5",
       "balance_raw": "12500000"
+    }
+  },
+  "user_get_credits": {
+    "success": true,
+    "data": {
+      "credits": {"remaining": 1234.5, "burn_per_hour": 10, "hours_left": 123.4, "cycle_end": "2026-12-01T00:00:00.000Z"},
+      "sources_unavailable": []
     }
   }
 }

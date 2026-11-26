@@ -100,7 +100,11 @@ TAXONOMY = REPO / "docs" / "error-code-taxonomy.md"
 # had 37 agent outputs quoting it in two days, several near-verbatim from that script — a funded strategy
 # that installs, scans and never opens. The pre-Decision-1 heads-up keeps the floor at main's line count (no
 # design exists yet); the two lines are Handoff step 1 quoting the design's minimum, in the tail `read` keeps.
-BODY_BUDGET = {"senpi-strategy-ops": 365, "senpi-strategy-author": 432}
+# ops 365 -> 366 (2026-11-24): simulations are "running", never "live", and "best" ranks by return unless
+# the user names another measure. Agent chat answered a started batch with "Both simulations are live"
+# over a "Live" column, because the box's reads answer `live` for a running simulation. One line beside
+# Running variations, where the batch report it governs is written.
+BODY_BUDGET = {"senpi-strategy-ops": 366, "senpi-strategy-author": 432}
 
 
 def _skill_body(path):

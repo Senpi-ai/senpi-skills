@@ -555,8 +555,12 @@ filtered by `skillName == <id>` (resolved from `strategyMetadata.skillName`) giv
 strategies; **`strategyId` + wallet come straight from each strategy record** — NOT via the runtime, so
 close also cleans up **orphaned** strategies (wallets a failed deploy created before its install step). The
 runtime is used **only to stop** the strategy, found by wallet (`find_runtime_by_wallet`).
-**`--all`** closes **every** OPEN strategy across all packages (for "close all strategies / return funds")
-and deletes their runtimes. `--instance` needs the live runtime to identify an instance; if it's gone, omit it.
+**`--all`** closes **every** OPEN strategy and simulation across all packages (for "close everything") and
+deletes their runtimes. "Close all my strategies" or "return funds" is `--all --live`: a simulation holds no
+funds, and a closed one cannot be resumed. `--all --live` or `--all --simulation` keeps it to one world. When
+the simulations cannot be closed (unreadable, or simulations switched off), `--all` still closes the live
+strategies, prints `Your simulations were NOT closed` with the cause and `close.py --all --simulation`, and
+exits 2. `--instance` needs the live runtime to identify an instance; if it's gone, omit it.
 
 **`--strategy-id <id>` / `--address <wallet>`** close ONE strategy directly, bypassing package resolution
 entirely — the only route for a wallet with **no package at all** (unattributed create, or app/manual —

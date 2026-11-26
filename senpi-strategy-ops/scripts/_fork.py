@@ -14,6 +14,7 @@ display name — `Ignas's Phalanx` — lives in `catalog.name` and the runtime d
 the agent says. Both are printed by every verb that makes or deploys a fork.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import hashlib
 import re
 import shutil
 from pathlib import Path
@@ -21,8 +22,11 @@ from pathlib import Path
 import _pkg
 
 MAX_ID = 40        # the deploy verb's sanitizeStrategyName cap (runtime src/deploy/package.ts)
-MAX_OWNER = 20     # leaves room for `-<template>` and `-<instance>` under the cap
+MAX_OWNER = 20
 MIN_ID = 3         # the backend's floor for a strategy name
+# A simulation installs as `<id>-<instance>-simulation` under MAX_ID, and the runtime refuses an
+# `<id>-<instance>` longer than this rather than cutting it (src/deploy/package.ts).
+SIMULATION_BASE_MAX = MAX_ID - len("-simulation")
 SKIP_NAMES = {".deploy-state.json", ".senpi-proof.json", "__pycache__", ".DS_Store"}
 
 
@@ -34,6 +38,14 @@ def slug(text, cap=MAX_ID):
     """Lowercase `[a-z0-9-]`, words joined by '-', capped — the shape the deploy verb accepts unchanged."""
     s = re.sub(r"[^a-z0-9-]", "", re.sub(r"[\s_]+", "-", str(text or "").strip().lower()))
     return re.sub(r"-{2,}", "-", s).strip("-")[:cap].strip("-")
+
+
+def _fit(fid, budget, seed=None):
+    """`fid` when it fits `budget`; else its head plus a hash of the uncut id, so two ids cut to one head stay apart."""
+    if len(fid) <= budget:
+        return fid
+    h = hashlib.sha256((seed or fid).encode()).hexdigest()[:6]
+    return f"{fid[:budget - len(h) - 1].rstrip('-')}-{h}"
 
 
 def short_title(catalog_name, pkg_id):
@@ -48,19 +60,32 @@ def names_for(pkg, owner=None, name=None):
         if re.fullmatch(r"m\d+(-[0-9a-z]+)?", str(given or "").strip(), re.IGNORECASE):
             raise ForkError(f"{given!r} is the user's Senpi ID, not a name: leave --owner off and their username is "
                             f"read for you, or ask what to call it and pass --name <their words>")
+    budget = SIMULATION_BASE_MAX - 1 - max((len(i.name) for i in pkg.instances), default=0)
     if name and str(name).strip():
-        fid, display = slug(name), str(name).strip()
+        fid, display = _fit(slug(name), budget), str(name).strip()
     elif owner and str(owner).strip():
         o = slug(owner, MAX_OWNER)
         if not o:
             raise ForkError(f"owner {owner!r} leaves nothing usable in a strategy id — pass --name <their words> instead")
-        fid, display = f"{o}-{pkg.id}"[:MAX_ID].strip("-"), f"{str(owner).strip()}'s {short_title((pkg.catalog or {}).get('name'), pkg.id)}"
+        fid = f"{o}-{pkg.id}"[:MAX_ID].strip("-")
+        room = budget - len(pkg.id) - 1
+        if len(fid) > budget and room >= MIN_ID:     # keep the whole template, cut the username
+            fid = f"{slug(owner, room)}-{pkg.id}"
+        fid = _fit(fid, budget, seed=f"{slug(owner, 200)}-{pkg.id}")
+        display = f"{str(owner).strip()}'s {short_title((pkg.catalog or {}).get('name'), pkg.id)}"
     else:
         raise ForkError("a template deploys under the user's name, and their Senpi username could not be read: "
                         "ask what to call it and pass --name <their words>")
     if len(fid) < MIN_ID:
         raise ForkError(f"{fid!r} is shorter than the {MIN_ID} characters a strategy name needs — pass --name <their words>")
     return fid, display
+
+
+def legacy_id(pkg, owner=None, name=None):
+    """The id a fork got before ids were cut to fit a simulation (capped at 40, not 29)."""
+    if name and str(name).strip():
+        return slug(name)
+    return f"{slug(owner, MAX_OWNER)}-{pkg.id}"[:MAX_ID].strip("-")
 
 
 def _set_top_key(text, key, value):
@@ -130,21 +155,45 @@ def _ignore(_dir, names):
     return [n for n in names if n in SKIP_NAMES or n.startswith(".senpi-fetch-") or ".bak-" in n]
 
 
-def fork(pkg, root, owner=None, name=None, log=lambda m: None):
+def _same_lineage(dest, template_id):
+    try:
+        have = _pkg.load(dest)
+    except _pkg.BadPackage:
+        return False
+    return ((have.manifest or {}).get("forked_from") or {}).get("id") == template_id
+
+
+def fork(pkg, root, owner=None, name=None, log=lambda m: None, simulation=False):
     """Make (or reuse) the user's fork of `pkg` under `root`. Returns `(dir, info)`.
 
     Reuse is by lineage: an existing directory is returned untouched when it is a fork of this same
     template (a live fork keeps its deploy state; a fork is a copy, so a newer template is not grafted
-    onto it). Any other occupant of the name is refused rather than overwritten."""
-    if (pkg.manifest or {}).get("forked_from"):
-        ff = pkg.manifest["forked_from"] or {}
+    onto it). Any other occupant of the name is refused rather than overwritten.
+
+    A live deploy also reuses a fork of this template at its `legacy_id`: forks made before the cut may
+    be live, and a second fork beside one funds a second strategy. A simulation never does, since the
+    runtime refuses an id that long as a simulation.
+
+    A package that is already a fork is copied, edits and all, only under `name`: that is how a variation
+    of a user's own strategy starts. The copy keeps the template lineage and is never reused."""
+    parent_ff = (pkg.manifest or {}).get("forked_from")
+    if parent_ff is not None and not (name and str(name).strip()):
+        ff = parent_ff or {}
         raise ForkError(f"{pkg.id} is already a fork (of {ff.get('id')} {ff.get('version')}) — deploy it by "
-                        f"directory, or fork the template it came from")
+                        f"directory, or copy it with its edits under --name <their words>")
     fid, display = names_for(pkg, owner, name)
     root = Path(root)
+    old = legacy_id(pkg, owner, name)
+    if (parent_ff is None and not simulation and old != fid and not (root / fid).exists()
+            and (root / old).is_dir() and _same_lineage(root / old, pkg.id)):
+        fid = old
     dest = root / fid
-    info = dict(id=fid, display=display, forked_from=dict(id=pkg.id, version=str(pkg.version)),
+    lineage = dict(id=str(parent_ff.get("id")), version=str(parent_ff.get("version"))) if parent_ff else \
+        dict(id=pkg.id, version=str(pkg.version))
+    info = dict(id=fid, display=display, forked_from=lineage,
                 runtimes=[f"{fid}-{i.name}" for i in pkg.instances], dir=str(dest), reused=False)
+    if dest.exists() and parent_ff is not None:
+        raise ForkError(f"{dest} exists — deploy it by directory if it is this copy, or pass --name <another name>")
     if dest.exists():
         try:
             have = _pkg.load(dest)
@@ -164,15 +213,18 @@ def fork(pkg, root, owner=None, name=None, log=lambda m: None):
         text = man.read_text()
         text = _set_top_key(text, "id", fid)
         text = _set_catalog_name(text, display)
-        text = _add_forked_from(text, pkg.id, pkg.version)
+        if parent_ff is None:
+            text = _add_forked_from(text, pkg.id, pkg.version)
         man.write_text(text)
         title = short_title((pkg.catalog or {}).get("name"), pkg.id)
+        origin = f"copied from {(pkg.catalog or {}).get('name') or pkg.id}" if parent_ff is not None else \
+            f"forked from {title} {pkg.version}"
         for inst in pkg.instances:
             rp = dest / inst.runtime_rel
             t = rp.read_text()
             t = _set_top_key(t, "name", f"{fid}-{inst.name}")
             t = _set_top_key(t, "group", fid)
-            t = _prefix_description(t, f"{display} — forked from {title} {pkg.version}.")
+            t = _prefix_description(t, f"{display} — {origin}.")
             rp.write_text(t)
         forked = _pkg.load(dest)
         errs = _pkg.validate(forked)
@@ -181,5 +233,5 @@ def fork(pkg, root, owner=None, name=None, log=lambda m: None):
     except Exception:
         shutil.rmtree(dest, ignore_errors=True)
         raise
-    log(f"  forked {pkg.id} {pkg.version} → {dest} ({display})")
+    log(f"  {'copied' if parent_ff is not None else 'forked'} {pkg.id} {pkg.version} → {dest} ({display})")
     return dest, info
