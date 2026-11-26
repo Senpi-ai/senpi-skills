@@ -104,6 +104,7 @@ exit:
       # Trailing DISABLED: the phase-1 floor trails HIGH-WATER, so after a small favourable
       # move it can still sit BELOW entry and close a WINNER at a loss — churning fees.
       # The ratchet must only ever lock a GAIN, or the position rides to the stop.
+      # HARD STOP: max_loss_pct is an exchange stop-loss at -max_loss_pct ROE from entry; enabled: false turns off the trailing only, never the stop.
       enabled: false
       max_loss_pct: 30.0   # 30% ROE = 15% of price at 2x — wide enough to hold an ordinary dip
       retrace_threshold: 10

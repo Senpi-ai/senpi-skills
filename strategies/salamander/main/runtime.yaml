@@ -127,6 +127,7 @@ exit:
       # price distance = max_loss_pct / leverage). 1.3.0 widened it from 6% ROE (1.2% of
       # price): the entry is a 3-7% pullback and every live close had been that stop.
       # retrace_threshold below is inert while enabled: false.
+      # HARD STOP: max_loss_pct is an exchange stop-loss at -max_loss_pct ROE from entry; enabled: false turns off the trailing only, never the stop.
       enabled: false
       max_loss_pct: 12.0   # 12% ROE = 2.4% of price at 5x (1.3.0; was 6.0 = 1.2% of price)
       retrace_threshold: 6

@@ -146,6 +146,7 @@ exit:
       # BELOW entry and ratchet a winner into a loss. Disabling it does NOT remove the stop:
       # buildInitialState seeds floorPrice from max_loss_pct either way and simply starts the
       # position in phase 2 (senpi-trading-runtime/src/dsl/events/initial-state.ts:63-95).
+      # HARD STOP: max_loss_pct is an exchange stop-loss at -max_loss_pct ROE from entry; enabled: false turns off the trailing only, never the stop.
       enabled: false
       max_loss_pct: 25.0                 # 25% ROE = a 2.5% price move at 10x. Wider than PENGUIN's
                                          # 1.5% because a signal thesis is not a scalp, and far

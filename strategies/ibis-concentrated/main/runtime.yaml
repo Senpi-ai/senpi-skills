@@ -261,6 +261,7 @@ exit:
       #
       # 16, not the parent's 8, and the reason is measured rather than preferred — see the header.
       # At 4x this is a 4.00% price stop against a 1.65% median 4h bar.
+      # HARD STOP: max_loss_pct is an exchange stop-loss at -max_loss_pct ROE from entry; enabled: false turns off the trailing only, never the stop.
       enabled: false
       max_loss_pct: 16
       retrace_threshold: 16

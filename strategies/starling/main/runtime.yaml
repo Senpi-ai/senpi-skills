@@ -130,6 +130,7 @@ exit:
       # With enabled:false the ONLY floor beneath entry is the FIXED max-loss, and gains are
       # protected exclusively by the phase-2 tiers — which can never lock a negative.
       # (runtime: phase1BaseFloor() returns absoluteFloor verbatim when enabled === false.)
+      # HARD STOP: max_loss_pct is an exchange stop-loss at -max_loss_pct ROE from entry; enabled: false turns off the trailing only, never the stop.
       enabled: false
       max_loss_pct: 15.0            # the real risk budget: 15% ROE = 3.0% of PRICE at 5x, fixed from ENTRY
       retrace_threshold: 14         # INERT while enabled:false (parser forces it to 1) — kept for schema + easy revert

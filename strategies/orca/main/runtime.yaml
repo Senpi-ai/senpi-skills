@@ -132,6 +132,7 @@ exit:
       # could sit BELOW entry and close a winner at a loss. max_loss_pct is set to the old
       # retrace (8% ROE) so the per-trade risk cap is UNCHANGED — only the ratchet-into-
       # a-loss behaviour is removed. retrace_threshold below is inert while enabled: false.
+      # HARD STOP: max_loss_pct is an exchange stop-loss at -max_loss_pct ROE from entry; enabled: false turns off the trailing only, never the stop.
       enabled: false
       max_loss_pct: 10.5   # 1.5% of price at 7x — was 8.0 ROE (=1.14% px), inside the measured 1.38% p75 bounce
       retrace_threshold: 8                   # v2: raised 3->8 (HYPE post-mortem) to give trends room
