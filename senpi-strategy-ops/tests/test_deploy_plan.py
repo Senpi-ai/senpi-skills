@@ -13,6 +13,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import types
 import unittest
 from pathlib import Path
@@ -123,15 +124,25 @@ class Plan(unittest.TestCase):
         code, out, err = self._catalog()
         self.assertEqual(code, 0, err)
         lines = out.strip().splitlines()
-        self.assertEqual(lines[0], "Test plan for hawk on virtual money (nothing real moves): buys breakouts with a 6% "
-                                   "stop, trading a few times a week. Simulations:")
-        self.assertEqual(lines[1], "1. As designed.")
-        self.assertEqual(lines[2], "2. pickier: pickier entries: score 7 instead of 5 (scanner.inputs.minScore = 7)")
+        self.assertEqual(lines[0], "Test plan for hawk, on virtual money (nothing real moves):")
+        self.assertEqual(lines[1], "1. As designed: buys breakouts with a 6% stop · trades a few times a week · "
+                                   "$1,000 · 10 credits an hour")
+        self.assertEqual(lines[2], "2. pickier: pickier entries: score 7 instead of 5 (scanner.inputs.minScore = 7) · "
+                                   "trades a few times a week · $1,000 · 10 credits an hour")
         self.assertTrue(lines[3].startswith("3. wider-stop: a looser stop"))
-        self.assertEqual(lines[4], "$1,000 each, 10 credits an hour each (30 an hour for all 3, 720 a day). "
-                                   "Nothing has started.")
+        self.assertTrue(lines[3].endswith(" · trades a few times a week · $1,000 · 10 credits an hour"))
+        self.assertEqual(lines[4], "All 3: 30 credits an hour (720 a day). Nothing has started.")
         self.assertEqual(lines[5], QUESTION)
         self.assertEqual(len(lines), 6)
+
+    def test_a_variation_can_name_how_often_it_trades(self):
+        code, out, err = self._run("hawk", "--design", "d", "--trades", "a few times a week",
+                                   "--variant", "pickier|scanner.inputs.minScore=7|pickier entries|about once a week",
+                                   "--variant", "ok|leverage=3|half leverage")
+        self.assertEqual(code, 0, err)
+        self.assertIn("2. pickier: pickier entries (scanner.inputs.minScore = 7) · trades about once a week · "
+                      "$1,000 · 10 credits an hour", out)
+        self.assertIn("3. ok: half leverage (leverage = 3) · trades a few times a week ·", out)
 
     def test_the_plan_starts_nothing(self):
         self._catalog()
@@ -163,8 +174,8 @@ class Plan(unittest.TestCase):
                                    "--budget-choices", "100,1000")
         self.assertEqual(code, 0, err)
         lines = out.strip().splitlines()
-        self.assertEqual(lines[0], "Simulation of hawk on virtual money (nothing real moves): buys breakouts with a 6% "
-                                   "stop, trading a few times a week.")
+        self.assertEqual(lines[0], "Simulation of hawk, on virtual money (nothing real moves): buys breakouts with a 6% "
+                                   "stop · trades a few times a week")
         self.assertEqual(lines[1], "Budget: $100 (10 credits an hour, 240 a day) · $1,000 (10 credits an hour, "
                                    "240 a day). Nothing starts until you pick one.")
         self.assertEqual(lines[2], "Which budget?")
@@ -174,7 +185,8 @@ class Plan(unittest.TestCase):
     def test_one_simulation_at_the_default_budget_asks_to_start(self):
         code, out, err = self._run("hawk", "--design", "d", "--trades", "t")
         self.assertEqual(code, 0, err)
-        self.assertIn("$1,000, 10 credits an hour (240 a day). Nothing has started.", out)
+        self.assertIn("Simulation of hawk, on virtual money (nothing real moves): d · trades t · $1,000 · "
+                      "10 credits an hour (240 a day). Nothing has started.", out)
         self.assertEqual(out.strip().splitlines()[-1], "Start it?")
 
     def test_a_variation_that_changes_nothing_is_refused(self):
@@ -188,8 +200,8 @@ class Plan(unittest.TestCase):
     def test_one_simulation_needs_no_design_or_trades(self):
         code, out, err = self._run("hawk")
         self.assertEqual(code, 0, err)
-        self.assertEqual(out.strip().splitlines()[0], "Simulation of hawk on virtual money (nothing real moves).")
-        self.assertIn("$1,000, 10 credits an hour (240 a day).", out)
+        self.assertEqual(out.strip().splitlines()[0], "Simulation of hawk, on virtual money (nothing real moves): "
+                                                      "$1,000 · 10 credits an hour (240 a day). Nothing has started.")
 
     def test_a_test_plan_needs_design_and_trades(self):
         code, _out, err = self._run("hawk", *self.VARIANTS)
@@ -221,9 +233,20 @@ class Plan(unittest.TestCase):
                                    "--variant", "ok|minScore=7|pickier entries")
         self.assertEqual(code, 0, err)
 
-    def test_fewer_than_two_variations_is_not_a_test_plan(self):
-        code, out, err = self._run("hawk", "--design", "d", "--trades", "t",
-                                   "--variant", "ok|leverage=3|half leverage")
+    def test_one_variation_is_one_simulation_with_that_setting(self):
+        code, out, err = self._run("hawk", "--variant", "stop4|exit.dsl_preset.phase1.max_loss_pct=4|a 4% stop")
+        self.assertEqual(code, 0, err)
+        lines = out.strip().splitlines()
+        self.assertEqual(lines[0], "Simulation of hawk, on virtual money (nothing real moves): stop4: a 4% stop "
+                                   "(exit.dsl_preset.phase1.max_loss_pct = 4) · $1,000 · 10 credits an hour (240 a day). "
+                                   "Nothing has started.")
+        self.assertEqual(lines[1], "Start it?")
+        [quote] = [p for m, p in self.calls if m == BATCH]
+        self.assertEqual([v["settings"] for v in quote["variants"]], [{"exit.dsl_preset.phase1.max_loss_pct": 4}])
+
+    def test_more_than_four_variations_is_refused(self):
+        many = [x for i in range(5) for x in ("--variant", f"v{i}|leverage={i + 1}|lev {i + 1}")]
+        code, _out, err = self._run("hawk", "--design", "d", "--trades", "t", *many)
         self.assertEqual(code, deploy.EXIT_CODES["refused"])
         self.assertIn("two to four variations", err)
 
@@ -244,6 +267,8 @@ class Plan(unittest.TestCase):
     def test_budget_choices_each_carry_their_quoted_cost(self):
         code, out, err = self._catalog("--budget-choices", "100,500,1000")
         self.assertEqual(code, 0, err)
+        self.assertIn("2. pickier: pickier entries: score 7 instead of 5 (scanner.inputs.minScore = 7) · trades a "
+                      "few times a week\n", out)
         self.assertIn("Budget each: $100 (10 credits an hour each, 30 an hour for all 3, 720 a day) · $500 (10 "
                       "credits an hour each", out)
         self.assertIn("· $1,000 (10 credits an hour each", out)
@@ -254,7 +279,8 @@ class Plan(unittest.TestCase):
     def test_a_named_budget_is_quoted_at_that_budget(self):
         code, out, err = self._catalog("--budget", "250")
         self.assertEqual(code, 0, err)
-        self.assertIn("$250 each, 10 credits an hour each (30 an hour for all 3, 720 a day).", out)
+        self.assertIn("· $250 · 10 credits an hour", out)
+        self.assertIn("All 3: 30 credits an hour (720 a day).", out)
         self.assertEqual([p["budgetUsd"] for m, p in self.calls if m == BATCH], [250])
 
     def test_the_users_own_package_is_quoted_through_its_simulation_dry_run(self):
@@ -266,8 +292,8 @@ class Plan(unittest.TestCase):
         starts = [p for m, p in self.calls if m == START]
         self.assertEqual(len(starts), 1)
         self.assertIs(starts[0]["dryRun"], True)
-        self.assertIn("Test plan for dip-gift on virtual money", out)
-        self.assertIn("$1,000 each, 10 credits an hour each (30 an hour for all 3, 720 a day).", out)
+        self.assertIn("Test plan for dip-gift, on virtual money", out)
+        self.assertIn("All 3: 30 credits an hour (720 a day).", out)
         self.assertEqual(out.strip().splitlines()[-1], QUESTION)
 
     def test_an_unclear_reply_is_not_a_yes(self):
@@ -323,9 +349,16 @@ class AStartNeedsItsPlan(unittest.TestCase):
                 code = e.code
         return code, out.getvalue(), err.getvalue()
 
-    def _plan(self, *extra):
-        code, _out, err = self._main("plan", str(self.pkg_dir), *extra)
+    def _plan(self, *extra, age=None, ref=None):
+        code, _out, err = self._main("plan", ref or str(self.pkg_dir), *extra)
         self.assertEqual(code, 0, err)
+        self._age(deploy.PLAN_MIN_GAP_S + 1 if age is None else age)
+
+    def _age(self, seconds):
+        for rec in (self.root / deploy.PLAN_RECORD_DIR).glob("*.json"):
+            data = json.loads(rec.read_text())
+            data["at"] -= seconds
+            rec.write_text(json.dumps(data))
 
     def test_a_yes_start_with_no_plan_starts_nothing_and_names_plan(self):
         code, _out, err = self._main("create", str(self.pkg_dir), "--simulation", "--user-said-yes")
@@ -359,12 +392,16 @@ class AStartNeedsItsPlan(unittest.TestCase):
                                      "--budget", "500")
         self.assertEqual(code, 0, err)
 
+    def test_a_start_in_the_same_turn_as_its_plan_starts_nothing(self):
+        self._plan(age=0)
+        code, _out, err = self._main("create", str(self.pkg_dir), "--simulation", "--user-said-yes")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("[E_NO_PLAN]", err)
+        self.assertIn("end your turn", err)
+        self.assertEqual(self.started, [])
+
     def test_a_stale_plan_does_not_count(self):
-        self._plan()
-        rec = next((self.root / deploy.PLAN_RECORD_DIR).glob("*.json"))
-        data = json.loads(rec.read_text())
-        data["at"] -= deploy.PLAN_RECORD_TTL_S + 1
-        rec.write_text(json.dumps(data))
+        self._plan(age=deploy.PLAN_RECORD_TTL_S + 1)
         code, _out, err = self._main("create", str(self.pkg_dir), "--simulation", "--user-said-yes")
         self.assertEqual(code, deploy.EXIT_CODES["refused"])
         self.assertIn("[E_NO_PLAN]", err)
@@ -382,6 +419,121 @@ class AStartNeedsItsPlan(unittest.TestCase):
     def test_a_live_create_is_untouched(self):
         code, _out, err = self._main("create", str(self.pkg_dir), "--budget", "50")
         self.assertNotIn("E_NO_PLAN", err)
+
+
+class ACatalogPlanStartsFromItsRecord(unittest.TestCase):
+    """`start-plan` starts exactly the batch `plan` quoted, only after a later yes: on dev an agent ran
+    `plan hawk` and started it in the same turn, reading "simulate hawk" as the yes."""
+
+    def setUp(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        self.root = Path(tmp)
+        old = os.environ.get("SENPI_STRATEGIES_DIR")
+        os.environ["SENPI_STRATEGIES_DIR"] = tmp
+        self.addCleanup(lambda: os.environ.__setitem__("SENPI_STRATEGIES_DIR", old) if old is not None
+                        else os.environ.pop("SENPI_STRATEGIES_DIR", None))
+        self.calls = []
+        orig = _cli.gateway_call
+        self.addCleanup(lambda: setattr(_cli, "gateway_call", orig))
+        orig_sleep = deploy._sleep
+        self.addCleanup(lambda: setattr(deploy, "_sleep", orig_sleep))
+        deploy._sleep = lambda s: None
+
+        def _gateway(method, params=None, rpc_timeout_ms=None, timeout_s=None):
+            params = dict(params or {})
+            self.calls.append((method, params))
+            if method == BATCH:
+                if params.get("dryRun"):
+                    return _batch_quote(params)
+                return _answer("ok", {"requestId": params["requestId"], "dryRun": False, "rows": [
+                    {"label": v["label"], "status": "starting"} for v in params["variants"]]})
+            if method == "senpi.simulations.batchStatus":
+                return _answer("ok", {"requestId": params["requestId"], "rows": [
+                    {"label": "as-designed", "status": "started", "phase": "live", "simulationId": "simulation-1"}]})
+            raise AssertionError(f"unexpected gateway call {method}")
+        _cli.gateway_call = _gateway
+
+    def _main(self, *argv):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                deploy._main(["deploy.py", *argv])
+                code = 0
+            except SystemExit as e:
+                code = e.code
+        return code, out.getvalue(), err.getvalue()
+
+    def _plan(self, *extra, age=None):
+        code, _out, err = self._main("plan", "hawk", "--design", "d", "--trades", "t", *extra)
+        self.assertEqual(code, 0, err)
+        for rec in (self.root / deploy.PLAN_RECORD_DIR).glob("*.json"):
+            data = json.loads(rec.read_text())
+            data["at"] -= deploy.PLAN_MIN_GAP_S + 1 if age is None else age
+            rec.write_text(json.dumps(data))
+
+    def _starts(self):
+        return [p for m, p in self.calls if m == BATCH and not p.get("dryRun")]
+
+    def test_after_the_yes_it_starts_the_quoted_batch(self):
+        self._plan("--variant", "pickier|scanner.inputs.minScore=7|pickier", "--variant", "lev3|leverage=3|less")
+        code, out, err = self._main("start-plan", "hawk", "--user-said-yes")
+        self.assertEqual(code, 0, err)
+        [start] = self._starts()
+        self.assertIs(start["userSaidYes"], True)
+        self.assertEqual(start["strategy"], "hawk")
+        self.assertEqual(start["budgetUsd"], 1000)
+        self.assertEqual([v["settings"] for v in start["variants"]],
+                         [{}, {"scanner.inputs.minScore": 7}, {"leverage": 3}])
+        self.assertIn("as-designed: live (simulation-1)", out)
+
+    def test_the_opening_request_is_not_the_yes(self):
+        self._plan(age=0)
+        code, _out, err = self._main("start-plan", "hawk", "--user-said-yes")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("[E_NO_PLAN]", err)
+        self.assertIn("end your turn", err)
+        self.assertEqual(self._starts(), [])
+
+    def test_no_plan_no_start(self):
+        code, _out, err = self._main("start-plan", "hawk", "--user-said-yes")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("deploy.py plan hawk", err)
+        self.assertEqual(self.calls, [])
+
+    def test_without_the_yes_flag_it_starts_nothing(self):
+        self._plan()
+        code, _out, err = self._main("start-plan", "hawk")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("E_NEEDS_USER_YES", err)
+        self.assertEqual(self._starts(), [])
+
+    def test_a_tapped_budget_choice_starts_at_that_budget(self):
+        self._plan("--budget-choices", "100,500")
+        code, _out, err = self._main("start-plan", "hawk", "--user-said-yes", "--budget", "500")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self._starts()[0]["budgetUsd"], 500)
+
+    def test_an_unquoted_budget_starts_nothing(self):
+        self._plan()
+        code, _out, err = self._main("start-plan", "hawk", "--user-said-yes", "--budget", "250")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("--budget 250", err)
+        self.assertEqual(self._starts(), [])
+
+    def test_one_named_setting_starts_alone(self):
+        code, _out, err = self._main("plan", "hawk", "--variant", "lev3|leverage=3|half the leverage")
+        self.assertEqual(code, 0, err)
+        rec = next((self.root / deploy.PLAN_RECORD_DIR).glob("*.json"))
+        rec.write_text(json.dumps({**json.loads(rec.read_text()), "at": time.time() - deploy.PLAN_MIN_GAP_S - 1}))
+        code, _out, err = self._main("start-plan", "hawk", "--user-said-yes")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([v["settings"] for v in self._starts()[0]["variants"]], [{"leverage": 3}])
+
+    def test_the_plan_tells_the_agent_to_start_with_start_plan(self):
+        _code, _out, err = self._main("plan", "hawk", "--design", "d", "--trades", "t")
+        self.assertIn("deploy.py start-plan hawk --user-said-yes", err)
+        self.assertNotIn("senpi.simulations.startBatch", err)
 
 
 if __name__ == "__main__":

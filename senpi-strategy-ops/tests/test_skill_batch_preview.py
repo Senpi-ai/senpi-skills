@@ -33,8 +33,7 @@ class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
         self.assertIn('{"label":"<name>","budgetUsd":<its budget>,"settings":{…}}', params)
         self.assertIn("never their total as the batch's `budgetUsd`", VARIATIONS)
         self.assertIn("each row's `budgetUsd`", VARIATIONS)
-        start = VARIATIONS[VARIATIONS.find("After the yes, start them all"):VARIATIONS.find("The box validates and starts them")]
-        self.assertIn('{"label":"<name>","budgetUsd":<its budget>,"settings":{"<key>":<value>}}', start)
+        self.assertIn("except for what `plan` cannot quote (`parentId`, budgets that differ)", VARIATIONS)
 
     def test_nothing_is_created_before_the_yes(self):
         self.assertIn("create nothing until the user says yes", VARIATIONS)
