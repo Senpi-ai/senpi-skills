@@ -5,14 +5,14 @@ description: >-
   paid plan or while the account holds credits), referral earnings — and explain the AI-credits usage meter. Use for "how many points
   do I have?", "what's my rank/tier?", "where did my tier go?", "what are my fees?", "my referral
   rewards", "how do referrals work?", and for credits: "what is the bubble/meter in the header?", "why are my credits going
-  down?", "how many credits do I have?", "how many credits have I used, and on what?", "how much did simulations cost me?", "how much did that cost?", "does my strategy use credits?", "can I trade or withdraw my
+  down?", "how many credits do I have?", "what have I used credits on?", "how much did that cost?", "does my strategy use credits?", "can I trade or withdraw my
   credits?", and for plans: "what plans are there?", "how much
   does Senpi cost?", "what do I get on Pro/Quant?", "how do I get free credits?", "where are my
   milestone credits?", "do I need a subscription to keep my strategy running?", "what happens when my
   trial ends?", and for strategy limits: "what are my strategy limits?", "when can I start a new
   strategy?", "what are the strategy limits on the paid plans?". Use this instead of calling user_get_senpi_points by hand. A hidden engine
-  (scripts/status.py) pulls points, the fee, referral, strategy limits and the credit balance (in
-  credits, from user_get_credits) in one call; the plan catalog and the end of the free-credit
+  (scripts/status.py) pulls points, the fee, referral, strategy limits and the credits left
+  and used (user_get_credits) in one call; the plan catalog and the end of the free-credit
   milestones are published here and may be quoted. Requires a USER-scoped Senpi token.
 license: Apache-2.0
 metadata:
