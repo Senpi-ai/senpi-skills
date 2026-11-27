@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""`deploy.py create --simulation --variant-of <id> [--batch <id>]`: a variation joins its parent's group.
+"""`deploy.py create --simulation --variant-of <id> --batch <id>`: a variation joins its parent's group.
 
     python3 -m pytest senpi-strategy-ops/tests/test_deploy_variations.py
 """
@@ -31,6 +31,7 @@ def _gw(kind, payload=None):
 class Variations(unittest.TestCase):
     def setUp(self):
         self._orig = _cli.gateway_call
+        self._caps = deploy._deploy_capabilities
         self.calls = []
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp, True)
@@ -89,10 +90,39 @@ class Variations(unittest.TestCase):
         self.assertEqual(params["parentId"], PARENT)
         self.assertEqual(params["batchId"], "penguin-1")
 
-    def test_a_variant_without_a_batch_sends_no_batch(self):
-        self._start(self._args(variant_of=PARENT))
-        self.assertEqual(self.calls[0][1]["parentId"], PARENT)
-        self.assertNotIn("batchId", self.calls[0][1])
+    def test_a_variant_without_a_batch_is_refused_before_calling(self):
+        for mode in ((), ("--dry-run",), ("--user-said-yes",)):
+            self._refused("--simulation", "--variant-of", PARENT, *mode, mentions=("--variant-of needs --batch",))
+
+    def _full(self, **kw):
+        msg = ("[E_BATCH_TOO_LARGE] batch b-1 already has 5 simulations on this box; a batch takes at most 5 "
+               "(the design and 4 variations). Nothing was quoted or started.")
+        self.answer = {**_gw("refused"), "code": "E_BATCH_TOO_LARGE", "message": msg}
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()), \
+                self.assertRaises(SystemExit) as stop:
+            if kw.get("dry_run"):
+                deploy._simulation_dry_run(self._pkg(), "senpi.deploy.startSimulation",
+                                           {"packageDir": "/p", "parentId": PARENT, "batchId": "b-1"},
+                                           self._args(variant_of=PARENT, batch="b-1", dry_run=True))
+            else:
+                deploy.start_deploy(self._pkg(), self._args(variant_of=PARENT, batch="b-1"), lambda m: None)
+        return stop.exception.code, err.getvalue(), msg
+
+    def test_a_full_batch_is_relayed_as_a_stop(self):
+        code, err, msg = self._full()
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn(msg, err)
+        self.assertIn(deploy.BATCH_FULL_STOP, err)
+
+    def test_a_full_batch_on_a_quote_is_a_stop_not_an_unpriced_ask(self):
+        deploy._deploy_capabilities = lambda as_json: ("ok", {"simulationYesGate": True})
+        self.addCleanup(lambda: setattr(deploy, "_deploy_capabilities", self._caps))
+        code, err, msg = self._full(dry_run=True)
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn(msg, err)
+        self.assertIn(deploy.BATCH_FULL_STOP, err)
+        self.assertNotIn("The cost could not be quoted", err)
 
     def test_a_start_without_them_sends_neither(self):
         self._start(self._args())
@@ -146,6 +176,10 @@ class Variations(unittest.TestCase):
         msg = deploy.outside_durable_root(pkg, "create", simulation=True, variant_of=PARENT, batch="b-1")
         self.assertIn(f"--variant-of {PARENT}", msg)
         self.assertIn("--batch b-1", msg)
+
+    def test_the_stop_says_no_other_way(self):
+        self.assertIn("Stop", deploy.BATCH_FULL_STOP)
+        self.assertIn("new batch id", deploy.BATCH_FULL_STOP)
 
     def test_runtime_does_not_take_them(self):
         code, _err = self._main("runtime", "omega", "--variant-of", PARENT)
