@@ -530,6 +530,20 @@ class ACatalogPlanStartsFromItsRecord(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual([v["settings"] for v in self._starts()[0]["variants"]], [{"leverage": 3}])
 
+    def test_a_start_the_runtime_refuses_says_so_and_sends_the_agent_back_to_plan(self):
+        self._plan()
+        orig = _cli.gateway_call
+        no_quote = ("[E_NO_QUOTE] Nothing was started: this box answered no quote of this exact batch in the last "
+                    "6 hours. Quote it with these params and \"dryRun\": true, show the user, and end your turn.")
+        _cli.gateway_call = lambda method, params=None, **kw: (
+            _answer("refused", None, no_quote) if method == BATCH and not (params or {}).get("dryRun")
+            else orig(method, params, **kw))
+        code, _out, err = self._main("start-plan", "hawk", "--user-said-yes")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("[E_NO_QUOTE]", err)
+        self.assertIn("deploy.py plan hawk", err)
+        self.assertNotIn("batch-wait", err)
+
     def _call_start(self, **params):
         body = {"requestId": "r-1", "strategy": "hawk", "budgetUsd": 1000, "dryRun": False, "userSaidYes": True,
                 "variants": [{"label": "as-designed", "settings": {}}], **params}

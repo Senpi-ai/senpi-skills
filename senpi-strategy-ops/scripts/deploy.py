@@ -2955,6 +2955,11 @@ def cmd_start_plan(a):
     begin_command_budget(START_WALL_S + BATCH_WAIT_BUDGET)
     try:
         r = _gw("senpi.simulations.startBatch", params, START_RPC_MS, START_WALL_S)
+        if r["kind"] == "refused":
+            print(f"{r['message']}\n  Next: run `deploy.py plan {a.package}{budget_flag}` again (with the same "
+                  f"--variant lines), relay it as given, and end your turn; start only on a yes in their next "
+                  f"message. Never start it another way.", file=sys.stderr)
+            return EXIT_CODES["refused"]
         if r["kind"] != "ok":
             print(f"The start was not confirmed ({r['message'] or r['kind']}). Read `deploy.py batch-wait "
                   f"{request_id}` before anything else; never start it again.", file=sys.stderr)
