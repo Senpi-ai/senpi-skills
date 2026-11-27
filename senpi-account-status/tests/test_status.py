@@ -66,8 +66,9 @@ def test_the_output_is_points_fee_and_referral_and_nothing_about_tiers():
                    "rank": 42.0, "rank_change": 3.0, "found": True},
         "fee": {"bps": 50.0, "pct": "0.05%"},
         "referral": {"balance_usdc": 12.5, "wallet": "0xme"},
-        "credits": {"available": True, "remaining": 1234, "burn_per_hour": 10.0,
-                    "hours_left": 123.4, "cycle_end": "2026-12-01T00:00:00.000Z"},
+        "credits": {"available": True, "remaining": 1234, "used": None, "by_category": None,
+                    "burn_per_hour": 10.0, "hours_left": 123.4, "cycle_start": None,
+                    "cycle_end": "2026-12-01T00:00:00.000Z"},
         "meta": {"warnings": []},
     }
 
@@ -113,8 +114,20 @@ def test_credits_available_reports_the_number_of_credits():
 
 def test_credits_without_burn_or_hours_keep_them_null():
     r = _credits_with({"success": True, "data": {"credits": {"remaining": "50"}}})
-    assert r["credits"] == {"available": True, "remaining": 50, "burn_per_hour": None,
-                            "hours_left": None, "cycle_end": None}
+    assert r["credits"] == {"available": True, "remaining": 50, "used": None, "by_category": None,
+                            "burn_per_hour": None, "hours_left": None, "cycle_start": None,
+                            "cycle_end": None}
+
+
+def test_credits_report_the_used_figure_and_the_simulations_and_chat_split():
+    r = _credits_with({"success": True, "data": {"credits": {
+        "remaining": 99000, "granted": 100000, "used": 1000,
+        "by_category": {"simulations": {"credits": 600, "count": 2}, "ai_chat": {"credits": 400}},
+        "cycle_start": "2026-11-27T11:12:32Z", "cycle_end": "2026-12-27T11:12:32Z"}}})
+    assert r["credits"]["used"] == 1000
+    assert r["credits"]["by_category"] == {"simulations": {"credits": 600, "count": 2},
+                                           "ai_chat": {"credits": 400}}
+    assert r["credits"]["cycle_start"] == "2026-11-27T11:12:32Z"
 
 
 def test_a_dollar_only_shape_is_unavailable_and_emits_no_dollars():
