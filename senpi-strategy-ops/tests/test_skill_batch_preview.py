@@ -86,17 +86,18 @@ class NoBudgetNamedStartsAt1000(unittest.TestCase):
         self.assertIn("No budget named: $1,000 for a new simulation.", STEP_075)
         self.assertNotIn("No budget named: ask for it", SKILL)
 
-    def test_one_simulation_whose_dry_run_is_refused_still_waits_for_the_yes(self):
-        self.assertIn("and waits for the yes; then `create <id> --simulation --user-said-yes`.", STEP_075)
-        self.assertIn("A refused dry run gets the same.", STEP_075)
+    def test_a_quote_that_fails_starts_nothing(self):
+        self.assertIn("A quote that fails starts nothing: say its cost could not be read and nothing was "
+                      "started.", STEP_075)
+        self.assertNotIn("A refused dry run gets the same.", STEP_075)
 
-    def test_a_package_of_several_wallets_is_known_before_any_dry_run_and_skips_it(self):
-        rule = STEP_075[STEP_075.find("A package of several wallets"):STEP_075.find("A refused dry run gets the same.")]
+    def test_a_package_of_several_wallets_is_quoted_and_waits_for_the_yes(self):
+        rule = STEP_075[STEP_075.find("A package of several wallets"):STEP_075.find("**A local package**")]
         self.assertIn("`wallet_count` above 1", rule)
         self.assertIn("`deploy.py validate <id>`", rule)
-        self.assertIn("takes no dry run", rule)
-        self.assertIn('"billed by the hour" with no number, and waits for the yes', rule)
-
+        self.assertIn("`plan <id>`, relayed, end the turn; on the yes, `create <id> --simulation --user-said-yes`",
+                      rule)
+        self.assertNotIn("with no number", rule)
 
 if __name__ == "__main__":
     unittest.main()

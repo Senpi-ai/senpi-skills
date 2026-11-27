@@ -414,6 +414,8 @@ class AStartNeedsItsPlan(unittest.TestCase):
                         else os.environ.pop("SENPI_STRATEGIES_DIR", None))
         self.pkg_dir = _write_pkg(self.root)
         self.started = []
+        self.quotes = []
+        self.quote_fails = False
         self.instances = ["main"]
         names = ("run_deploy", "ensure_pkg", "_fork_for_deploy", "outside_durable_root", "full_validate",
                  "start_request_ids_supported")
@@ -433,6 +435,9 @@ class AStartNeedsItsPlan(unittest.TestCase):
             if method == HEALTH:
                 return _answer("ok", {"deploy": {"capabilities": {"simulationYesGate": True}}})
             if method == START and (params or {}).get("dryRun") is True:
+                self.quotes.append((method, dict(params)))
+                if self.quote_fails:
+                    return _answer("error", None, "simulation-service is temporarily unavailable")
                 return _answer("ok", {"dryRun": True, "budgetUsd": params.get("budget"), "creditsPerHour": 10,
                                       "creditsPerDay": 240, "creditsPerHourAfter": 10})
             raise AssertionError(f"unexpected gateway call {method} {params}")
@@ -510,10 +515,50 @@ class AStartNeedsItsPlan(unittest.TestCase):
                                      "--variant-of", "simulation-11111111-2222-4333-8444-555555555555")
         self.assertEqual(code, 0, err)
 
-    def test_a_package_of_several_wallets_keeps_its_billed_by_the_hour_yes(self):
+    def _write_books(self, name="two-books"):
+        pkg = self.root / name
+        pkg.mkdir()
+        (pkg / "strategy.yaml").write_text(
+            f"id: {name}\ninstances:\n  - name: long\n    runtime: long/runtime.yaml\n"
+            f"  - name: short\n    runtime: short/runtime.yaml\n")
+        for book in ("long", "short"):
+            (pkg / book).mkdir()
+            (pkg / book / "runtime.yaml").write_text(RUNTIME_YAML)
         self.instances = ["long", "short"]
-        code, _out, err = self._main("create", str(self.pkg_dir), "--simulation", "--user-said-yes")
+        return pkg
+
+    def test_a_package_of_several_wallets_starts_nothing_without_its_plan(self):
+        self._write_books()
+        code, _out, err = self._main("create", "two-books", "--simulation", "--user-said-yes")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("[E_NO_PLAN]", err)
+        self.assertEqual(self.started, [])
+
+    def test_a_package_of_several_wallets_is_quoted_by_its_id_and_starts_on_the_yes(self):
+        self._write_books()
+        self._plan(ref="two-books")
+        self.assertEqual([p.get("dryRun") for m, p in self.quotes], [True])
+        code, _out, err = self._main("create", "two-books", "--simulation", "--user-said-yes")
         self.assertEqual(code, 0, err)
+        self.assertEqual(len(self.started), 1)
+
+    def test_a_failed_quote_lets_nothing_start(self):
+        self.quote_fails = True
+        code, out, err = self._main("plan", str(self.pkg_dir))
+        self.assertEqual(code, deploy.EXIT_INTERNAL)
+        self.assertEqual(out, "")
+        self.assertIn("could not be quoted", err)
+        self._age(deploy.PLAN_MIN_GAP_S + 1)
+        code, _out, err = self._main("create", str(self.pkg_dir), "--simulation", "--user-said-yes")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("[E_NO_PLAN]", err)
+        self.assertEqual(self.started, [])
+
+    def test_runtime_is_the_same_start_and_needs_the_plan_too(self):
+        code, _out, err = self._main("runtime", str(self.pkg_dir), "--simulation", "--user-said-yes")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("[E_NO_PLAN]", err)
+        self.assertEqual(self.started, [])
 
     def test_a_live_create_is_untouched(self):
         code, _out, err = self._main("create", str(self.pkg_dir), "--budget", "50")
