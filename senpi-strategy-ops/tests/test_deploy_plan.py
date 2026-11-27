@@ -663,13 +663,23 @@ class ACatalogPlanStartsFromItsRecord(unittest.TestCase):
         ten = [{"label": f"v{i}", "settings": {"leverage": i + 1}} for i in range(10)]
         variation = {"requestId": "r-3", "parentId": "simulation-1", "budgetUsd": 1000, "dryRun": False,
                      "userSaidYes": True, "variants": ten}
-        for call in (lambda: self._call_start(variants=ten), lambda: self._call_start(variants=ten, dryRun=True),
-                     lambda: self._main("call", "senpi.simulations.startBatch", "--params", json.dumps(variation))):
+        for call, cap in ((lambda: self._call_start(variants=ten), "at most 5"),
+                          (lambda: self._call_start(variants=ten, dryRun=True), "at most 5"),
+                          (lambda: self._main("call", "senpi.simulations.startBatch", "--params", json.dumps(variation)),
+                           "at most 4")):
             code, _out, err = call()
             self.assertEqual(code, deploy.EXIT_CODES["refused"])
             self.assertIn("[E_BATCH_TOO_LARGE]", err)
-            self.assertIn("at most 5", err)
+            self.assertIn(cap, err)
             self.assertIn("second batch", err)
+        self.assertEqual(self.calls, [])
+
+    def test_five_variations_of_a_running_simulation_through_call_are_refused(self):
+        five = [{"label": f"v{i}", "settings": {"leverage": i + 1}} for i in range(5)]
+        body = {"requestId": "r-5", "parentId": "simulation-1", "budgetUsd": 1000, "dryRun": True, "variants": five}
+        code, _out, err = self._main("call", "senpi.simulations.startBatch", "--params", json.dumps(body))
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("[E_BATCH_TOO_LARGE]", err)
         self.assertEqual(self.calls, [])
 
     def test_five_simulations_through_call_are_quoted(self):

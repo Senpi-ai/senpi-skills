@@ -698,7 +698,8 @@ CALL_METHODS = {"senpi.packages.list": False, "senpi.packages.get": False,
 def _call_batch_too_large(method, params):
     """The number of simulations a batch sent through `call` asks for, when it is more than a plan starts."""
     variants = params.get("variants")
-    if method == "senpi.simulations.startBatch" and isinstance(variants, list) and len(variants) > PLAN_MAX_SIMULATIONS:
+    cap = PLAN_MAX_VARIATIONS if params.get("parentId") else PLAN_MAX_SIMULATIONS
+    if method == "senpi.simulations.startBatch" and isinstance(variants, list) and len(variants) > cap:
         return len(variants)
     return None
 
@@ -778,8 +779,11 @@ def cmd_call(a):
     starts = CALL_METHODS[a.method]
     count = _call_batch_too_large(a.method, params)
     if count is not None:
-        print(f"[E_BATCH_TOO_LARGE] {count} simulations in one batch; a batch takes at most {PLAN_MAX_SIMULATIONS} "
-              f"(the design and {PLAN_MAX_VARIATIONS} variations). Nothing was quoted or started.\n"
+        what = (f"{count} variations of a running simulation in one batch; it takes at most {PLAN_MAX_VARIATIONS}, the "
+                f"running simulation being the design" if params.get("parentId") else
+                f"{count} simulations in one batch; a batch takes at most {PLAN_MAX_SIMULATIONS} (the design and "
+                f"{PLAN_MAX_VARIATIONS} variations)")
+        print(f"[E_BATCH_TOO_LARGE] {what}. Nothing was quoted or started.\n"
               f"  Next: pick up to {PLAN_MAX_VARIATIONS} variations and quote that batch. Offer the rest as a second "
               f"batch, started only after its own quote and the user's yes to it. Never start it another way.",
               file=sys.stderr)
