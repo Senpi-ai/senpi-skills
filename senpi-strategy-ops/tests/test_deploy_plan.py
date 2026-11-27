@@ -35,6 +35,18 @@ def _answer(kind, payload=None, message=None):
             "argv": [], "elapsed": 0.1, "transport": None}
 
 
+def _chat(wrote_s_ago, **fields):
+    """One chat as `sessions.list` lists it, the user's last message `wrote_s_ago` seconds ago."""
+    return {"key": "agent:main:dashboard:x", "lastInteractionAt": (time.time() - wrote_s_ago) * 1000, **fields}
+
+
+def _chats_answer(chats):
+    """`sessions.list`. None: the user has just written (a later message than any plan in a test)."""
+    if chats == "unreadable":
+        return _answer("error", message="gateway closed")
+    return _answer("ok", {"sessions": [_chat(0)] if chats is None else chats})
+
+
 def _batch_quote(params, per_hour=10, refuse=None):
     rows = []
     for v in params["variants"]:
@@ -430,6 +442,7 @@ class AStartNeedsItsPlan(unittest.TestCase):
         deploy.outside_durable_root = lambda p, cmd, simulation=False, **k: None
         deploy.full_validate = lambda p: []
         deploy.start_request_ids_supported = lambda log, as_json=False: True
+        self.chats = None
 
         def _gateway(method, params=None, rpc_timeout_ms=None, timeout_s=None):
             if method == HEALTH:
@@ -440,6 +453,8 @@ class AStartNeedsItsPlan(unittest.TestCase):
                     return _answer("error", None, "simulation-service is temporarily unavailable")
                 return _answer("ok", {"dryRun": True, "budgetUsd": params.get("budget"), "creditsPerHour": 10,
                                       "creditsPerDay": 240, "creditsPerHourAfter": 10})
+            if method == "sessions.list":
+                return _chats_answer(self.chats)
             raise AssertionError(f"unexpected gateway call {method} {params}")
         _cli.gateway_call = _gateway
 
@@ -496,13 +511,48 @@ class AStartNeedsItsPlan(unittest.TestCase):
                                      "--budget", "500")
         self.assertEqual(code, 0, err)
 
-    def test_a_start_in_the_same_turn_as_its_plan_starts_nothing(self):
-        self._plan(age=0)
-        code, _out, err = self._main("create", str(self.pkg_dir), "--simulation", "--user-said-yes")
+    def _start(self):
+        return self._main("create", str(self.pkg_dir), "--simulation", "--user-said-yes")
+
+    def _refused_as_same_turn(self, code, err):
         self.assertEqual(code, deploy.EXIT_CODES["refused"])
         self.assertIn("[E_NO_PLAN]", err)
         self.assertIn("end your turn", err)
         self.assertEqual(self.started, [])
+
+    def test_a_start_in_the_same_turn_as_its_plan_starts_nothing(self):
+        self.chats = [_chat(wrote_s_ago=30)]
+        self._plan(age=0)
+        self._refused_as_same_turn(*self._start()[::2])
+
+    def test_waiting_inside_the_turn_that_quoted_it_still_starts_nothing(self):
+        self.chats = [_chat(wrote_s_ago=120)]
+        self._plan(age=60)
+        self._refused_as_same_turn(*self._start()[::2])
+
+    def test_a_yes_seconds_after_the_quote_starts_it(self):
+        self.chats = [_chat(wrote_s_ago=0)]
+        self._plan(age=3)
+        code, _out, err = self._start()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self.started), 1)
+
+    def test_a_subagent_or_background_chat_is_not_the_user(self):
+        self.chats = [_chat(wrote_s_ago=30), _chat(wrote_s_ago=0, spawnDepth=1),
+                      _chat(wrote_s_ago=0, isBackground=True)]
+        self._plan(age=5)
+        self._refused_as_same_turn(*self._start()[::2])
+
+    def test_when_the_chats_cannot_be_read_a_start_this_soon_is_the_same_turn(self):
+        self.chats = "unreadable"
+        self._plan(age=3)
+        self._refused_as_same_turn(*self._start()[::2])
+
+    def test_when_the_chats_cannot_be_read_a_later_start_goes_ahead(self):
+        self.chats = "unreadable"
+        self._plan(age=deploy.PLAN_MIN_GAP_S + 1)
+        code, _out, err = self._start()
+        self.assertEqual(code, 0, err)
 
     def test_a_stale_plan_does_not_count(self):
         self._plan(age=deploy.PLAN_RECORD_TTL_S + 1)
@@ -595,8 +645,11 @@ class ACatalogPlanStartsFromItsRecord(unittest.TestCase):
             if method == "senpi.simulations.batchStatus":
                 return _answer("ok", {"requestId": params["requestId"], "rows": [
                     {"label": "as-designed", "status": "started", "phase": "live", "simulationId": "simulation-1"}]})
+            if method == "sessions.list":
+                return _chats_answer(self.chats)
             raise AssertionError(f"unexpected gateway call {method}")
         _cli.gateway_call = _gateway
+        self.chats = None
 
     def _main(self, *argv):
         out, err = io.StringIO(), io.StringIO()
@@ -632,12 +685,37 @@ class ACatalogPlanStartsFromItsRecord(unittest.TestCase):
         self.assertIn("as-designed: live (simulation-1)", out)
 
     def test_the_opening_request_is_not_the_yes(self):
-        self._plan(age=0)
+        self.chats = [_chat(wrote_s_ago=40)]
+        self._plan(age=30)
         code, _out, err = self._main("start-plan", "hawk", "--user-said-yes")
         self.assertEqual(code, deploy.EXIT_CODES["refused"])
         self.assertIn("[E_NO_PLAN]", err)
         self.assertIn("end your turn", err)
         self.assertEqual(self._starts(), [])
+
+    def test_the_same_quote_again_in_the_yes_turn_still_starts_it(self):
+        self.chats = [_chat(wrote_s_ago=5)]
+        self._plan(age=30)
+        self._plan(age=0)
+        code, _out, err = self._main("start-plan", "hawk", "--user-said-yes")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self._starts()), 1)
+
+    def test_a_different_quote_in_the_yes_turn_is_unseen(self):
+        self.chats = [_chat(wrote_s_ago=5)]
+        self._plan(age=30)
+        self._plan("--variant", "lev3|leverage=3|less", age=0)
+        code, _out, err = self._main("start-plan", "hawk", "--user-said-yes")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("end your turn", err)
+        self.assertEqual(self._starts(), [])
+
+    def test_a_yes_sent_right_after_the_quote_starts_it(self):
+        self.chats = [_chat(wrote_s_ago=0)]
+        self._plan(age=4)
+        code, _out, err = self._main("start-plan", "hawk", "--user-said-yes")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self._starts()), 1)
 
     def test_no_plan_no_start(self):
         code, _out, err = self._main("start-plan", "hawk", "--user-said-yes")
