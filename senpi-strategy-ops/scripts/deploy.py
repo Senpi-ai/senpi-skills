@@ -2857,8 +2857,10 @@ def _plan_quote_and_print(a, variants, budgets):
 
 PLAN_RECORD_DIR = ".simulation-plans"
 PLAN_RECORD_TTL_S = 6 * 3600
-# A start this soon after its plan came in the same turn: the user has not seen the plan yet.
+# Only when the gateway cannot say whether the user wrote since the plan: a start this soon after it
+# is taken to be the same turn.
 PLAN_MIN_GAP_S = 15
+SESSIONS_READ_LIMIT = 50
 _MISSING = object()
 
 
@@ -2885,8 +2887,25 @@ def _write_plan_record(ref, budgets, variants):
               file=sys.stderr)
 
 
+def _user_wrote_since(at):
+    """True when a person sent a message to this agent after `at` (epoch seconds), False when none did,
+    None when the gateway cannot say. Reads each chat's `lastInteractionAt`, which OpenClaw moves on the
+    user's own messages and not on system events; subagent and background chats are not the user."""
+    r = _gw("sessions.list", {"limit": SESSIONS_READ_LIMIT}, 8000, 15)
+    sessions = r["payload"].get("sessions") if r["kind"] == "ok" and isinstance(r["payload"], dict) else None
+    if not isinstance(sessions, list):
+        return None
+    seen = [s.get("lastInteractionAt") for s in sessions
+            if isinstance(s, dict) and not s.get("spawnDepth") and not s.get("isBackground")]
+    seen = [t for t in seen if isinstance(t, (int, float)) and not isinstance(t, bool)]
+    if not seen:
+        return None
+    return max(seen) > at * 1000
+
+
 def _plan_on_record(ref, budget):
-    """None when `plan` quoted `ref` at `budget` within PLAN_RECORD_TTL_S, else why not."""
+    """None when `plan` quoted `ref` at `budget` within PLAN_RECORD_TTL_S and the user has written since,
+    else why not."""
     try:
         rec = json.loads(_plan_record_path(ref).read_text())
     except (OSError, ValueError):
@@ -2896,11 +2915,12 @@ def _plan_on_record(ref, budget):
     age = time.time() - rec["at"]
     if age > PLAN_RECORD_TTL_S:
         return "its plan is more than 6 hours old"
-    if age < PLAN_MIN_GAP_S:
-        return ("its plan was printed in this same turn, so the user has not seen it: show it, end your turn, "
-                "and start only on the yes in their next message")
     if not any(isinstance(q, (int, float)) and abs(q - budget) < 0.005 for q in rec.get("budgets") or []):
         return f"its plan did not quote {_plan_money(budget)}"
+    wrote = _user_wrote_since(rec["at"])
+    if wrote is False or (wrote is None and age < PLAN_MIN_GAP_S):
+        return ("the user has sent no message since its plan was printed, so this is still the turn that "
+                "quoted it: show it, end your turn, and start only on the yes in their next message")
     return None
 
 
