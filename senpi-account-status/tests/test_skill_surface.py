@@ -232,7 +232,7 @@ class PlansAndFreeCreditsArePublished(unittest.TestCase):
             "Never convert it to dollars",
             "When `credits.available` is false",
             "never invent a number",
-            "Credits also pay for running Hyper Simulations",
+            "Credits also pay for running Hypersims",
         ):
             self.assertIn(needle, section, needle)
         self.assertNotIn("You cannot read the balance", section)

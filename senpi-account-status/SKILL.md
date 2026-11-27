@@ -92,7 +92,7 @@ reads it.
   header or the subscription page (senpi.ai/settings/subscription) for the exact figure, and never
   invent a number, a percentage or a "roughly". The in-app indicator surfaces only when credits run
   low, so a missing indicator is expected, not a lost balance.
-- **What else they pay for.** Credits also pay for running Hyper Simulations. Say so; give no rate.
+- **What else they pay for.** Credits also pay for running Hypersims. Say so; give no rate.
 
 - **What spends them.** Every message the user sends and every tool turn the agent runs. Long threads
   cost more because the whole conversation is re-sent each turn — a fresh thread is cheaper than a
