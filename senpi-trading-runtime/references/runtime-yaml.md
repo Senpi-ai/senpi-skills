@@ -258,7 +258,9 @@ Schema only; for the exit *behavior* (phases, floors, breach counting, time cuts
   `retrace_threshold`/`consecutive_breaches_required` and tier `retrace`/`breaches` are **rejected**.
 - `max_loss_pct` resolution: `dsl_preset.max_loss_pct` → `phase1.max_loss_pct` → 1% if
   `phase1.enabled: false` → else error. So a disabled phase1 still has a max-loss exchange stop from entry
-  (1% when no value is set); it is never "no stop".
+  (1% when no value is set); it is never "no stop". The one case with no exchange stop is a 1x LONG
+  with `max_loss_pct: 100`: its floor is price 0, so none is placed until a tier is reached, and the
+  runtime closes it on its floor and time cuts.
 
 ---
 
