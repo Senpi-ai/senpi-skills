@@ -4,9 +4,10 @@
 The runtime owns the whole go-live path now: funds preflight → wallet create+fund (with
 skillName/skillVersion attribution) → runtime install → one observed scanner tick. It runs the
 job DETACHED, so this script starts it and then polls its status until the job is terminal,
-relaying the verb's report VERBATIM. Both calls go straight to the gateway (`openclaw gateway call
-senpi.deploy.start` / `senpi.deploy.status`, see `_cli.gateway_call`), not through the
-`openclaw senpi deploy` CLI verb, whose plugin load costs 30-160 s per call on OpenClaw 10.x. Nothing here re-derives a number, a
+relaying the verb's report VERBATIM. Both calls go straight to the runtime (`senpi call
+senpi.deploy.start` / `senpi.deploy.status`, falling back to `openclaw gateway call` only when senpi
+sent nothing, see `_cli.gateway_call`), not through the `openclaw senpi deploy` CLI verb, whose plugin
+load costs 30-160 s per call on OpenClaw 10.x. Nothing here re-derives a number, a
 lifecycle claim, or a refusal string — the `[E_*]` codes pass straight through.
 
 ONE refusal is repaired instead of relayed, and only one: a deploy refused because the package's
@@ -162,7 +163,7 @@ START_MIN_WALL_S = 10
 REQUEST_DIR = _journal.REQUEST_DIR
 
 # D-12: the verb's exit-code contract (runtime `exitCodeForDeploy`), mirrored here so `deploy.py
-# status` and `openclaw senpi deploy status` answer identically.
+# status` and `senpi deploy status` answer identically.
 # 1 is reserved for internal/transport errors and is ALSO the
 # unknown-status fallback, so a status this wrapper has never heard of can never read as success.
 # Anything richer than the overall status: read the report (`--json`).
@@ -339,7 +340,7 @@ def full_validate(pkg):
 def universe_report(pkg):
     """The live-universe check as a REPORT for `validate` — never a gate.
 
-    The invariant itself is the verb's: `openclaw senpi deploy` refuses a dead hardcoded name
+    The invariant itself is the verb's: `senpi deploy` refuses a dead hardcoded name
     pre-money (`[E_UNIVERSE_NOT_LIVE]`) and fails closed when the instrument list is unreadable.
     This runs the SAME `validate_universe` predicates the runtime ports, so the two cannot disagree
     on one live list, and it exists only so the taught step-0 preflight can report a dead universe
@@ -389,11 +390,11 @@ def proof_state(pkg):
     The directory per instance is the one holding that instance's runtime.yaml — `inst.runtime_path`
     is a FILE path (`_pkg.Instance` has no `runtime_yaml_dir`), so this takes its parent, mirroring
     `_instance_dirs`'s own fallback: the package root when an instance has no runtime_path to point
-    at (a flat package, or an unmodellable instance). `openclaw senpi validate` writes the proof
+    at (a flat package, or an unmodellable instance). `senpi validate` writes the proof
     beside the exact directory it was pointed at, so this has to name the same one.
 
     Returned as `(name, state, dir)` per instance so the caller renders one line each, naming the
-    exact directory `openclaw senpi validate` has to be pointed at."""
+    exact directory `senpi validate` has to be pointed at."""
     out = []
     for inst in pkg.instances:
         path = getattr(inst, "runtime_path", None)
@@ -608,18 +609,27 @@ def _credits(v):
     return f"{v:g}" if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
-def _quote_lines(payload):
-    """The runtime's simulation quote in words. A field the runtime did not send is left out."""
+def _quote_lines(payload, books=()):
+    """The runtime's simulation quote in words. A field the runtime did not send is left out.
+    Each book (instance) is its own simulation, so a package of several is quoted as that many."""
     per_hour, per_day = _credits(payload.get("creditsPerHour")), _credits(payload.get("creditsPerDay"))
     after, left = _credits(payload.get("creditsPerHourAfter")), _credits(payload.get("creditsLeft"))
     budget = payload.get("budgetUsd")
+    n = len(books)
     lines = []
+    if n > 1:
+        lines.append(f"  This package has {n} books ({', '.join(books)}), each its own simulation, so it starts "
+                     f"{n} simulations. Each variation of it starts {n} more: in the list, the cost and the reply, "
+                     f"give both counts, e.g. \"3 variations, {n} books each: {3 * n} simulations\", and the "
+                     f"rate below times the number of variations.")
     if isinstance(budget, (int, float)) and not isinstance(budget, bool):
-        lines.append(f"  Budget: {_usd(budget)} of virtual money.")
+        lines.append(f"  Budget: {_usd(budget)} of virtual money" + (f", split across the {n} books." if n > 1 else "."))
     if per_hour:
-        lines.append(f"  This simulation: {per_hour} credits an hour" + (f", {per_day} a day." if per_day else "."))
+        what = f"These {n} simulations" if n > 1 else "This simulation"
+        lines.append(f"  {what}: {per_hour} credits an hour" + (f" for all {n}" if n > 1 else "")
+                     + (f", {per_day} a day." if per_day else "."))
     elif per_day:
-        lines.append(f"  This simulation: {per_day} credits a day.")
+        lines.append(f"  {'These %d simulations' % n if n > 1 else 'This simulation'}: {per_day} credits a day.")
     if after:
         lines.append(f"  Everything you run, once it starts: {after} credits an hour.")
     if left:
@@ -636,8 +646,8 @@ def _simulation_dry_run(pkg, method, params, a):
     kind, caps = _deploy_capabilities(getattr(a, "json", False))
     if not (isinstance(caps, dict) and caps.get("simulationYesGate") is True):
         print("planned: " + shlex.join(_cli.gateway_argv(method, params, START_RPC_MS)))
-        print("  The cost cannot be quoted on this runtime, and nothing was started. Tell the user the "
-              "simulation is billed by the hour until it is stopped, with no number, and ask.")
+        print("  The cost cannot be quoted on this runtime, and nothing was started. Tell the user a "
+              "simulation cannot start on their agent until its cost can be quoted.")
         raise SystemExit(0)
     quote_params = {k: v for k, v in params.items() if k != "userSaidYes"}
     quote_params["dryRun"] = True
@@ -645,7 +655,7 @@ def _simulation_dry_run(pkg, method, params, a):
     payload = r["payload"] if isinstance(r["payload"], dict) else {}
     if r["kind"] == "ok" and payload.get("dryRun") is True:
         print(f"Quote for {pkg.id} as a simulation (virtual money, nothing real moves):")
-        for line in _quote_lines(payload):
+        for line in _quote_lines(payload, [i.name for i in pkg.instances if i.name]):
             print(line)
         print("Nothing was started.")
         raise SystemExit(0)
@@ -656,9 +666,9 @@ def _simulation_dry_run(pkg, method, params, a):
               file=sys.stderr)
         raise SystemExit(EXIT_INTERNAL)
     print(r["message"] or f"{method}: {r['kind']}", file=sys.stderr)
-    print("The cost could not be quoted. A quote starts nothing. Tell the user the simulation is billed "
-          "by the hour until it is stopped, with no number, and ask. A failed quote is never a reason "
-          "to start another way.", file=sys.stderr)
+    print("The cost could not be quoted. A quote starts nothing, and a simulation starts only after "
+          "`deploy.py plan` quoted it: tell the user its cost could not be read just now and nothing was "
+          "started. A failed quote is never a reason to start another way.", file=sys.stderr)
     raise SystemExit(EXIT_CODES["refused"] if r["kind"] == "refused" else EXIT_INTERNAL)
 
 
@@ -685,21 +695,28 @@ CALL_METHODS = {"senpi.packages.list": False, "senpi.packages.get": False,
                 "senpi.simulations.startBatch": True, "senpi.simulations.batchStatus": False}
 
 
-def _call_start_without_plan(method, params):
-    """Why a real catalog batch start sent through `call` has no plan behind it, or None. Only what `plan`
-    cannot quote passes without one: variations of a running simulation (`parentId`) and budgets that differ."""
-    if method != "senpi.simulations.startBatch" or params.get("dryRun") is True or params.get("parentId"):
+def _call_start_budget(params):
+    """The one budget every simulation of a catalog batch start starts at (a variant's own `budgetUsd`, else
+    the batch's), or None when `plan` cannot quote it: a variation of a running simulation (`parentId`),
+    no catalog strategy, or budgets that differ."""
+    if params.get("parentId") or not isinstance(params.get("strategy"), str) or not params["strategy"]:
         return None
-    strategy = params.get("strategy")
-    if not isinstance(strategy, str) or not strategy:
+    batch = params.get("budgetUsd", PLAN_BUDGET_USD)
+    budgets = {v.get("budgetUsd", batch) if isinstance(v, dict) else batch for v in params.get("variants") or [{}]}
+    if len(budgets) != 1:
         return None
-    budget = params.get("budgetUsd", PLAN_BUDGET_USD)
-    own = {v.get("budgetUsd") for v in params.get("variants") or [] if isinstance(v, dict)} - {None}
-    if own - {budget}:
-        return None
+    budget = budgets.pop()
     if not isinstance(budget, (int, float)) or isinstance(budget, bool):
         return None
-    return _plan_on_record(strategy, float(budget))
+    return float(budget)
+
+
+def _call_start_without_plan(method, params):
+    """Why a real catalog batch start sent through `call` has no plan behind it, or None."""
+    if method != "senpi.simulations.startBatch" or params.get("dryRun") is True:
+        return None
+    budget = _call_start_budget(params)
+    return None if budget is None else _plan_on_record(params["strategy"], budget)
 
 
 def cmd_call(a):
@@ -720,10 +737,12 @@ def cmd_call(a):
     why = _call_start_without_plan(a.method, params)
     if why is not None:
         strategy = params.get("strategy")
+        budget = _call_start_budget(params)
+        flag = "" if budget == PLAN_BUDGET_USD else f" --budget {budget:g}"
         print(f"[E_NO_PLAN] Nothing was started: {why}. A catalog batch starts only as `plan` quoted it, after "
               f"the user's yes in a later message.\n"
-              f"  Next: `deploy.py plan {strategy}` (with the --variant lines), relay it as given, end your turn; "
-              f"on their yes, `deploy.py start-plan {strategy} --user-said-yes`.", file=sys.stderr)
+              f"  Next: `deploy.py plan {strategy}{flag}` (with the --variant lines), relay it as given, end your "
+              f"turn; on their yes, `deploy.py start-plan {strategy}{flag} --user-said-yes`.", file=sys.stderr)
         return EXIT_CODES["refused"]
     r = _gw(a.method, params, START_RPC_MS if starts else _cli.READ_RPC_MS,
             START_WALL_S if starts else _cli.READ_WALL_S)
@@ -1095,8 +1114,8 @@ def start_deploy(pkg, a, log):
     if kind in ("unknown_method", "cli_parse", "spawn_failed"):
         if not reused:
             _journal_resolve(pkg, rid, "not-dispatched", simulation)
-        # Nothing reached a deploy handler: no such method, a command line openclaw rejected, or no
-        # openclaw at all. Exit 1, never 2 — no gate said no; this box cannot run the call.
+        # Nothing reached a deploy handler: no such method, a command line the CLI rejected, or no
+        # runtime CLI at all. Exit 1, never 2 — no gate said no; this box cannot run the call.
         print(r["message"] or kind, file=sys.stderr)
         if kind == "unknown_method" and simulation:
             cure = ("  This box's runtime plugin has no simulation deploy (`senpi.deploy.startSimulation`): "
@@ -1112,8 +1131,8 @@ def start_deploy(pkg, a, log):
                     "  Agent boxes also self-update on their own schedule, so retrying in a few minutes "
                     "is the other way out.")
         elif kind == "spawn_failed":
-            cure = ("  openclaw could not be started on this host. Run this command on the agent's own "
-                    "box, where openclaw and the runtime plugin are installed.")
+            cure = ("  Neither `senpi` nor `openclaw` could be started on this host. Run this command on "
+                    "the agent's own box, where the runtime is installed.")
         else:
             cure = ("  This box's openclaw rejected the `openclaw gateway call` command line above. "
                     "Report it with the output of `openclaw --version` (read-only); re-running this "
@@ -1285,7 +1304,7 @@ def exit_code_for(snap):
 
 # ---------- the one repair: a proof the runtime moved out from under ----------
 
-# The single proof state this wrapper repairs instead of relaying. `openclaw senpi deploy` refuses,
+# The single proof state this wrapper repairs instead of relaying. `senpi deploy` refuses,
 # pre-money, any package whose `.senpi-proof.json` was recorded under a different runtime build —
 # and the fleet updates the runtime IN PLACE, hourly, which invalidates every proof on the box at
 # once. Relayed, that turns our own release cadence into a deploy outage for every agent whose
@@ -1297,7 +1316,7 @@ def exit_code_for(snap):
 # watched-run failure the gate exists to prevent.
 STALE_PROOF_REASON = "runtime_version_changed"
 
-# How long ONE `openclaw senpi validate` gets. The runtime's own default per-scanner tick budget is
+# How long ONE `senpi validate` gets. The runtime's own default per-scanner tick budget is
 # 120s (`DEFAULT_TICK_BUDGET_SECONDS`, src/validate/run.ts) and validate spawns Python and imports
 # the scanner around it, so this is that plus headroom. A validate that outruns it comes back rc=-1
 # and is reported as a FAILED re-validation — never as a repair, because no proof was written.
@@ -1390,7 +1409,7 @@ def revalidate(dirs, log, measure=False):
     words)`. `measure` (a simulation) adds `--measure`, so the proof carries each scanner's size and
     the deploy job does not run the scanner again to size it.
 
-    `openclaw senpi validate` is the ONLY command that writes a `.senpi-proof.json`, and it writes
+    `senpi validate` is the ONLY command that writes a `.senpi-proof.json`, and it writes
     one only when the run is proof-ELIGIBLE: `verdict === "PASS"` AND `depth === "live"` AND no
     `--scanner` scope AND `noAttest !== true` (runtime `src/validate/run.ts`, `proof_eligible`).
     That is why the python validator is not an option here — and why **`--stage live` is passed
@@ -1414,13 +1433,13 @@ def revalidate(dirs, log, measure=False):
     left = _remaining()
     timeout = cap if left is None else min(cap, left - KILL_RESERVE_S)
     if timeout < 1:
-        return False, (f"openclaw senpi validate {dirs[0]} was not run: this command's budget is "
+        return False, (f"senpi validate {dirs[0]} was not run: this command's budget is "
                        f"spent {_budget_note()}."), True, None
     for d in dirs:
-        log(f"  re-proving {d} (openclaw senpi validate {' '.join(flags)})…")
+        log(f"  re-proving {d} (senpi validate {' '.join(flags)})…")
     with ThreadPoolExecutor(max_workers=min(len(dirs), VALIDATE_PARALLEL)) as pool:
         results = list(pool.map(
-            lambda d: _cli.run_cli(["openclaw", "senpi", "validate", str(d), *flags], timeout=timeout), dirs))
+            lambda d: _cli.run_runtime_cli(["validate", str(d), *flags], timeout=timeout), dirs))
     failed = [(d, rc, out, err) for d, (rc, out, err) in zip(dirs, results) if rc != 0]
     if not failed:
         return True, "", False, None
@@ -1428,14 +1447,14 @@ def revalidate(dirs, log, measure=False):
     # A timeout under a clipped budget is this command's clock, not a validate verdict.
     cut_short = timeout < cap and rc == -1 and str(err or "").startswith("timed out after")
     return False, (_cli.error_tail(err, out, limit=2000)
-                   or f"openclaw senpi validate {d} exited {rc} and printed nothing."), \
+                   or f"senpi validate {d} exited {rc} and printed nothing."), \
         cut_short, (rc if rc < -1 else None)
 
 
 def _validate_killed(rc, retry, state=""):
-    """A killed `openclaw senpi validate`, in words: no verdict, and the next step by signal. `state`:
+    """A killed `senpi validate`, in words: no verdict, and the next step by signal. `state`:
     what the caller did and did not do around it."""
-    fact = (f"`openclaw senpi validate` was {_cli.killed_note(rc)}, so it never finished: that is NOT a "
+    fact = (f"`senpi validate` was {_cli.killed_note(rc)}, so it never finished: that is NOT a "
             f"verdict on the package (it neither passed nor failed), and no proof was recorded.")
     if _cli.is_sigkill(rc):
         return (f"{fact} " + _cli.oom_stop(state, "the box is out of memory, so the package could not "
@@ -1511,7 +1530,7 @@ def run_deploy(pkg, a, log):
         print(f"note: the deploy was REFUSED before anything was created — the proof for "
               f"{', '.join(dirs)} was recorded under a different runtime build than the one running "
               f"here (the runtime updates itself in place, so this happens to a package nobody "
-              f"touched). Re-proving it now with `openclaw senpi validate`; if that PASSES the "
+              f"touched). Re-proving it now with `senpi validate`; if that PASSES the "
               f"deploy is re-run ONCE, and if it does not, its findings are printed here and the "
               f"deploy is not re-run. Nothing was created, funded or installed by the refused run.",
               file=sys.stderr)
@@ -1533,14 +1552,14 @@ def run_deploy(pkg, a, log):
                                          "call.", {"deployId": deploy_id})
         elif cut_short:
             print(text, file=sys.stderr)
-            print(f"This command's budget ran out before `openclaw senpi validate` finished "
+            print(f"This command's budget ran out before `senpi validate` finished "
                   f"{_budget_note()}, so no proof was recorded and the deploy was NOT re-run — its "
                   f"refusal is reported below, unchanged. That is this command's clock, not a "
                   f"validate verdict. Nothing was created, funded or installed by either call. "
                   f"Re-run this command with a larger --max-wait (or none).", file=sys.stderr)
         else:
             print(text, file=sys.stderr)
-            print(f"`openclaw senpi validate` did not PASS, so no proof was recorded and the deploy "
+            print(f"`senpi validate` did not PASS, so no proof was recorded and the deploy "
                   f"was NOT re-run — its refusal is reported below, unchanged. Nothing was created, "
                   f"funded or installed by either call. Fix what validate reported above, then "
                   f"re-run this command.", file=sys.stderr)
@@ -2278,7 +2297,7 @@ def update_target(pkg, runtime_id=None, address=None):
 
 
 def cmd_update(a):
-    """Apply an edit to a LIVE strategy IN PLACE — `openclaw senpi update` — plan by default,
+    """Apply an edit to a LIVE strategy IN PLACE — `senpi update` — plan by default,
     `--apply` commits. Around the verb, three things: the same structural preflight `create` runs
     (a package the deployer would refuse is refused here, before the verb is called); the instance
     dir resolved from `--id`; and a clear stop when the box's runtime has no `update` verb yet.
@@ -2335,18 +2354,18 @@ def cmd_update(a):
         # The verb refuses this too (`E_UPDATE_PROOF_REQUIRED`); saying it here saves the round-trip
         # and names the exact command. A STALE proof is the verb's call, not ours — it knows the bytes.
         print(f"✗ {pkg.id}: no proof in {target} — `--apply` needs a PASS from\n"
-              f"    openclaw senpi validate {target}\n"
+              f"    senpi validate {target}\n"
               f"  first (it records the proof `update --apply` requires). The verb was not called; "
               f"nothing was changed.", file=sys.stderr)
         return EXIT_CODES["refused"]
-    argv = ["openclaw", "senpi", "update", str(target)] + list(selector)
+    argv = _cli.runtime_verb_argv(["update", str(target)] + list(selector))
     if a.apply:
         argv.append("--apply")
     if getattr(a, "code_only", False):
         argv.append("--code-only")
     if a.json:
         argv.append("--json")
-    rc, out, err = _cli.run_cli(argv, timeout=UPDATE_TIMEOUT)
+    rc, out, err = _cli.run_runtime_cli(argv[1:], timeout=UPDATE_TIMEOUT)
     tail = _cli.error_tail(err, out)
     if rc != 0 and _cli_rejected_the_command(tail, ours=argv):
         # A parser answered, not the verb: this runtime build predates `senpi update`. The edit is
@@ -2411,6 +2430,17 @@ def _ownership_flags(p):
                    help="A name of the user's own instead (\"Shield Wall\" → id shield-wall). Wins over --owner.")
 
 
+def _fork_of_flag(p):
+    p.add_argument("--fork-of", dest="fork_of", default=None, metavar="STRATEGY_ID",
+                   help="The strategy this copy starts from (the hand-off's `Source strategy id`), recorded as the "
+                        "copy's forked_from.parent. Needs --name.")
+
+
+def _explicit_dir(package):
+    """True when the package argument is a directory holding strategy.yaml: the author's own package."""
+    return (Path(package) / "strategy.yaml").is_file()
+
+
 def _username():
     """The user's Senpi username (`user_get_me` → data.user.userName), or None when it cannot be read — no
     token, a failed call, or no username on the account. The caller then asks the user; it never falls back
@@ -2457,7 +2487,7 @@ def _fork_for_deploy(pkg, a, log):
     refused and the agent asks what to call it; an explicit directory is the author's own package and is never
     second-guessed."""
     owner, name = getattr(a, "owner", None), getattr(a, "name", None)
-    explicit_dir = (Path(a.package) / "strategy.yaml").is_file()
+    explicit_dir = _explicit_dir(a.package)
     manifest = getattr(pkg, "manifest", None) or {}
     catalog = getattr(pkg, "catalog", None) or {}
     # a catalog template carries a `catalog.tier`; a fork carries `forked_from`; an authored package may
@@ -2474,7 +2504,8 @@ def _fork_for_deploy(pkg, a, log):
                   f"  A user ID is never a name. Nothing was created, funded or installed.", file=sys.stderr)
             sys.exit(EXIT_CODES["refused"])
     try:
-        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=name, log=log,
+        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=name,
+                                fork_of=getattr(a, "fork_of", None), authored=explicit_dir, log=log,
                                 simulation=getattr(a, "simulation", False))
     except _fork.ForkError as e:
         print(f"✗ {pkg.id}: {e}. Nothing was created, funded or installed.", file=sys.stderr)
@@ -2484,7 +2515,7 @@ def _fork_for_deploy(pkg, a, log):
     forked = _pkg.load(dest)
     if a.cmd == "create" and not getattr(a, "dry_run", False):
         # A fresh fork carries no proof and the verb refuses an unproven package: record it now — the same
-        # `openclaw senpi validate --stage live` the agent would otherwise be sent to run by hand.
+        # `senpi validate --stage live` the agent would otherwise be sent to run by hand.
         unproven = [d for _n, st, d in proof_state(forked) if st == "no_proof"]
         if unproven:
             ok, text, cut_short, killed_rc = revalidate(unproven, log, measure=getattr(a, "simulation", False))
@@ -2495,7 +2526,7 @@ def _fork_for_deploy(pkg, a, log):
                                                f"{dest}. Nothing was created, funded or installed."))
             if not ok and cut_short:
                 print(text, file=sys.stderr)
-                print(f"✗ {info['id']}: this command's budget ran out before `openclaw senpi validate` finished on "
+                print(f"✗ {info['id']}: this command's budget ran out before `senpi validate` finished on "
                       f"the fork {_budget_note()}, so no proof was recorded and the deploy was not started. That is "
                       f"this command's clock, not a validate verdict. The fork is on disk at {dest}; re-run this "
                       f"command with a larger --max-wait (or none). Nothing was created, funded or installed.",
@@ -2503,7 +2534,7 @@ def _fork_for_deploy(pkg, a, log):
                 sys.exit(EXIT_CODES["refused"])
             if not ok:
                 print(text, file=sys.stderr)
-                print(f"✗ {info['id']}: `openclaw senpi validate` did not PASS on the fork, so no proof was recorded and "
+                print(f"✗ {info['id']}: `senpi validate` did not PASS on the fork, so no proof was recorded and "
                       f"the deploy was not started. The fork is on disk at {dest}; fix what validate reported, then re-run "
                       f"this command. Nothing was created, funded or installed.", file=sys.stderr)
                 sys.exit(EXIT_CODES["refused"])
@@ -2513,7 +2544,8 @@ def _fork_for_deploy(pkg, a, log):
 def cmd_fork(pkg, a, log):
     owner = a.owner or (None if a.name else _username())
     try:
-        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=a.name, log=log)
+        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=a.name, fork_of=a.fork_of,
+                                authored=_explicit_dir(a.package), log=log)
     except _fork.ForkError as e:
         print(f"✗ {pkg.id}: {e}. Nothing was written.", file=sys.stderr)
         return EXIT_CODES["refused"]
@@ -2529,7 +2561,7 @@ def cmd_fork(pkg, a, log):
             print(f"    - {e}", file=sys.stderr)
         return EXIT_CODES["refused"]
     print(f"  move levers on it with the normal edit path, then:\n"
-          f"    python3 {Path(__file__).name} create {dest} --budget <usd>   # proves it (openclaw senpi validate) and deploys it")
+          f"    python3 {Path(__file__).name} create {dest} --budget <usd>   # proves it (senpi validate) and deploys it")
     return 0
 
 
@@ -2664,43 +2696,87 @@ def _plan_money(v):
 
 
 def _plan_is_local(ref):
-    return "/" in ref or Path(ref).is_dir()
+    """Quoted as a package (`senpi.deploy.startSimulation`), not as a catalog batch: a path, or a
+    package of several wallets on this box, which a batch refuses."""
+    if "/" in ref or Path(ref).is_dir():
+        return True
+    try:
+        return len(_pkg.load(ref).instances) > 1
+    except Exception:  # noqa: BLE001 — not on this box: the catalog batch quotes it
+        return False
 
 
 def _plan_quote(ref, variants, budget, local):
     """One quote at `budget` for the design and every variation. Returns (per_hour_each, total_after,
-    refusals, error): per_hour_each is a list (one per simulation, design first) or None."""
+    refusals, error, books): per_hour_each is a list (one per line of the plan, design first) or None;
+    books names the package's instances (a local package's, from its quote), each its own simulation per line."""
     if local:
         kind, caps = _deploy_capabilities(False)
         if not (isinstance(caps, dict) and caps.get("simulationYesGate") is True):
-            return None, None, [], "this runtime cannot quote a simulation"
+            return None, None, [], "this runtime cannot quote a simulation", []
         r = _gw("senpi.deploy.startSimulation",
                 {"packageDir": str(_pkg.resolve_pkg_dir(ref)), "budget": budget, "dryRun": True},
                 START_RPC_MS, START_WALL_S)
         payload = r["payload"] if isinstance(r["payload"], dict) else {}
         if r["kind"] != "ok" or payload.get("dryRun") is not True:
-            return None, None, [], r["message"] or f"the quote answered {r['kind']}"
+            return None, None, [], r["message"] or f"the quote answered {r['kind']}", []
         each = payload.get("creditsPerHour")
         if not isinstance(each, (int, float)) or isinstance(each, bool):
-            return None, None, [], "the quote named no credits an hour"
+            return None, None, [], "the quote named no credits an hour", []
+        insts = payload.get("instances") if isinstance(payload.get("instances"), list) else []
+        books = [i["name"] for i in insts if isinstance(i, dict) and isinstance(i.get("name"), str)]
         n = 1 + len(variants)
         after = payload.get("creditsPerHourAfter")
         after = after - each + each * n if isinstance(after, (int, float)) else None
-        return [each] * n, after, [], None
+        return [each] * n, after, [], None, books
     params = {"requestId": f"quote-{ref}-{int(time.time())}", "strategy": ref, "budgetUsd": budget, "dryRun": True,
               "variants": _plan_variants(variants)}
     r = _gw("senpi.simulations.startBatch", params, START_RPC_MS, START_WALL_S)
     payload = r["payload"] if isinstance(r["payload"], dict) else {}
     rows = payload.get("rows") if r["kind"] == "ok" and payload.get("dryRun") is True else None
     if not isinstance(rows, list) or len(rows) != len(params["variants"]):
-        return None, None, [], r["message"] or f"the quote answered {r['kind']}"
+        return None, None, [], r["message"] or f"the quote answered {r['kind']}", []
     refusals = [f"{row.get('label')}: {row.get('detail') or row.get('reason')}"
                 for row in rows if row.get("status") == "would_refuse"]
     each = [row.get("creditsPerHour") for row in rows]
     if refusals or not all(isinstance(c, (int, float)) and not isinstance(c, bool) for c in each):
-        return None, None, refusals, None if refusals else "the quote named no credits an hour"
+        return None, None, refusals, None if refusals else "the quote named no credits an hour", []
     after = payload.get("creditsPerHourAfter")
-    return each, after if isinstance(after, (int, float)) else None, [], None
+    return each, after if isinstance(after, (int, float)) else None, [], None, []
+
+
+def _open_simulations():
+    """The user's open simulations from `strategy_list`, or None when it could not be read."""
+    try:
+        return _cli.list_strategies_or_none(MCPClient(), timeout=STATUS_TIMEOUT, statuses=_cli.LIVE_STATUSES,
+                                            simulation=True)
+    except Exception:  # noqa: BLE001 — an unreadable list plans as if nothing ran
+        return None
+
+
+def _design_wallet_names(ref):
+    """The strategy names the deploy verb gives this local package's books (`<id>-<book>`, or the bare
+    `<id>` for one book), or [] when the package cannot be read."""
+    try:
+        pkg = _pkg.load(ref)
+    except (_pkg.BadPackage, OSError):
+        return []
+    return [_wallet_name(pkg, inst) for inst in pkg.instances]
+
+
+def _running_design(names):
+    """The simulation id of the design when every one of its books already runs as a simulation under
+    its wallet name (`_design_wallet_names`), else None. `create <dir> --simulation` adopts those
+    instead of starting new ones."""
+    rows = _open_simulations() if names else None
+    if not rows:
+        return None
+    found = {}
+    for row in rows:
+        for n in names:
+            if _cli.strategy_name_match(_cli.strategy_name(row), n) and _cli.strategy_id_of(row):
+                found.setdefault(n, _cli.strategy_id_of(row))
+    return found[names[0]] if len(found) == len(names) else None
 
 
 def _plan_variants(variants):
@@ -2732,7 +2808,7 @@ def _plan_cost(b, each, n_variants):
     return f"{_plan_money(b)} each, {_plan_credits(each)}"
 
 
-def render_plan(name, design, trades, variants, quotes):
+def render_plan(name, design, trades, variants, quotes, books=(), running=False):
     """The plan the agent relays as given. Every fact sits on the line of the simulation it belongs to
     (what it is, how often it trades, its budget, its credits an hour), so no line can be dropped without
     dropping a simulation. `quotes` maps each budget to its quote (per_hour_each, after)."""
@@ -2755,21 +2831,29 @@ def render_plan(name, design, trades, variants, quotes):
         variants = []
         lines = [f"Simulation of {name}, on virtual money (nothing real moves): {facts(what, v.get('trades') or trades, 0)}"]
     elif variants:
-        lines = [f"Test plan for {name}, on virtual money (nothing real moves):",
-                 f"1. As designed: {facts(design, trades, 0)}"]
-        for i, v in enumerate(variants, start=2):
+        head = (f"Test plan for {name}, on virtual money (nothing real moves): {len(variants)} variations of your "
+                f"running {name} simulation, which keeps running as it is." if running else
+                f"Test plan for {name}, on virtual money (nothing real moves):")
+        lines = [head + (f" It has {len(books)} books ({', '.join(books)}), so each line below starts "
+                         f"{len(books)} simulations." if books else "")]
+        if not running:
+            lines.append(f"1. As designed: {facts(design, trades, 0)}")
+        first = 1 if running else 2
+        for i, v in enumerate(variants, start=first):
             shown = v["value"] if isinstance(v["value"], str) else json.dumps(v["value"])
             what = f"{v['tests']} ({v['key']} = {shown})"
-            lines.append(f"{i}. {v['label']}: {facts(what, v.get('trades') or trades, i - 1)}")
+            lines.append(f"{i}. {v['label']}: {facts(what, v.get('trades') or trades, i - first + (0 if running else 1))}")
     else:
         lines = [f"Simulation of {name}, on virtual money (nothing real moves): {facts(design, trades, 0)}"]
     if one is not None:
         each = quotes[one][0]
         if variants:
-            lines.append(f"All {len(each)}: {sum(each):g} credits an hour ({sum(each) * 24:g} a day). Nothing has started.")
+            sims = f", {len(each) * len(books)} simulations" if books else ""
+            lines.append(f"All {len(each)}{sims}: {sum(each):g} credits an hour ({sum(each) * 24:g} a day). Nothing has started.")
             lines.append(PLAN_QUESTION)
         else:
-            lines[0] += ". Nothing has started."
+            lines[0] += "." + (f" It has {len(books)} books ({', '.join(books)}), so it starts {len(books)} "
+                               f"simulations." if books else "") + " Nothing has started."
             lines.append("Start it?")
     else:
         choices = " · ".join(f"{_plan_money(b)} ({_plan_credits(quotes[b][0], flat=True)})" for b in budgets)
@@ -2778,18 +2862,28 @@ def render_plan(name, design, trades, variants, quotes):
     return "\n".join(lines)
 
 
-def _plan_after_yes(ref, variants, local):
+def _plan_after_yes(ref, variants, local, books=(), running=None):
     yes = ("Show it and end your turn. Only an explicit yes in their NEXT message starts them: \"yes\", "
            "\"simulate\", \"go\", a budget they tapped or typed; the request that asked for this plan is not "
            "the yes. "
            "\"Your call\", \"sounds good\", \"you pick\" and silence are not a yes: recommend simulating and ask "
            "the question again. On \"live\", the live walkthrough takes over; never start a simulation. "
            "A simulation needs no deposit and no funds: never tell them to deposit first.")
-    if local:
+    if local and running:
+        how = (f"After the yes: the design already runs (simulation {running}); start nothing for it. Start each "
+               f"variation as its own fork (`deploy.py fork <dir> --name <label>`, set its one setting, `create "
+               f"<fork dir> --simulation --user-said-yes --variant-of {running} --batch <one id>`).")
+        if books:
+            how += (f" Each line starts {len(books)} simulations, one per book, so in the reply count simulations, "
+                    f"not variations: \"3 variations, {len(books)} books each: {3 * len(books)} simulations\".")
+    elif local:
         how = ("After the yes: start the design with `deploy.py create <dir> --simulation --user-said-yes "
                "--budget <their budget>`, then each variation as its own fork (`deploy.py fork <dir> --name "
                "<label>`, set its one setting, `create <fork dir> --simulation --user-said-yes --variant-of "
                "<the design's simulation id> --batch <one id>`).")
+        if books:
+            how += (f" Each line starts {len(books)} simulations, one per book, so in the reply count simulations, "
+                    f"not variations: \"3 variations, {len(books)} books each: {3 * len(books)} simulations\".")
     else:
         how = (f"After the yes: `deploy.py start-plan {ref} --user-said-yes` (with `--budget <the one they "
                f"picked>` when it offered choices). It starts exactly what this plan quoted.")
@@ -2835,23 +2929,29 @@ def cmd_plan(a):
 def _plan_quote_and_print(a, variants, budgets):
     local = _plan_is_local(a.package)
     name = a.name or Path(a.package.rstrip("/")).name
-    quotes = {}
+    quotes, running = {}, None
     for b in budgets:
-        each, after, refusals, error = _plan_quote(a.package, variants, b, local)
+        each, after, refusals, error, names = _plan_quote(a.package, variants, b, local)
         if refusals:
             print(f"The quote at {_plan_money(b)} would refuse: " + "; ".join(refusals)
                   + ". Fix those variations (or the budget) and run plan again. Nothing was started.", file=sys.stderr)
             return EXIT_CODES["refused"]
         if error:
-            print(f"The cost could not be quoted ({error}). Nothing was started. Do not show a plan without "
-                  f"its cost and never estimate one: tell the user each simulation is billed by the hour "
-                  f"until it is stopped, with no number, and ask.", file=sys.stderr)
-            _write_plan_record(a.package, budgets, variants)
+            print(f"The cost could not be quoted ({error}). Nothing was started, and nothing can start "
+                  f"until a quote succeeds. Show no plan, never estimate a cost and never start it another "
+                  f"way: tell the user its cost could not be read just now and nothing was started, and end "
+                  f"your turn.", file=sys.stderr)
             return EXIT_INTERNAL
+        if local and len(variants) > 1 and running is None:
+            running = _running_design(_design_wallet_names(a.package)) or False
+        if running:
+            after = after - each[0] if isinstance(after, (int, float)) else None
+            each = each[1:]
         quotes[b] = (each, after)
-    print(render_plan(name, a.design, a.trades, variants, quotes))
-    print("\n" + _plan_after_yes(a.package, variants, local), file=sys.stderr)
-    _write_plan_record(a.package, list(quotes), variants, quotes)
+    books = names if len(names) > 1 else []
+    print(render_plan(name, a.design, a.trades, variants, quotes, books, running=bool(running)))
+    print("\n" + _plan_after_yes(a.package, variants, local, books, running or None), file=sys.stderr)
+    _write_plan_record(a.package, list(quotes), variants, local, quotes)
     return 0
 
 
@@ -2872,13 +2972,13 @@ def _plan_record_path(ref):
     return _pkg.strategies_root() / PLAN_RECORD_DIR / f"{_plan_key(ref)}.json"
 
 
-def _write_plan_record(ref, budgets, variants, quotes=None):
+def _write_plan_record(ref, budgets, variants, local, quotes=None):
     """What `plan` quoted, so `create --simulation --user-said-yes` can tell a start the user saw quoted
     from one the agent made up. Best-effort: a record that cannot be written makes the start refuse.
     The same quote again keeps the time it was first printed: the user said yes to that one, and a
     re-quote in the turn of their yes must not make it look unseen."""
     path = _plan_record_path(ref)
-    quote = {"package": str(ref), "budgets": budgets, "local": _plan_is_local(ref),
+    quote = {"package": str(ref), "budgets": budgets, "local": local,
              "variants": [{"label": v["label"], "settings": {v["key"]: v["value"]}} for v in variants],
              "costs": [[b, *quotes[b]] for b in budgets] if quotes else None}
     at = time.time()
@@ -2981,9 +3081,9 @@ def cmd_start_plan(a):
 def _start_needs_its_plan(pkg, a):
     """A simulation the user says yes to is one `plan` quoted at that budget. On dev an agent skipped the
     plan and started three charged simulations on "sounds good"; the yes flag alone is the agent's word."""
-    if not (a.cmd == "create" and getattr(a, "simulation", False) and getattr(a, "user_said_yes", False)):
+    if not (getattr(a, "simulation", False) and getattr(a, "user_said_yes", False)):
         return
-    if getattr(a, "dry_run", False) or getattr(a, "variant_of", None) or len(getattr(pkg, "instances", []) or []) > 1:
+    if getattr(a, "dry_run", False) or getattr(a, "variant_of", None):
         return
     budget = a.budget if a.budget is not None else PLAN_BUDGET_USD
     why = _plan_on_record(a.package, budget)
@@ -3053,9 +3153,8 @@ def _simulation_waits_for_the_yes(a):
     print(f"[E_NEEDS_USER_YES] Nothing was started. A simulation bills credits by the hour from its start, so it "
           f"starts only after the user has seen its cost in this chat and said yes.\n"
           f"  If they have not said yes to it: run `deploy.py plan {getattr(a, 'package', '<package>')}` and relay "
-          f"what it prints as given (\"billed by the hour\", with no number, when it could not quote), and end "
-          f"your turn. A failed or refused cost quote "
-          f"is never a reason to start without it.\n"
+          f"what it prints as given, and end your turn. When it could not quote, nothing can start: say so. "
+          f"A failed or refused cost quote is never a reason to start without it.\n"
           f"  After their yes: re-run this exact command with --user-said-yes.", file=sys.stderr)
     sys.exit(EXIT_CODES["refused"])
 
@@ -3092,6 +3191,7 @@ def _main(argv):
                     help="With --variant-of: one id shared by every variation started together "
                          "(1-100 chars of A-Z a-z 0-9 _ -).")
     _ownership_flags(pc)
+    _fork_of_flag(pc)
 
     pr = sub.add_parser("runtime", help="Resume/complete the same deploy (installs the runtime(s)).")
     common(pr)
@@ -3115,6 +3215,7 @@ def _main(argv):
                                      "forked_from recorded. No money moves, nothing is installed.")
     common(pf)
     _ownership_flags(pf)
+    _fork_of_flag(pf)
 
     # `verify` is the READ-ONLY check. NONE of the deploy flags does anything here — a check that
     # honours `--budget` is a check that can fund a wallet, which is exactly the trap this command is
@@ -3150,20 +3251,25 @@ def _main(argv):
                           help="Preflight: is the package structurally deploy-ready? (structure + render — no money moved, nothing installed; a bare catalog id IS fetched to disk)")
     common(pval)
 
-    # `update` is the in-place edit path: the same preflight as `create`, then `openclaw senpi
+    # `update` is the in-place edit path: the same preflight as `create`, then `senpi
     # update`. Plans by default; `--apply` commits. It fetches nothing (it applies the package you
     # EDITED) and it can never delete, create, fund or close — see `cmd_update`.
     pu = sub.add_parser("update",
-                        help="Apply an edit to a LIVE strategy IN PLACE via `openclaw senpi update` — plans by default, --apply commits. Never closes or re-creates anything.")
+                        help="Apply an edit to a LIVE strategy IN PLACE via `senpi update` — plans by default, --apply commits. Never closes or re-creates anything.")
     pu.add_argument("package", help="The edited package: its directory, or an id already on disk. Fetches nothing.")
     pu.add_argument("--id", dest="runtime_id", default=None,
                     help="Runtime to update (<id>-<instance>). Required on a multi-instance package; implied on a one-instance one.")
     pu.add_argument("--address", default=None, help="Alternative to --id (one-instance packages only).")
     pu.add_argument("--apply", action="store_true",
-                    help="Commit the change. Needs a PASS proof in the instance dir (openclaw senpi validate <dir>). Without it: plan only.")
+                    help="Commit the change. Needs a PASS proof in the instance dir (senpi validate <dir>). Without it: plan only.")
     pu.add_argument("--code-only", dest="code_only", action="store_true",
                     help="Assert only scanner code changed; the verb refuses if the recipe moved too.")
     pu.add_argument("--json", action="store_true", help="The verb's report as one JSON document on stdout.")
+
+    pcall = sub.add_parser("call", help="Call one runtime method through the gateway (works in plugin and daemon mode): "
+                                         + ", ".join(CALL_METHODS) + ". Prints the answer as JSON.")
+    pcall.add_argument("method", help="One of: " + ", ".join(CALL_METHODS))
+    pcall.add_argument("--params", default="{}", help="The method's params, a JSON object.")
 
     pbw = sub.add_parser("batch-wait",
                          help="READ-ONLY: wait for a started simulation batch (senpi.simulations.batchStatus) "
@@ -3194,11 +3300,6 @@ def _main(argv):
                     help="Two to four budgets to offer as choices (e.g. 100,500,1000), each quoted.")
     pp.add_argument("--name", default=None, help="The strategy's name as the user knows it.")
 
-    pcall = sub.add_parser("call", help="Call one runtime method through the gateway (works in plugin and daemon mode): "
-                                         + ", ".join(CALL_METHODS) + ". Prints the answer as JSON.")
-    pcall.add_argument("method", help="One of: " + ", ".join(CALL_METHODS))
-    pcall.add_argument("--params", default="{}", help="The method's params, a JSON object.")
-
     a = ap.parse_args(argv[1:])
 
     variant, batch =getattr(a, "variant_of", None), getattr(a, "batch", None)
@@ -3213,6 +3314,11 @@ def _main(argv):
                if batch is not None and not _BATCH_ID_SHAPE.match(batch) else None)
     if problem:
         print(f"[INVALID_REQUEST] {problem}. Nothing was started.", file=sys.stderr)
+        sys.exit(EXIT_CODES["refused"])
+
+    if getattr(a, "fork_of", None) is not None and not (a.name and a.name.strip()):
+        print("[INVALID_REQUEST] --fork-of needs --name: a copy started from a running strategy gets a name of "
+              "its own. Ask what to call it and pass --name \"<their words>\". Nothing was written.", file=sys.stderr)
         sys.exit(EXIT_CODES["refused"])
 
     src = getattr(a, "from_simulation", None)
@@ -3233,14 +3339,14 @@ def _main(argv):
     if a.cmd == "where":
         print(_pkg.strategies_root())
         return 0
+    if a.cmd == "call":
+        sys.exit(cmd_call(a))
     if a.cmd == "batch-wait":
         sys.exit(cmd_batch_wait(a))
     if a.cmd == "start-plan":
         sys.exit(cmd_start_plan(a))
     if a.cmd == "plan":
         sys.exit(cmd_plan(a))
-    if a.cmd == "call":
-        sys.exit(cmd_call(a))
 
     log = (lambda m: None) if a.json else (lambda m: print(m))
 
@@ -3254,7 +3360,7 @@ def _main(argv):
         # stdout got nothing — and the only fix that keeps the promise is refusing, not inventing a
         # shape. (A structured plan is the verb's `deploy --plan --json` work, not this wrapper's.)
         print(f"error: `--dry-run --json` is not a combination this command can answer — --dry-run "
-              f"renders the planned `openclaw gateway call {_start_method(a)}` line as PROSE, and there is no JSON "
+              f"renders the planned `senpi call {_start_method(a)}` line as PROSE, and there is no JSON "
               f"rendering of a plan. NOTHING WAS STARTED, planned or resolved here.\n"
               f"  The plan (read-only, nothing runs):  python3 {Path(__file__).name} {a.cmd} "
               f"{a.package}{_simulation_sfx(a)} … --dry-run\n"
@@ -3297,8 +3403,9 @@ def _main(argv):
                       "minutes is the other way out. Do not run create meanwhile: a job may be "
                       "running.", file=sys.stderr)
             elif tail.startswith("senpi.deploy.status: spawn_failed:"):
-                print("  openclaw could not be started on this host, so nothing was read. Run this "
-                      "command on the agent's own box, where the runtime runs.", file=sys.stderr)
+                print("  Neither `senpi` nor `openclaw` could be started on this host, so nothing was "
+                      "read. Run this command on the agent's own box, where the runtime runs.",
+                      file=sys.stderr)
             elif _cli.sigkilled(tail):
                 sys.exit(_cli.emit_oom("  " + _cli.oom_stop(
                     "No deploy state was read here, so nothing about any deploy is reported — a job "
@@ -3412,7 +3519,7 @@ def _main(argv):
             # The proof gate is the runtime's, and it refuses PRE-MONEY. Naming it here is the whole
             # point: an unproven instance makes the NEXT command fail, not this one.
             for name, d in unproven:
-                print(f"  {name}: NO PROOF — `openclaw senpi validate {d}` must PASS before "
+                print(f"  {name}: NO PROOF — `senpi validate {d}` must PASS before "
                       f"`create` will fund this package", file=sys.stderr)
         sys.exit(EXIT_CODES["refused"] if errors else 0)
     if gate:

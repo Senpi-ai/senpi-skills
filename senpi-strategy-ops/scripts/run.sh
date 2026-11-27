@@ -57,7 +57,7 @@ case "$RC" in
   0) echo ">> done — $ID deployed $WHERE, and a scanner tick was observed. It scans on its own cadence; flat != broken." ;;
   4) echo ">> done — $ID deployed $WHERE, but its FIRST SCANNER TICK was not observed inside the wait."
      echo ">> That is expected on a long interval_seconds — not a failure, and not yet proof of life."
-     echo ">> Check in a few minutes:  openclaw senpi scanner -r <runtime_id>   (ids: openclaw senpi runtime list)" ;;
+     echo ">> Check in a few minutes:  senpi scanner -r <runtime_id>   (ids: senpi runtime list; without the runtime daemon: openclaw senpi …)" ;;
   6) echo ">> $ID: the deploy job is STILL RUNNING (a wallet may still be funding) — nothing failed."
      echo ">> Watch it:  python3 deploy.py status      (do not re-run this script while the job runs)" ;;
   9) echo "error: deploy.py stopped because the box is out of memory (exit 9): relay its report above as written; don't re-run or poll now." >&2

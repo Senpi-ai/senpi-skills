@@ -1,9 +1,20 @@
-# Runtime CLI — `openclaw senpi …`
+# Runtime CLI — `senpi …`
 
 The complete command surface for interacting with the Senpi trading runtime (`@senpi-ai/runtime`).
-The plugin registers a `senpi` command group on the OpenClaw gateway, so every command is invoked as
-**`openclaw senpi <group> <subcommand>`**. Most read commands accept `--json` to print the raw
-gateway payload, and `-r/--runtime <id>` / `-a/--address <wallet>` to filter to one runtime.
+The runtime runs as its own daemon beside OpenClaw, and its CLI is **`senpi <group> <subcommand>`**:
+it talks to the daemon directly, so it works while the agent (the OpenClaw gateway) sleeps. Most read
+commands accept `--json` to print the raw payload, and `-r/--runtime <id>` / `-a/--address <wallet>`
+to filter to one runtime.
+
+**`openclaw senpi …` still works** — same commands, flags, output and exit codes (on a daemon box it
+simply runs `senpi`). On a box without the daemon `senpi` answers *"the runtime daemon is not installed
+on this box yet"*: run the same command as `openclaw senpi …` there. `senpi --version` prints the
+runtime version (and is the quickest "is the daemon CLI here?" check).
+
+`senpi call senpi.<method> --json --timeout <ms> --params '<json>'` calls one runtime method and prints
+exactly what `openclaw gateway call <method> --json` prints, plus `sent: "nothing" | "maybe"` in every
+error (`nothing`: not sent, safe to retry; `maybe`: check status before retrying). The skill scripts use
+it; prefer the commands below by hand.
 
 ## Install
 
@@ -13,7 +24,7 @@ openclaw plugins install @senpi-ai/runtime
 
 ## `senpi config` — manage CLI preferences
 
-Stored in `~/.openclaw/senpi-cli.json`; changes require a gateway restart to apply.
+Stored in `~/.openclaw/senpi-cli.json`; changes require a runtime restart to apply.
 
 | Command | What it does |
 |---|---|
@@ -27,8 +38,8 @@ Stored in `~/.openclaw/senpi-cli.json`; changes require a gateway restart to app
 
 ## `senpi validate` — prove a strategy runs, before it is funded (the gate)
 
-Runs **locally** rather than forwarding to the gateway (as `config` and `guide` also do), so CI can
-run the offline depths with no gateway present and a validation can never touch a live runtime. It loads
+Runs **locally** rather than forwarding to the runtime (as `config` and `guide` also do), so CI can
+run the offline depths with no runtime present and a validation can never touch a live runtime. It loads
 every scanner file, runs one real `scan()` tick against live read-only data, counts what it read, and
 checks each emitted signal against intake's own wire schema. **No wallet, no funding, no deploy.**
 
@@ -54,8 +65,8 @@ bad `--timeout`, target not found, an unresolvable package root).
 - **FAIL** — each finding carries `what` / `why` / `fix` computed against the package.
 
 ```bash
-openclaw senpi validate strategies/spider/swing        # an instance dir — the target is a directory
-openclaw senpi validate ./my-strategy --stage import   # fast, offline, no credentials — NOT the gate
+senpi validate strategies/spider/swing        # an instance dir — the target is a directory
+senpi validate ./my-strategy --stage import   # fast, offline, no credentials — NOT the gate
 ```
 
 ## `senpi deploy` — take a strategy package live (the deploy path)
@@ -91,9 +102,9 @@ the package (a bare catalog id is fetched), runs the structural preflight and dr
 | `runtime delete [runtime_id]` | Remove a runtime by id or wallet address. | `--id <runtime_id>` (from `runtime list`) · `--address <wallet>` |
 
 ```bash
-openclaw senpi deploy -p strategies/spider --budget 300   # the deploy path (detached; then poll: deploy.py status)
-openclaw senpi runtime list                               # verify it is running
-openclaw senpi runtime delete --id iguana-tracker         # tear down (packages: close.py <id>, which also closes the strategy)
+senpi deploy -p strategies/spider --budget 300   # the deploy path (detached; then poll: deploy.py status)
+senpi runtime list                               # verify it is running
+senpi runtime delete --id iguana-tracker         # tear down (packages: close.py <id>, which also closes the strategy)
 ```
 
 ## `senpi dsl` — inspect the DSL exit engine
@@ -173,8 +184,8 @@ Printed reference for `@senpi-ai/runtime`, available on the host without leaving
 | `guide schema` | The full YAML schema field reference |
 | `guide version` | Plugin version and changelog URL |
 
-`openclaw senpi --cheatsheet` prints the whole command cheatsheet.
+`senpi --cheatsheet` prints the whole command cheatsheet.
 
-> Every CLI command that reaches a running runtime wraps a gateway RPC (`openclaw gateway call
+> Every CLI command that reaches a running runtime wraps one runtime method (`senpi call
 > senpi.<method>`); `validate`, `config` and `guide` run locally and wrap none. The CLI is the
 > supported human-facing surface; reach for the raw RPCs only for programmatic automation.

@@ -14,7 +14,7 @@ minutes, blow the `exec` timeout, and push you to raw MCP — which loses every 
 **fast, resumable STEPS** and **narrate each slice the moment it returns** (this mirrors
 `senpi-improve-trades` / `senpi-strategy-ops` — short steps over a shared state file, the skill narrates
 between). Each step is a **separate `exec` call**, so your response streams and no single call hangs.
-Runtime health inside `strategies` is **one** `openclaw senpi status --json` for the whole fleet (a
+Runtime health inside `strategies` is **one** `senpi status --json` for the whole fleet (a
 progress line goes to stderr), so that step's cost does not grow with the number of runtimes.
 
 The steps (SKILL.md "Run it in steps"):
@@ -124,7 +124,7 @@ on SEPARATE wallets** — **ox** = `core`+`ballast` (risk-parity), **cougar** = 
 (market-neutral), **cub** = `long`+`short`+`preipo` (multi-sleeve dispersion). `strategy_list` returns
 **each instance/wallet as its own row**, so the raw list looks like several separate strategies. **It is
 not.** A multi-wallet strategy (long+short, core+ballast, multi-sleeve) is **ONE strategy across N
-wallets/instances** — the wallets are the *legs of one design*, not independent bets.
+wallets/instances** — the wallets are the *legs of one design*, not independent bets (but against the plan's strategy limits each wallet still takes its own slot).
 
 **Lead and reason at the `strategy_groups[]` level, not `strategies[]`.** The engine re-unites the
 per-wallet rows into **`strategy_groups[]`** — one entry per real strategy, with `is_multi_wallet`,
