@@ -129,7 +129,7 @@ class SimulationYesGate(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(self._starts(), [], health)
             self.assertIn("planned:", text)
-            self.assertIn("billed by the hour", text)
+            self.assertIn("cannot start on their agent until its cost can be quoted", text)
             self.assertIn("cannot be quoted", text)
 
     def test_a_refused_quote_is_relayed_and_nothing_else_is_sent(self):
@@ -138,7 +138,7 @@ class SimulationYesGate(unittest.TestCase):
         self.assertEqual(code, deploy.EXIT_CODES["refused"])
         self.assertEqual(len(self._starts()), 1)
         self.assertIn("[INVALID_REQUEST] budget below the minimum", text)
-        self.assertIn("billed by the hour", text)
+        self.assertIn("its cost could not be read just now and nothing was started", text)
         self.assertNotIn("planned:", text)
 
     def test_an_answer_that_is_not_a_quote_is_called_out(self):
