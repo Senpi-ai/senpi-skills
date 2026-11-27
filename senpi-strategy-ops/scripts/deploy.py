@@ -636,8 +636,8 @@ def _simulation_dry_run(pkg, method, params, a):
     kind, caps = _deploy_capabilities(getattr(a, "json", False))
     if not (isinstance(caps, dict) and caps.get("simulationYesGate") is True):
         print("planned: " + shlex.join(_cli.gateway_argv(method, params, START_RPC_MS)))
-        print("  The cost cannot be quoted on this runtime, and nothing was started. Tell the user the "
-              "simulation is billed by the hour until it is stopped, with no number, and ask.")
+        print("  The cost cannot be quoted on this runtime, and nothing was started. Tell the user a "
+              "simulation cannot start on their agent until its cost can be quoted.")
         raise SystemExit(0)
     quote_params = {k: v for k, v in params.items() if k != "userSaidYes"}
     quote_params["dryRun"] = True
@@ -656,9 +656,9 @@ def _simulation_dry_run(pkg, method, params, a):
               file=sys.stderr)
         raise SystemExit(EXIT_INTERNAL)
     print(r["message"] or f"{method}: {r['kind']}", file=sys.stderr)
-    print("The cost could not be quoted. A quote starts nothing. Tell the user the simulation is billed "
-          "by the hour until it is stopped, with no number, and ask. A failed quote is never a reason "
-          "to start another way.", file=sys.stderr)
+    print("The cost could not be quoted. A quote starts nothing, and a simulation starts only after "
+          "`deploy.py plan` quoted it: tell the user its cost could not be read just now and nothing was "
+          "started. A failed quote is never a reason to start another way.", file=sys.stderr)
     raise SystemExit(EXIT_CODES["refused"] if r["kind"] == "refused" else EXIT_INTERNAL)
 
 
@@ -2664,7 +2664,14 @@ def _plan_money(v):
 
 
 def _plan_is_local(ref):
-    return "/" in ref or Path(ref).is_dir()
+    """Quoted as a package (`senpi.deploy.startSimulation`), not as a catalog batch: a path, or a
+    package of several wallets on this box, which a batch refuses."""
+    if "/" in ref or Path(ref).is_dir():
+        return True
+    try:
+        return len(_pkg.load(ref).instances) > 1
+    except Exception:  # noqa: BLE001 — not on this box: the catalog batch quotes it
+        return False
 
 
 def _plan_quote(ref, variants, budget, local):
@@ -2843,15 +2850,15 @@ def _plan_quote_and_print(a, variants, budgets):
                   + ". Fix those variations (or the budget) and run plan again. Nothing was started.", file=sys.stderr)
             return EXIT_CODES["refused"]
         if error:
-            print(f"The cost could not be quoted ({error}). Nothing was started. Do not show a plan without "
-                  f"its cost and never estimate one: tell the user each simulation is billed by the hour "
-                  f"until it is stopped, with no number, and ask.", file=sys.stderr)
-            _write_plan_record(a.package, budgets, variants)
+            print(f"The cost could not be quoted ({error}). Nothing was started, and nothing can start "
+                  f"until a quote succeeds. Show no plan, never estimate a cost and never start it another "
+                  f"way: tell the user its cost could not be read just now and nothing was started, and end "
+                  f"your turn.", file=sys.stderr)
             return EXIT_INTERNAL
         quotes[b] = (each, after)
     print(render_plan(name, a.design, a.trades, variants, quotes))
     print("\n" + _plan_after_yes(a.package, variants, local), file=sys.stderr)
-    _write_plan_record(a.package, list(quotes), variants)
+    _write_plan_record(a.package, list(quotes), variants, local)
     return 0
 
 
@@ -2870,14 +2877,14 @@ def _plan_record_path(ref):
     return _pkg.strategies_root() / PLAN_RECORD_DIR / f"{_plan_key(ref)}.json"
 
 
-def _write_plan_record(ref, budgets, variants):
+def _write_plan_record(ref, budgets, variants, local):
     """What `plan` quoted, so `create --simulation --user-said-yes` can tell a start the user saw quoted
     from one the agent made up. Best-effort: a record that cannot be written makes the start refuse."""
     path = _plan_record_path(ref)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"at": time.time(), "package": str(ref), "budgets": budgets,
-                                    "local": _plan_is_local(ref),
+                                    "local": local,
                                     "variants": [{"label": v["label"], "settings": {v["key"]: v["value"]}}
                                                  for v in variants]}))
     except OSError as e:
@@ -2950,9 +2957,9 @@ def cmd_start_plan(a):
 def _start_needs_its_plan(pkg, a):
     """A simulation the user says yes to is one `plan` quoted at that budget. On dev an agent skipped the
     plan and started three charged simulations on "sounds good"; the yes flag alone is the agent's word."""
-    if not (a.cmd == "create" and getattr(a, "simulation", False) and getattr(a, "user_said_yes", False)):
+    if not (getattr(a, "simulation", False) and getattr(a, "user_said_yes", False)):
         return
-    if getattr(a, "dry_run", False) or getattr(a, "variant_of", None) or len(getattr(pkg, "instances", []) or []) > 1:
+    if getattr(a, "dry_run", False) or getattr(a, "variant_of", None):
         return
     budget = a.budget if a.budget is not None else PLAN_BUDGET_USD
     why = _plan_on_record(a.package, budget)
@@ -3022,9 +3029,8 @@ def _simulation_waits_for_the_yes(a):
     print(f"[E_NEEDS_USER_YES] Nothing was started. A simulation bills credits by the hour from its start, so it "
           f"starts only after the user has seen its cost in this chat and said yes.\n"
           f"  If they have not said yes to it: run `deploy.py plan {getattr(a, 'package', '<package>')}` and relay "
-          f"what it prints as given (\"billed by the hour\", with no number, when it could not quote), and end "
-          f"your turn. A failed or refused cost quote "
-          f"is never a reason to start without it.\n"
+          f"what it prints as given, and end your turn. When it could not quote, nothing can start: say so. "
+          f"A failed or refused cost quote is never a reason to start without it.\n"
           f"  After their yes: re-run this exact command with --user-said-yes.", file=sys.stderr)
     sys.exit(EXIT_CODES["refused"])
 
