@@ -5,7 +5,7 @@ description: >-
   paid plan or while the account holds credits), referral earnings — and explain the AI-credits usage meter. Use for "how many points
   do I have?", "what's my rank/tier?", "where did my tier go?", "what are my fees?", "my referral
   rewards", "how do referrals work?", and for credits: "what is the bubble/meter in the header?", "why are my credits going
-  down?", "how many credits do I have?", "how much did that cost?", "does my strategy use credits?", "can I trade or withdraw my
+  down?", "how many credits do I have?", "how many credits have I used, and on what?", "how much did simulations cost me?", "how much did that cost?", "does my strategy use credits?", "can I trade or withdraw my
   credits?", and for plans: "what plans are there?", "how much
   does Senpi cost?", "what do I get on Pro/Quant?", "how do I get free credits?", "where are my
   milestone credits?", "do I need a subscription to keep my strategy running?", "what happens when my
@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.11.8"
+  version: "1.11.9"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -58,8 +58,9 @@ Returns `{as_of, identity, points, fee, referral, limits, credits, meta}`:
   could not read it: say the fee could not be read right now, never `0%` and never a rate.
 - `referral` — `balance_usdc` (referral earnings not yet claimed).
 - `limits` — MCP `strategy_get_limits` as returned; rules in "Strategy limits" below.
-- `credits` — `available`, and when true `remaining` (credits), `burn_per_hour` and `hours_left`
-  (each may be null), `cycle_end`. `{"available": false}` when the balance could not be read.
+- `credits` — `available`, and when true `remaining` (credits), `used` (credits used this cycle),
+  `by_category` (`simulations.credits` with `simulations.count`, and `ai_chat.credits`; null from an
+  older server), `burn_per_hour` and `hours_left` (each may be null), `cycle_start`, `cycle_end`. `{"available": false}` when the balance could not be read.
 - `meta.warnings` / `meta.degraded` — narrate honestly.
 - Fails open — partial data still returns valid JSON.
 
@@ -144,6 +145,12 @@ reads it.
 - **How many credits do I have.** Run the engine. When `credits.available` is true, answer with
   `credits.remaining` as a number of credits, and the time left when `hours_left` is present. Never
   convert it to dollars, never say a dollar amount of credit, and never round it into a "roughly".
+- **How many have I used, and on what.** Run the engine. Answer with `credits.used` as the credits
+  used this cycle (since `cycle_start`), then the split from `credits.by_category`: credits on
+  simulations (and how many simulations) and credits on AI chat. "What did simulations cost me" is
+  `by_category.simulations.credits`. The split is the same one the app's Credits screen shows. Only
+  when `used` or `by_category` is null, say you can't read that part here and point at
+  senpi.ai/settings/subscription.
 - **When `credits.remaining` is 0**, the user is out of credits: the AI stops and simulations pause,
   but their live strategies keep running. Buying credits, upgrading or the renewal brings the AI back.
 - **When `credits.available` is false**, you cannot read the balance: point at the meter in the app
@@ -171,6 +178,7 @@ reads it.
 | Say | Never say |
 |---|---|
 | "You have N credits left." (N is `credits.remaining`; add the time left when `hours_left` is present) | A dollar figure for credits, or a balance you did not read from `credits.remaining` |
+| "You've used N credits this cycle: X on simulations (K simulations) and Y on AI chat." (N is `credits.used`, X and K from `by_category.simulations`, Y is `by_category.ai_chat.credits`) | "the engine only reads what's left" / "spend isn't broken down by type" while `used` and `by_category` are present |
 | "Chat and tool use spend AI credits from your plan. Longer threads cost more because the whole conversation is re-sent each turn." | "chatting is free" / "that cost nothing" |
 | "I can't read your balance from here — the meter in the app header and senpi.ai/settings/subscription show it." (only when `credits.available` is false) | Any balance or percentage you did not read from the engine, or a plan size you did not read from the subscription page |
 | "Credits aren't money: they can't be traded, withdrawn or put into a strategy — your funding wallet and strategy budgets are separate." | "credits" as a tradable or withdrawable balance |
