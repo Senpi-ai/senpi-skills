@@ -549,6 +549,23 @@ class ACatalogPlanStartsFromItsRecord(unittest.TestCase):
         self.assertIn("end your turn", err)
         self.assertEqual(self._starts(), [])
 
+    def test_the_same_quote_again_in_the_yes_turn_still_starts_it(self):
+        self.chats = [_chat(wrote_s_ago=5)]
+        self._plan(age=30)
+        self._plan(age=0)
+        code, _out, err = self._main("start-plan", "hawk", "--user-said-yes")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self._starts()), 1)
+
+    def test_a_different_quote_in_the_yes_turn_is_unseen(self):
+        self.chats = [_chat(wrote_s_ago=5)]
+        self._plan(age=30)
+        self._plan("--variant", "lev3|leverage=3|less", age=0)
+        code, _out, err = self._main("start-plan", "hawk", "--user-said-yes")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("end your turn", err)
+        self.assertEqual(self._starts(), [])
+
     def test_a_yes_sent_right_after_the_quote_starts_it(self):
         self.chats = [_chat(wrote_s_ago=0)]
         self._plan(age=4)

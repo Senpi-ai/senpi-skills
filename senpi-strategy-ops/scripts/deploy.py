@@ -2851,7 +2851,7 @@ def _plan_quote_and_print(a, variants, budgets):
         quotes[b] = (each, after)
     print(render_plan(name, a.design, a.trades, variants, quotes))
     print("\n" + _plan_after_yes(a.package, variants, local), file=sys.stderr)
-    _write_plan_record(a.package, list(quotes), variants)
+    _write_plan_record(a.package, list(quotes), variants, quotes)
     return 0
 
 
@@ -2872,16 +2872,27 @@ def _plan_record_path(ref):
     return _pkg.strategies_root() / PLAN_RECORD_DIR / f"{_plan_key(ref)}.json"
 
 
-def _write_plan_record(ref, budgets, variants):
+def _write_plan_record(ref, budgets, variants, quotes=None):
     """What `plan` quoted, so `create --simulation --user-said-yes` can tell a start the user saw quoted
-    from one the agent made up. Best-effort: a record that cannot be written makes the start refuse."""
+    from one the agent made up. Best-effort: a record that cannot be written makes the start refuse.
+    The same quote again keeps the time it was first printed: the user said yes to that one, and a
+    re-quote in the turn of their yes must not make it look unseen."""
     path = _plan_record_path(ref)
+    quote = {"package": str(ref), "budgets": budgets, "local": _plan_is_local(ref),
+             "variants": [{"label": v["label"], "settings": {v["key"]: v["value"]}} for v in variants],
+             "costs": [[b, *quotes[b]] for b in budgets] if quotes else None}
+    at = time.time()
+    try:
+        prior = json.loads(path.read_text())
+        if (isinstance(prior, dict) and isinstance(prior.get("at"), (int, float))
+                and at - prior["at"] <= PLAN_RECORD_TTL_S
+                and {k: v for k, v in prior.items() if k != "at"} == json.loads(json.dumps(quote))):
+            at = prior["at"]
+    except (OSError, ValueError):
+        pass
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"at": time.time(), "package": str(ref), "budgets": budgets,
-                                    "local": _plan_is_local(ref),
-                                    "variants": [{"label": v["label"], "settings": {v["key"]: v["value"]}}
-                                                 for v in variants]}))
+        path.write_text(json.dumps({"at": at, **quote}))
     except OSError as e:
         print(f"note: the plan could not be recorded ({e}); a start of this package will ask for plan again.",
               file=sys.stderr)
