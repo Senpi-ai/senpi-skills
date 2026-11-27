@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """`deploy.py plan` quotes a strategy and its variations as simulations and prints the test plan the
-agent relays as given: each variation changes one setting, the plan carries the quoted credits an hour
+agent relays as given: each variation carries every setting it changes, the plan carries the quoted credits an hour
 on every budget it offers, ends with the simulate-or-live question, and starts nothing.
 
     python3 -m pytest senpi-strategy-ops/tests/test_deploy_plan.py
@@ -175,14 +175,40 @@ class Plan(unittest.TestCase):
                          [{}, {"scanner.inputs.minScore": 7}, {"exit.dsl_preset.phase1.max_loss_pct": 9}])
         self.assertEqual(batch[0]["strategy"], "hawk")
 
-    def test_a_variation_changing_two_settings_is_refused_before_any_quote(self):
+    def test_a_variation_changing_two_settings_is_quoted_and_shown_with_both(self):
         code, out, err = self._run("hawk", "--design", "d", "--trades", "t",
-                                   "--variant", "both|scanner.inputs.minScore=7,leverage=3|two things",
-                                   "--variant", "ok|leverage=3|half leverage")
-        self.assertEqual(code, deploy.EXIT_CODES["refused"])
-        self.assertIn("exactly one setting", err)
-        self.assertEqual(out, "")
-        self.assertEqual(self.calls, [])
+                                   "--variant", "lev2-low|maxLeverage=2;minScore=3|leverage 2, lower score",
+                                   "--variant", "lev3-low|maxLeverage=3; minScore=3|leverage 3, lower score")
+        self.assertEqual(code, 0, err)
+        self.assertIn("2. lev2-low: leverage 2, lower score (maxLeverage = 2, minScore = 3) · trades t ·", out)
+        self.assertIn("3. lev3-low: leverage 3, lower score (maxLeverage = 3, minScore = 3) · trades t ·", out)
+        [quote] = [p for m, p in self.calls if m == BATCH]
+        self.assertEqual([v["settings"] for v in quote["variants"]],
+                         [{}, {"maxLeverage": 2, "minScore": 3}, {"maxLeverage": 3, "minScore": 3}])
+
+    def test_one_simulation_with_two_settings_shows_both(self):
+        code, out, err = self._run("hawk", "--variant", "lev2-low|maxLeverage=2;minScore=3|a calmer entry")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(out.startswith("Simulation of hawk, on virtual money (nothing real moves): lev2-low: a calmer "
+                                       "entry (maxLeverage = 2, minScore = 3) · $1,000"), out)
+
+    def test_a_value_with_a_comma_stays_one_setting(self):
+        code, out, err = self._run("hawk", "--variant", "majors|scanner.inputs.coins=BTC,ETH;maxLeverage=2|majors only")
+        self.assertEqual(code, 0, err)
+        [quote] = [p for m, p in self.calls if m == BATCH]
+        self.assertEqual([v["settings"] for v in quote["variants"]],
+                         [{"scanner.inputs.coins": "BTC,ETH", "maxLeverage": 2}])
+
+    def test_settings_run_together_without_a_semicolon_are_refused_before_any_quote(self):
+        for setting in ("scanner.inputs.minScore=7,leverage=3", "minScore=7 leverage=3", "minScore=3;minScore=4",
+                        "minScore=3;", "minScore=3;;leverage=2"):
+            self.calls.clear()
+            code, out, err = self._run("hawk", "--design", "d", "--trades", "t",
+                                       "--variant", f"both|{setting}|two things",
+                                       "--variant", "ok|leverage=3|half leverage")
+            self.assertEqual(code, deploy.EXIT_CODES["refused"], setting)
+            self.assertEqual(out, "", setting)
+            self.assertEqual(self.calls, [], setting)
 
     def test_one_simulation_the_user_asked_for_is_quoted_on_every_budget_choice(self):
         code, out, err = self._run("hawk", "--design", "buys breakouts with a 6% stop", "--trades", "a few times a week",
@@ -240,6 +266,17 @@ class Plan(unittest.TestCase):
             self.assertIn("is already the design's own value", err)
             self.assertEqual(out, "")
             self.assertEqual(self.calls, [], setting)
+
+    def test_a_variation_with_one_setting_at_the_designs_value_is_refused_even_beside_a_real_change(self):
+        pkg = _write_pkg(self.root)
+        for settings in ("minScore=3;pullbackThreshold=5", "pullbackThreshold=5;minScore=5"):
+            self.calls.clear()
+            code, out, err = self._run(str(pkg), "--design", "d", "--trades", "t",
+                                       "--variant", f"mixed|{settings}|a mixed change",
+                                       "--variant", "ok|minScore=7|pickier entries")
+            self.assertEqual(code, deploy.EXIT_CODES["refused"], settings)
+            self.assertIn("is already the design's own value", err)
+            self.assertEqual(self.calls, [], settings)
 
     def test_a_real_change_from_the_designs_value_is_quoted(self):
         pkg = _write_pkg(self.root)
@@ -629,7 +666,8 @@ class AStartNeedsItsPlan(unittest.TestCase):
 
     def test_a_variation_fork_of_a_started_simulation_needs_no_plan_of_its_own(self):
         code, _out, err = self._main("create", str(self.pkg_dir), "--simulation", "--user-said-yes",
-                                     "--variant-of", "simulation-11111111-2222-4333-8444-555555555555")
+                                     "--variant-of", "simulation-11111111-2222-4333-8444-555555555555",
+                                     "--batch", "b-1")
         self.assertEqual(code, 0, err)
 
     def _write_books(self, name="two-books"):
@@ -810,6 +848,17 @@ class ACatalogPlanStartsFromItsRecord(unittest.TestCase):
         self.assertIn("--budget 250", err)
         self.assertEqual(self._starts(), [])
 
+    def test_every_quoted_setting_of_a_variation_is_recorded_and_started(self):
+        self._plan("--variant", "lev2-low|maxLeverage=2;minScore=3|leverage 2, lower score",
+                   "--variant", "lev4-low|maxLeverage=4;minScore=3|leverage 4, lower score")
+        rec = json.loads(next((self.root / deploy.PLAN_RECORD_DIR).glob("*.json")).read_text())
+        self.assertEqual(rec["variants"], [{"label": "lev2-low", "settings": {"maxLeverage": 2, "minScore": 3}},
+                                           {"label": "lev4-low", "settings": {"maxLeverage": 4, "minScore": 3}}])
+        code, _out, err = self._main("start-plan", "hawk", "--user-said-yes")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([v["settings"] for v in self._starts()[0]["variants"]],
+                         [{}, {"maxLeverage": 2, "minScore": 3}, {"maxLeverage": 4, "minScore": 3}])
+
     def test_one_named_setting_starts_alone(self):
         code, _out, err = self._main("plan", "hawk", "--variant", "lev3|leverage=3|half the leverage")
         self.assertEqual(code, 0, err)
@@ -818,6 +867,20 @@ class ACatalogPlanStartsFromItsRecord(unittest.TestCase):
         code, _out, err = self._main("start-plan", "hawk", "--user-said-yes")
         self.assertEqual(code, 0, err)
         self.assertEqual([v["settings"] for v in self._starts()[0]["variants"]], [{"leverage": 3}])
+
+    def test_a_start_the_runtime_refuses_says_so_and_sends_the_agent_back_to_plan(self):
+        self._plan()
+        orig = _cli.gateway_call
+        no_quote = ("[E_NO_QUOTE] Nothing was started: this box answered no quote of this exact batch in the last "
+                    "6 hours. Quote it with these params and \"dryRun\": true, show the user, and end your turn.")
+        _cli.gateway_call = lambda method, params=None, **kw: (
+            _answer("refused", None, no_quote) if method == BATCH and not (params or {}).get("dryRun")
+            else orig(method, params, **kw))
+        code, _out, err = self._main("start-plan", "hawk", "--user-said-yes")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("[E_NO_QUOTE]", err)
+        self.assertIn("deploy.py plan hawk", err)
+        self.assertNotIn("batch-wait", err)
 
     def _call_start(self, **params):
         body = {"requestId": "r-1", "strategy": "hawk", "budgetUsd": 1000, "dryRun": False, "userSaidYes": True,
@@ -851,19 +914,82 @@ class ACatalogPlanStartsFromItsRecord(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(len(self._starts()), 1)
 
-    def test_variants_whose_budgets_differ_keep_their_path(self):
-        code, _out, err = self._call_start(variants=[{"label": "a", "budgetUsd": 60},
-                                                     {"label": "b", "budgetUsd": 80}])
-        self.assertEqual(code, 0, err)
-
     def test_a_dry_run_through_call_needs_no_plan(self):
         code, _out, err = self._call_start(dryRun=True)
         self.assertEqual(code, 0, err)
 
-    def test_a_variation_of_a_running_simulation_through_call_needs_no_plan(self):
+    def _age_call_quotes(self):
+        for rec in (self.root / deploy.PLAN_RECORD_DIR).glob("call-*.json"):
+            rec.write_text(json.dumps({"at": time.time() - deploy.PLAN_MIN_GAP_S - 1}))
+
+    def _variation_call(self, **params):
         body = {"requestId": "r-2", "parentId": "simulation-1", "budgetUsd": 1000, "dryRun": False,
-                "userSaidYes": True, "variants": [{"label": "lev3", "settings": {"leverage": 3}}]}
+                "userSaidYes": True, "variants": [{"label": "lev3", "settings": {"leverage": 3}}], **params}
+        return self._main("call", "senpi.simulations.startBatch", "--params", json.dumps(body))
+
+    def test_a_variation_of_a_running_simulation_starts_after_its_dry_run_in_an_earlier_turn(self):
+        self.chats = [_chat(wrote_s_ago=40)]
+        code, _out, err = self._variation_call(requestId="q-2", dryRun=True)
+        self.assertEqual(code, 0, err)
+        code, _out, err = self._variation_call()
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("end your turn", err)
+        self.assertEqual(self._starts(), [])
+        self.chats = None
+        code, _out, err = self._variation_call()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self._starts()), 1)
+
+    def test_a_variation_of_a_running_simulation_without_its_dry_run_starts_nothing(self):
+        code, _out, err = self._variation_call()
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("[E_NO_PLAN]", err)
+        self.assertIn('"dryRun": true', err)
+        self.assertEqual(self._starts(), [])
+
+    def test_budgets_that_differ_start_only_as_their_dry_run_quoted_them(self):
+        self._plan()
+        quoted = [{"label": "a", "budgetUsd": 60, "settings": {}}, {"label": "b", "budgetUsd": 80, "settings": {"leverage": 3}}]
+        code, _out, err = self._call_start(variants=quoted)
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("no dry run of this exact batch", err)
+        code, _out, err = self._call_start(variants=quoted, requestId="q-1", dryRun=True)
+        self.assertEqual(code, 0, err)
+        self._age_call_quotes()
+        changed = [quoted[0], {**quoted[1], "budgetUsd": 1001}]
+        code, _out, err = self._call_start(variants=changed)
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertEqual(self._starts(), [])
+        code, _out, err = self._call_start(variants=quoted)
+        self.assertEqual(code, 0, err)
+        self.assertEqual([v["budgetUsd"] for v in self._starts()[0]["variants"]], [60, 80])
+
+    def test_more_than_five_simulations_through_call_are_refused_quote_or_start(self):
+        ten = [{"label": f"v{i}", "settings": {"leverage": i + 1}} for i in range(10)]
+        variation = {"requestId": "r-3", "parentId": "simulation-1", "budgetUsd": 1000, "dryRun": False,
+                     "userSaidYes": True, "variants": ten}
+        for call, cap in ((lambda: self._call_start(variants=ten), "at most 5"),
+                          (lambda: self._call_start(variants=ten, dryRun=True), "at most 5"),
+                          (lambda: self._main("call", "senpi.simulations.startBatch", "--params", json.dumps(variation)),
+                           "at most 4")):
+            code, _out, err = call()
+            self.assertEqual(code, deploy.EXIT_CODES["refused"])
+            self.assertIn("[E_BATCH_TOO_LARGE]", err)
+            self.assertIn(cap, err)
+            self.assertIn("second batch", err)
+        self.assertEqual(self.calls, [])
+
+    def test_five_variations_of_a_running_simulation_through_call_are_refused(self):
+        five = [{"label": f"v{i}", "settings": {"leverage": i + 1}} for i in range(5)]
+        body = {"requestId": "r-5", "parentId": "simulation-1", "budgetUsd": 1000, "dryRun": True, "variants": five}
         code, _out, err = self._main("call", "senpi.simulations.startBatch", "--params", json.dumps(body))
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("[E_BATCH_TOO_LARGE]", err)
+        self.assertEqual(self.calls, [])
+
+    def test_five_simulations_through_call_are_quoted(self):
+        five = [{"label": f"v{i}", "settings": {"leverage": i + 1}} for i in range(5)]
+        code, _out, err = self._call_start(variants=five, dryRun=True)
         self.assertEqual(code, 0, err)
 
     def test_start_plan_sends_the_forked_from_its_plan_recorded(self):
