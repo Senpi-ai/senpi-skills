@@ -20,7 +20,7 @@ see `stale_proof_dirs`, which keys on the gate's structured evidence, never on i
   python3 deploy.py runtime  <id> [--decision-model M]             # resume/complete the same deploy
   python3 deploy.py create   <id> --budget <usd> --simulation      # the same deploy as a simulation
                                                                    #   (`senpi.deploy.startSimulation`)
-  python3 deploy.py create   <id> --budget <usd> --simulation --variant-of simulation-<id> [--batch <id>]
+  python3 deploy.py create   <id> --budget <usd> --simulation --variant-of simulation-<id> --batch <id>
                                                                    # a variation: joins that simulation's group
   python3 deploy.py create   <id> --budget <usd> --from-simulation simulation-<id>
                                                                    # live deploy that keeps that simulation's identity
@@ -82,6 +82,7 @@ the verdict, never the invariant.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -629,6 +630,12 @@ def _quote_lines(payload):
     return lines
 
 
+BATCH_FULL_STOP = ("  Stop: this batch is full. Tell the user which of its simulations started and that a batch "
+                   "holds 5 (the design and 4 variations). Start no more now: not under a new batch id, not "
+                   "without --variant-of, not another way. A second batch needs its own quote and the user's "
+                   "yes to it in a later message.")
+
+
 def _simulation_dry_run(pkg, method, params, a):
     """`--dry-run --simulation`: the runtime's own quote when it advertises
     `deploy.capabilities.simulationYesGate`, else the planned command and no number. `dryRun` is
@@ -656,6 +663,9 @@ def _simulation_dry_run(pkg, method, params, a):
               file=sys.stderr)
         raise SystemExit(EXIT_INTERNAL)
     print(r["message"] or f"{method}: {r['kind']}", file=sys.stderr)
+    if r.get("code") == "E_BATCH_TOO_LARGE":
+        print(BATCH_FULL_STOP, file=sys.stderr)
+        raise SystemExit(EXIT_CODES["refused"])
     print("The cost could not be quoted. A quote starts nothing. Tell the user the simulation is billed "
           "by the hour until it is stopped, with no number, and ask. A failed quote is never a reason "
           "to start another way.", file=sys.stderr)
@@ -685,20 +695,70 @@ CALL_METHODS = {"senpi.packages.list": False, "senpi.packages.get": False,
                 "senpi.simulations.startBatch": True, "senpi.simulations.batchStatus": False}
 
 
+def _call_batch_too_large(method, params):
+    """The number of simulations a batch sent through `call` asks for, when it is more than a plan starts."""
+    variants = params.get("variants")
+    cap = PLAN_MAX_VARIATIONS if params.get("parentId") else PLAN_MAX_SIMULATIONS
+    if method == "senpi.simulations.startBatch" and isinstance(variants, list) and len(variants) > cap:
+        return len(variants)
+    return None
+
+
+def _call_quote_path(params):
+    """Where `call` records a dry run of this exact batch: its params without requestId, dryRun and userSaidYes."""
+    batch = {k: v for k, v in params.items() if k not in ("requestId", "dryRun", "userSaidYes")}
+    digest = hashlib.sha256(json.dumps(batch, sort_keys=True).encode()).hexdigest()[:24]
+    return _pkg.strategies_root() / PLAN_RECORD_DIR / f"call-{digest}.json"
+
+
+def _write_call_quote(params):
+    path = _call_quote_path(params)
+    try:
+        try:
+            fresh = time.time() - json.loads(path.read_text())["at"] <= PLAN_RECORD_TTL_S
+        except (OSError, ValueError, KeyError, TypeError):
+            fresh = False
+        if not fresh:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"at": time.time()}))
+    except OSError as e:
+        print(f"note: the quote could not be recorded ({e}); its start will ask for the quote again.", file=sys.stderr)
+
+
+def _call_quote_on_record(params):
+    """None when `call` quoted this exact batch with a dry run in an earlier turn within PLAN_RECORD_TTL_S."""
+    try:
+        at = json.loads(_call_quote_path(params).read_text()).get("at")
+    except (OSError, ValueError, AttributeError):
+        at = None
+    if not isinstance(at, (int, float)):
+        return "no dry run of this exact batch was shown (same variants, settings and budgets)"
+    age = time.time() - at
+    if age > PLAN_RECORD_TTL_S:
+        return "its dry run is more than 6 hours old"
+    if age < PLAN_MIN_GAP_S:
+        return ("its dry run was in this same turn, so the user has not seen it: show it, end your turn, "
+                "and start only on the yes in their next message")
+    return None
+
+
 def _call_start_without_plan(method, params):
-    """Why a real catalog batch start sent through `call` has no plan behind it, or None. Only what `plan`
-    cannot quote passes without one: variations of a running simulation (`parentId`) and budgets that differ."""
-    if method != "senpi.simulations.startBatch" or params.get("dryRun") is True or params.get("parentId"):
+    """Why a real batch start sent through `call` has no quote behind it, or None. A catalog batch `plan`
+    can quote needs that plan; what `plan` cannot quote (variations of a running simulation, budgets that
+    differ) needs a dry run of this exact batch through `call`, shown in an earlier turn."""
+    if method != "senpi.simulations.startBatch" or params.get("dryRun") is True:
         return None
+    if params.get("parentId"):
+        return _call_quote_on_record(params)
     strategy = params.get("strategy")
     if not isinstance(strategy, str) or not strategy:
         return None
     budget = params.get("budgetUsd", PLAN_BUDGET_USD)
-    own = {v.get("budgetUsd") for v in params.get("variants") or [] if isinstance(v, dict)} - {None}
-    if own - {budget}:
-        return None
     if not isinstance(budget, (int, float)) or isinstance(budget, bool):
         return None
+    own = {v.get("budgetUsd") for v in params.get("variants") or [] if isinstance(v, dict)} - {None}
+    if own - {budget}:
+        return _call_quote_on_record(params)
     return _plan_on_record(strategy, float(budget))
 
 
@@ -717,13 +777,29 @@ def cmd_call(a):
               f"{': ' + bad if params is None else ''}. Nothing was sent.", file=sys.stderr)
         return EXIT_CODES["refused"]
     starts = CALL_METHODS[a.method]
+    count = _call_batch_too_large(a.method, params)
+    if count is not None:
+        what = (f"{count} variations of a running simulation in one batch; it takes at most {PLAN_MAX_VARIATIONS}, the "
+                f"running simulation being the design" if params.get("parentId") else
+                f"{count} simulations in one batch; a batch takes at most {PLAN_MAX_SIMULATIONS} (the design and "
+                f"{PLAN_MAX_VARIATIONS} variations)")
+        print(f"[E_BATCH_TOO_LARGE] {what}. Nothing was quoted or started.\n"
+              f"  Next: pick up to {PLAN_MAX_VARIATIONS} variations and quote that batch. Offer the rest as a second "
+              f"batch, started only after its own quote and the user's yes to it. Never start it another way.",
+              file=sys.stderr)
+        return EXIT_CODES["refused"]
     why = _call_start_without_plan(a.method, params)
     if why is not None:
         strategy = params.get("strategy")
-        print(f"[E_NO_PLAN] Nothing was started: {why}. A catalog batch starts only as `plan` quoted it, after "
-              f"the user's yes in a later message.\n"
-              f"  Next: `deploy.py plan {strategy}` (with the --variant lines), relay it as given, end your turn; "
-              f"on their yes, `deploy.py start-plan {strategy} --user-said-yes`.", file=sys.stderr)
+        if params.get("parentId") or why.startswith(("no dry run", "its dry run")):
+            nxt = ("send this exact batch with \"dryRun\": true, show the user every variation, its budget and "
+                   "the credits, end your turn; on their yes in the next message, send it again unchanged with "
+                   "\"dryRun\": false")
+        else:
+            nxt = (f"`deploy.py plan {strategy}` (with the --variant lines), relay it as given, end your turn; "
+                   f"on their yes, `deploy.py start-plan {strategy} --user-said-yes`")
+        print(f"[E_NO_PLAN] Nothing was started: {why}. A batch starts only as the user saw it quoted, after "
+              f"their yes in a later message.\n  Next: {nxt}.", file=sys.stderr)
         return EXIT_CODES["refused"]
     r = _gw(a.method, params, START_RPC_MS if starts else _cli.READ_RPC_MS,
             START_WALL_S if starts else _cli.READ_WALL_S)
@@ -732,6 +808,8 @@ def cmd_call(a):
             "Whether it ran is not known." if starts else "Nothing was changed by this read.",
             "the box is out of memory"), False, {"method": a.method})
     if r["kind"] == "ok":
+        if a.method == "senpi.simulations.startBatch" and params.get("dryRun") is True:
+            _write_call_quote(params)
         print(json.dumps(r["payload"], indent=2))
         return 0
     print(r["message"] or f"{a.method}: {r['kind']}", file=sys.stderr)
@@ -1091,6 +1169,8 @@ def start_deploy(pkg, a, log):
         if not reused:
             _journal_resolve(pkg, rid, "refused", simulation)
         print(r["message"], file=sys.stderr)
+        if r.get("code") == "E_BATCH_TOO_LARGE":
+            print(BATCH_FULL_STOP, file=sys.stderr)
         raise SystemExit(EXIT_CODES["refused"])
     if kind in ("unknown_method", "cli_parse", "spawn_failed"):
         if not reused:
@@ -2599,6 +2679,8 @@ def cmd_batch_wait(a):
 
 PLAN_QUESTION = "Simulate these first, or take it live as it is now?"
 PLAN_BUDGET_USD = 1000.0
+PLAN_MAX_VARIATIONS = 4
+PLAN_MAX_SIMULATIONS = 1 + PLAN_MAX_VARIATIONS
 _VARIANT_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}\Z")
 
 
@@ -2620,12 +2702,12 @@ _PLAN_UNCHANGED_LABELS = {"as-designed", "as-is", "as-written", "base", "baselin
 
 
 def parse_plan_variant(text):
-    """`label|key=value|what it tests[|how often it trades]` -> {label, key, value, tests, trades}. A
-    variation changes exactly one setting, so a second `=` or a `,` between settings is refused rather
-    than read as two changes."""
+    """`label|key=value[;key=value...]|what it tests[|how often it trades]` -> {label, settings, tests,
+    trades}. Settings are separated by `;` only: a second `=` in one setting, or a `,` in its key, is
+    refused rather than read as part of one value."""
     parts = [p.strip() for p in text.split("|")]
     if len(parts) not in (3, 4) or not all(parts):
-        raise PlanInputError(f"--variant {text!r}: expected 'label|key=value|what it tests' "
+        raise PlanInputError(f"--variant {text!r}: expected 'label|key=value[;key=value]|what it tests' "
                              f"(and, if it trades at another pace, '|how often it trades')")
     label, setting, tests = parts[:3]
     trades = parts[3] if len(parts) == 4 else None
@@ -2633,13 +2715,22 @@ def parse_plan_variant(text):
         raise PlanInputError(f"--variant {text!r}: the label is 1-40 letters, digits, '-', '_' or '.'")
     if label.lower() in _PLAN_UNCHANGED_LABELS:
         raise PlanInputError(f"--variant {text!r}: the design as it is is already simulation 1; each "
-                             f"variation changes one setting from it")
-    key, sep, raw = setting.partition("=")
-    key, raw = key.strip(), raw.strip()
-    if not sep or not key or not raw or "=" in raw or "," in key:
-        raise PlanInputError(f"--variant {text!r}: a variation changes exactly one setting (key=value); "
-                             f"make each change its own variation")
-    return {"label": label, "key": key, "value": _plan_value(raw), "tests": tests, "trades": trades}
+                             f"variation changes something from it")
+    settings = {}
+    for one in setting.split(";"):
+        key, sep, raw = one.partition("=")
+        key, raw = key.strip(), raw.strip()
+        if not sep or not key or not raw or "=" in raw or "," in key or " " in key:
+            raise PlanInputError(f"--variant {text!r}: each setting is key=value, several separated by ';' "
+                                 f"(e.g. maxLeverage=2;minScore=3)")
+        if key in settings:
+            raise PlanInputError(f"--variant {text!r}: {key} is set twice")
+        settings[key] = _plan_value(raw)
+    return {"label": label, "settings": settings, "tests": tests, "trades": trades}
+
+
+def _plan_settings_shown(settings):
+    return ", ".join(f"{k} = {v if isinstance(v, str) else json.dumps(v)}" for k, v in settings.items())
 
 
 def parse_budget_choices(text):
@@ -2706,8 +2797,7 @@ def _plan_quote(ref, variants, budget, local):
 def _plan_variants(variants):
     """The batch a plan quotes and starts: the design as it is first, then each variation; a single
     variation is one simulation with that setting, alone."""
-    rows = [{"label": v["label"], "settings": v["settings"] if "settings" in v else {v["key"]: v["value"]}}
-            for v in variants]
+    rows = [{"label": v["label"], "settings": v["settings"]} for v in variants]
     return rows if len(rows) == 1 else [{"label": "as-designed", "settings": {}}] + rows
 
 
@@ -2750,16 +2840,14 @@ def render_plan(name, design, trades, variants, quotes):
 
     if len(variants) == 1:
         v = variants[0]
-        shown = v["value"] if isinstance(v["value"], str) else json.dumps(v["value"])
-        what = f"{v['label']}: {v['tests']} ({v['key']} = {shown})"
+        what = f"{v['label']}: {v['tests']} ({_plan_settings_shown(v['settings'])})"
         variants = []
         lines = [f"Simulation of {name}, on virtual money (nothing real moves): {facts(what, v.get('trades') or trades, 0)}"]
     elif variants:
         lines = [f"Test plan for {name}, on virtual money (nothing real moves):",
                  f"1. As designed: {facts(design, trades, 0)}"]
         for i, v in enumerate(variants, start=2):
-            shown = v["value"] if isinstance(v["value"], str) else json.dumps(v["value"])
-            what = f"{v['tests']} ({v['key']} = {shown})"
+            what = f"{v['tests']} ({_plan_settings_shown(v['settings'])})"
             lines.append(f"{i}. {v['label']}: {facts(what, v.get('trades') or trades, i - 1)}")
     else:
         lines = [f"Simulation of {name}, on virtual money (nothing real moves): {facts(design, trades, 0)}"]
@@ -2788,7 +2876,7 @@ def _plan_after_yes(ref, variants, local):
     if local:
         how = ("After the yes: start the design with `deploy.py create <dir> --simulation --user-said-yes "
                "--budget <their budget>`, then each variation as its own fork (`deploy.py fork <dir> --name "
-               "<label>`, set its one setting, `create <fork dir> --simulation --user-said-yes --variant-of "
+               "<label>`, set its settings, `create <fork dir> --simulation --user-said-yes --variant-of "
                "<the design's simulation id> --batch <one id>`).")
     else:
         how = (f"After the yes: `deploy.py start-plan {ref} --user-said-yes` (with `--budget <the one they "
@@ -2801,10 +2889,10 @@ def cmd_plan(a):
     one message the agent relays as given. Starts nothing."""
     try:
         variants = [parse_plan_variant(t) for t in (a.variant or [])]
-        if len(variants) > 4:
-            raise PlanInputError("a test plan has two to four variations (--variant), each changing one "
-                                 "setting; one --variant quotes one simulation with that setting, none the "
-                                 "strategy as it is")
+        if len(variants) > PLAN_MAX_VARIATIONS:
+            raise PlanInputError("a test plan has two to four variations (--variant), each with every "
+                                 "setting it changes; one --variant quotes one simulation with its settings, "
+                                 "none the strategy as it is")
         if len(variants) == 1 and _plan_is_local(a.package):
             raise PlanInputError("the user's own package takes a setting by editing it: change it in the "
                                  "package, then plan it with no --variant")
@@ -2814,11 +2902,12 @@ def cmd_plan(a):
         if len({v["label"] for v in variants}) != len(variants):
             raise PlanInputError("each variation needs its own label")
         for v in variants:
-            have = _design_value(a.package, v["key"])
-            if have is not _MISSING and _same_value(have, v["value"]):
-                raise PlanInputError(f"--variant {v['label']}: {v['key']} = {v['value']!r} is already the design's "
-                                     f"own value, so it changes nothing; vary it to something else, or vary "
-                                     f"another setting")
+            for key, value in v["settings"].items():
+                have = _design_value(a.package, key)
+                if have is not _MISSING and _same_value(have, value):
+                    raise PlanInputError(f"--variant {v['label']}: {key} = {value!r} is already the design's "
+                                         f"own value, so it changes nothing; vary it to something else, or "
+                                         f"leave it out")
         budgets = [a.budget] if a.budget is not None else parse_budget_choices(a.budget_choices)
         if a.budget is not None and a.budget_choices is not None:
             raise PlanInputError("pass --budget (the user named one) or --budget-choices, not both")
@@ -2878,7 +2967,7 @@ def _write_plan_record(ref, budgets, variants):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"at": time.time(), "package": str(ref), "budgets": budgets,
                                     "local": _plan_is_local(ref),
-                                    "variants": [{"label": v["label"], "settings": {v["key"]: v["value"]}}
+                                    "variants": [{"label": v["label"], "settings": v["settings"]}
                                                  for v in variants]}))
     except OSError as e:
         print(f"note: the plan could not be recorded ({e}); a start of this package will ask for plan again.",
@@ -2937,6 +3026,11 @@ def cmd_start_plan(a):
     begin_command_budget(START_WALL_S + BATCH_WAIT_BUDGET)
     try:
         r = _gw("senpi.simulations.startBatch", params, START_RPC_MS, START_WALL_S)
+        if r["kind"] == "refused":
+            print(f"{r['message']}\n  Next: run `deploy.py plan {a.package}{budget_flag}` again (with the same "
+                  f"--variant lines), relay it as given, and end your turn; start only on a yes in their next "
+                  f"message. Never start it another way.", file=sys.stderr)
+            return EXIT_CODES["refused"]
         if r["kind"] != "ok":
             print(f"The start was not confirmed ({r['message'] or r['kind']}). Read `deploy.py batch-wait "
                   f"{request_id}` before anything else; never start it again.", file=sys.stderr)
@@ -3058,7 +3152,7 @@ def _main(argv):
                     help="With --simulation: start this as a variation of that simulation, in its group as the "
                          "next free version. Not for a new strategy, not with --from-simulation.")
     pc.add_argument("--batch", dest="batch", default=None, metavar="BATCH_ID",
-                    help="With --variant-of: one id shared by every variation started together "
+                    help="Needed with --variant-of: one id shared by every variation started together "
                          "(1-100 chars of A-Z a-z 0-9 _ -).")
     _ownership_flags(pc)
 
@@ -3151,13 +3245,14 @@ def _main(argv):
                      help="The user said an explicit yes to the plan in a message after it was shown.")
 
     pp = sub.add_parser("plan",
-                        help="READ-ONLY: quote a strategy and two to four one-setting variations as simulations "
+                        help="READ-ONLY: quote a strategy and two to four variations as simulations "
                              "and print the test plan to relay as given. Starts nothing.")
     pp.add_argument("package", help="Catalog id (e.g. hawk) or the package dir the user's strategy lives in.")
     pp.add_argument("--design", default=None, help="The strategy as designed, in one plain sentence (required with --variant).")
     pp.add_argument("--trades", default=None, help="How often it should trade, in plain words (required with --variant).")
-    pp.add_argument("--variant", action="append", metavar="LABEL|KEY=VALUE|WHAT IT TESTS",
-                    help="One variation: a label, exactly one setting, and what it tests. Two to four.")
+    pp.add_argument("--variant", action="append", metavar="LABEL|KEY=VALUE[;KEY=VALUE]|WHAT IT TESTS",
+                    help="One variation: a label, every setting it changes (';' between them), and what it "
+                         "tests. Two to four.")
     pp.add_argument("--budget", type=float, default=None, help="The budget the user named, in USD.")
     pp.add_argument("--budget-choices", default=None,
                     help="Two to four budgets to offer as choices (e.g. 100,500,1000), each quoted.")
@@ -3178,6 +3273,8 @@ def _main(argv):
                f"--variant-of: {variant!r} is not a simulation id (expected simulation-<uuid>, as `strategy_list` shows it)"
                if variant is not None and not _SIMULATION_ID_SHAPE.match(variant) else
                "--batch needs --variant-of" if variant is None else
+               "--variant-of needs --batch <id>, one id shared by every variation started together "
+               "(a batch holds at most 5 simulations)" if batch is None else
                f"--batch: {batch!r} is not a batch id (1-100 characters of A-Z a-z 0-9 _ -)"
                if batch is not None and not _BATCH_ID_SHAPE.match(batch) else None)
     if problem:
@@ -3376,7 +3473,7 @@ def _main(argv):
                       + (f" — proven: {proven}" if proven else ""))
                 print(f"next: unless they asked for live, propose the test plan: `deploy.py plan {a.package} "
                       f"--design \"<one sentence>\" --trades \"<how often>\" --variant \"<label>|<key>=<value>|"
-                      f"<what it tests>\"` (2-4, one setting each), relayed as given. No deposit is needed "
+                      f"<what it tests>\"` (2-4, every setting each changes, ';' between them), relayed as given. No deposit is needed "
                       f"to simulate.")
             # The proof gate is the runtime's, and it refuses PRE-MONEY. Naming it here is the whole
             # point: an unproven instance makes the NEXT command fail, not this one.
