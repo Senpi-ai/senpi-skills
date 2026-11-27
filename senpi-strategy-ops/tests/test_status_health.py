@@ -119,15 +119,15 @@ class UnreadableStrategyListRefuses(unittest.TestCase):
 
     def setUp(self):
         self._or_none, self._runtimes = _cli.list_strategies_or_none, _cli.list_runtimes_or_none
-        self._avail = status._openclaw_available
+        self._avail = status._runtime_cli_available
         # A read, empty runtime list: these tests are about the STRATEGY list. (An unread runtime list
         # exits 1 — only a read one earns exit 0, the out-of-memory way back.)
-        status._openclaw_available = lambda why=None: True
+        status._runtime_cli_available = lambda why=None: True
         _cli.list_runtimes_or_none = lambda *a, **k: []
 
     def tearDown(self):
         _cli.list_strategies_or_none, _cli.list_runtimes_or_none = self._or_none, self._runtimes
-        status._openclaw_available = self._avail
+        status._runtime_cli_available = self._avail
 
     @staticmethod
     def _unreadable(mcp, timeout=15, statuses=None, why=None, simulation=False):
@@ -230,12 +230,12 @@ class TriageCommandsAreReadOnly(unittest.TestCase):
     def test_a_degraded_row_emits_read_only_triage_only(self):
         text = self._render("degraded")
         self.assertNotIn("deploy.py runtime spider", text)  # would install + start trading
-        self.assertIn("openclaw senpi scanner -r spider-main", text)
+        self.assertIn("senpi scanner -r spider-main", text)
 
     def test_an_unknown_row_emits_read_only_checks_only(self):
         text = self._render("unknown")
         self.assertNotIn("deploy.py runtime spider", text)
-        self.assertIn("openclaw senpi scanner -r spider-main", text)
+        self.assertIn("senpi scanner -r spider-main", text)
 
     def test_the_resume_escape_is_named_once_and_says_it_moves_money(self):
         text = self._render("degraded")
