@@ -299,6 +299,62 @@ def test_create_of_a_bare_template_forks_under_the_username(tmp_path, monkeypatc
     assert forked.id == "purplefrog-phalanx" and forked.catalog["name"] == "PurpleFrog's Phalanx"
 
 
+LONG_OWNER = "JollyMercuryBeetroot1"          # slugs to 20 characters: `<owner>-phalanx-main` is too long for a simulation
+LEGACY_ID = "jollymercurybeetroot-phalanx"    # the id a fork got before ids were cut to fit a simulation
+
+
+def _fork_at(root, fid, template="phalanx"):
+    """A fork of `template` under `root/fid`, as an older ops version made it."""
+    src = root / "_made"
+    src.mkdir(exist_ok=True)
+    man = MANIFEST.replace("id: phalanx", f"id: {template}")
+    made, _ = _fork.fork(_pkg.load(_template(src, manifest=man)), src, owner="Ignas")
+    dest = root / fid
+    made.rename(dest)
+    for f in (dest / "strategy.yaml", dest / "main" / "runtime.yaml"):
+        f.write_text(f.read_text().replace(f"ignas-{template}", fid))
+    (dest / ".deploy-state.json").write_text('{"live": true}')
+    return dest
+
+
+def test_a_fork_made_under_the_old_uncut_id_is_the_one_a_live_deploy_reuses(tmp_path):
+    pkg = _pkg.load(_template(tmp_path))
+    assert _fork.names_for(pkg, owner=LONG_OWNER)[0] != LEGACY_ID      # the cut id differs from the old one
+    legacy = _fork_at(tmp_path, LEGACY_ID)
+    dest, info = _fork.fork(pkg, tmp_path, owner=LONG_OWNER)
+    assert dest == legacy and info["reused"] and info["id"] == LEGACY_ID
+    assert info["runtimes"] == [f"{LEGACY_ID}-main"] and info["dir"] == str(legacy)
+    assert (legacy / ".deploy-state.json").read_text() == '{"live": true}'            # untouched
+    made = sorted(p.name for p in tmp_path.iterdir() if (p / "strategy.yaml").is_file())
+    assert made == sorted(["phalanx", LEGACY_ID]), made                                      # no second fork beside it
+
+
+def test_a_simulation_never_reuses_an_old_id_too_long_to_run_as_one(tmp_path):
+    pkg = _pkg.load(_template(tmp_path))
+    _fork_at(tmp_path, LEGACY_ID)
+    dest, info = _fork.fork(pkg, tmp_path, owner=LONG_OWNER, simulation=True)
+    assert info["id"] == _fork.names_for(pkg, owner=LONG_OWNER)[0] and not info["reused"]
+    assert _fits_simulation(info["id"], pkg) and dest.name == info["id"]
+
+
+def test_an_old_id_held_by_a_fork_of_another_template_is_not_reused(tmp_path):
+    pkg = _pkg.load(_template(tmp_path))
+    _fork_at(tmp_path, LEGACY_ID, template="hawk")
+    dest, info = _fork.fork(pkg, tmp_path, owner=LONG_OWNER)
+    assert info["id"] == _fork.names_for(pkg, owner=LONG_OWNER)[0] and not info["reused"]
+
+
+def test_create_of_a_template_deploys_the_old_live_fork_not_a_second_one(tmp_path, monkeypatch):
+    deploy = _deploy()
+    _template(tmp_path)
+    legacy = _fork_at(tmp_path, LEGACY_ID)
+    monkeypatch.setenv("SENPI_STRATEGIES_DIR", str(tmp_path))
+    monkeypatch.setattr(deploy, "_username", lambda: LONG_OWNER)
+    a = argparse.Namespace(cmd="create", package="phalanx", owner=None, name=None, dry_run=True, simulation=False)
+    forked = deploy._fork_for_deploy(_pkg.load(tmp_path / "phalanx"), a, log=lambda m: None)
+    assert forked.id == LEGACY_ID and Path(forked.dir) == legacy
+
+
 # ---------- forked_from.parent: the copy step records which node the copy counts under ----------
 
 SIM = "simulation-3f2a6b1c-9d4e-4a5b-8c7d-0e1f2a3b4c5d"

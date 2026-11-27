@@ -1145,6 +1145,15 @@ class DeploySimulation(unittest.TestCase):
         deploy.outside_durable_root = lambda p, cmd, simulation=False, **k: None
         deploy.full_validate = lambda p: []
         deploy.start_request_ids_supported = lambda log, as_json=False: True
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        old_root = os.environ.get("SENPI_STRATEGIES_DIR")
+        os.environ["SENPI_STRATEGIES_DIR"] = tmp
+        self.addCleanup(lambda: os.environ.__setitem__("SENPI_STRATEGIES_DIR", old_root) if old_root is not None
+                        else os.environ.pop("SENPI_STRATEGIES_DIR", None))
+        deploy._write_plan_record("omega", [30.0], [])  # the user saw omega quoted at $30 by `plan`,
+        rec = deploy._plan_record_path("omega")            # in a turn before this one
+        rec.write_text(json.dumps({**json.loads(rec.read_text()), "at": time.time() - deploy.PLAN_MIN_GAP_S - 1}))
         try:
             for argv in (["create", "omega", "--budget", "30", "--simulation", "--user-said-yes"],
                          ["runtime", "omega", "--simulation", "--user-said-yes"],
