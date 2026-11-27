@@ -99,6 +99,9 @@ class Plan(unittest.TestCase):
                 return self.start
             raise AssertionError(f"unexpected gateway call {method}")
         _cli.gateway_call = _gateway
+        orig_open = getattr(deploy, "_open_simulations", None)
+        deploy._open_simulations = lambda: []
+        self.addCleanup(lambda: setattr(deploy, "_open_simulations", orig_open))
 
     def tearDown(self):
         _cli.gateway_call = self._orig
@@ -295,6 +298,102 @@ class Plan(unittest.TestCase):
         self.assertIn("Test plan for dip-gift, on virtual money", out)
         self.assertIn("All 3: 30 credits an hour (720 a day).", out)
         self.assertEqual(out.strip().splitlines()[-1], QUESTION)
+
+    def test_a_package_of_two_books_counts_each_book_as_a_simulation(self):
+        pkg = self.root / "duo"
+        pkg.mkdir()
+        self.start = _answer("ok", {"dryRun": True, "budgetUsd": 1000, "creditsPerHour": 20, "creditsPerDay": 480,
+                                    "creditsPerHourAfter": 20,
+                                    "instances": [{"name": "duo-long", "creditsPerHour": 10},
+                                                  {"name": "duo-short", "creditsPerHour": 10}]})
+        code, out, err = self._run(str(pkg), "--design", "fades BTC and ETH moves", "--trades", "a few times a week",
+                                   *self.VARIANTS)
+        self.assertEqual(code, 0, err)
+        self.assertIn("It has 2 books (duo-long, duo-short), so each line below starts 2 simulations.", out)
+        self.assertIn("All 3, 6 simulations: 60 credits an hour (1440 a day).", out)
+        self.assertEqual(out.strip().splitlines()[-1], QUESTION)
+        self.assertIn('count simulations, not variations: "3 variations, 2 books each: 6 simulations"', err)
+
+    def _two_book_quote(self):
+        self.start = _answer("ok", {"dryRun": True, "budgetUsd": 1000, "creditsPerHour": 20, "creditsPerDay": 480,
+                                    "creditsPerHourAfter": 60,
+                                    "instances": [{"name": "long"}, {"name": "short"}]})
+
+    def _package(self, pkg_id, books):
+        pkg = self.root / pkg_id
+        pkg.mkdir()
+        (pkg / "strategy.yaml").write_text(
+            f"id: {pkg_id}\nversion: 1.0.0\ninstances:\n"
+            + "".join(f"  - name: {b}\n    runtime: {b}/runtime.yaml\n" for b in books))
+        return pkg
+
+    def _open(self, rows):
+        orig = deploy._open_simulations
+        deploy._open_simulations = lambda: rows
+        self.addCleanup(lambda: setattr(deploy, "_open_simulations", orig))
+
+    def test_variations_of_a_running_design_quote_only_the_variations(self):
+        pkg = self._package("duo", ["long", "short"])
+        self._two_book_quote()
+        self._open([{"strategyName": "duo-long", "strategyId": "simulation-L", "status": "ACTIVE"},
+                    {"strategyName": "duo-short", "strategyId": "simulation-S", "status": "ACTIVE"}])
+        code, out, err = self._run(str(pkg), "--design", "fades BTC and ETH moves", "--trades", "a few times a week",
+                                   *self.VARIANTS)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("As designed", out)
+        self.assertIn("2 variations of your running duo simulation, which keeps running as it is", out)
+        self.assertIn("1. pickier:", out)
+        self.assertIn("All 2, 4 simulations: 40 credits an hour (960 a day).", out)
+        self.assertIn("--variant-of simulation-L", err)
+        self.assertNotIn("start the design", err)
+
+    def test_a_running_design_is_matched_by_its_wallet_names_not_its_book_names(self):
+        pkg = self._package("duo", ["long", "short"])
+        self._two_book_quote()
+        self._open([{"strategyName": "long", "strategyId": "simulation-x", "status": "ACTIVE"},
+                    {"strategyName": "short", "strategyId": "simulation-y", "status": "ACTIVE"}])
+        code, out, err = self._run(str(pkg), "--design", "fades BTC and ETH moves", "--trades", "a few times a week",
+                                   *self.VARIANTS)
+        self.assertEqual(code, 0, err)
+        self.assertIn("1. As designed:", out)
+
+    def test_variations_of_a_running_one_book_design_quote_only_the_variations(self):
+        pkg = self._package("solo", ["main"])
+        self.start = _answer("ok", {"dryRun": True, "budgetUsd": 1000, "creditsPerHour": 10, "creditsPerDay": 240,
+                                    "creditsPerHourAfter": 30, "instances": [{"name": "main"}]})
+        self._open([{"strategyName": "solo", "strategyId": "simulation-S", "status": "ACTIVE"}])
+        code, out, err = self._run(str(pkg), "--design", "buys BTC dips", "--trades", "a few times a week",
+                                   *self.VARIANTS)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("As designed", out)
+        self.assertIn("All 2: 20 credits an hour", out)
+        self.assertIn("--variant-of simulation-S", err)
+
+    def test_a_design_not_running_on_every_book_is_planned_as_before(self):
+        pkg = self._package("duo", ["long", "short"])
+        self._two_book_quote()
+        self._open([{"strategyName": "duo-long", "strategyId": "simulation-L", "status": "ACTIVE"}])
+        code, out, err = self._run(str(pkg), "--design", "fades BTC and ETH moves", "--trades", "a few times a week",
+                                   *self.VARIANTS)
+        self.assertIn("1. As designed:", out)
+        self.assertIn("All 3, 6 simulations: 60 credits an hour", out)
+
+    def test_an_unreadable_list_of_simulations_plans_as_before(self):
+        pkg = self._package("duo", ["long", "short"])
+        self._two_book_quote()
+        self._open(None)
+        code, out, err = self._run(str(pkg), "--design", "fades BTC and ETH moves", "--trades", "a few times a week",
+                                   *self.VARIANTS)
+        self.assertIn("1. As designed:", out)
+
+    def test_one_simulation_of_two_books_says_it_starts_two(self):
+        pkg = self.root / "duo"
+        pkg.mkdir()
+        self.start = _answer("ok", {"dryRun": True, "budgetUsd": 1000, "creditsPerHour": 20, "creditsPerDay": 480,
+                                    "instances": [{"name": "duo-long"}, {"name": "duo-short"}]})
+        code, out, err = self._run(str(pkg))
+        self.assertEqual(code, 0, err)
+        self.assertIn("It has 2 books (duo-long, duo-short), so it starts 2 simulations.", out)
 
     def test_an_unclear_reply_is_not_a_yes(self):
         _, _, err = self._catalog()

@@ -111,7 +111,7 @@ Returns `{book, totals, embedded_wallet, external_wallets, strategies, strategy_
   `largest_position_pct_of_deployed` (concentration).
 - `meta` — `profile_source` (`registry` / `catalog` / `mixed` / `null` — where the strategies' mandates
   came from, in aggregate), `registry_source` (`"runtime-cli"` / `null` — `null` when the
-  `openclaw senpi runtime list` read failed), **`runtime_read_ok`** (bool — `true` when that read
+  `senpi runtime list` read failed), **`runtime_read_ok`** (bool — `true` when that read
   answered, `false` when it failed; `false` is the whole-fleet "this box's runtime could not be asked"
   signal that pairs with the `meta.warnings` line naming the command), `catalog_source`
   (`local` / `remote` / `null`), `strategy_count`, **`has_multi_wallet_strategy`** (bool — `true` when at

@@ -1850,8 +1850,8 @@ def test_runtime_health_is_one_fleet_status_call_not_one_per_runtime():
 def test_health_reads_are_direct_gateway_calls_with_the_raw_answer_shapes():
     """`gateway call` prints the handler's answer: no `ok`, and `-r` folded into `status`, not
     `statuses`. Both must read as the CLI's document did; a null `status` is 'unknown', never live."""
-    assert portfolio.FLEET_STATUS_CMD[:4] == ["openclaw", "gateway", "call", "senpi.getHealthStatus"]
-    assert portfolio.RUNTIME_LIST_CMD[:4] == ["openclaw", "gateway", "call", "senpi.listRuntimes"]
+    assert portfolio.FLEET_STATUS_CMD[:3] == ["senpi", "call", "senpi.getHealthStatus"]
+    assert portfolio.RUNTIME_LIST_CMD[:3] == ["senpi", "call", "senpi.listRuntimes"]
     extras = {"updater": {"state": "idle"}, "approvals": {}, "deploy": {"capabilities": []}}
     fleet = json.dumps({"statuses": [{"runtimeName": "kodiak-main", "health": "healthy"}], **extras})
     res, _ = _run_with_cli(lambda a: (0, fleet, "") if a == portfolio.FLEET_STATUS_CMD else (1, "", "unexpected"))
@@ -1955,3 +1955,49 @@ def test_an_earlier_telemetry_note_does_not_swallow_the_kill():
     portfolio._note_telemetry_unavailable(meta, "status read " + portfolio._killed_read(-9), always=True)
     warns = " ".join(meta["warnings"])
     assert "boom" in warns and "killed by SIGKILL" in warns, warns
+
+
+# ── runtime split: `senpi call` first, `openclaw gateway call` only when senpi sent nothing ──
+_NOT_INSTALLED = (1, "", "senpi: the runtime daemon is not installed on this box yet (it is installed on a box "
+                         "running RUNTIME_MODE=daemon)\n")
+_UNREACHABLE = (1, json.dumps({"ok": False, "error": {"type": "gateway_transport_error", "kind": "unreachable",
+                                                      "message": "runtime restarting or not running, retry "
+                                                                 "(nothing was sent)", "sent": "nothing"}}), "")
+_TIMEOUT_MAYBE = (1, json.dumps({"ok": False, "error": {"type": "gateway_transport_error", "kind": "timeout",
+                                                        "message": "gateway timeout after 15000ms",
+                                                        "sent": "maybe"}}), "")
+
+
+def _gateway_with(replies):
+    calls = []
+    orig = portfolio._run_cli
+
+    def fake(args, timeout=60):
+        calls.append(list(args))
+        return replies[args[0]].pop(0)
+    portfolio._run_cli = fake
+    try:
+        return portfolio._run_gateway("senpi.listRuntimes", timeout=30), calls
+    finally:
+        portfolio._run_cli = orig
+
+
+def test_runtime_reads_fall_back_to_openclaw_only_when_senpi_sent_nothing():
+    listed = (0, json.dumps({"runtimes": []}), "")
+    for nothing in (_NOT_INSTALLED, _UNREACHABLE, (-1, "", portfolio.SPAWN_FAILED_PREFIX + "senpi")):
+        r, calls = _gateway_with({"senpi": [nothing], "openclaw": [listed]})
+        assert r == listed, nothing
+        assert [c[:3] for c in calls] == [["senpi", "call", "senpi.listRuntimes"],
+                                          ["openclaw", "gateway", "call"]], nothing
+    for maybe in (_TIMEOUT_MAYBE, (-1, "", "timed out after 30s: senpi call senpi.listRuntimes"),
+                  (-9, "", "killed by SIGKILL (rc -9) before it answered"), listed):
+        r, calls = _gateway_with({"senpi": [maybe], "openclaw": [listed]})
+        assert r == maybe and len(calls) == 1, maybe
+
+
+def test_no_cli_at_all_still_reads_as_cli_not_found():
+    gone = (-1, "", portfolio.SPAWN_FAILED_PREFIX + "openclaw")
+    r, _calls = _gateway_with({"senpi": [(-1, "", portfolio.SPAWN_FAILED_PREFIX + "senpi")], "openclaw": [gone]})
+    assert r == gone
+    r, _calls = _gateway_with({"senpi": [_UNREACHABLE], "openclaw": [gone]})
+    assert r == _UNREACHABLE                         # openclaw missing: senpi's own answer stands
