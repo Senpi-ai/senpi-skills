@@ -685,20 +685,28 @@ CALL_METHODS = {"senpi.packages.list": False, "senpi.packages.get": False,
                 "senpi.simulations.startBatch": True, "senpi.simulations.batchStatus": False}
 
 
+def _call_batch_too_large(method, params):
+    """The number of simulations a batch sent through `call` asks for, when it is more than a plan starts."""
+    variants = params.get("variants")
+    if method == "senpi.simulations.startBatch" and isinstance(variants, list) and len(variants) > PLAN_MAX_SIMULATIONS:
+        return len(variants)
+    return None
+
+
 def _call_start_without_plan(method, params):
-    """Why a real catalog batch start sent through `call` has no plan behind it, or None. Only what `plan`
-    cannot quote passes without one: variations of a running simulation (`parentId`) and budgets that differ."""
+    """Why a real catalog batch start sent through `call` has no plan behind it, or None. Only variations of
+    a running simulation (`parentId`), which `plan` cannot quote, pass without one."""
     if method != "senpi.simulations.startBatch" or params.get("dryRun") is True or params.get("parentId"):
         return None
     strategy = params.get("strategy")
     if not isinstance(strategy, str) or not strategy:
         return None
     budget = params.get("budgetUsd", PLAN_BUDGET_USD)
-    own = {v.get("budgetUsd") for v in params.get("variants") or [] if isinstance(v, dict)} - {None}
-    if own - {budget}:
-        return None
     if not isinstance(budget, (int, float)) or isinstance(budget, bool):
         return None
+    own = {v.get("budgetUsd") for v in params.get("variants") or [] if isinstance(v, dict)} - {None}
+    if own - {budget}:
+        return "a variation has a budget of its own, which no plan quoted"
     return _plan_on_record(strategy, float(budget))
 
 
@@ -717,6 +725,14 @@ def cmd_call(a):
               f"{': ' + bad if params is None else ''}. Nothing was sent.", file=sys.stderr)
         return EXIT_CODES["refused"]
     starts = CALL_METHODS[a.method]
+    count = _call_batch_too_large(a.method, params)
+    if count is not None:
+        print(f"[E_BATCH_TOO_LARGE] {count} simulations in one batch; a batch takes at most {PLAN_MAX_SIMULATIONS} "
+              f"(the design and {PLAN_MAX_VARIATIONS} variations). Nothing was quoted or started.\n"
+              f"  Next: pick up to {PLAN_MAX_VARIATIONS} variations and quote that batch. Offer the rest as a second "
+              f"batch, started only after its own quote and the user's yes to it. Never start it another way.",
+              file=sys.stderr)
+        return EXIT_CODES["refused"]
     why = _call_start_without_plan(a.method, params)
     if why is not None:
         strategy = params.get("strategy")
@@ -2599,6 +2615,8 @@ def cmd_batch_wait(a):
 
 PLAN_QUESTION = "Simulate these first, or take it live as it is now?"
 PLAN_BUDGET_USD = 1000.0
+PLAN_MAX_VARIATIONS = 4
+PLAN_MAX_SIMULATIONS = 1 + PLAN_MAX_VARIATIONS
 _VARIANT_LABEL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,39}\Z")
 
 
@@ -2801,7 +2819,7 @@ def cmd_plan(a):
     one message the agent relays as given. Starts nothing."""
     try:
         variants = [parse_plan_variant(t) for t in (a.variant or [])]
-        if len(variants) > 4:
+        if len(variants) > PLAN_MAX_VARIATIONS:
             raise PlanInputError("a test plan has two to four variations (--variant), each changing one "
                                  "setting; one --variant quotes one simulation with that setting, none the "
                                  "strategy as it is")

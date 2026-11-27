@@ -558,6 +558,33 @@ class ACatalogPlanStartsFromItsRecord(unittest.TestCase):
         code, _out, err = self._main("call", "senpi.simulations.startBatch", "--params", json.dumps(body))
         self.assertEqual(code, 0, err)
 
+    def test_budgets_that_differ_through_call_need_a_plan_like_any_catalog_start(self):
+        self._plan()
+        code, _out, err = self._call_start(variants=[{"label": "as-designed", "settings": {}},
+                                                     {"label": "lev3", "budgetUsd": 1001, "settings": {"leverage": 3}}])
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("[E_NO_PLAN]", err)
+        self.assertIn("a budget of its own", err)
+        self.assertEqual(self._starts(), [])
+
+    def test_more_than_five_simulations_through_call_are_refused_quote_or_start(self):
+        ten = [{"label": f"v{i}", "settings": {"leverage": i + 1}} for i in range(10)]
+        variation = {"requestId": "r-3", "parentId": "simulation-1", "budgetUsd": 1000, "dryRun": False,
+                     "userSaidYes": True, "variants": ten}
+        for call in (lambda: self._call_start(variants=ten), lambda: self._call_start(variants=ten, dryRun=True),
+                     lambda: self._main("call", "senpi.simulations.startBatch", "--params", json.dumps(variation))):
+            code, _out, err = call()
+            self.assertEqual(code, deploy.EXIT_CODES["refused"])
+            self.assertIn("[E_BATCH_TOO_LARGE]", err)
+            self.assertIn("at most 5", err)
+            self.assertIn("second batch", err)
+        self.assertEqual(self.calls, [])
+
+    def test_five_simulations_through_call_are_quoted(self):
+        five = [{"label": f"v{i}", "settings": {"leverage": i + 1}} for i in range(5)]
+        code, _out, err = self._call_start(variants=five, dryRun=True)
+        self.assertEqual(code, 0, err)
+
     def test_the_plan_tells_the_agent_to_start_with_start_plan(self):
         _code, _out, err = self._main("plan", "hawk", "--design", "d", "--trades", "t")
         self.assertIn("deploy.py start-plan hawk --user-said-yes", err)

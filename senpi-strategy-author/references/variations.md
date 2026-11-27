@@ -7,7 +7,8 @@ is a recommendation, never a gate: they can take it live as it is at any point.
 
 ## How many
 
-The strategy as designed plus two to four variations. More only when they ask ("test 10 versions"). Each
+The strategy as designed plus two to four variations: at most 4 variations in a batch. When they ask for more
+("test 10 versions"), start the first batch and offer the rest as a second batch, after its own quote and yes. Each
 simulation uses credits every hour it runs and room on their agent's box, so a small set that answers real
 questions beats a sweep.
 
