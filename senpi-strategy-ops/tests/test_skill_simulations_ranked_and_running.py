@@ -41,7 +41,7 @@ class BestMeansReturn(unittest.TestCase):
 
 class SimulationsAreRunningNotLive(unittest.TestCase):
     def test_a_simulation_is_running_and_live_means_real_money(self):
-        self.assertIn('call a running simulation "running", never "live": "live" means real money', RULE)
+        self.assertIn('call a running Hypersim "running", never "live": "live" means real money', RULE)
 
     def test_box_reads_that_answer_live_are_reported_as_running(self):
         self.assertIn("the batch's `phase`", RULE)
