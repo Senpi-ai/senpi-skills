@@ -723,7 +723,9 @@ def cmd_call(a):
     if why is not None:
         strategy = params.get("strategy")
         sent = params.get("forkedFrom")
-        forked = f" --forked-from {sent.strip()}" if isinstance(sent, str) and sent.strip() else ""
+        sent = (sent.strip() if isinstance(sent, str) and sent.strip() else
+                _quoted_forked_from(strategy, float(params.get("budgetUsd", PLAN_BUDGET_USD))))
+        forked = f" --forked-from {sent}" if sent else ""
         print(f"[E_NO_PLAN] Nothing was started: {why}. A catalog batch starts only as `plan` quoted it, after "
               f"the user's yes in a later message.\n"
               f"  Next: `deploy.py plan {strategy}{forked}` (with the --variant lines), relay it as given, end your "
@@ -2805,11 +2807,15 @@ def _plan_after_yes(ref, variants, local, forked_from=None):
            "the question again. On \"live\", the live walkthrough takes over; never start a simulation. "
            "A simulation needs no deposit and no funds: never tell them to deposit first.")
     if local:
+        fork_of = f" --fork-of {forked_from}" if forked_from else ""
         how = ("After the yes: start the design with `deploy.py create <dir> --simulation --user-said-yes "
-               "--budget <their budget>`, then each variation as its own fork (`deploy.py fork <dir> --name "
-               "<label>" + (f" --fork-of {forked_from}" if forked_from else "") + "`, set its one setting, "
-               "`create <fork dir> --simulation --user-said-yes --variant-of <the design's simulation id> "
-               "--batch <one id>`).")
+               "--budget <their budget>" + (fork_of + ' --name "<their words>"' if forked_from else "") + "`, "
+               "then each variation as its own fork (`deploy.py fork <dir> --name <label>" + fork_of + "`, "
+               "set its one setting, `create <fork dir> --simulation --user-said-yes --variant-of <the design's "
+               "simulation id> --batch <one id>`).")
+        if forked_from:
+            how += (f" --fork-of needs --name: when they named none, ask what to call it; never run them "
+                    f"without --fork-of {forked_from}.")
     else:
         how = (f"After the yes: `deploy.py start-plan {ref} --user-said-yes` (with `--budget <the one they "
                f"picked>` when it offered choices). It starts exactly what this plan quoted.")
@@ -2928,6 +2934,14 @@ def _plan_on_record(ref, budget):
     return None
 
 
+def _quoted_forked_from(ref, budget):
+    """The --forked-from of the plan on record for `ref` at `budget`, or None when there is no such plan or
+    it was quoted without one."""
+    if _plan_on_record(ref, budget) is not None:
+        return None
+    return json.loads(_plan_record_path(ref).read_text()).get("forked_from")
+
+
 def _forked_from_mismatch(ref, sent, flag):
     """None when a start that sends `sent` as `flag` carries the --forked-from its plan on record was quoted
     with (both absent counts), else why not."""
@@ -2993,14 +3007,19 @@ def _start_needs_its_plan(pkg, a):
         return
     budget = a.budget if a.budget is not None else PLAN_BUDGET_USD
     fork_of = getattr(a, "fork_of", None)
+    fork_of = fork_of.strip() if isinstance(fork_of, str) and fork_of.strip() else None
     why = _plan_on_record(a.package, budget)
-    # A local package's design starts from its own directory, whose manifest carries its parent; a catalog
-    # template is forked here, and the fork's parent is the --fork-of its plan was quoted with.
-    if why is None and not json.loads(_plan_record_path(a.package).read_text()).get("local"):
+    rec = {} if why is not None else json.loads(_plan_record_path(a.package).read_text())
+    quoted = rec.get("forked_from")
+    # A catalog template is forked here, and the fork's parent is the --fork-of its plan was quoted with. A
+    # local package's design starts from its own directory, whose manifest carries its parent, unless its
+    # plan was quoted with --forked-from: then it starts as a copy made with that --fork-of.
+    if why is None and (quoted or not rec.get("local")):
         why = _forked_from_mismatch(a.package, fork_of, "--fork-of")
     if why is not None:
+        shown = fork_of or quoted
         _no_plan_exit(a.package, ("" if a.budget is None else f" --budget {a.budget:g}")
-                      + (f" --forked-from {fork_of.strip()}" if fork_of and fork_of.strip() else ""), why)
+                      + (f" --forked-from {shown}" if shown else ""), why)
 
 
 def _design_value(ref, key):

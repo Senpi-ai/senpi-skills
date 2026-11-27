@@ -188,6 +188,14 @@ A client hand-off can carry a line `Source strategy id: <id>`: the user's own st
   always with `--name "<their words>"`; the copy records `<id>` as its `forked_from.parent`. Never
   `senpi deploy --fork-of`: that verb forks a public simulation, and a `Source strategy id` hand-off is never
   that, since it names the user's own strategy.
+- **`--fork-of` needs `--name`.** A refusal that asks for a name means: ask the user what to call the copy, then
+  re-run the same command with `--name "<their words>"`; never re-run it without `--fork-of`, and never drop
+  `--forked-from` or `forkedFrom` to get past a refusal. Without the id the new strategy counts on its
+  package's own parent, not on that strategy.
+- **One simulation** takes the hand-off's id too, though it skips the walkthrough. A local package:
+  `deploy.py plan <dir> --forked-from <id>`, and on the yes
+  `deploy.py create <dir> --simulation --user-said-yes --fork-of <id> --name "<their words>"`, the command the
+  plan prints. A catalog id: `deploy.py plan <catalog id> --forked-from <id>`, then `start-plan`.
 - **Taking a simulation live:** the hand-off's `Source strategy id` is that `simulation-<id>`; it goes to
   `--from-simulation`, as SKILL.md's take-live rule says.
 - **A variation that changes code:** `deploy.py fork <that package> --name "<variation name>" --fork-of <source id>`
@@ -197,3 +205,14 @@ A client hand-off can carry a line `Source strategy id: <id>`: the user's own st
   batch's `forkedFrom`. A batch that goes through the raw `startBatch` call (a `parentId` batch, or budgets
   that differ) adds `"forkedFrom":"<Source strategy id>"` itself, unless the `Source strategy id` is the
   simulation the batch varies by `parentId`.
+  A raw `startBatch` call by catalog id (`"strategy":"<catalog id>"`) always carries
+  `"forkedFrom":"<Source strategy id>"` when the hand-off has one; without it every variant counts on the template.
+- **Settings-only variations of a local package** (the user's own strategy, deployed from its directory):
+  `start-plan` and `startBatch` take no directory, so each variation is its own copy. Quote them with
+  `deploy.py plan <dir> --design "…" --trades "…" --variant "…" --forked-from <Source strategy id>`. On the yes,
+  run the commands it prints: the design as
+  `deploy.py create <dir> --simulation --user-said-yes --fork-of <Source strategy id> --name "<their words>"`,
+  then each variation as `deploy.py fork <dir> --name <label> --fork-of <Source strategy id>`, its one setting
+  set in the copy, and `create <fork dir> --simulation --user-said-yes --variant-of <the design's simulation id>
+  --batch <one id>`. A `create <dir> --simulation` without `--fork-of` is refused once the plan carries
+  `--forked-from`.

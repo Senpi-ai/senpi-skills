@@ -49,6 +49,37 @@ class ForkOfNamesTheSourceStrategy(unittest.TestCase):
     def test_take_live_reads_the_same_hand_off_line(self):
         self.assertIn("`Source strategy id` is that `simulation-<id>`", HAND_OFF)
 
+    def test_skill_md_never_drops_the_hand_off_id_and_a_name_refusal_means_ask(self):
+        self.assertIn("never drop its `--fork-of`", FORK)
+        self.assertIn("a refusal asking for a name means ask the user for one", FORK)
+
+    def test_one_simulation_skips_the_walkthrough_but_not_the_hand_off(self):
+        one = SKILL[SKILL.find("**One simulation skips it**"):SKILL.find("Quote it with `deploy.py plan <id>`")]
+        self.assertIn("a `Source strategy id` hand-off still applies", one)
+
+    def test_a_local_package_plan_takes_the_hand_off_id(self):
+        local = SKILL[SKILL.find("**A local package** (no catalog id)"):]
+        local = local[:local.find("never call `senpi.deploy.startSimulation` yourself")]
+        self.assertIn("`--forked-from <id>` for a `Source strategy id`", local)
+
+    def test_the_hand_off_rules_cover_one_simulation_and_the_name_refusal(self):
+        self.assertIn("**One simulation** takes the hand-off's id too", HAND_OFF)
+        self.assertIn("`deploy.py create <dir> --simulation --user-said-yes --fork-of <id> --name \"<their words>\"`",
+                      HAND_OFF)
+        self.assertIn("never re-run it without `--fork-of`", HAND_OFF)
+
+    def test_settings_only_variations_of_a_local_package_carry_the_hand_off_id(self):
+        local = HAND_OFF[HAND_OFF.find("**Settings-only variations of a local package**"):]
+        self.assertIn("**Settings-only variations of a local package**", HAND_OFF)
+        self.assertIn("`deploy.py plan <dir> --design", local)
+        self.assertIn("--forked-from <Source strategy id>`", local)
+        self.assertIn("`deploy.py fork <dir> --name <label> --fork-of <Source strategy id>`", local)
+        self.assertIn("`start-plan` and `startBatch` take no directory", local)
+
+    def test_a_raw_start_batch_by_catalog_id_carries_forked_from(self):
+        self.assertIn("A raw `startBatch` call by catalog id (`\"strategy\":\"<catalog id>\"`) always carries "
+                      "`\"forkedFrom\":\"<Source strategy id>\"` when the hand-off has one", HAND_OFF)
+
 
 if __name__ == "__main__":
     unittest.main()
