@@ -687,7 +687,8 @@ CALL_METHODS = {"senpi.packages.list": False, "senpi.packages.get": False,
 
 def _call_start_without_plan(method, params):
     """Why a real catalog batch start sent through `call` has no plan behind it, or None. Only what `plan`
-    cannot quote passes without one: variations of a running simulation (`parentId`) and budgets that differ."""
+    cannot quote passes without one: variations of a running simulation (`parentId`) and budgets that differ.
+    A start whose `forkedFrom` is not the one its plan was quoted with has no plan behind it either."""
     if method != "senpi.simulations.startBatch" or params.get("dryRun") is True or params.get("parentId"):
         return None
     strategy = params.get("strategy")
@@ -699,7 +700,15 @@ def _call_start_without_plan(method, params):
         return None
     if not isinstance(budget, (int, float)) or isinstance(budget, bool):
         return None
-    return _plan_on_record(strategy, float(budget))
+    why = _plan_on_record(strategy, float(budget))
+    if why is not None:
+        return why
+    quoted = json.loads(_plan_record_path(strategy).read_text()).get("forked_from")
+    sent = params.get("forkedFrom")
+    sent = sent.strip() if isinstance(sent, str) else sent
+    if (sent or None) != quoted:
+        return f"its plan was quoted with forkedFrom {quoted}" if quoted else "its plan was quoted without forkedFrom"
+    return None
 
 
 def cmd_call(a):
@@ -2680,9 +2689,10 @@ def _plan_is_local(ref):
     return "/" in ref or Path(ref).is_dir()
 
 
-def _plan_quote(ref, variants, budget, local):
+def _plan_quote(ref, variants, budget, local, forked_from=None):
     """One quote at `budget` for the design and every variation. Returns (per_hour_each, total_after,
-    refusals, error): per_hour_each is a list (one per simulation, design first) or None."""
+    refusals, error): per_hour_each is a list (one per simulation, design first) or None. A catalog
+    batch quoted with `forked_from` sends it as the batch's `forkedFrom`."""
     if local:
         kind, caps = _deploy_capabilities(False)
         if not (isinstance(caps, dict) and caps.get("simulationYesGate") is True):
@@ -2701,7 +2711,7 @@ def _plan_quote(ref, variants, budget, local):
         after = after - each + each * n if isinstance(after, (int, float)) else None
         return [each] * n, after, [], None
     params = {"requestId": f"quote-{ref}-{int(time.time())}", "strategy": ref, "budgetUsd": budget, "dryRun": True,
-              "variants": _plan_variants(variants)}
+              "variants": _plan_variants(variants), **({"forkedFrom": forked_from} if forked_from else {})}
     r = _gw("senpi.simulations.startBatch", params, START_RPC_MS, START_WALL_S)
     payload = r["payload"] if isinstance(r["payload"], dict) else {}
     rows = payload.get("rows") if r["kind"] == "ok" and payload.get("dryRun") is True else None
@@ -2791,7 +2801,7 @@ def render_plan(name, design, trades, variants, quotes):
     return "\n".join(lines)
 
 
-def _plan_after_yes(ref, variants, local):
+def _plan_after_yes(ref, variants, local, forked_from=None):
     yes = ("Show it and end your turn. Only an explicit yes in their NEXT message starts them: \"yes\", "
            "\"simulate\", \"go\", a budget they tapped or typed; the request that asked for this plan is not "
            "the yes. "
@@ -2801,8 +2811,9 @@ def _plan_after_yes(ref, variants, local):
     if local:
         how = ("After the yes: start the design with `deploy.py create <dir> --simulation --user-said-yes "
                "--budget <their budget>`, then each variation as its own fork (`deploy.py fork <dir> --name "
-               "<label>`, set its one setting, `create <fork dir> --simulation --user-said-yes --variant-of "
-               "<the design's simulation id> --batch <one id>`).")
+               "<label>" + (f" --fork-of {forked_from}" if forked_from else "") + "`, set its one setting, "
+               "`create <fork dir> --simulation --user-said-yes --variant-of <the design's simulation id> "
+               "--batch <one id>`).")
     else:
         how = (f"After the yes: `deploy.py start-plan {ref} --user-said-yes` (with `--budget <the one they "
                f"picked>` when it offered choices). It starts exactly what this plan quoted.")
@@ -2835,7 +2846,9 @@ def cmd_plan(a):
         budgets = [a.budget] if a.budget is not None else parse_budget_choices(a.budget_choices)
         if a.budget is not None and a.budget_choices is not None:
             raise PlanInputError("pass --budget (the user named one) or --budget-choices, not both")
-    except PlanInputError as e:
+        if a.forked_from is not None:
+            a.forked_from = _fork.parent_id(a.forked_from, "--forked-from")
+    except (PlanInputError, _fork.ForkError) as e:
         print(f"[INVALID_REQUEST] {e}. Nothing was quoted or started.", file=sys.stderr)
         return EXIT_CODES["refused"]
     begin_command_budget(START_WALL_S * (len(budgets) + 1))
@@ -2850,7 +2863,7 @@ def _plan_quote_and_print(a, variants, budgets):
     name = a.name or Path(a.package.rstrip("/")).name
     quotes = {}
     for b in budgets:
-        each, after, refusals, error = _plan_quote(a.package, variants, b, local)
+        each, after, refusals, error = _plan_quote(a.package, variants, b, local, a.forked_from)
         if refusals:
             print(f"The quote at {_plan_money(b)} would refuse: " + "; ".join(refusals)
                   + ". Fix those variations (or the budget) and run plan again. Nothing was started.", file=sys.stderr)
@@ -2859,12 +2872,12 @@ def _plan_quote_and_print(a, variants, budgets):
             print(f"The cost could not be quoted ({error}). Nothing was started. Do not show a plan without "
                   f"its cost and never estimate one: tell the user each simulation is billed by the hour "
                   f"until it is stopped, with no number, and ask.", file=sys.stderr)
-            _write_plan_record(a.package, budgets, variants)
+            _write_plan_record(a.package, budgets, variants, a.forked_from)
             return EXIT_INTERNAL
         quotes[b] = (each, after)
     print(render_plan(name, a.design, a.trades, variants, quotes))
-    print("\n" + _plan_after_yes(a.package, variants, local), file=sys.stderr)
-    _write_plan_record(a.package, list(quotes), variants)
+    print("\n" + _plan_after_yes(a.package, variants, local, a.forked_from), file=sys.stderr)
+    _write_plan_record(a.package, list(quotes), variants, a.forked_from)
     return 0
 
 
@@ -2883,16 +2896,18 @@ def _plan_record_path(ref):
     return _pkg.strategies_root() / PLAN_RECORD_DIR / f"{_plan_key(ref)}.json"
 
 
-def _write_plan_record(ref, budgets, variants):
+def _write_plan_record(ref, budgets, variants, forked_from=None):
     """What `plan` quoted, so `create --simulation --user-said-yes` can tell a start the user saw quoted
-    from one the agent made up. Best-effort: a record that cannot be written makes the start refuse."""
+    from one the agent made up, and `start-plan` starts that batch with the `forkedFrom` it was quoted
+    with. Best-effort: a record that cannot be written makes the start refuse."""
     path = _plan_record_path(ref)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"at": time.time(), "package": str(ref), "budgets": budgets,
                                     "local": _plan_is_local(ref),
                                     "variants": [{"label": v["label"], "settings": {v["key"]: v["value"]}}
-                                                 for v in variants]}))
+                                                 for v in variants],
+                                    **({"forked_from": forked_from} if forked_from else {})}))
     except OSError as e:
         print(f"note: the plan could not be recorded ({e}); a start of this package will ask for plan again.",
               file=sys.stderr)
@@ -2921,7 +2936,8 @@ def _no_plan_exit(ref, budget_flag, why):
     print(f"[E_NO_PLAN] Nothing was started: {why}. A simulation starts only after the user saw it quoted "
           f"by plan and said yes.\n"
           f"  Next: run `deploy.py plan {ref}{budget_flag}` (with --design, --trades and the --variant "
-          f"lines for a test plan) if it was not shown, relay what it prints as given, and end your turn. "
+          f"lines for a test plan, and --forked-from <id> for a hand-off's `Source strategy id`) if it was "
+          f"not shown, relay what it prints as given, and end your turn. "
           f"After an explicit yes in their next message, re-run this command.", file=sys.stderr)
     sys.exit(EXIT_CODES["refused"])
 
@@ -2946,7 +2962,8 @@ def cmd_start_plan(a):
     request_id = f"plan-{_plan_key(a.package)}-{int(time.time())}"
     params = {"requestId": request_id, "strategy": _plan_key(a.package), "budgetUsd": budget, "dryRun": False,
               "userSaidYes": True,
-              "variants": _plan_variants(rec.get("variants") or [])}
+              "variants": _plan_variants(rec.get("variants") or []),
+              **({"forkedFrom": rec["forked_from"]} if rec.get("forked_from") else {})}
     begin_command_budget(START_WALL_S + BATCH_WAIT_BUDGET)
     try:
         r = _gw("senpi.simulations.startBatch", params, START_RPC_MS, START_WALL_S)
@@ -3177,6 +3194,9 @@ def _main(argv):
     pp.add_argument("--budget-choices", default=None,
                     help="Two to four budgets to offer as choices (e.g. 100,500,1000), each quoted.")
     pp.add_argument("--name", default=None, help="The strategy's name as the user knows it.")
+    pp.add_argument("--forked-from", dest="forked_from", default=None, metavar="STRATEGY_ID",
+                    help="The hand-off's `Source strategy id`: the batch's forkedFrom, so every variation records "
+                         "that strategy as its parent. start-plan sends what the plan recorded.")
 
     pcall = sub.add_parser("call", help="Call one runtime method through the gateway (works in plugin and daemon mode): "
                                          + ", ".join(CALL_METHODS) + ". Prints the answer as JSON.")

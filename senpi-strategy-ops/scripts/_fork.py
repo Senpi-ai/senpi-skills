@@ -239,6 +239,14 @@ def _existing(pkg, dest, parent_ff, fork_of, info, log):
     return dest, info
 
 
+def parent_id(value, flag="--fork-of"):
+    """`value` as the id of the strategy a copy or a batch starts from, stripped. A blank one is refused."""
+    value = str(value).strip()
+    if not value:
+        raise ForkError(f"{flag} needs the id of the strategy this copy starts from")
+    return value
+
+
 def fork(pkg, root, owner=None, name=None, fork_of=None, authored=False, log=lambda m: None,
          simulation=False):
     """Make (or reuse) the user's fork of `pkg` under `root`. Returns `(dir, info)`.
@@ -259,9 +267,7 @@ def fork(pkg, root, owner=None, name=None, fork_of=None, authored=False, log=lam
     and `template:<id>` for a catalog one. `fork_of` needs `name`; a reused directory is left as it is, and
     with `fork_of` it is reused only when its parent is `fork_of`."""
     if fork_of is not None:
-        fork_of = str(fork_of).strip()
-        if not fork_of:
-            raise ForkError("--fork-of needs the id of the strategy this copy starts from")
+        fork_of = parent_id(fork_of)
         if not (name and str(name).strip()):
             raise ForkError("a copy started from a running strategy needs a name of its own: ask what to call it "
                             "and pass --name <their words>")
