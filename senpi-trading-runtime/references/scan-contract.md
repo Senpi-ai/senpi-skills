@@ -122,11 +122,11 @@ if ctx.state is not None:
   `ctx.senpi_mcp` call in that tick failed, even one your code caught.
 - **`scan.py` is imported once, when the scanner process starts**, and so is everything it imports,
   `scoring.py` included. A running scanner keeps the code it started with; an edit on disk runs from
-  its next start, which `openclaw senpi update <recipe-dir> --id <runtime_id> --apply` triggers (add
-  `--code-only` when only scanner code changed) — and which a crash or a gateway restart also
+  its next start, which `senpi update <recipe-dir> --id <runtime_id> --apply` triggers (add
+  `--code-only` when only scanner code changed) — and which a crash or a runtime restart also
   triggers, unannounced. Re-running a deploy on a strategy that is already running applies nothing:
   it keeps the runtime that is running.
-- **`openclaw senpi validate` never inspects the running scanner.** It runs the code on disk in a
+- **`senpi validate` never inspects the running scanner.** It runs the code on disk in a
   fresh process against empty, throwaway state, so a `PASS` proves the edit runs, not that it is live.
 
 ---
@@ -291,7 +291,7 @@ Both are valid — it's your thesis:
 - ✅ On any failure, **return `[]`** (or a partial list) — don't crash.
 - ✅ If a gate can make `scan()` return **before it reads anything**, let `ctx.dry_run` bypass it — a
   tick that reads nothing validates as **UNPROVEN**, not as a pass.
-- ✅ Prove it before you hand it over: `openclaw senpi validate <recipe-dir>` must return **PASS** —
+- ✅ Prove it before you hand it over: `senpi validate <recipe-dir>` must return **PASS** —
   the directory holding that instance's `runtime.yaml`: the package root for a flat package (no
   `instances:` list), the instance's own dir once `strategy.yaml` lists instances. A root that lists
   instances holds no recipe of its own and refuses `[E_VALIDATE_NO_RECIPE]`; each instance needs its

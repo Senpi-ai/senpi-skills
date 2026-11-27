@@ -14,7 +14,7 @@ author-side `scan(inputs, ctx)` + signal shape see [scan-contract.md](scan-contr
 >
 > The engine loads a runtime spec from any YAML path — the file does not have to be called
 > `runtime.yaml`, and the engine's own examples name it `recipe.yaml`. `runtime.yaml` is the Senpi
-> package convention and is fully compatible: `openclaw senpi deploy -p <package dir>` installs each
+> package convention and is fully compatible: `senpi deploy -p <package dir>` installs each
 > instance's file itself, whatever it is named. (`runtime create -p <path>` is the engine's internal,
 > hidden install command — never the deploy path; see [runtime-cli.md](runtime-cli.md).)
 
@@ -281,7 +281,7 @@ every `OPEN_POSITION`; if `risk` is absent, none are evaluated.
 | `guard_rails.drawdown_reset_on_day_rollover` | bool (default false). `true`: reset the PnL peak at UTC midnight AND release a latched drawdown halt then. `false`: the peak carries ~24h and a latched drawdown halt **never auto-resets** — tell the user and wait for their decision |
 | `guard_rails.per_asset_cooldown_seconds` | min 300 |
 
-The two halt latches are saved in the strategy's state dir and survive gateway restarts and updates; editing a
+The two halt latches are saved in the strategy's state dir and survive runtime restarts and updates; editing a
 threshold does not release one, removing the rail drops it. A latched halt is the user's call — never clear it or
 resume entries without their explicit approval. Release rules, status fields and events:
 `senpi-strategy-author/references/risk-gates.md` → *Halt latch*.
