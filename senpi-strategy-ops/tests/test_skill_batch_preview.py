@@ -33,8 +33,7 @@ class BatchIsShownWithItsCostBeforeAnyCreate(unittest.TestCase):
         self.assertIn('{"label":"<name>","budgetUsd":<its budget>,"settings":{…}}', params)
         self.assertIn("never their total as the batch's `budgetUsd`", VARIATIONS)
         self.assertIn("each row's `budgetUsd`", VARIATIONS)
-        self.assertIn("except for what `plan` cannot quote (`parentId`):", VARIATIONS)
-        self.assertNotIn("budgets that differ)", VARIATIONS)
+        self.assertIn("except for what `plan` cannot quote (`parentId`, budgets that differ):", VARIATIONS)
 
     def test_a_batch_holds_at_most_four_variations_and_a_refusal_is_a_stop(self):
         self.assertIn("**At most 4 variations in a batch**", VARIATIONS)

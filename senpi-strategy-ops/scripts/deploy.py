@@ -82,6 +82,7 @@ the verdict, never the invariant.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
+import hashlib
 import json
 import math
 import os
@@ -693,11 +694,52 @@ def _call_batch_too_large(method, params):
     return None
 
 
+def _call_quote_path(params):
+    """Where `call` records a dry run of this exact batch: its params without requestId, dryRun and userSaidYes."""
+    batch = {k: v for k, v in params.items() if k not in ("requestId", "dryRun", "userSaidYes")}
+    digest = hashlib.sha256(json.dumps(batch, sort_keys=True).encode()).hexdigest()[:24]
+    return _pkg.strategies_root() / PLAN_RECORD_DIR / f"call-{digest}.json"
+
+
+def _write_call_quote(params):
+    path = _call_quote_path(params)
+    try:
+        try:
+            fresh = time.time() - json.loads(path.read_text())["at"] <= PLAN_RECORD_TTL_S
+        except (OSError, ValueError, KeyError, TypeError):
+            fresh = False
+        if not fresh:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"at": time.time()}))
+    except OSError as e:
+        print(f"note: the quote could not be recorded ({e}); its start will ask for the quote again.", file=sys.stderr)
+
+
+def _call_quote_on_record(params):
+    """None when `call` quoted this exact batch with a dry run in an earlier turn within PLAN_RECORD_TTL_S."""
+    try:
+        at = json.loads(_call_quote_path(params).read_text()).get("at")
+    except (OSError, ValueError, AttributeError):
+        at = None
+    if not isinstance(at, (int, float)):
+        return "no dry run of this exact batch was shown (same variants, settings and budgets)"
+    age = time.time() - at
+    if age > PLAN_RECORD_TTL_S:
+        return "its dry run is more than 6 hours old"
+    if age < PLAN_MIN_GAP_S:
+        return ("its dry run was in this same turn, so the user has not seen it: show it, end your turn, "
+                "and start only on the yes in their next message")
+    return None
+
+
 def _call_start_without_plan(method, params):
-    """Why a real catalog batch start sent through `call` has no plan behind it, or None. Only variations of
-    a running simulation (`parentId`), which `plan` cannot quote, pass without one."""
-    if method != "senpi.simulations.startBatch" or params.get("dryRun") is True or params.get("parentId"):
+    """Why a real batch start sent through `call` has no quote behind it, or None. A catalog batch `plan`
+    can quote needs that plan; what `plan` cannot quote (variations of a running simulation, budgets that
+    differ) needs a dry run of this exact batch through `call`, shown in an earlier turn."""
+    if method != "senpi.simulations.startBatch" or params.get("dryRun") is True:
         return None
+    if params.get("parentId"):
+        return _call_quote_on_record(params)
     strategy = params.get("strategy")
     if not isinstance(strategy, str) or not strategy:
         return None
@@ -706,7 +748,7 @@ def _call_start_without_plan(method, params):
         return None
     own = {v.get("budgetUsd") for v in params.get("variants") or [] if isinstance(v, dict)} - {None}
     if own - {budget}:
-        return "a variation has a budget of its own, which no plan quoted"
+        return _call_quote_on_record(params)
     return _plan_on_record(strategy, float(budget))
 
 
@@ -736,10 +778,15 @@ def cmd_call(a):
     why = _call_start_without_plan(a.method, params)
     if why is not None:
         strategy = params.get("strategy")
-        print(f"[E_NO_PLAN] Nothing was started: {why}. A catalog batch starts only as `plan` quoted it, after "
-              f"the user's yes in a later message.\n"
-              f"  Next: `deploy.py plan {strategy}` (with the --variant lines), relay it as given, end your turn; "
-              f"on their yes, `deploy.py start-plan {strategy} --user-said-yes`.", file=sys.stderr)
+        if params.get("parentId") or why.startswith(("no dry run", "its dry run")):
+            nxt = ("send this exact batch with \"dryRun\": true, show the user every variation, its budget and "
+                   "the credits, end your turn; on their yes in the next message, send it again unchanged with "
+                   "\"dryRun\": false")
+        else:
+            nxt = (f"`deploy.py plan {strategy}` (with the --variant lines), relay it as given, end your turn; "
+                   f"on their yes, `deploy.py start-plan {strategy} --user-said-yes`")
+        print(f"[E_NO_PLAN] Nothing was started: {why}. A batch starts only as the user saw it quoted, after "
+              f"their yes in a later message.\n  Next: {nxt}.", file=sys.stderr)
         return EXIT_CODES["refused"]
     r = _gw(a.method, params, START_RPC_MS if starts else _cli.READ_RPC_MS,
             START_WALL_S if starts else _cli.READ_WALL_S)
@@ -748,6 +795,8 @@ def cmd_call(a):
             "Whether it ran is not known." if starts else "Nothing was changed by this read.",
             "the box is out of memory"), False, {"method": a.method})
     if r["kind"] == "ok":
+        if a.method == "senpi.simulations.startBatch" and params.get("dryRun") is True:
+            _write_call_quote(params)
         print(json.dumps(r["payload"], indent=2))
         return 0
     print(r["message"] or f"{a.method}: {r['kind']}", file=sys.stderr)

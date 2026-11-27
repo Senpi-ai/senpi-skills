@@ -566,20 +566,49 @@ class ACatalogPlanStartsFromItsRecord(unittest.TestCase):
         code, _out, err = self._call_start(dryRun=True)
         self.assertEqual(code, 0, err)
 
-    def test_a_variation_of_a_running_simulation_through_call_needs_no_plan(self):
-        body = {"requestId": "r-2", "parentId": "simulation-1", "budgetUsd": 1000, "dryRun": False,
-                "userSaidYes": True, "variants": [{"label": "lev3", "settings": {"leverage": 3}}]}
-        code, _out, err = self._main("call", "senpi.simulations.startBatch", "--params", json.dumps(body))
-        self.assertEqual(code, 0, err)
+    def _age_call_quotes(self):
+        for rec in (self.root / deploy.PLAN_RECORD_DIR).glob("call-*.json"):
+            rec.write_text(json.dumps({"at": time.time() - deploy.PLAN_MIN_GAP_S - 1}))
 
-    def test_budgets_that_differ_through_call_need_a_plan_like_any_catalog_start(self):
-        self._plan()
-        code, _out, err = self._call_start(variants=[{"label": "as-designed", "settings": {}},
-                                                     {"label": "lev3", "budgetUsd": 1001, "settings": {"leverage": 3}}])
+    def _variation_call(self, **params):
+        body = {"requestId": "r-2", "parentId": "simulation-1", "budgetUsd": 1000, "dryRun": False,
+                "userSaidYes": True, "variants": [{"label": "lev3", "settings": {"leverage": 3}}], **params}
+        return self._main("call", "senpi.simulations.startBatch", "--params", json.dumps(body))
+
+    def test_a_variation_of_a_running_simulation_starts_after_its_dry_run_in_an_earlier_turn(self):
+        code, _out, err = self._variation_call(requestId="q-2", dryRun=True)
+        self.assertEqual(code, 0, err)
+        code, _out, err = self._variation_call()
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("same turn", err)
+        self._age_call_quotes()
+        code, _out, err = self._variation_call()
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self._starts()), 1)
+
+    def test_a_variation_of_a_running_simulation_without_its_dry_run_starts_nothing(self):
+        code, _out, err = self._variation_call()
         self.assertEqual(code, deploy.EXIT_CODES["refused"])
         self.assertIn("[E_NO_PLAN]", err)
-        self.assertIn("a budget of its own", err)
+        self.assertIn('"dryRun": true', err)
         self.assertEqual(self._starts(), [])
+
+    def test_budgets_that_differ_start_only_as_their_dry_run_quoted_them(self):
+        self._plan()
+        quoted = [{"label": "a", "budgetUsd": 60, "settings": {}}, {"label": "b", "budgetUsd": 80, "settings": {"leverage": 3}}]
+        code, _out, err = self._call_start(variants=quoted)
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("no dry run of this exact batch", err)
+        code, _out, err = self._call_start(variants=quoted, requestId="q-1", dryRun=True)
+        self.assertEqual(code, 0, err)
+        self._age_call_quotes()
+        changed = [quoted[0], {**quoted[1], "budgetUsd": 1001}]
+        code, _out, err = self._call_start(variants=changed)
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertEqual(self._starts(), [])
+        code, _out, err = self._call_start(variants=quoted)
+        self.assertEqual(code, 0, err)
+        self.assertEqual([v["budgetUsd"] for v in self._starts()[0]["variants"]], [60, 80])
 
     def test_more_than_five_simulations_through_call_are_refused_quote_or_start(self):
         ten = [{"label": f"v{i}", "settings": {"leverage": i + 1}} for i in range(10)]
