@@ -700,15 +700,8 @@ def _call_start_without_plan(method, params):
         return None
     if not isinstance(budget, (int, float)) or isinstance(budget, bool):
         return None
-    why = _plan_on_record(strategy, float(budget))
-    if why is not None:
-        return why
-    quoted = json.loads(_plan_record_path(strategy).read_text()).get("forked_from")
-    sent = params.get("forkedFrom")
-    sent = sent.strip() if isinstance(sent, str) else sent
-    if (sent or None) != quoted:
-        return f"its plan was quoted with forkedFrom {quoted}" if quoted else "its plan was quoted without forkedFrom"
-    return None
+    return _plan_on_record(strategy, float(budget)) or _forked_from_mismatch(strategy, params.get("forkedFrom"),
+                                                                             "forkedFrom")
 
 
 def cmd_call(a):
@@ -729,9 +722,12 @@ def cmd_call(a):
     why = _call_start_without_plan(a.method, params)
     if why is not None:
         strategy = params.get("strategy")
+        sent = params.get("forkedFrom")
+        forked = f" --forked-from {sent.strip()}" if isinstance(sent, str) and sent.strip() else ""
         print(f"[E_NO_PLAN] Nothing was started: {why}. A catalog batch starts only as `plan` quoted it, after "
               f"the user's yes in a later message.\n"
-              f"  Next: `deploy.py plan {strategy}` (with the --variant lines), relay it as given, end your turn; "
+              f"  Next: `deploy.py plan {strategy}{forked}` (with the --variant lines), relay it as given, end your "
+              f"turn; "
               f"on their yes, `deploy.py start-plan {strategy} --user-said-yes`.", file=sys.stderr)
         return EXIT_CODES["refused"]
     r = _gw(a.method, params, START_RPC_MS if starts else _cli.READ_RPC_MS,
@@ -2932,6 +2928,17 @@ def _plan_on_record(ref, budget):
     return None
 
 
+def _forked_from_mismatch(ref, sent, flag):
+    """None when a start that sends `sent` as `flag` carries the --forked-from its plan on record was quoted
+    with (both absent counts), else why not."""
+    quoted = json.loads(_plan_record_path(ref).read_text()).get("forked_from")
+    sent = sent.strip() if isinstance(sent, str) else sent
+    if (sent or None) == quoted:
+        return None
+    return (f"its plan was quoted with --forked-from {quoted}, so its start needs {flag} {quoted}" if quoted else
+            f"its plan was quoted without --forked-from, so its start takes no {flag}")
+
+
 def _no_plan_exit(ref, budget_flag, why):
     print(f"[E_NO_PLAN] Nothing was started: {why}. A simulation starts only after the user saw it quoted "
           f"by plan and said yes.\n"
@@ -2985,9 +2992,15 @@ def _start_needs_its_plan(pkg, a):
     if getattr(a, "dry_run", False) or getattr(a, "variant_of", None) or len(getattr(pkg, "instances", []) or []) > 1:
         return
     budget = a.budget if a.budget is not None else PLAN_BUDGET_USD
+    fork_of = getattr(a, "fork_of", None)
     why = _plan_on_record(a.package, budget)
+    # A local package's design starts from its own directory, whose manifest carries its parent; a catalog
+    # template is forked here, and the fork's parent is the --fork-of its plan was quoted with.
+    if why is None and not json.loads(_plan_record_path(a.package).read_text()).get("local"):
+        why = _forked_from_mismatch(a.package, fork_of, "--fork-of")
     if why is not None:
-        _no_plan_exit(a.package, "" if a.budget is None else f" --budget {a.budget:g}", why)
+        _no_plan_exit(a.package, ("" if a.budget is None else f" --budget {a.budget:g}")
+                      + (f" --forked-from {fork_of.strip()}" if fork_of and fork_of.strip() else ""), why)
 
 
 def _design_value(ref, key):

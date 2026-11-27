@@ -1,6 +1,7 @@
 """A copy started from a running strategy names that strategy: the id comes from the client's hand-off
 line `Source strategy id: <id>` and goes to `--fork-of` on the copy and `--from-simulation` on a
-take-live, and to `deploy.py plan --forked-from` for a variations batch, which never sends `forkOf` for it. The rules live
+take-live, and to `deploy.py plan --forked-from` (or `forkedFrom` on a raw `startBatch` call) for a variations
+batch, which never sends `forkOf` for it. The rules live
 in references/walkthrough.md; SKILL.md points there."""
 
 import re
@@ -31,8 +32,11 @@ class ForkOfNamesTheSourceStrategy(unittest.TestCase):
     def test_a_variations_batch_names_the_hand_off_strategy_through_plan(self):
         self.assertIn("`deploy.py plan <catalog id> --forked-from <Source strategy id>`", HAND_OFF)
         self.assertIn("`start-plan` sends that id as the batch's `forkedFrom`", HAND_OFF)
-        self.assertNotIn('"forkedFrom":', HAND_OFF)
-        self.assertIn("the simulation these variations vary, the batch sends `parentId`", HAND_OFF)
+
+    def test_a_raw_start_batch_call_adds_forked_from_unless_it_varies_the_source(self):
+        self.assertIn("A batch that goes through the raw `startBatch` call (a `parentId` batch, or budgets that "
+                      "differ) adds `\"forkedFrom\":\"<Source strategy id>\"` itself", HAND_OFF)
+        self.assertIn("unless the `Source strategy id` is the simulation the batch varies by `parentId`", HAND_OFF)
 
     def test_the_hand_off_copy_is_deploy_py_and_not_the_public_simulation_fork(self):
         self.assertTrue(re.search(r"Source strategy id: <id>.*--fork-of <id>.*deploy\.py fork.*"
