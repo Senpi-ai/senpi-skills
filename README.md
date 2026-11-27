@@ -61,9 +61,9 @@ A Senpi agent's abilities are **skills**. Each one packages a tested multi-step 
 | **Run a strategy** | | |
 | [`senpi-strategy-discover`](senpi-strategy-discover/) | 2.59.0 | Picks strategies for you: ranks the catalog against your view of the market and quotes each pick's exits and position size from its card; your holdings are context (saved wallets read-only, never a budget) |
 | [`senpi-strategy-author`](senpi-strategy-author/) | 3.23.0 | Builds or edits a strategy package with DSL exits, one decision at a time |
-| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.41.0 | Deploys, monitors and closes a named strategy (`deploy.py`, `close.py`) |
+| [`senpi-strategy-ops`](senpi-strategy-ops/) | 3.41.1 | Deploys, monitors and closes a named strategy (`deploy.py`, `close.py`) |
 | [`senpi-trade`](senpi-trade/) | 1.13.0 | Direct trades, and copy trading of a specific trader, one decision at a time |
-| [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.1.18 | The runtime contract: `scan(inputs, ctx)`, `runtime.yaml` and the DSL |
+| [`senpi-trading-runtime`](senpi-trading-runtime/) | 4.1.19 | The runtime contract: `scan(inputs, ctx)`, `runtime.yaml` and the DSL |
 | **Move money / positioning** | | |
 | [`senpi-deposit-withdraw-transfer`](senpi-deposit-withdraw-transfer/) | 1.6.4 | Moving money: funds in through the funding card (a deposit address or an in-card USDC purchase), out through the app; top-ups checked against perps first, withdrawals at the exact available amount, fees stated before money moves |
 | [`senpi-why`](senpi-why/) | 1.7.1 | What makes Senpi different: your AI quant reads the market, reviews your trading and runs your strategy 24/7, wherever you trade |

@@ -14,7 +14,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "4.1.18"
+  version: "4.1.19"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -47,7 +47,9 @@ division of labor is fixed:
 - **Every DSL position has a hard stop, including `phase1.enabled: false` (every catalog strategy).**
   `max_loss_pct` is an exchange stop-loss at -max_loss_pct ROE from entry; `enabled: false` turns off
   the phase-1 trailing only. Asked "does it have a hard stop?", answer yes with that number, and never
-  offer to "fix" it by enabling phase 1.
+  offer to "fix" it by enabling phase 1. **One exception: a 1x LONG with `max_loss_pct: 100`** floors at
+  price 0, so the runtime places NO exchange stop (none rests on the venue, not even at 0) until a tier
+  is reached; it closes the position itself on its floor and time cuts, with a MARKET order.
 - **What it does NOT own: partial exits.** Every exit the runtime can make (DSL, `CLOSE_POSITION`)
   closes the WHOLE position, and `edit_position` — the only reduce — is blocked to scanners. A rule
   like "take 25% off at +10% ROE and let the rest run" cannot be authored in a runtime package at
