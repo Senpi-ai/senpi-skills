@@ -68,7 +68,8 @@ class SimulationNeedsTheUsersYes(unittest.TestCase):
 
     def test_a_variation_waits_for_the_yes(self):
         self._assert_waits_for_the_yes("create", "spider", "--budget", "1000", "--simulation",
-                                       "--variant-of", "simulation-11111111-2222-4333-8444-555555555555")
+                                       "--variant-of", "simulation-11111111-2222-4333-8444-555555555555",
+                                       "--batch", "b-1")
 
     def test_runtime_simulation_without_the_yes_starts_nothing(self):
         self._assert_waits_for_the_yes("runtime", "spider", "--simulation")

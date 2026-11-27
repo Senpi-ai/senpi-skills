@@ -445,7 +445,8 @@ class AStartNeedsItsPlan(unittest.TestCase):
 
     def test_a_variation_fork_of_a_started_simulation_needs_no_plan_of_its_own(self):
         code, _out, err = self._main("create", str(self.pkg_dir), "--simulation", "--user-said-yes",
-                                     "--variant-of", "simulation-11111111-2222-4333-8444-555555555555")
+                                     "--variant-of", "simulation-11111111-2222-4333-8444-555555555555",
+                                     "--batch", "b-1")
         self.assertEqual(code, 0, err)
 
     def test_a_package_of_several_wallets_keeps_its_billed_by_the_hour_yes(self):

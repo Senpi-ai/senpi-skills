@@ -20,7 +20,7 @@ see `stale_proof_dirs`, which keys on the gate's structured evidence, never on i
   python3 deploy.py runtime  <id> [--decision-model M]             # resume/complete the same deploy
   python3 deploy.py create   <id> --budget <usd> --simulation      # the same deploy as a simulation
                                                                    #   (`senpi.deploy.startSimulation`)
-  python3 deploy.py create   <id> --budget <usd> --simulation --variant-of simulation-<id> [--batch <id>]
+  python3 deploy.py create   <id> --budget <usd> --simulation --variant-of simulation-<id> --batch <id>
                                                                    # a variation: joins that simulation's group
   python3 deploy.py create   <id> --budget <usd> --from-simulation simulation-<id>
                                                                    # live deploy that keeps that simulation's identity
@@ -630,6 +630,12 @@ def _quote_lines(payload):
     return lines
 
 
+BATCH_FULL_STOP = ("  Stop: this batch is full. Tell the user which of its simulations started and that a batch "
+                   "holds 5 (the design and 4 variations). Start no more now: not under a new batch id, not "
+                   "without --variant-of, not another way. A second batch needs its own quote and the user's "
+                   "yes to it in a later message.")
+
+
 def _simulation_dry_run(pkg, method, params, a):
     """`--dry-run --simulation`: the runtime's own quote when it advertises
     `deploy.capabilities.simulationYesGate`, else the planned command and no number. `dryRun` is
@@ -657,6 +663,9 @@ def _simulation_dry_run(pkg, method, params, a):
               file=sys.stderr)
         raise SystemExit(EXIT_INTERNAL)
     print(r["message"] or f"{method}: {r['kind']}", file=sys.stderr)
+    if r.get("code") == "E_BATCH_TOO_LARGE":
+        print(BATCH_FULL_STOP, file=sys.stderr)
+        raise SystemExit(EXIT_CODES["refused"])
     print("The cost could not be quoted. A quote starts nothing. Tell the user the simulation is billed "
           "by the hour until it is stopped, with no number, and ask. A failed quote is never a reason "
           "to start another way.", file=sys.stderr)
@@ -1156,6 +1165,8 @@ def start_deploy(pkg, a, log):
         if not reused:
             _journal_resolve(pkg, rid, "refused", simulation)
         print(r["message"], file=sys.stderr)
+        if r.get("code") == "E_BATCH_TOO_LARGE":
+            print(BATCH_FULL_STOP, file=sys.stderr)
         raise SystemExit(EXIT_CODES["refused"])
     if kind in ("unknown_method", "cli_parse", "spawn_failed"):
         if not reused:
@@ -3137,7 +3148,7 @@ def _main(argv):
                     help="With --simulation: start this as a variation of that simulation, in its group as the "
                          "next free version. Not for a new strategy, not with --from-simulation.")
     pc.add_argument("--batch", dest="batch", default=None, metavar="BATCH_ID",
-                    help="With --variant-of: one id shared by every variation started together "
+                    help="Needed with --variant-of: one id shared by every variation started together "
                          "(1-100 chars of A-Z a-z 0-9 _ -).")
     _ownership_flags(pc)
 
@@ -3258,6 +3269,8 @@ def _main(argv):
                f"--variant-of: {variant!r} is not a simulation id (expected simulation-<uuid>, as `strategy_list` shows it)"
                if variant is not None and not _SIMULATION_ID_SHAPE.match(variant) else
                "--batch needs --variant-of" if variant is None else
+               "--variant-of needs --batch <id>, one id shared by every variation started together "
+               "(a batch holds at most 5 simulations)" if batch is None else
                f"--batch: {batch!r} is not a batch id (1-100 characters of A-Z a-z 0-9 _ -)"
                if batch is not None and not _BATCH_ID_SHAPE.match(batch) else None)
     if problem:
