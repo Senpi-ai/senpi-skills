@@ -81,9 +81,9 @@ class ForkOfNamesTheSourceStrategy(unittest.TestCase):
                       "<Source strategy id> --name \"<their words>\"`", local)
         self.assertIn("`create <fork dir> --simulation --user-said-yes --budget <its budget> --variant-of", local)
         self.assertIn("never a raw `startBatch` by catalog id", local)
-        self.assertIn("`deploy.py fork <dir>` without that `--fork-of` is refused", local)
-        self.assertIn("and so is `create <dir> --simulation` without it (a package of several wallets too); "
-                      "`create <fork dir> --variant-of` is not checked", local)
+        self.assertIn("these are refused without that `--fork-of`: `fork <dir> --name <label>` for one of its "
+                      "variation labels, and `create <dir> --simulation` (several wallets too)", local)
+        self.assertIn("A fork under another name and `create <fork dir> --variant-of` are not checked", local)
         self.assertNotIn("A `create <dir> --simulation` without `--fork-of` is refused once", local)
 
     def test_a_raw_start_batch_for_budgets_that_differ_is_for_a_catalog_id_only(self):

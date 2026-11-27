@@ -214,6 +214,6 @@ A client hand-off can carry a line `Source strategy id: <id>`: the user's own st
   then each variation as `deploy.py fork <dir> --name <label> --fork-of <Source strategy id>`, its one setting
   set in the copy, and `create <fork dir> --simulation --user-said-yes --budget <its budget> --variant-of <the design's simulation id> --batch <one id>`.
   Budgets that differ: each `create` takes its own `--budget`, same route.
-  While that plan is on record (6 hours), `deploy.py fork <dir>` without that `--fork-of` is refused, and so is
-  `create <dir> --simulation` without it (a package of several wallets too); `create <fork dir> --variant-of`
-  is not checked.
+  For 6 hours after the plan, these are refused without that `--fork-of`: `fork <dir> --name <label>` for one of
+  its variation labels, and `create <dir> --simulation` (several wallets too). A fork under another name and
+  `create <fork dir> --variant-of` are not checked.

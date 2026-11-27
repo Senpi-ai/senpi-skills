@@ -2934,16 +2934,16 @@ def _plan_on_record(ref, budget):
     return None
 
 
-def _recorded_forked_from(ref):
-    """The --forked-from of the plan on record for `ref` while that plan is fresh (PLAN_RECORD_TTL_S), else
-    None. Unlike a start, a copy is not tied to a quoted budget or to the turn the plan came in."""
+def _fresh_plan(ref):
+    """The plan on record for `ref` while it is fresh (PLAN_RECORD_TTL_S), else {}. Unlike a start, a copy or
+    a start of several wallets is not tied to a quoted budget or to the turn the plan came in."""
     try:
         rec = json.loads(_plan_record_path(ref).read_text())
     except (OSError, ValueError):
-        return None
+        return {}
     if not isinstance(rec, dict) or not isinstance(rec.get("at"), (int, float)):
-        return None
-    return rec.get("forked_from") if time.time() - rec["at"] <= PLAN_RECORD_TTL_S else None
+        return {}
+    return rec if time.time() - rec["at"] <= PLAN_RECORD_TTL_S else {}
 
 
 def _fork_of_exit(code, done, why, quoted):
@@ -2956,14 +2956,18 @@ def _fork_of_exit(code, done, why, quoted):
 
 
 def _copy_needs_its_plans_fork_of(a):
-    """`fork` of a package whose fresh plan carries --forked-from: the copy is one of that plan's
-    variations, so it records the same strategy as its parent."""
-    quoted = _recorded_forked_from(a.package)
+    """`fork <pkg> --name <label>` where <label> names a variation of the fresh plan for <pkg> and that plan
+    carries --forked-from: the copy is that variation, so it records the same strategy as its parent. A copy
+    under any other name is not part of the plan and is not checked."""
+    rec = _fresh_plan(a.package)
+    quoted = rec.get("forked_from")
+    labels = {_fork.slug(v.get("label")) for v in rec.get("variants") or [] if isinstance(v, dict)} - {""}
+    name = _fork.slug(a.name) if a.name else ""
     sent = a.fork_of.strip() if isinstance(a.fork_of, str) and a.fork_of.strip() else None
-    if quoted and sent != quoted:
+    if quoted and name in labels and sent != quoted:
         _fork_of_exit("INVALID_REQUEST", "written",
-                      f"the plan for {_plan_key(a.package)} was quoted with --forked-from {quoted}, so a copy of it "
-                      f"needs --fork-of {quoted}", quoted)
+                      f"{a.name.strip()} is a variation of the plan for {_plan_key(a.package)}, which was quoted "
+                      f"with --forked-from {quoted}, so its copy needs --fork-of {quoted}", quoted)
 
 
 def _quoted_forked_from(ref, budget):
@@ -3045,7 +3049,7 @@ def _start_needs_its_plan(pkg, a):
     if len(getattr(pkg, "instances", []) or []) > 1:
         # A package of several wallets takes no quote and starts on its own yes, but a fresh plan with
         # --forked-from still names the parent its start must carry.
-        quoted = _recorded_forked_from(a.package)
+        quoted = _fresh_plan(a.package).get("forked_from")
         if quoted and fork_of != quoted:
             _fork_of_exit("E_NO_PLAN", "started", _forked_from_mismatch(a.package, fork_of, "--fork-of"), quoted)
         return

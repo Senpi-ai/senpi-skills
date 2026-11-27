@@ -534,47 +534,6 @@ class AStartNeedsItsPlan(unittest.TestCase):
         self.assertEqual(len(self.started), 1)
 
 
-class ACopyKeepsItsPlansSource(unittest.TestCase):
-    """`deploy.py fork` of a package whose plan on record carries --forked-from must carry the same
-    --fork-of, so every variation copy records that strategy as its parent."""
-
-    def setUp(self):
-        AStartNeedsItsPlan.setUp(self)
-        self.forked = []
-        orig = deploy.cmd_fork
-        self.addCleanup(lambda: setattr(deploy, "cmd_fork", orig))
-        deploy.cmd_fork = lambda p, a, log: self.forked.append((a.name, a.fork_of)) or 0
-
-    _main = AStartNeedsItsPlan._main
-    _plan = AStartNeedsItsPlan._plan
-    _age = AStartNeedsItsPlan._age
-
-    def test_a_copy_without_the_plans_fork_of_is_refused(self):
-        self._plan("--forked-from", "6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99")
-        code, _out, err = self._main("fork", str(self.pkg_dir), "--name", "lbl-a")
-        self.assertEqual(code, deploy.EXIT_CODES["refused"])
-        self.assertIn("[INVALID_REQUEST] Nothing was written", err)
-        self.assertIn('re-run this command with --fork-of 6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99 --name "<their words>"', err)
-        code, _out, err = self._main("fork", str(self.pkg_dir), "--name", "lbl-a", "--fork-of", "simulation-9")
-        self.assertEqual(code, deploy.EXIT_CODES["refused"])
-        self.assertEqual(self.forked, [])
-        code, _out, err = self._main("fork", str(self.pkg_dir), "--name", "lbl-a", "--fork-of", "6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99")
-        self.assertEqual(code, 0, err)
-        self.assertEqual(self.forked, [("lbl-a", "6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99")])
-
-    def test_a_copy_with_no_plan_or_a_plan_without_forked_from_is_untouched(self):
-        code, _out, err = self._main("fork", str(self.pkg_dir), "--name", "lbl-a")
-        self.assertEqual(code, 0, err)
-        self._plan()
-        code, _out, err = self._main("fork", str(self.pkg_dir), "--name", "lbl-b")
-        self.assertEqual(code, 0, err)
-        self.assertEqual(len(self.forked), 2)
-
-    def test_a_stale_plan_does_not_bind_a_copy(self):
-        self._plan("--forked-from", "6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99", age=deploy.PLAN_RECORD_TTL_S + 1)
-        code, _out, err = self._main("fork", str(self.pkg_dir), "--name", "lbl-a")
-        self.assertEqual(code, 0, err)
-
     def test_a_budget_choice_the_plan_quoted_starts(self):
         self._plan("--budget-choices", "100,500")
         code, _out, err = self._main("create", str(self.pkg_dir), "--simulation", "--user-said-yes",
@@ -608,6 +567,64 @@ class ACopyKeepsItsPlansSource(unittest.TestCase):
     def test_a_live_create_is_untouched(self):
         code, _out, err = self._main("create", str(self.pkg_dir), "--budget", "50")
         self.assertNotIn("E_NO_PLAN", err)
+
+
+class ACopyKeepsItsPlansSource(unittest.TestCase):
+    """`deploy.py fork` of a package whose plan on record carries --forked-from must carry the same
+    --fork-of, so every variation copy records that strategy as its parent."""
+
+    def setUp(self):
+        AStartNeedsItsPlan.setUp(self)
+        self.forked = []
+        orig = deploy.cmd_fork
+        self.addCleanup(lambda: setattr(deploy, "cmd_fork", orig))
+        deploy.cmd_fork = lambda p, a, log: self.forked.append((a.name, a.fork_of)) or 0
+
+    _main = AStartNeedsItsPlan._main
+    _plan = AStartNeedsItsPlan._plan
+    _age = AStartNeedsItsPlan._age
+
+    VARIANTS = ("--design", "d", "--trades", "t",
+                "--variant", "pickier|scanner.inputs.minScore=7|pickier entries: score 7 instead of 5",
+                "--variant", "wider-stop|exit.dsl_preset.phase1.max_loss_pct=9|a looser stop: 9% instead of 6%")
+
+    def test_a_copy_named_for_a_plan_variation_without_the_plans_fork_of_is_refused(self):
+        self._plan(*self.VARIANTS, "--forked-from", "6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99")
+        code, _out, err = self._main("fork", str(self.pkg_dir), "--name", "pickier")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("[INVALID_REQUEST] Nothing was written", err)
+        self.assertIn("pickier is a variation of the plan for dip-gift", err)
+        self.assertIn('re-run this command with --fork-of 6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99 --name "<their words>"', err)
+        code, _out, err = self._main("fork", str(self.pkg_dir), "--name", "Wider Stop")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        code, _out, err = self._main("fork", str(self.pkg_dir), "--name", "pickier", "--fork-of", "simulation-9")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertEqual(self.forked, [])
+        code, _out, err = self._main("fork", str(self.pkg_dir), "--name", "pickier", "--fork-of", "6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.forked, [("pickier", "6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99")])
+
+    def test_an_unrelated_copy_of_a_planned_package_is_untouched(self):
+        self._plan(*self.VARIANTS, "--forked-from", "6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99")
+        code, _out, err = self._main("fork", str(self.pkg_dir), "--name", "Weekend Experiment")
+        self.assertEqual(code, 0, err)
+        code, _out, err = self._main("fork", str(self.pkg_dir), "--name", "Weekend Experiment",
+                                     "--fork-of", "simulation-9")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(self.forked, [("Weekend Experiment", None), ("Weekend Experiment", "simulation-9")])
+
+    def test_a_copy_with_no_plan_or_a_plan_without_forked_from_is_untouched(self):
+        code, _out, err = self._main("fork", str(self.pkg_dir), "--name", "pickier")
+        self.assertEqual(code, 0, err)
+        self._plan(*self.VARIANTS)
+        code, _out, err = self._main("fork", str(self.pkg_dir), "--name", "pickier")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self.forked), 2)
+
+    def test_a_stale_plan_does_not_bind_a_copy(self):
+        self._plan(*self.VARIANTS, "--forked-from", "6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99", age=deploy.PLAN_RECORD_TTL_S + 1)
+        code, _out, err = self._main("fork", str(self.pkg_dir), "--name", "pickier")
+        self.assertEqual(code, 0, err)
 
 
 class ACatalogPlanStartsFromItsRecord(unittest.TestCase):
