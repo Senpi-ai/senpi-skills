@@ -692,6 +692,25 @@ class ACatalogPlanStartsFromItsRecord(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(len(self._starts()), 1)
 
+    def test_one_variant_with_its_own_budget_needs_its_plan(self):
+        code, _out, err = self._call_start(variants=[{"label": "own-budget", "budgetUsd": 999}])
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("[E_NO_PLAN]", err)
+        self.assertIn("`deploy.py plan hawk --budget 999`", err)
+        self.assertIn("`deploy.py start-plan hawk --budget 999 --user-said-yes`", err)
+        self.assertEqual(self.calls, [])
+
+    def test_one_variant_with_its_own_budget_starts_after_a_plan_at_that_budget(self):
+        self._plan("--budget", "999")
+        code, _out, err = self._call_start(variants=[{"label": "own-budget", "budgetUsd": 999}])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self._starts()), 1)
+
+    def test_variants_whose_budgets_differ_keep_their_path(self):
+        code, _out, err = self._call_start(variants=[{"label": "a", "budgetUsd": 60},
+                                                     {"label": "b", "budgetUsd": 80}])
+        self.assertEqual(code, 0, err)
+
     def test_a_dry_run_through_call_needs_no_plan(self):
         code, _out, err = self._call_start(dryRun=True)
         self.assertEqual(code, 0, err)

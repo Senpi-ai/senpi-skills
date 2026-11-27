@@ -695,21 +695,28 @@ CALL_METHODS = {"senpi.packages.list": False, "senpi.packages.get": False,
                 "senpi.simulations.startBatch": True, "senpi.simulations.batchStatus": False}
 
 
-def _call_start_without_plan(method, params):
-    """Why a real catalog batch start sent through `call` has no plan behind it, or None. Only what `plan`
-    cannot quote passes without one: variations of a running simulation (`parentId`) and budgets that differ."""
-    if method != "senpi.simulations.startBatch" or params.get("dryRun") is True or params.get("parentId"):
+def _call_start_budget(params):
+    """The one budget every simulation of a catalog batch start starts at (a variant's own `budgetUsd`, else
+    the batch's), or None when `plan` cannot quote it: a variation of a running simulation (`parentId`),
+    no catalog strategy, or budgets that differ."""
+    if params.get("parentId") or not isinstance(params.get("strategy"), str) or not params["strategy"]:
         return None
-    strategy = params.get("strategy")
-    if not isinstance(strategy, str) or not strategy:
+    batch = params.get("budgetUsd", PLAN_BUDGET_USD)
+    budgets = {v.get("budgetUsd", batch) if isinstance(v, dict) else batch for v in params.get("variants") or [{}]}
+    if len(budgets) != 1:
         return None
-    budget = params.get("budgetUsd", PLAN_BUDGET_USD)
-    own = {v.get("budgetUsd") for v in params.get("variants") or [] if isinstance(v, dict)} - {None}
-    if own - {budget}:
-        return None
+    budget = budgets.pop()
     if not isinstance(budget, (int, float)) or isinstance(budget, bool):
         return None
-    return _plan_on_record(strategy, float(budget))
+    return float(budget)
+
+
+def _call_start_without_plan(method, params):
+    """Why a real catalog batch start sent through `call` has no plan behind it, or None."""
+    if method != "senpi.simulations.startBatch" or params.get("dryRun") is True:
+        return None
+    budget = _call_start_budget(params)
+    return None if budget is None else _plan_on_record(params["strategy"], budget)
 
 
 def cmd_call(a):
@@ -730,10 +737,12 @@ def cmd_call(a):
     why = _call_start_without_plan(a.method, params)
     if why is not None:
         strategy = params.get("strategy")
+        budget = _call_start_budget(params)
+        flag = "" if budget == PLAN_BUDGET_USD else f" --budget {budget:g}"
         print(f"[E_NO_PLAN] Nothing was started: {why}. A catalog batch starts only as `plan` quoted it, after "
               f"the user's yes in a later message.\n"
-              f"  Next: `deploy.py plan {strategy}` (with the --variant lines), relay it as given, end your turn; "
-              f"on their yes, `deploy.py start-plan {strategy} --user-said-yes`.", file=sys.stderr)
+              f"  Next: `deploy.py plan {strategy}{flag}` (with the --variant lines), relay it as given, end your "
+              f"turn; on their yes, `deploy.py start-plan {strategy}{flag} --user-said-yes`.", file=sys.stderr)
         return EXIT_CODES["refused"]
     r = _gw(a.method, params, START_RPC_MS if starts else _cli.READ_RPC_MS,
             START_WALL_S if starts else _cli.READ_WALL_S)
