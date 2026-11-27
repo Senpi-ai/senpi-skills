@@ -177,6 +177,13 @@ class Plan(unittest.TestCase):
         self.assertTrue(out.startswith("Simulation of hawk, on virtual money (nothing real moves): lev2-low: a calmer "
                                        "entry (maxLeverage = 2, minScore = 3) · $1,000"), out)
 
+    def test_a_value_with_a_comma_stays_one_setting(self):
+        code, out, err = self._run("hawk", "--variant", "majors|scanner.inputs.coins=BTC,ETH;maxLeverage=2|majors only")
+        self.assertEqual(code, 0, err)
+        [quote] = [p for m, p in self.calls if m == BATCH]
+        self.assertEqual([v["settings"] for v in quote["variants"]],
+                         [{"scanner.inputs.coins": "BTC,ETH", "maxLeverage": 2}])
+
     def test_settings_run_together_without_a_semicolon_are_refused_before_any_quote(self):
         for setting in ("scanner.inputs.minScore=7,leverage=3", "minScore=7 leverage=3", "minScore=3;minScore=4",
                         "minScore=3;", "minScore=3;;leverage=2"):

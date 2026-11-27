@@ -2621,8 +2621,8 @@ _PLAN_UNCHANGED_LABELS = {"as-designed", "as-is", "as-written", "base", "baselin
 
 def parse_plan_variant(text):
     """`label|key=value[;key=value...]|what it tests[|how often it trades]` -> {label, settings, tests,
-    trades}. Settings are separated by `;` only, so a `,` or a second `=` is refused rather than read
-    as part of one value."""
+    trades}. Settings are separated by `;` only: a second `=` in one setting, or a `,` in its key, is
+    refused rather than read as part of one value."""
     parts = [p.strip() for p in text.split("|")]
     if len(parts) not in (3, 4) or not all(parts):
         raise PlanInputError(f"--variant {text!r}: expected 'label|key=value[;key=value]|what it tests' "
@@ -2638,7 +2638,7 @@ def parse_plan_variant(text):
     for one in setting.split(";"):
         key, sep, raw = one.partition("=")
         key, raw = key.strip(), raw.strip()
-        if not sep or not key or not raw or "=" in raw or "," in one or " " in key:
+        if not sep or not key or not raw or "=" in raw or "," in key or " " in key:
             raise PlanInputError(f"--variant {text!r}: each setting is key=value, several separated by ';' "
                                  f"(e.g. maxLeverage=2;minScore=3)")
         if key in settings:
