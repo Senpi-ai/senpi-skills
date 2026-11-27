@@ -407,6 +407,47 @@ class Plan(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertIn("It has 2 books (duo-long, duo-short), so it starts 2 simulations.", out)
 
+    def test_a_hand_off_plan_quotes_its_batch_forked_from_the_source(self):
+        code, _out, err = self._catalog("--forked-from", " 6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99 ")
+        self.assertEqual(code, 0, err)
+        [quote] = [p for m, p in self.calls if m == BATCH]
+        self.assertEqual(quote["forkedFrom"], "6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99")
+        self.assertNotIn("forkOf", quote)
+
+    def test_without_forked_from_the_quote_has_no_forked_from_key(self):
+        self._catalog()
+        [quote] = [p for m, p in self.calls if m == BATCH]
+        self.assertEqual(set(quote), {"requestId", "strategy", "budgetUsd", "dryRun", "variants"})
+
+    def test_a_blank_forked_from_is_refused_before_any_quote(self):
+        code, out, err = self._catalog("--forked-from", "  ")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("--forked-from needs the id of the strategy", err)
+        self.assertEqual(out, "")
+        self.assertEqual(self.calls, [])
+
+    def test_a_local_plan_forked_from_the_source_tells_each_variation_fork_to_carry_it(self):
+        pkg = self.root / "dip-gift"
+        pkg.mkdir()
+        code, _out, err = self._run(str(pkg), "--design", "d", "--trades", "t", *self.VARIANTS,
+                                    "--forked-from", "simulation-1")
+        self.assertEqual(code, 0, err)
+        self.assertIn("`deploy.py fork <dir> --name <label> --fork-of simulation-1`", err)
+        self.assertTrue(all("forkedFrom" not in p for _m, p in self.calls))
+        code, _out, err = self._run(str(pkg), "--design", "d", "--trades", "t", *self.VARIANTS)
+        self.assertIn("`deploy.py fork <dir> --name <label>`", err)
+
+    def test_variations_of_a_running_design_forked_from_the_source_carry_it_on_each_fork(self):
+        pkg = self._package("solo", ["main"])
+        self.start = _answer("ok", {"dryRun": True, "budgetUsd": 1000, "creditsPerHour": 10, "creditsPerDay": 240,
+                                    "creditsPerHourAfter": 30, "instances": [{"name": "main"}]})
+        self._open([{"strategyName": "solo", "strategyId": "simulation-S", "status": "ACTIVE"}])
+        code, _out, err = self._run(str(pkg), "--design", "d", "--trades", "t", *self.VARIANTS,
+                                    "--forked-from", "simulation-1")
+        self.assertEqual(code, 0, err)
+        self.assertIn("`deploy.py fork <dir> --name <label> --fork-of simulation-1`", err)
+        self.assertIn("--variant-of simulation-S", err)
+
     def test_an_unclear_reply_is_not_a_yes(self):
         _, _, err = self._catalog()
         self.assertIn("\"Your call\", \"sounds good\", \"you pick\" and silence are not a yes", err)
@@ -455,6 +496,8 @@ class AStartNeedsItsPlan(unittest.TestCase):
                                       "creditsPerDay": 240, "creditsPerHourAfter": 10})
             if method == "sessions.list":
                 return _chats_answer(self.chats)
+            if method == BATCH and (params or {}).get("dryRun") is True:
+                return _batch_quote(params)
             raise AssertionError(f"unexpected gateway call {method} {params}")
         _cli.gateway_call = _gateway
 
@@ -504,6 +547,30 @@ class AStartNeedsItsPlan(unittest.TestCase):
         self.assertEqual(code, deploy.EXIT_CODES["refused"])
         self.assertIn("--budget 500", err)
         self.assertEqual(self.started, [])
+
+    def test_a_catalog_create_must_carry_the_fork_of_its_plan_was_quoted_with(self):
+        self._plan("--forked-from", "6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99", ref="hawk")
+        code, _out, err = self._main("create", "hawk", "--simulation", "--user-said-yes")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("so its start needs --fork-of 6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99", err)
+        code, _out, err = self._main("create", "hawk", "--simulation", "--user-said-yes", "--name", "Mine",
+                                     "--fork-of", "6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self.started), 1)
+
+    def test_a_catalog_create_cannot_add_a_fork_of_its_plan_was_quoted_without(self):
+        self._plan(ref="hawk")
+        code, _out, err = self._main("create", "hawk", "--simulation", "--user-said-yes", "--name", "Mine",
+                                     "--fork-of", "6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("quoted without --forked-from, so its start takes no --fork-of", err)
+        self.assertIn("deploy.py plan hawk --forked-from 6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99", err)
+        self.assertEqual(self.started, [])
+
+    def test_a_local_plan_forked_from_the_source_still_starts_its_design_by_directory(self):
+        self._plan("--forked-from", "simulation-1")
+        code, _out, err = self._main("create", str(self.pkg_dir), "--simulation", "--user-said-yes")
+        self.assertEqual(code, 0, err)
 
     def test_a_budget_choice_the_plan_quoted_starts(self):
         self._plan("--budget-choices", "100,500")
@@ -798,6 +865,57 @@ class ACatalogPlanStartsFromItsRecord(unittest.TestCase):
                 "userSaidYes": True, "variants": [{"label": "lev3", "settings": {"leverage": 3}}]}
         code, _out, err = self._main("call", "senpi.simulations.startBatch", "--params", json.dumps(body))
         self.assertEqual(code, 0, err)
+
+    def test_start_plan_sends_the_forked_from_its_plan_recorded(self):
+        self._plan("--variant", "lev3|leverage=3|less", "--variant", "lev2|leverage=2|less still",
+                   "--forked-from", "6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99")
+        rec = json.loads(next((self.root / deploy.PLAN_RECORD_DIR).glob("*.json")).read_text())
+        self.assertEqual(rec["forked_from"], "6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99")
+        code, _out, err = self._main("start-plan", "hawk", "--user-said-yes")
+        self.assertEqual(code, 0, err)
+        [start] = self._starts()
+        self.assertEqual(start["forkedFrom"], "6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99")
+
+    def test_start_plan_without_forked_from_sends_todays_payload(self):
+        self._plan("--variant", "lev3|leverage=3|less", "--variant", "lev2|leverage=2|less still")
+        rec = json.loads(next((self.root / deploy.PLAN_RECORD_DIR).glob("*.json")).read_text())
+        self.assertNotIn("forked_from", rec)
+        code, _out, err = self._main("start-plan", "hawk", "--user-said-yes")
+        self.assertEqual(code, 0, err)
+        [start] = self._starts()
+        self.assertEqual(set(start), {"requestId", "strategy", "budgetUsd", "dryRun", "userSaidYes", "variants"})
+
+    def test_start_plan_takes_no_forked_from_of_its_own(self):
+        self._plan()
+        code, _out, _err = self._main("start-plan", "hawk", "--user-said-yes", "--forked-from", "x")
+        self.assertEqual(code, 2)
+        self.assertEqual(self._starts(), [])
+
+    def test_a_start_through_call_must_carry_the_forked_from_its_plan_was_quoted_with(self):
+        self._plan("--forked-from", "6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99")
+        code, _out, err = self._call_start()
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("quoted with --forked-from 6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99", err)
+        code, _out, err = self._call_start(forkedFrom="simulation-9")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertEqual(self._starts(), [])
+        code, _out, err = self._call_start(forkedFrom="6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99")
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(self._starts()), 1)
+
+    def test_a_refused_call_with_forked_from_names_it_on_the_plan_it_asks_for(self):
+        code, _out, err = self._call_start(forkedFrom="6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("Next: `deploy.py plan hawk --forked-from 6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99`", err)
+        code, _out, err = self._call_start()
+        self.assertIn("Next: `deploy.py plan hawk` (with", err)
+
+    def test_a_start_through_call_cannot_add_forked_from_its_plan_was_quoted_without(self):
+        self._plan()
+        code, _out, err = self._call_start(forkedFrom="6f1c2b7e-3d4a-4b8e-9a10-0c5d7e2f1a99")
+        self.assertEqual(code, deploy.EXIT_CODES["refused"])
+        self.assertIn("quoted without --forked-from", err)
+        self.assertEqual(self._starts(), [])
 
     def test_the_plan_tells_the_agent_to_start_with_start_plan(self):
         _code, _out, err = self._main("plan", "hawk", "--design", "d", "--trades", "t")

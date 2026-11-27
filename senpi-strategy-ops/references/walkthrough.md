@@ -192,5 +192,8 @@ A client hand-off can carry a line `Source strategy id: <id>`: the user's own st
   `--from-simulation`, as SKILL.md's take-live rule says.
 - **A variation that changes code:** `deploy.py fork <that package> --name "<variation name>" --fork-of <source id>`
   (`<source id>`: the hand-off's `Source strategy id`, else the simulation it varies, else no flag).
-- **A variations batch** never sends `forkOf`: on the `startBatch` call, a hand-off's `Source strategy id` other
-  than that simulation adds `"forkedFrom":"<Source strategy id>"`.
+- **A variations batch** never sends `forkOf`. A batch `plan` can quote goes through
+  `deploy.py plan <catalog id> --forked-from <Source strategy id>`, and `start-plan` sends that id as the
+  batch's `forkedFrom`. A batch that goes through the raw `startBatch` call (a `parentId` batch, or budgets
+  that differ) adds `"forkedFrom":"<Source strategy id>"` itself, unless the `Source strategy id` is the
+  simulation the batch varies by `parentId`.
