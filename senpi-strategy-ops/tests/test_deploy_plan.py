@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """`deploy.py plan` quotes a strategy and its variations as simulations and prints the test plan the
-agent relays as given: each variation changes one setting, the plan carries the quoted credits an hour
+agent relays as given: each variation carries every setting it changes, the plan carries the quoted credits an hour
 on every budget it offers, ends with the simulate-or-live question, and starts nothing.
 
     python3 -m pytest senpi-strategy-ops/tests/test_deploy_plan.py
@@ -160,14 +160,33 @@ class Plan(unittest.TestCase):
                          [{}, {"scanner.inputs.minScore": 7}, {"exit.dsl_preset.phase1.max_loss_pct": 9}])
         self.assertEqual(batch[0]["strategy"], "hawk")
 
-    def test_a_variation_changing_two_settings_is_refused_before_any_quote(self):
+    def test_a_variation_changing_two_settings_is_quoted_and_shown_with_both(self):
         code, out, err = self._run("hawk", "--design", "d", "--trades", "t",
-                                   "--variant", "both|scanner.inputs.minScore=7,leverage=3|two things",
-                                   "--variant", "ok|leverage=3|half leverage")
-        self.assertEqual(code, deploy.EXIT_CODES["refused"])
-        self.assertIn("exactly one setting", err)
-        self.assertEqual(out, "")
-        self.assertEqual(self.calls, [])
+                                   "--variant", "lev2-low|maxLeverage=2;minScore=3|leverage 2, lower score",
+                                   "--variant", "lev3-low|maxLeverage=3; minScore=3|leverage 3, lower score")
+        self.assertEqual(code, 0, err)
+        self.assertIn("2. lev2-low: leverage 2, lower score (maxLeverage = 2, minScore = 3) · trades t ·", out)
+        self.assertIn("3. lev3-low: leverage 3, lower score (maxLeverage = 3, minScore = 3) · trades t ·", out)
+        [quote] = [p for m, p in self.calls if m == BATCH]
+        self.assertEqual([v["settings"] for v in quote["variants"]],
+                         [{}, {"maxLeverage": 2, "minScore": 3}, {"maxLeverage": 3, "minScore": 3}])
+
+    def test_one_simulation_with_two_settings_shows_both(self):
+        code, out, err = self._run("hawk", "--variant", "lev2-low|maxLeverage=2;minScore=3|a calmer entry")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(out.startswith("Simulation of hawk, on virtual money (nothing real moves): lev2-low: a calmer "
+                                       "entry (maxLeverage = 2, minScore = 3) · $1,000"), out)
+
+    def test_settings_run_together_without_a_semicolon_are_refused_before_any_quote(self):
+        for setting in ("scanner.inputs.minScore=7,leverage=3", "minScore=7 leverage=3", "minScore=3;minScore=4",
+                        "minScore=3;", "minScore=3;;leverage=2"):
+            self.calls.clear()
+            code, out, err = self._run("hawk", "--design", "d", "--trades", "t",
+                                       "--variant", f"both|{setting}|two things",
+                                       "--variant", "ok|leverage=3|half leverage")
+            self.assertEqual(code, deploy.EXIT_CODES["refused"], setting)
+            self.assertEqual(out, "", setting)
+            self.assertEqual(self.calls, [], setting)
 
     def test_one_simulation_the_user_asked_for_is_quoted_on_every_budget_choice(self):
         code, out, err = self._run("hawk", "--design", "buys breakouts with a 6% stop", "--trades", "a few times a week",
@@ -225,6 +244,17 @@ class Plan(unittest.TestCase):
             self.assertIn("is already the design's own value", err)
             self.assertEqual(out, "")
             self.assertEqual(self.calls, [], setting)
+
+    def test_a_variation_with_one_setting_at_the_designs_value_is_refused_even_beside_a_real_change(self):
+        pkg = _write_pkg(self.root)
+        for settings in ("minScore=3;pullbackThreshold=5", "pullbackThreshold=5;minScore=5"):
+            self.calls.clear()
+            code, out, err = self._run(str(pkg), "--design", "d", "--trades", "t",
+                                       "--variant", f"mixed|{settings}|a mixed change",
+                                       "--variant", "ok|minScore=7|pickier entries")
+            self.assertEqual(code, deploy.EXIT_CODES["refused"], settings)
+            self.assertIn("is already the design's own value", err)
+            self.assertEqual(self.calls, [], settings)
 
     def test_a_real_change_from_the_designs_value_is_quoted(self):
         pkg = _write_pkg(self.root)
@@ -520,6 +550,17 @@ class ACatalogPlanStartsFromItsRecord(unittest.TestCase):
         self.assertEqual(code, deploy.EXIT_CODES["refused"])
         self.assertIn("--budget 250", err)
         self.assertEqual(self._starts(), [])
+
+    def test_every_quoted_setting_of_a_variation_is_recorded_and_started(self):
+        self._plan("--variant", "lev2-low|maxLeverage=2;minScore=3|leverage 2, lower score",
+                   "--variant", "lev4-low|maxLeverage=4;minScore=3|leverage 4, lower score")
+        rec = json.loads(next((self.root / deploy.PLAN_RECORD_DIR).glob("*.json")).read_text())
+        self.assertEqual(rec["variants"], [{"label": "lev2-low", "settings": {"maxLeverage": 2, "minScore": 3}},
+                                           {"label": "lev4-low", "settings": {"maxLeverage": 4, "minScore": 3}}])
+        code, _out, err = self._main("start-plan", "hawk", "--user-said-yes")
+        self.assertEqual(code, 0, err)
+        self.assertEqual([v["settings"] for v in self._starts()[0]["variants"]],
+                         [{}, {"maxLeverage": 2, "minScore": 3}, {"maxLeverage": 4, "minScore": 3}])
 
     def test_one_named_setting_starts_alone(self):
         code, _out, err = self._main("plan", "hawk", "--variant", "lev3|leverage=3|half the leverage")
