@@ -148,9 +148,20 @@ def fetch_credits(client, meta):
     if remaining is None:
         return unavailable
     cycle_end = _field(c, "cycle_end")
+    cycle_start = _field(c, "cycle_start")
+    used = _f(c, "used")
+    cats = c.get("by_category") if isinstance(c.get("by_category"), dict) else None
+    sims = cats.get("simulations") if cats and isinstance(cats.get("simulations"), dict) else {}
+    chat = cats.get("ai_chat") if cats and isinstance(cats.get("ai_chat"), dict) else {}
+    as_int = lambda v: None if v is None else max(0, int(v))
     return {"available": True, "remaining": max(0, int(remaining)),
+            "used": as_int(used),
+            "by_category": None if cats is None else {
+                "simulations": {"credits": as_int(_f(sims, "credits")), "count": as_int(_f(sims, "count"))},
+                "ai_chat": {"credits": as_int(_f(chat, "credits"))}},
             "burn_per_hour": _f(c, "burn_per_hour"),
             "hours_left": _f(c, "hours_left"),
+            "cycle_start": cycle_start if isinstance(cycle_start, str) else None,
             "cycle_end": cycle_end if isinstance(cycle_end, str) else None}
 
 
