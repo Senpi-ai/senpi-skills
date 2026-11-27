@@ -17,7 +17,8 @@ class SettingsOnlyVariationsStartAsOneBatch(unittest.TestCase):
                       "no `create`", VARIATIONS)
 
     def test_each_variant_carries_its_label_and_settings(self):
-        self.assertIn('--variant "<label>|<key>=<value>|<what it tests>"', VARIATIONS)
+        self.assertIn('--variant "<label>|<key>=<value>[;<key>=<value>…]|<what it tests>"', VARIATIONS)
+        self.assertIn("never drop a setting the user asked for", VARIATIONS)
         self.assertIn('{"label":"<name>","budgetUsd":<its budget>,"settings":{…}}', VARIATIONS)
 
     def test_progress_is_one_batch_wait(self):

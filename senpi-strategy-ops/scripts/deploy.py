@@ -2687,12 +2687,12 @@ _PLAN_UNCHANGED_LABELS = {"as-designed", "as-is", "as-written", "base", "baselin
 
 
 def parse_plan_variant(text):
-    """`label|key=value|what it tests[|how often it trades]` -> {label, key, value, tests, trades}. A
-    variation changes exactly one setting, so a second `=` or a `,` between settings is refused rather
-    than read as two changes."""
+    """`label|key=value[;key=value...]|what it tests[|how often it trades]` -> {label, settings, tests,
+    trades}. Settings are separated by `;` only: a second `=` in one setting, or a `,` in its key, is
+    refused rather than read as part of one value."""
     parts = [p.strip() for p in text.split("|")]
     if len(parts) not in (3, 4) or not all(parts):
-        raise PlanInputError(f"--variant {text!r}: expected 'label|key=value|what it tests' "
+        raise PlanInputError(f"--variant {text!r}: expected 'label|key=value[;key=value]|what it tests' "
                              f"(and, if it trades at another pace, '|how often it trades')")
     label, setting, tests = parts[:3]
     trades = parts[3] if len(parts) == 4 else None
@@ -2700,13 +2700,22 @@ def parse_plan_variant(text):
         raise PlanInputError(f"--variant {text!r}: the label is 1-40 letters, digits, '-', '_' or '.'")
     if label.lower() in _PLAN_UNCHANGED_LABELS:
         raise PlanInputError(f"--variant {text!r}: the design as it is is already simulation 1; each "
-                             f"variation changes one setting from it")
-    key, sep, raw = setting.partition("=")
-    key, raw = key.strip(), raw.strip()
-    if not sep or not key or not raw or "=" in raw or "," in key:
-        raise PlanInputError(f"--variant {text!r}: a variation changes exactly one setting (key=value); "
-                             f"make each change its own variation")
-    return {"label": label, "key": key, "value": _plan_value(raw), "tests": tests, "trades": trades}
+                             f"variation changes something from it")
+    settings = {}
+    for one in setting.split(";"):
+        key, sep, raw = one.partition("=")
+        key, raw = key.strip(), raw.strip()
+        if not sep or not key or not raw or "=" in raw or "," in key or " " in key:
+            raise PlanInputError(f"--variant {text!r}: each setting is key=value, several separated by ';' "
+                                 f"(e.g. maxLeverage=2;minScore=3)")
+        if key in settings:
+            raise PlanInputError(f"--variant {text!r}: {key} is set twice")
+        settings[key] = _plan_value(raw)
+    return {"label": label, "settings": settings, "tests": tests, "trades": trades}
+
+
+def _plan_settings_shown(settings):
+    return ", ".join(f"{k} = {v if isinstance(v, str) else json.dumps(v)}" for k, v in settings.items())
 
 
 def parse_budget_choices(text):
@@ -2773,8 +2782,7 @@ def _plan_quote(ref, variants, budget, local):
 def _plan_variants(variants):
     """The batch a plan quotes and starts: the design as it is first, then each variation; a single
     variation is one simulation with that setting, alone."""
-    rows = [{"label": v["label"], "settings": v["settings"] if "settings" in v else {v["key"]: v["value"]}}
-            for v in variants]
+    rows = [{"label": v["label"], "settings": v["settings"]} for v in variants]
     return rows if len(rows) == 1 else [{"label": "as-designed", "settings": {}}] + rows
 
 
@@ -2817,16 +2825,14 @@ def render_plan(name, design, trades, variants, quotes):
 
     if len(variants) == 1:
         v = variants[0]
-        shown = v["value"] if isinstance(v["value"], str) else json.dumps(v["value"])
-        what = f"{v['label']}: {v['tests']} ({v['key']} = {shown})"
+        what = f"{v['label']}: {v['tests']} ({_plan_settings_shown(v['settings'])})"
         variants = []
         lines = [f"Simulation of {name}, on virtual money (nothing real moves): {facts(what, v.get('trades') or trades, 0)}"]
     elif variants:
         lines = [f"Test plan for {name}, on virtual money (nothing real moves):",
                  f"1. As designed: {facts(design, trades, 0)}"]
         for i, v in enumerate(variants, start=2):
-            shown = v["value"] if isinstance(v["value"], str) else json.dumps(v["value"])
-            what = f"{v['tests']} ({v['key']} = {shown})"
+            what = f"{v['tests']} ({_plan_settings_shown(v['settings'])})"
             lines.append(f"{i}. {v['label']}: {facts(what, v.get('trades') or trades, i - 1)}")
     else:
         lines = [f"Simulation of {name}, on virtual money (nothing real moves): {facts(design, trades, 0)}"]
@@ -2855,7 +2861,7 @@ def _plan_after_yes(ref, variants, local):
     if local:
         how = ("After the yes: start the design with `deploy.py create <dir> --simulation --user-said-yes "
                "--budget <their budget>`, then each variation as its own fork (`deploy.py fork <dir> --name "
-               "<label>`, set its one setting, `create <fork dir> --simulation --user-said-yes --variant-of "
+               "<label>`, set its settings, `create <fork dir> --simulation --user-said-yes --variant-of "
                "<the design's simulation id> --batch <one id>`).")
     else:
         how = (f"After the yes: `deploy.py start-plan {ref} --user-said-yes` (with `--budget <the one they "
@@ -2869,9 +2875,9 @@ def cmd_plan(a):
     try:
         variants = [parse_plan_variant(t) for t in (a.variant or [])]
         if len(variants) > PLAN_MAX_VARIATIONS:
-            raise PlanInputError("a test plan has two to four variations (--variant), each changing one "
-                                 "setting; one --variant quotes one simulation with that setting, none the "
-                                 "strategy as it is")
+            raise PlanInputError("a test plan has two to four variations (--variant), each with every "
+                                 "setting it changes; one --variant quotes one simulation with its settings, "
+                                 "none the strategy as it is")
         if len(variants) == 1 and _plan_is_local(a.package):
             raise PlanInputError("the user's own package takes a setting by editing it: change it in the "
                                  "package, then plan it with no --variant")
@@ -2881,11 +2887,12 @@ def cmd_plan(a):
         if len({v["label"] for v in variants}) != len(variants):
             raise PlanInputError("each variation needs its own label")
         for v in variants:
-            have = _design_value(a.package, v["key"])
-            if have is not _MISSING and _same_value(have, v["value"]):
-                raise PlanInputError(f"--variant {v['label']}: {v['key']} = {v['value']!r} is already the design's "
-                                     f"own value, so it changes nothing; vary it to something else, or vary "
-                                     f"another setting")
+            for key, value in v["settings"].items():
+                have = _design_value(a.package, key)
+                if have is not _MISSING and _same_value(have, value):
+                    raise PlanInputError(f"--variant {v['label']}: {key} = {value!r} is already the design's "
+                                         f"own value, so it changes nothing; vary it to something else, or "
+                                         f"leave it out")
         budgets = [a.budget] if a.budget is not None else parse_budget_choices(a.budget_choices)
         if a.budget is not None and a.budget_choices is not None:
             raise PlanInputError("pass --budget (the user named one) or --budget-choices, not both")
@@ -2945,7 +2952,7 @@ def _write_plan_record(ref, budgets, variants):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"at": time.time(), "package": str(ref), "budgets": budgets,
                                     "local": _plan_is_local(ref),
-                                    "variants": [{"label": v["label"], "settings": {v["key"]: v["value"]}}
+                                    "variants": [{"label": v["label"], "settings": v["settings"]}
                                                  for v in variants]}))
     except OSError as e:
         print(f"note: the plan could not be recorded ({e}); a start of this package will ask for plan again.",
@@ -3223,13 +3230,14 @@ def _main(argv):
                      help="The user said an explicit yes to the plan in a message after it was shown.")
 
     pp = sub.add_parser("plan",
-                        help="READ-ONLY: quote a strategy and two to four one-setting variations as simulations "
+                        help="READ-ONLY: quote a strategy and two to four variations as simulations "
                              "and print the test plan to relay as given. Starts nothing.")
     pp.add_argument("package", help="Catalog id (e.g. hawk) or the package dir the user's strategy lives in.")
     pp.add_argument("--design", default=None, help="The strategy as designed, in one plain sentence (required with --variant).")
     pp.add_argument("--trades", default=None, help="How often it should trade, in plain words (required with --variant).")
-    pp.add_argument("--variant", action="append", metavar="LABEL|KEY=VALUE|WHAT IT TESTS",
-                    help="One variation: a label, exactly one setting, and what it tests. Two to four.")
+    pp.add_argument("--variant", action="append", metavar="LABEL|KEY=VALUE[;KEY=VALUE]|WHAT IT TESTS",
+                    help="One variation: a label, every setting it changes (';' between them), and what it "
+                         "tests. Two to four.")
     pp.add_argument("--budget", type=float, default=None, help="The budget the user named, in USD.")
     pp.add_argument("--budget-choices", default=None,
                     help="Two to four budgets to offer as choices (e.g. 100,500,1000), each quoted.")
@@ -3448,7 +3456,7 @@ def _main(argv):
                       + (f" — proven: {proven}" if proven else ""))
                 print(f"next: unless they asked for live, propose the test plan: `deploy.py plan {a.package} "
                       f"--design \"<one sentence>\" --trades \"<how often>\" --variant \"<label>|<key>=<value>|"
-                      f"<what it tests>\"` (2-4, one setting each), relayed as given. No deposit is needed "
+                      f"<what it tests>\"` (2-4, every setting each changes, ';' between them), relayed as given. No deposit is needed "
                       f"to simulate.")
             # The proof gate is the runtime's, and it refuses PRE-MONEY. Naming it here is the whole
             # point: an unproven instance makes the NEXT command fail, not this one.

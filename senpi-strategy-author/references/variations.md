@@ -15,7 +15,11 @@ questions beats a sweep.
 ## What to vary: one thing per variation
 
 Vary what the design left open: a choice you made for them in the interview, a default they did not pick, the
-number you were least sure of. One change per variation, so a result can be traced to its cause.
+number you were least sure of. When you pick them, one change per variation, so a result can be traced to its
+cause. When the user asks for a variation that changes several things ("leverage 3 with a lower minimum
+score"), it keeps every one: all its settings go in its one `--variant`, `;` between them
+(`maxLeverage=3;scanner.inputs.minScore=3`). Never drop a setting they asked for: the simulation would not be
+what they said yes to.
 
 | Area | Examples | What it tests |
 |---|---|---|
@@ -40,7 +44,7 @@ Name it by what it changes and what it tests, never by its key: *"Pickier entrie
 fewer trades but stronger ones."* Those words go in each `--variant` of ops' `deploy.py plan`, which quotes the
 list and prints it with the rest: how often the strategy should trade (so how long until a comparison means
 anything), the virtual budget each runs with ($1,000 unless they name one), the credits an hour, and one
-question: simulate these first, or take it live as it is now? Relay what it prints as given. A variation set
+question: simulate these first, or take it live as it is now? Relay what it prints as given. A setting set
 to the design's own value is refused: it would test nothing.
 
 Example, for "crypto is entering a decade-long bull market" (BTC and ETH, long): the strategy as designed buys
