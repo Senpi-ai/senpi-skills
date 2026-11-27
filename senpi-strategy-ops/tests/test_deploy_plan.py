@@ -552,7 +552,8 @@ class ACatalogPlanStartsFromItsRecord(unittest.TestCase):
         code, _out, err = self._call_start(variants=[{"label": "own-budget", "budgetUsd": 999}])
         self.assertEqual(code, deploy.EXIT_CODES["refused"])
         self.assertIn("[E_NO_PLAN]", err)
-        self.assertIn("$999", err)
+        self.assertIn("`deploy.py plan hawk --budget 999`", err)
+        self.assertIn("`deploy.py start-plan hawk --budget 999 --user-said-yes`", err)
         self.assertEqual(self.calls, [])
 
     def test_one_variant_with_its_own_budget_starts_after_a_plan_at_that_budget(self):
