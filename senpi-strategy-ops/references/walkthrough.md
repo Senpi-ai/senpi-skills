@@ -191,6 +191,10 @@ A client hand-off can carry a line `Source strategy id: <id>`: the user's own st
 - **`--fork-of` needs `--name`.** A refusal that asks for a name means: ask the user what to call the copy, then
   re-run the same command with `--name "<their words>"`; never re-run it without `--fork-of`, and never drop
   `--forked-from` or `forkedFrom` to get past a refusal.
+- **A name an earlier copy holds.** With `--fork-of <id>`, a folder under that name that records another
+  parent is refused, and the refusal names that parent: ask the user for another name and re-run with
+  `--name "<their words>"`; never deploy that folder by directory, since it would count under the parent it
+  records. Only a folder that records `<id>` itself may be deployed by directory, if it is the copy they meant.
 - **One simulation** takes the hand-off's id too, though it skips the rest of the walkthrough. A local package:
   `deploy.py plan <dir> --budget <their budget> --forked-from <id>`, and on the yes
   `deploy.py create <dir> --simulation --user-said-yes --budget <their budget> --fork-of <id> --name "<their words>"`,

@@ -212,19 +212,26 @@ def _ignore(_dir, names):
 
 def _existing(pkg, dest, parent_ff, fork_of, info, log):
     """`dest` already exists: reuse it when `pkg` is not itself a fork, `dest` is a fork of `pkg` and, with
-    `fork_of`, `dest` records `fork_of` as its parent; otherwise refuse. Nothing is written."""
-    if parent_ff is not None:
+    `fork_of`, `dest` records `fork_of` as its parent; otherwise refuse. A copy of a fork is never reused:
+    with `fork_of`, the refusal offers deploying `dest` by directory only when `dest` records `fork_of` as
+    its parent and the same template as `pkg`. Nothing is written."""
+    if parent_ff is not None and fork_of is None:
         raise ForkError(f"{dest} exists — deploy it by directory if it is this copy, or pass --name <another name>")
     try:
         have = _pkg.load(dest)
     except _pkg.BadPackage as e:
         raise ForkError(f"{dest} exists but is not a package ({e}) — move it aside or pass --name <another name>")
     ff = (have.manifest or {}).get("forked_from") or {}
-    if ff.get("id") != pkg.id:
+    if parent_ff is None and ff.get("id") != pkg.id:
         raise ForkError(f"{dest} exists and is not a fork of {pkg.id} — pass --name <another name>")
     if fork_of is not None and str(ff.get("parent") or "").strip() != fork_of:
         raise ForkError(f"{dest} exists and was not copied from {fork_of} (its parent is "
                         f"{ff.get('parent') or 'not recorded'}) — pass --name <another name>")
+    if parent_ff is not None:
+        if ff.get("id") != parent_ff.get("id"):
+            raise ForkError(f"{dest} exists and is not a fork of {parent_ff.get('id')} — pass --name <another name>")
+        raise ForkError(f"{dest} exists and records {fork_of} as its parent — deploy it by directory if it is "
+                        f"this copy, or pass --name <another name>")
     info["reused"] = True
     info["display"] = (have.catalog or {}).get("name") or info["display"]
     log(f"  fork {info['id']} already exists ({info['display']}, from {ff.get('id')} {ff.get('version')}) — using it")
@@ -264,7 +271,8 @@ def fork(pkg, root, owner=None, name=None, fork_of=None, authored=False, log=lam
     The copy records `forked_from.parent`: `fork_of` (the strategy id it starts from) when given, else the
     source's own parent, else `template:<forked_from.id>` for a fork, `custom:<id>` for an `authored` package
     and `template:<id>` for a catalog one. `fork_of` needs `name`; a reused directory is left as it is, and
-    with `fork_of` it is reused only when its parent is `fork_of`."""
+    with `fork_of` it is reused only when its parent is `fork_of`. With `fork_of`, a directory already under
+    `name` that records another parent is refused without offering it for a deploy."""
     if fork_of is not None:
         fork_of = parent_id(fork_of)
         if not (name and str(name).strip()):
