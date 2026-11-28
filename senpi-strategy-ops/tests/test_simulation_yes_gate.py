@@ -183,7 +183,8 @@ class SkillTextCarriesTheYes(unittest.TestCase):
         self.assertIn('Never send `startBatch` with `"dryRun":false` yourself', self.SKILL)
 
     def test_a_local_package_is_quoted_with_plan(self):
-        self.assertIn("**A local package** (no catalog id): `deploy.py plan <dir>`, relayed, end the turn", self.SKILL)
+        self.assertIn("**A local package** (no catalog id): `deploy.py plan <dir>` (`--forked-from <id>` for a "
+                      "`Source strategy id`), relayed, end the turn", self.SKILL)
         self.assertIn("create <dir> --simulation --user-said-yes", self.SKILL)
 
     def test_the_method_is_never_called_directly(self):
