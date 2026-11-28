@@ -687,7 +687,8 @@ CALL_METHODS = {"senpi.packages.list": False, "senpi.packages.get": False,
 
 def _call_start_without_plan(method, params):
     """Why a real catalog batch start sent through `call` has no plan behind it, or None. Only what `plan`
-    cannot quote passes without one: variations of a running simulation (`parentId`) and budgets that differ."""
+    cannot quote passes without one: variations of a running simulation (`parentId`) and budgets that differ.
+    A start whose `forkedFrom` is not the one its plan was quoted with has no plan behind it either."""
     if method != "senpi.simulations.startBatch" or params.get("dryRun") is True or params.get("parentId"):
         return None
     strategy = params.get("strategy")
@@ -699,7 +700,8 @@ def _call_start_without_plan(method, params):
         return None
     if not isinstance(budget, (int, float)) or isinstance(budget, bool):
         return None
-    return _plan_on_record(strategy, float(budget))
+    return _plan_on_record(strategy, float(budget)) or _forked_from_mismatch(strategy, params.get("forkedFrom"),
+                                                                             "forkedFrom")
 
 
 def cmd_call(a):
@@ -720,9 +722,14 @@ def cmd_call(a):
     why = _call_start_without_plan(a.method, params)
     if why is not None:
         strategy = params.get("strategy")
+        sent = params.get("forkedFrom")
+        sent = (sent.strip() if isinstance(sent, str) and sent.strip() else
+                _quoted_forked_from(strategy, float(params.get("budgetUsd", PLAN_BUDGET_USD))))
+        forked = f" --forked-from {sent}" if sent else ""
         print(f"[E_NO_PLAN] Nothing was started: {why}. A catalog batch starts only as `plan` quoted it, after "
               f"the user's yes in a later message.\n"
-              f"  Next: `deploy.py plan {strategy}` (with the --variant lines), relay it as given, end your turn; "
+              f"  Next: `deploy.py plan {strategy}{forked}` (with the --variant lines), relay it as given, end your "
+              f"turn; "
               f"on their yes, `deploy.py start-plan {strategy} --user-said-yes`.", file=sys.stderr)
         return EXIT_CODES["refused"]
     r = _gw(a.method, params, START_RPC_MS if starts else _cli.READ_RPC_MS,
@@ -2411,6 +2418,17 @@ def _ownership_flags(p):
                    help="A name of the user's own instead (\"Shield Wall\" → id shield-wall). Wins over --owner.")
 
 
+def _fork_of_flag(p):
+    p.add_argument("--fork-of", dest="fork_of", default=None, metavar="STRATEGY_ID",
+                   help="The strategy this copy starts from (the hand-off's `Source strategy id`), recorded as the "
+                        "copy's forked_from.parent. Needs --name.")
+
+
+def _explicit_dir(package):
+    """True when the package argument is a directory holding strategy.yaml: the author's own package."""
+    return (Path(package) / "strategy.yaml").is_file()
+
+
 def _username():
     """The user's Senpi username (`user_get_me` → data.user.userName), or None when it cannot be read — no
     token, a failed call, or no username on the account. The caller then asks the user; it never falls back
@@ -2457,7 +2475,7 @@ def _fork_for_deploy(pkg, a, log):
     refused and the agent asks what to call it; an explicit directory is the author's own package and is never
     second-guessed."""
     owner, name = getattr(a, "owner", None), getattr(a, "name", None)
-    explicit_dir = (Path(a.package) / "strategy.yaml").is_file()
+    explicit_dir = _explicit_dir(a.package)
     manifest = getattr(pkg, "manifest", None) or {}
     catalog = getattr(pkg, "catalog", None) or {}
     # a catalog template carries a `catalog.tier`; a fork carries `forked_from`; an authored package may
@@ -2474,7 +2492,8 @@ def _fork_for_deploy(pkg, a, log):
                   f"  A user ID is never a name. Nothing was created, funded or installed.", file=sys.stderr)
             sys.exit(EXIT_CODES["refused"])
     try:
-        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=name, log=log,
+        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=name,
+                                fork_of=getattr(a, "fork_of", None), authored=explicit_dir, log=log,
                                 simulation=getattr(a, "simulation", False))
     except _fork.ForkError as e:
         print(f"✗ {pkg.id}: {e}. Nothing was created, funded or installed.", file=sys.stderr)
@@ -2513,7 +2532,8 @@ def _fork_for_deploy(pkg, a, log):
 def cmd_fork(pkg, a, log):
     owner = a.owner or (None if a.name else _username())
     try:
-        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=a.name, log=log)
+        dest, info = _fork.fork(pkg, _pkg.strategies_root(), owner=owner, name=a.name, fork_of=a.fork_of,
+                                authored=_explicit_dir(a.package), log=log)
     except _fork.ForkError as e:
         print(f"✗ {pkg.id}: {e}. Nothing was written.", file=sys.stderr)
         return EXIT_CODES["refused"]
@@ -2667,9 +2687,10 @@ def _plan_is_local(ref):
     return "/" in ref or Path(ref).is_dir()
 
 
-def _plan_quote(ref, variants, budget, local):
+def _plan_quote(ref, variants, budget, local, forked_from=None):
     """One quote at `budget` for the design and every variation. Returns (per_hour_each, total_after,
-    refusals, error): per_hour_each is a list (one per simulation, design first) or None."""
+    refusals, error): per_hour_each is a list (one per simulation, design first) or None. A catalog
+    batch quoted with `forked_from` sends it as the batch's `forkedFrom`."""
     if local:
         kind, caps = _deploy_capabilities(False)
         if not (isinstance(caps, dict) and caps.get("simulationYesGate") is True):
@@ -2688,7 +2709,7 @@ def _plan_quote(ref, variants, budget, local):
         after = after - each + each * n if isinstance(after, (int, float)) else None
         return [each] * n, after, [], None
     params = {"requestId": f"quote-{ref}-{int(time.time())}", "strategy": ref, "budgetUsd": budget, "dryRun": True,
-              "variants": _plan_variants(variants)}
+              "variants": _plan_variants(variants), **({"forkedFrom": forked_from} if forked_from else {})}
     r = _gw("senpi.simulations.startBatch", params, START_RPC_MS, START_WALL_S)
     payload = r["payload"] if isinstance(r["payload"], dict) else {}
     rows = payload.get("rows") if r["kind"] == "ok" and payload.get("dryRun") is True else None
@@ -2778,7 +2799,7 @@ def render_plan(name, design, trades, variants, quotes):
     return "\n".join(lines)
 
 
-def _plan_after_yes(ref, variants, local):
+def _plan_after_yes(ref, variants, local, forked_from=None):
     yes = ("Show it and end your turn. Only an explicit yes in their NEXT message starts them: \"yes\", "
            "\"simulate\", \"go\", a budget they tapped or typed; the request that asked for this plan is not "
            "the yes. "
@@ -2786,10 +2807,15 @@ def _plan_after_yes(ref, variants, local):
            "the question again. On \"live\", the live walkthrough takes over; never start a simulation. "
            "A simulation needs no deposit and no funds: never tell them to deposit first.")
     if local:
+        fork_of = f" --fork-of {forked_from}" if forked_from else ""
         how = ("After the yes: start the design with `deploy.py create <dir> --simulation --user-said-yes "
-               "--budget <their budget>`, then each variation as its own fork (`deploy.py fork <dir> --name "
-               "<label>`, set its one setting, `create <fork dir> --simulation --user-said-yes --variant-of "
+               "--budget <their budget>" + (fork_of + ' --name "<their words>"' if forked_from else "") + "`, "
+               "then each variation as its own fork (`deploy.py fork <dir> --name <label>" + fork_of + "`, "
+               "set its one setting, `create <fork dir> --simulation --user-said-yes --budget <its budget> --variant-of "
                "<the design's simulation id> --batch <one id>`).")
+        if forked_from:
+            how += (f" --fork-of needs --name: when they named none, ask what to call it; never run them "
+                    f"without --fork-of {forked_from}.")
     else:
         how = (f"After the yes: `deploy.py start-plan {ref} --user-said-yes` (with `--budget <the one they "
                f"picked>` when it offered choices). It starts exactly what this plan quoted.")
@@ -2822,7 +2848,9 @@ def cmd_plan(a):
         budgets = [a.budget] if a.budget is not None else parse_budget_choices(a.budget_choices)
         if a.budget is not None and a.budget_choices is not None:
             raise PlanInputError("pass --budget (the user named one) or --budget-choices, not both")
-    except PlanInputError as e:
+        if a.forked_from is not None:
+            a.forked_from = _fork.parent_id(a.forked_from, "--forked-from")
+    except (PlanInputError, _fork.ForkError) as e:
         print(f"[INVALID_REQUEST] {e}. Nothing was quoted or started.", file=sys.stderr)
         return EXIT_CODES["refused"]
     begin_command_budget(START_WALL_S * (len(budgets) + 1))
@@ -2837,7 +2865,7 @@ def _plan_quote_and_print(a, variants, budgets):
     name = a.name or Path(a.package.rstrip("/")).name
     quotes = {}
     for b in budgets:
-        each, after, refusals, error = _plan_quote(a.package, variants, b, local)
+        each, after, refusals, error = _plan_quote(a.package, variants, b, local, a.forked_from)
         if refusals:
             print(f"The quote at {_plan_money(b)} would refuse: " + "; ".join(refusals)
                   + ". Fix those variations (or the budget) and run plan again. Nothing was started.", file=sys.stderr)
@@ -2846,12 +2874,12 @@ def _plan_quote_and_print(a, variants, budgets):
             print(f"The cost could not be quoted ({error}). Nothing was started. Do not show a plan without "
                   f"its cost and never estimate one: tell the user each simulation is billed by the hour "
                   f"until it is stopped, with no number, and ask.", file=sys.stderr)
-            _write_plan_record(a.package, budgets, variants)
+            _write_plan_record(a.package, budgets, variants, a.forked_from)
             return EXIT_INTERNAL
         quotes[b] = (each, after)
     print(render_plan(name, a.design, a.trades, variants, quotes))
-    print("\n" + _plan_after_yes(a.package, variants, local), file=sys.stderr)
-    _write_plan_record(a.package, list(quotes), variants)
+    print("\n" + _plan_after_yes(a.package, variants, local, a.forked_from), file=sys.stderr)
+    _write_plan_record(a.package, list(quotes), variants, a.forked_from)
     return 0
 
 
@@ -2870,16 +2898,18 @@ def _plan_record_path(ref):
     return _pkg.strategies_root() / PLAN_RECORD_DIR / f"{_plan_key(ref)}.json"
 
 
-def _write_plan_record(ref, budgets, variants):
+def _write_plan_record(ref, budgets, variants, forked_from=None):
     """What `plan` quoted, so `create --simulation --user-said-yes` can tell a start the user saw quoted
-    from one the agent made up. Best-effort: a record that cannot be written makes the start refuse."""
+    from one the agent made up, and `start-plan` starts that batch with the `forkedFrom` it was quoted
+    with. Best-effort: a record that cannot be written makes the start refuse."""
     path = _plan_record_path(ref)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps({"at": time.time(), "package": str(ref), "budgets": budgets,
                                     "local": _plan_is_local(ref),
                                     "variants": [{"label": v["label"], "settings": {v["key"]: v["value"]}}
-                                                 for v in variants]}))
+                                                 for v in variants],
+                                    **({"forked_from": forked_from} if forked_from else {})}))
     except OSError as e:
         print(f"note: the plan could not be recorded ({e}); a start of this package will ask for plan again.",
               file=sys.stderr)
@@ -2904,11 +2934,67 @@ def _plan_on_record(ref, budget):
     return None
 
 
+def _fresh_plan(ref):
+    """The plan on record for `ref` while it is fresh (PLAN_RECORD_TTL_S), else {}. Unlike a start, a copy or
+    a start of several wallets is not tied to a quoted budget or to the turn the plan came in."""
+    try:
+        rec = json.loads(_plan_record_path(ref).read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(rec, dict) or not isinstance(rec.get("at"), (int, float)):
+        return {}
+    return rec if time.time() - rec["at"] <= PLAN_RECORD_TTL_S else {}
+
+
+def _fork_of_exit(code, done, why, quoted):
+    """The refusal for a command whose --fork-of is not the --forked-from of the plan the user saw: the fix
+    is the same command with that --fork-of, never a new plan."""
+    print(f"[{code}] Nothing was {done}: {why}.\n"
+          f"  Next: the user saw that plan; re-run this command with --fork-of {quoted} --name \"<their words>\" "
+          f"(ask what to call it when they named nothing). Never run it without --fork-of.", file=sys.stderr)
+    sys.exit(EXIT_CODES["refused"])
+
+
+def _copy_needs_its_plans_fork_of(a):
+    """`fork <pkg> --name <label>` where <label> names a variation of the fresh plan for <pkg> and that plan
+    carries --forked-from: the copy is that variation, so it records the same strategy as its parent. A copy
+    under any other name is not part of the plan and is not checked."""
+    rec = _fresh_plan(a.package)
+    quoted = rec.get("forked_from")
+    labels = {_fork.slug(v.get("label")) for v in rec.get("variants") or [] if isinstance(v, dict)} - {""}
+    name = _fork.slug(a.name) if a.name else ""
+    sent = a.fork_of.strip() if isinstance(a.fork_of, str) and a.fork_of.strip() else None
+    if quoted and name in labels and sent != quoted:
+        _fork_of_exit("INVALID_REQUEST", "written",
+                      f"{a.name.strip()} is a variation of the plan for {_plan_key(a.package)}, which was quoted "
+                      f"with --forked-from {quoted}, so its copy needs --fork-of {quoted}", quoted)
+
+
+def _quoted_forked_from(ref, budget):
+    """The --forked-from of the plan on record for `ref` at `budget`, or None when there is no such plan or
+    it was quoted without one."""
+    if _plan_on_record(ref, budget) is not None:
+        return None
+    return json.loads(_plan_record_path(ref).read_text()).get("forked_from")
+
+
+def _forked_from_mismatch(ref, sent, flag):
+    """None when a start that sends `sent` as `flag` carries the --forked-from its plan on record was quoted
+    with (both absent counts), else why not."""
+    quoted = json.loads(_plan_record_path(ref).read_text()).get("forked_from")
+    sent = sent.strip() if isinstance(sent, str) else sent
+    if (sent or None) == quoted:
+        return None
+    return (f"its plan was quoted with --forked-from {quoted}, so its start needs {flag} {quoted}" if quoted else
+            f"its plan was quoted without --forked-from, so its start takes no {flag}")
+
+
 def _no_plan_exit(ref, budget_flag, why):
     print(f"[E_NO_PLAN] Nothing was started: {why}. A simulation starts only after the user saw it quoted "
           f"by plan and said yes.\n"
           f"  Next: run `deploy.py plan {ref}{budget_flag}` (with --design, --trades and the --variant "
-          f"lines for a test plan) if it was not shown, relay what it prints as given, and end your turn. "
+          f"lines for a test plan, and --forked-from <id> for a hand-off's `Source strategy id`) if it was "
+          f"not shown, relay what it prints as given, and end your turn. "
           f"After an explicit yes in their next message, re-run this command.", file=sys.stderr)
     sys.exit(EXIT_CODES["refused"])
 
@@ -2927,13 +3013,17 @@ def cmd_start_plan(a):
         _no_plan_exit(a.package, budget_flag, why)
     rec = json.loads(_plan_record_path(a.package).read_text())
     if rec.get("local"):
+        fork_of = f" --fork-of {rec['forked_from']} --name \"<their words>\"" if rec.get("forked_from") else ""
         print(f"[INVALID_REQUEST] {a.package} is the user's own package: start it with `deploy.py create "
-              f"{a.package} --simulation --user-said-yes`. Nothing was started.", file=sys.stderr)
+              f"{a.package} --simulation --user-said-yes --budget {budget:g}{fork_of}`"
+              + (", then each variation as the plan printed it" if rec.get("variants") else "")
+              + ". Nothing was started.", file=sys.stderr)
         return EXIT_CODES["refused"]
     request_id = f"plan-{_plan_key(a.package)}-{int(time.time())}"
     params = {"requestId": request_id, "strategy": _plan_key(a.package), "budgetUsd": budget, "dryRun": False,
               "userSaidYes": True,
-              "variants": _plan_variants(rec.get("variants") or [])}
+              "variants": _plan_variants(rec.get("variants") or []),
+              **({"forkedFrom": rec["forked_from"]} if rec.get("forked_from") else {})}
     begin_command_budget(START_WALL_S + BATCH_WAIT_BUDGET)
     try:
         r = _gw("senpi.simulations.startBatch", params, START_RPC_MS, START_WALL_S)
@@ -2952,12 +3042,31 @@ def _start_needs_its_plan(pkg, a):
     plan and started three charged simulations on "sounds good"; the yes flag alone is the agent's word."""
     if not (a.cmd == "create" and getattr(a, "simulation", False) and getattr(a, "user_said_yes", False)):
         return
-    if getattr(a, "dry_run", False) or getattr(a, "variant_of", None) or len(getattr(pkg, "instances", []) or []) > 1:
+    if getattr(a, "dry_run", False) or getattr(a, "variant_of", None):
+        return
+    fork_of = getattr(a, "fork_of", None)
+    fork_of = fork_of.strip() if isinstance(fork_of, str) and fork_of.strip() else None
+    if len(getattr(pkg, "instances", []) or []) > 1:
+        # A package of several wallets takes no quote and starts on its own yes, but a fresh plan with
+        # --forked-from still names the parent its start must carry.
+        quoted = _fresh_plan(a.package).get("forked_from")
+        if quoted and fork_of != quoted:
+            _fork_of_exit("E_NO_PLAN", "started", _forked_from_mismatch(a.package, fork_of, "--fork-of"), quoted)
         return
     budget = a.budget if a.budget is not None else PLAN_BUDGET_USD
     why = _plan_on_record(a.package, budget)
+    rec = {} if why is not None else json.loads(_plan_record_path(a.package).read_text())
+    quoted = rec.get("forked_from")
+    # A catalog template is forked here, and the fork's parent is the --fork-of its plan was quoted with. A
+    # local package's design starts from its own directory, whose manifest carries its parent, unless its
+    # plan was quoted with --forked-from: then it starts as a copy made with that --fork-of.
+    if why is None and (quoted or not rec.get("local")):
+        why = _forked_from_mismatch(a.package, fork_of, "--fork-of")
+        if why is not None and quoted:
+            _fork_of_exit("E_NO_PLAN", "started", why, quoted)
     if why is not None:
-        _no_plan_exit(a.package, "" if a.budget is None else f" --budget {a.budget:g}", why)
+        _no_plan_exit(a.package, ("" if a.budget is None else f" --budget {a.budget:g}")
+                      + (f" --forked-from {fork_of}" if fork_of else ""), why)
 
 
 def _design_value(ref, key):
@@ -3061,6 +3170,7 @@ def _main(argv):
                     help="With --variant-of: one id shared by every variation started together "
                          "(1-100 chars of A-Z a-z 0-9 _ -).")
     _ownership_flags(pc)
+    _fork_of_flag(pc)
 
     pr = sub.add_parser("runtime", help="Resume/complete the same deploy (installs the runtime(s)).")
     common(pr)
@@ -3084,6 +3194,7 @@ def _main(argv):
                                      "forked_from recorded. No money moves, nothing is installed.")
     common(pf)
     _ownership_flags(pf)
+    _fork_of_flag(pf)
 
     # `verify` is the READ-ONLY check. NONE of the deploy flags does anything here — a check that
     # honours `--budget` is a check that can fund a wallet, which is exactly the trap this command is
@@ -3162,6 +3273,9 @@ def _main(argv):
     pp.add_argument("--budget-choices", default=None,
                     help="Two to four budgets to offer as choices (e.g. 100,500,1000), each quoted.")
     pp.add_argument("--name", default=None, help="The strategy's name as the user knows it.")
+    pp.add_argument("--forked-from", dest="forked_from", default=None, metavar="STRATEGY_ID",
+                    help="The hand-off's `Source strategy id`: the batch's forkedFrom, so every variation records "
+                         "that strategy as its parent. start-plan sends what the plan recorded.")
 
     pcall = sub.add_parser("call", help="Call one runtime method through the gateway (works in plugin and daemon mode): "
                                          + ", ".join(CALL_METHODS) + ". Prints the answer as JSON.")
@@ -3182,6 +3296,11 @@ def _main(argv):
                if batch is not None and not _BATCH_ID_SHAPE.match(batch) else None)
     if problem:
         print(f"[INVALID_REQUEST] {problem}. Nothing was started.", file=sys.stderr)
+        sys.exit(EXIT_CODES["refused"])
+
+    if getattr(a, "fork_of", None) is not None and not (a.name and a.name.strip()):
+        print("[INVALID_REQUEST] --fork-of needs --name: a copy started from a running strategy gets a name of "
+              "its own. Ask what to call it and pass --name \"<their words>\". Nothing was written.", file=sys.stderr)
         sys.exit(EXIT_CODES["refused"])
 
     src = getattr(a, "from_simulation", None)
@@ -3333,6 +3452,7 @@ def _main(argv):
     pkg = ensure_pkg(a.package, a.ref, log)
 
     if a.cmd == "fork":
+        _copy_needs_its_plans_fork_of(a)
         sys.exit(cmd_fork(pkg, a, log))
     if a.cmd in ("create", "runtime"):
         _start_needs_its_plan(pkg, a)

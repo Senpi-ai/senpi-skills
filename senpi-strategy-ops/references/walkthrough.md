@@ -166,7 +166,7 @@ username (`--owner` only overrides it) and copies the fetched template to `<stra
 prints — never a CWD-relative `strategies/`), leaving out `.deploy-state.json`, any proof and any
 `__pycache__`; rewrites `id`, `catalog.name` (the spoken name), each runtime's `name`/`group` linkage and
 the first line of its `description` (`Ignas's Phalanx — forked from Phalanx 1.1.0.` — the mandate
-`senpi-portfolio` reads back); records `forked_from: {id, version}`; validates the copy; proves it
+`senpi-portfolio` reads back); records `forked_from: {id, version, parent}` (`parent`: `template:<id>`, or the `--fork-of` id); validates the copy; proves it
 (`openclaw senpi validate --stage live`); then deploys **the fork**. `--name "<their words>"` names it their
 way. A second `create` reuses the same fork. A user ID passed as a name is refused, and so is a bare template
 id when no username can be read — nothing is created; ask what to call it and pass `--name`. From then on the id is the fork's (`ignas-phalanx`) for `status`, `verify`,
@@ -180,3 +180,44 @@ fee load above 0.5% of the budget a day, and refuses a maker-only entry — rela
 `openclaw senpi validate <dir>`), and `deploy.py create <dir> --budget <usd>` — the **directory**.
 
 A fork is a copy: a later fix to the template does not reach it — say so if asked.
+
+## A `Source strategy id` hand-off — the user's own strategy a copy starts from
+
+A client hand-off can carry a line `Source strategy id: <id>`: the user's own strategy the new one starts from.
+- **A copy (fork or create):** `Source strategy id: <id>` adds `--fork-of <id>` to `deploy.py fork`/`create`,
+  always with `--name "<their words>"`; the copy records `<id>` as its `forked_from.parent`. Never
+  `senpi deploy --fork-of`: that verb forks a public simulation, and a `Source strategy id` hand-off is never
+  that, since it names the user's own strategy.
+- **`--fork-of` needs `--name`.** A refusal that asks for a name means: ask the user what to call the copy, then
+  re-run the same command with `--name "<their words>"`; never re-run it without `--fork-of`, and never drop
+  `--forked-from` or `forkedFrom` to get past a refusal.
+- **A name an earlier copy holds.** With `--fork-of <id>`, a folder under that name that records another
+  parent is refused, and the refusal names that parent: ask the user for another name and re-run with
+  `--name "<their words>"`; never deploy that folder by directory, since it would count under the parent it
+  records. Only a folder that records `<id>` itself may be deployed by directory, if it is the copy they meant.
+- **One simulation** takes the hand-off's id too, though it skips the rest of the walkthrough. A local package:
+  `deploy.py plan <dir> --budget <their budget> --forked-from <id>`, and on the yes
+  `deploy.py create <dir> --simulation --user-said-yes --budget <their budget> --fork-of <id> --name "<their words>"`,
+  the command the plan prints. A catalog id: `deploy.py plan <catalog id> --budget <their budget> --forked-from <id>`,
+  then `start-plan <catalog id> --user-said-yes --budget <their budget>`.
+- **Taking a simulation live:** the hand-off's `Source strategy id` is that `simulation-<id>`; it goes to
+  `--from-simulation`, as SKILL.md's take-live rule says.
+- **A variation that changes code:** `deploy.py fork <that package> --name "<variation name>" --fork-of <source id>`
+  (`<source id>`: the hand-off's `Source strategy id`, else the simulation it varies, else no flag).
+- **A variations batch** never sends `forkOf`. A batch `plan` can quote goes through
+  `deploy.py plan <catalog id> --forked-from <Source strategy id>`, and `start-plan` sends that id as the
+  batch's `forkedFrom`. A raw `startBatch` call (budgets that differ on a catalog id, or a `parentId` batch)
+  adds `"forkedFrom":"<Source strategy id>"` itself: always by catalog id (`"strategy":"<catalog id>"`), and
+  by `parentId` unless the `Source strategy id` is the simulation the batch varies.
+- **Settings-only variations of a local package** (the user's own strategy, deployed from its directory):
+  `start-plan` and `startBatch` take no directory, so each variation is its own copy, never a raw `startBatch` by
+  catalog id (that varies the template, not their package). Quote them with
+  `deploy.py plan <dir> --budget <their budget> --design "…" --trades "…" --variant "…" --forked-from <Source strategy id>`.
+  On the yes, run the commands it prints: the design as
+  `deploy.py create <dir> --simulation --user-said-yes --budget <their budget> --fork-of <Source strategy id> --name "<their words>"`,
+  then each variation as `deploy.py fork <dir> --name <label> --fork-of <Source strategy id>`, its one setting
+  set in the copy, and `create <fork dir> --simulation --user-said-yes --budget <its budget> --variant-of <the design's simulation id> --batch <one id>`.
+  Budgets that differ: each `create` takes its own `--budget`, same route.
+  For 6 hours after the plan, these are refused without that `--fork-of`: `fork <dir> --name <label>` for one of
+  its variation labels, and `create <dir> --simulation` (several wallets too). A fork under another name and
+  `create <fork dir> --variant-of` are not checked.
