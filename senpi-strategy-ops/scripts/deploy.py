@@ -830,7 +830,8 @@ def cmd_call(a):
             budget = _call_start_budget(params)
             flag = "" if budget == PLAN_BUDGET_USD else f" --budget {budget:g}"
             sent = params.get("forkedFrom")
-            forked = f" --forked-from {sent.strip()}" if isinstance(sent, str) and sent.strip() else ""
+            sent = sent.strip() if isinstance(sent, str) and sent.strip() else _quoted_forked_from(strategy, budget)
+            forked = f" --forked-from {sent}" if sent else ""
             nxt = (f"`deploy.py plan {strategy}{flag}{forked}` (with the --variant lines), relay it as given, end "
                    f"your turn; on their yes, `deploy.py start-plan {strategy}{flag} --user-said-yes`")
         print(f"[E_NO_PLAN] Nothing was started: {why}. A batch starts only as the user saw it quoted, after "
@@ -2974,26 +2975,27 @@ def _plan_after_yes(ref, variants, local, books=(), running=None, forked_from=No
            "\"Your call\", \"sounds good\", \"you pick\" and silence are not a yes: recommend simulating and ask "
            "the question again. On \"live\", the live walkthrough takes over; never start a simulation. "
            "A simulation needs no deposit and no funds: never tell them to deposit first.")
+    fork_of = f" --fork-of {forked_from}" if forked_from else ""
     if local and running:
         how = (f"After the yes: the design already runs (simulation {running}); start nothing for it. Start each "
-               f"variation as its own fork (`deploy.py fork <dir> --name <label>"
-               + (f" --fork-of {forked_from}" if forked_from else "") + f"`, set its settings, `create "
-               f"<fork dir> --simulation --user-said-yes --variant-of {running} --batch <one id>`).")
-        if books:
-            how += (f" Each line starts {len(books)} simulations, one per book, so in the reply count simulations, "
-                    f"not variations: \"3 variations, {len(books)} books each: {3 * len(books)} simulations\".")
+               f"variation as its own fork (`deploy.py fork <dir> --name <label>" + fork_of + f"`, set its "
+               f"settings, `create <fork dir> --simulation --user-said-yes --budget <its budget> --variant-of "
+               f"{running} --batch <one id>`).")
     elif local:
         how = ("After the yes: start the design with `deploy.py create <dir> --simulation --user-said-yes "
-               "--budget <their budget>`, then each variation as its own fork (`deploy.py fork <dir> --name "
-               "<label>" + (f" --fork-of {forked_from}" if forked_from else "") + "`, set its settings, "
-               "`create <fork dir> --simulation --user-said-yes --variant-of <the design's simulation id> "
-               "--batch <one id>`).")
-        if books:
-            how += (f" Each line starts {len(books)} simulations, one per book, so in the reply count simulations, "
-                    f"not variations: \"3 variations, {len(books)} books each: {3 * len(books)} simulations\".")
+               "--budget <their budget>" + (fork_of + ' --name "<their words>"' if forked_from else "") + "`, "
+               "then each variation as its own fork (`deploy.py fork <dir> --name <label>" + fork_of + "`, "
+               "set its settings, `create <fork dir> --simulation --user-said-yes --budget <its budget> --variant-of "
+               "<the design's simulation id> --batch <one id>`).")
     else:
-        how = (f"After the yes: `deploy.py start-plan {ref} --user-said-yes` (with `--budget <the one they "
-               f"picked>` when it offered choices). It starts exactly what this plan quoted.")
+        return yes + "\n" + (f"After the yes: `deploy.py start-plan {ref} --user-said-yes` (with `--budget <the "
+                             f"one they picked>` when it offered choices). It starts exactly what this plan quoted.")
+    if books:
+        how += (f" Each line starts {len(books)} simulations, one per book, so in the reply count simulations, "
+                f"not variations: \"3 variations, {len(books)} books each: {3 * len(books)} simulations\".")
+    if forked_from:
+        how += (f" --fork-of needs --name: when they named none, ask what to call it; never run them "
+                f"without --fork-of {forked_from}.")
     return yes + "\n" + how
 
 
@@ -3148,6 +3150,50 @@ def _plan_on_record(ref, budget):
     return None
 
 
+def _fresh_plan(ref):
+    """The plan on record for `ref` while it is fresh (PLAN_RECORD_TTL_S), else {}. Unlike a start, a copy or
+    a start of several wallets is not tied to a quoted budget or to the turn the plan came in."""
+    try:
+        rec = json.loads(_plan_record_path(ref).read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(rec, dict) or not isinstance(rec.get("at"), (int, float)):
+        return {}
+    return rec if time.time() - rec["at"] <= PLAN_RECORD_TTL_S else {}
+
+
+def _fork_of_exit(code, done, why, quoted):
+    """The refusal for a command whose --fork-of is not the --forked-from of the plan the user saw: the fix
+    is the same command with that --fork-of, never a new plan."""
+    print(f"[{code}] Nothing was {done}: {why}.\n"
+          f"  Next: the user saw that plan; re-run this command with --fork-of {quoted} --name \"<their words>\" "
+          f"(ask what to call it when they named nothing). Never run it without --fork-of.", file=sys.stderr)
+    sys.exit(EXIT_CODES["refused"])
+
+
+def _copy_needs_its_plans_fork_of(a):
+    """`fork <pkg> --name <label>` where <label> names a variation of the fresh plan for <pkg> and that plan
+    carries --forked-from: the copy is that variation, so it records the same strategy as its parent. A copy
+    under any other name is not part of the plan and is not checked."""
+    rec = _fresh_plan(a.package)
+    quoted = rec.get("forked_from")
+    labels = {_fork.slug(v.get("label")) for v in rec.get("variants") or [] if isinstance(v, dict)} - {""}
+    name = _fork.slug(a.name) if a.name else ""
+    sent = a.fork_of.strip() if isinstance(a.fork_of, str) and a.fork_of.strip() else None
+    if quoted and name in labels and sent != quoted:
+        _fork_of_exit("INVALID_REQUEST", "written",
+                      f"{a.name.strip()} is a variation of the plan for {_plan_key(a.package)}, which was quoted "
+                      f"with --forked-from {quoted}, so its copy needs --fork-of {quoted}", quoted)
+
+
+def _quoted_forked_from(ref, budget):
+    """The --forked-from of the plan on record for `ref` at `budget`, or None when there is no such plan or
+    it was quoted without one."""
+    if _plan_on_record(ref, budget) is not None:
+        return None
+    return json.loads(_plan_record_path(ref).read_text()).get("forked_from")
+
+
 def _forked_from_mismatch(ref, sent, flag):
     """None when a start that sends `sent` as `flag` carries the --forked-from its plan on record was quoted
     with (both absent counts), else why not."""
@@ -3183,8 +3229,11 @@ def cmd_start_plan(a):
         _no_plan_exit(a.package, budget_flag, why)
     rec = json.loads(_plan_record_path(a.package).read_text())
     if rec.get("local"):
+        fork_of = f" --fork-of {rec['forked_from']} --name \"<their words>\"" if rec.get("forked_from") else ""
         print(f"[INVALID_REQUEST] {a.package} is the user's own package: start it with `deploy.py create "
-              f"{a.package} --simulation --user-said-yes`. Nothing was started.", file=sys.stderr)
+              f"{a.package} --simulation --user-said-yes --budget {budget:g}{fork_of}`"
+              + (", then each variation as the plan printed it" if rec.get("variants") else "")
+              + ". Nothing was started.", file=sys.stderr)
         return EXIT_CODES["refused"]
     request_id = f"plan-{_plan_key(a.package)}-{int(time.time())}"
     params = {"requestId": request_id, "strategy": _plan_key(a.package), "budgetUsd": budget, "dryRun": False,
@@ -3216,16 +3265,22 @@ def _start_needs_its_plan(pkg, a):
         return
     if getattr(a, "dry_run", False) or getattr(a, "variant_of", None):
         return
-    budget = a.budget if a.budget is not None else PLAN_BUDGET_USD
     fork_of = getattr(a, "fork_of", None)
+    fork_of = fork_of.strip() if isinstance(fork_of, str) and fork_of.strip() else None
+    budget = a.budget if a.budget is not None else PLAN_BUDGET_USD
     why = _plan_on_record(a.package, budget)
-    # A local package's design starts from its own directory, whose manifest carries its parent; a catalog
-    # template is forked here, and the fork's parent is the --fork-of its plan was quoted with.
-    if why is None and not json.loads(_plan_record_path(a.package).read_text()).get("local"):
+    rec = {} if why is not None else json.loads(_plan_record_path(a.package).read_text())
+    quoted = rec.get("forked_from")
+    # A catalog template is forked here, and the fork's parent is the --fork-of its plan was quoted with. A
+    # local package's design starts from its own directory, whose manifest carries its parent, unless its
+    # plan was quoted with --forked-from: then it starts as a copy made with that --fork-of.
+    if why is None and (quoted or not rec.get("local")):
         why = _forked_from_mismatch(a.package, fork_of, "--fork-of")
+        if why is not None and quoted:
+            _fork_of_exit("E_NO_PLAN", "started", why, quoted)
     if why is not None:
         _no_plan_exit(a.package, ("" if a.budget is None else f" --budget {a.budget:g}")
-                      + (f" --forked-from {fork_of.strip()}" if fork_of and fork_of.strip() else ""), why)
+                      + (f" --forked-from {fork_of}" if fork_of else ""), why)
 
 
 def _design_value(ref, key):
@@ -3614,6 +3669,7 @@ def _main(argv):
     pkg = ensure_pkg(a.package, a.ref, log)
 
     if a.cmd == "fork":
+        _copy_needs_its_plans_fork_of(a)
         sys.exit(cmd_fork(pkg, a, log))
     if a.cmd in ("create", "runtime"):
         _start_needs_its_plan(pkg, a)

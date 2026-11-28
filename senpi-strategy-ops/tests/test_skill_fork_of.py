@@ -34,9 +34,9 @@ class ForkOfNamesTheSourceStrategy(unittest.TestCase):
         self.assertIn("`start-plan` sends that id as the batch's `forkedFrom`", HAND_OFF)
 
     def test_a_raw_start_batch_call_adds_forked_from_unless_it_varies_the_source(self):
-        self.assertIn("A batch that goes through the raw `startBatch` call (a `parentId` batch, or budgets that "
-                      "differ) adds `\"forkedFrom\":\"<Source strategy id>\"` itself", HAND_OFF)
-        self.assertIn("unless the `Source strategy id` is the simulation the batch varies by `parentId`", HAND_OFF)
+        self.assertIn("A raw `startBatch` call (budgets that differ on a catalog id, or a `parentId` batch) adds "
+                      "`\"forkedFrom\":\"<Source strategy id>\"` itself", HAND_OFF)
+        self.assertIn("by `parentId` unless the `Source strategy id` is the simulation the batch varies", HAND_OFF)
 
     def test_the_hand_off_copy_is_deploy_py_and_not_the_public_simulation_fork(self):
         self.assertTrue(re.search(r"Source strategy id: <id>.*--fork-of <id>.*deploy\.py fork.*"
@@ -48,6 +48,49 @@ class ForkOfNamesTheSourceStrategy(unittest.TestCase):
 
     def test_take_live_reads_the_same_hand_off_line(self):
         self.assertIn("`Source strategy id` is that `simulation-<id>`", HAND_OFF)
+
+    def test_skill_md_never_drops_the_hand_off_id_and_a_name_refusal_means_ask(self):
+        self.assertIn("Never drop its `--fork-of`", FORK)
+        self.assertIn("a refusal asking for a name means ask the user for one", FORK)
+        self.assertNotIn("One simulation too", FORK)
+
+    def test_one_simulation_skips_the_walkthrough_but_not_the_hand_off(self):
+        one = SKILL[SKILL.find("**One simulation skips it**"):SKILL.find("Quote it with `deploy.py plan <id>`")]
+        self.assertIn("unless a `Source strategy id` hand-off came: its walkthrough.md section applies, name "
+                      "included", one)
+
+    def test_a_local_package_plan_takes_the_hand_off_id(self):
+        local = SKILL[SKILL.find("**A local package** (no catalog id)"):]
+        local = local[:local.find("never call `senpi.deploy.startSimulation` yourself")]
+        self.assertIn("`--forked-from <id>` for a `Source strategy id`", local)
+
+    def test_the_hand_off_rules_cover_one_simulation_and_the_name_refusal(self):
+        self.assertIn("**One simulation** takes the hand-off's id too", HAND_OFF)
+        self.assertIn("`deploy.py create <dir> --simulation --user-said-yes --budget <their budget> --fork-of <id> "
+                      "--name \"<their words>\"`", HAND_OFF)
+        self.assertIn("never re-run it without `--fork-of`", HAND_OFF)
+
+    def test_settings_only_variations_of_a_local_package_carry_the_hand_off_id(self):
+        local = HAND_OFF[HAND_OFF.find("**Settings-only variations of a local package**"):]
+        self.assertIn("**Settings-only variations of a local package**", HAND_OFF)
+        self.assertIn("`deploy.py plan <dir> --budget <their budget> --design", local)
+        self.assertIn("--forked-from <Source strategy id>`", local)
+        self.assertIn("`deploy.py fork <dir> --name <label> --fork-of <Source strategy id>`", local)
+        self.assertIn("`start-plan` and `startBatch` take no directory", local)
+        self.assertIn("`deploy.py create <dir> --simulation --user-said-yes --budget <their budget> --fork-of "
+                      "<Source strategy id> --name \"<their words>\"`", local)
+        self.assertIn("`create <fork dir> --simulation --user-said-yes --budget <its budget> --variant-of", local)
+        self.assertIn("never a raw `startBatch` by catalog id", local)
+        self.assertIn("these are refused without that `--fork-of`: `fork <dir> --name <label>` for one of its "
+                      "variation labels, and `create <dir> --simulation` (several wallets too)", local)
+        self.assertIn("A fork under another name and `create <fork dir> --variant-of` are not checked", local)
+        self.assertNotIn("A `create <dir> --simulation` without `--fork-of` is refused once", local)
+
+    def test_a_raw_start_batch_for_budgets_that_differ_is_for_a_catalog_id_only(self):
+        self.assertIn("budgets that differ on a catalog id", HAND_OFF)
+
+    def test_a_raw_start_batch_by_catalog_id_carries_forked_from(self):
+        self.assertIn("itself: always by catalog id (`\"strategy\":\"<catalog id>\"`)", HAND_OFF)
 
 
 if __name__ == "__main__":

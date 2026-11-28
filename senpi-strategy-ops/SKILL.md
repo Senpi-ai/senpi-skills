@@ -40,7 +40,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.43.1"
+  version: "3.43.2"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -137,8 +137,8 @@ the consequence in one line and an explicit yes — never "done". **The fork is 
 `<username>-<template>` under the durable root, rewrites its identity (`id`, `catalog.name`, runtime
 name/group/description, `forked_from`), proves it and deploys it; `--name "<their words>"` for a name of
 their own; `deploy.py fork <template>` makes the copy first when levers move (the edit path on the fork,
-then `create <dir>`). Any `Source strategy id` hand-off: walkthrough.md. A user ID is never a name; with no username to read, a bare template id is **refused**. The
-lever language, the name rules, the fork, and — for a VARIANT template — the one extra bullet naming what it varies from: [`references/walkthrough.md`](references/walkthrough.md). **One simulation skips it** ("simulate Hawk with $50"): no walkthrough, no levers, no name line. Quote it with `deploy.py plan <id>` (`--budget` if they named one; `--budget-choices` only to offer amounts) and relay what it prints as given: its cost is this simulation's, never `creditsPerHourAfter`. Named settings: `plan <id> --variant` with all of them, `;` between. On a yes in their next message (never the request itself), `deploy.py start-plan <id> --user-said-yes` (`--budget` for a picked choice). No budget named: $1,000 for a new simulation. **A replacement** ("replace X with a version that…", "improve X and replace the running one", or closing X and starting its package or variation again) starts at X's `initialBudget` from `strategy_list {simulation: true}` unless the user names one: in each variant's `budgetUsd`, or `--budget` on `deploy.py plan <dir>` and on any `--user-said-yes` create (the fork's too); the quote states that budget. Create nothing before the yes; then report its row as for a batch. A package of several wallets (`wallet_count` above 1 on its catalog card) is quoted the same way once `deploy.py validate <id>` has put it on this box: `plan <id>`, relayed, end the turn; on the yes, `create <id> --simulation --user-said-yes`. A quote that fails starts nothing: say its cost could not be read and nothing was started. **A local package** (no catalog id): `deploy.py plan <dir>`, relayed, end the turn; on the yes, `create <dir> --simulation --user-said-yes`; never call `senpi.deploy.startSimulation` yourself. A live deploy, a simulation going live and several simulations keep what they have.
+then `create <dir>`). Any `Source strategy id` hand-off: walkthrough.md. Never drop its `--fork-of`: a refusal asking for a name means ask the user for one. A user ID is never a name; with no username to read, a bare template id is **refused**. The
+lever language, the name rules, the fork, and — for a VARIANT template — the one extra bullet naming what it varies from: [`references/walkthrough.md`](references/walkthrough.md). **One simulation skips it** ("simulate Hawk with $50"): no walkthrough, no levers, no name line, unless a `Source strategy id` hand-off came: its walkthrough.md section applies, name included. Quote it with `deploy.py plan <id>` (`--budget` if they named one; `--budget-choices` only to offer amounts) and relay what it prints as given: its cost is this simulation's, never `creditsPerHourAfter`. Named settings: `plan <id> --variant` with all of them, `;` between. On a yes in their next message (never the request itself), `deploy.py start-plan <id> --user-said-yes` (`--budget` for a picked choice). No budget named: $1,000 for a new simulation. **A replacement** ("replace X with a version that…", "improve X and replace the running one", or closing X and starting its package or variation again) starts at X's `initialBudget` from `strategy_list {simulation: true}` unless the user names one: in each variant's `budgetUsd`, or `--budget` on `deploy.py plan <dir>` and on any `--user-said-yes` create (the fork's too); the quote states that budget. Create nothing before the yes; then report its row as for a batch. A package of several wallets (`wallet_count` above 1 on its catalog card) is quoted the same way once `deploy.py validate <id>` has put it on this box: `plan <id>`, relayed, end the turn; on the yes, `create <id> --simulation --user-said-yes`. A quote that fails starts nothing: say its cost could not be read and nothing was started. **A local package** (no catalog id): `deploy.py plan <dir>` (`--forked-from <id>` for a `Source strategy id`), relayed, end the turn; on the yes, the `create <dir> --simulation --user-said-yes` it prints; never call `senpi.deploy.startSimulation` yourself. A live deploy, a simulation going live and several simulations keep what they have.
 
 **Say how often it will trade before you fund it.** One line: the number and what makes it go quiet —
 a measured rate if you have one, otherwise the CEILING from `max_entries_per_day`, `slots` and the
@@ -223,10 +223,6 @@ refused, not waited for — see the PAUSED section of
 > **The verb adopts an existing wallet; tell the user** it **never adds funds to it** ($500 asked against
 > a wallet holding $100: the report says the $500 was NOT added — top up separately, or close it and fund
 > a new one, a market exit), and re-running never makes a fresh wallet.
-
-**Packages with no exit block are refused before anything is funded** — worth knowing *before* you
-build or pick one; the refusal names the offending instances and computes its own re-check block
-([`references/refusal-playbook.md`](references/refusal-playbook.md)).
 
 > **Do NOT improvise.** A package strategy is a **runtime-supervised scanner** — deploy it **only** via
 > `deploy.py create|runtime`. Never substitute a raw `strategy_create_custom_strategy` MCP call: that
