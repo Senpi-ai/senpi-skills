@@ -86,6 +86,13 @@ class ForkOfNamesTheSourceStrategy(unittest.TestCase):
         self.assertIn("A fork under another name and `create <fork dir> --variant-of` are not checked", local)
         self.assertNotIn("A `create <dir> --simulation` without `--fork-of` is refused once", local)
 
+    def test_a_name_held_by_a_copy_with_another_parent_is_never_deployed_by_directory(self):
+        held = HAND_OFF[HAND_OFF.find("**A name an earlier copy holds.**"):]
+        held = held[:held.find("- **One simulation**")]
+        self.assertIn("records another parent is refused, and the refusal names that parent", held)
+        self.assertIn("never deploy that folder by directory", held)
+        self.assertIn("Only a folder that records `<id>` itself may be deployed by directory", held)
+
     def test_a_raw_start_batch_for_budgets_that_differ_is_for_a_catalog_id_only(self):
         self.assertIn("budgets that differ on a catalog id", HAND_OFF)
 

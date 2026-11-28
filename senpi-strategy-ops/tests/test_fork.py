@@ -636,3 +636,64 @@ def test_create_of_a_template_deploys_the_old_live_fork_not_a_second_one(tmp_pat
     a = argparse.Namespace(cmd="create", package="phalanx", owner=None, name=None, dry_run=True, simulation=False)
     forked = deploy._fork_for_deploy(_pkg.load(tmp_path / "phalanx"), a, log=lambda m: None)
     assert forked.id == LEGACY_ID and Path(forked.dir) == legacy
+
+
+# ---------- a copy of a fork into a name a copy already holds ----------
+
+def _leftover_copy(tmp_path, parent):
+    """The user's fork on disk, and a copy of it named "Dog Fork D" that records `parent` (None: no parent line)."""
+    src = _fork_source(tmp_path, f'  id: phalanx\n  version: "1.1.0"\n  parent: {LIVE}\n\n')
+    dest, _ = _fork.fork(_pkg.load(src), tmp_path, name="Dog Fork D", fork_of=parent or SIM)
+    if parent is None:
+        (dest / "strategy.yaml").write_text(_without_parent((dest / "strategy.yaml").read_text()))
+    return src, dest
+
+
+@pytest.mark.parametrize("held", [SIM, None])
+def test_a_copy_that_records_another_parent_is_refused_and_never_offered_by_directory(tmp_path, held):
+    src, dest = _leftover_copy(tmp_path, held)
+    before = _snapshot(dest)
+    for pkg in (_pkg.load(src), _pkg.load(dest)):          # the user's fork, or the leftover copy's own directory
+        with pytest.raises(_fork.ForkError) as e:
+            _fork.fork(pkg, tmp_path, name="Dog Fork D", fork_of=LIVE)
+        msg = str(e.value)
+        assert f"its parent is {held or 'not recorded'}" in msg and LIVE in msg, msg
+        assert "pass --name <another name>" in msg and "by directory" not in msg, msg
+    assert _snapshot(dest) == before
+
+
+def test_a_copy_that_records_the_same_parent_is_not_reused_and_may_be_deployed_by_directory(tmp_path):
+    src, dest = _leftover_copy(tmp_path, SIM)
+    before = _snapshot(dest)
+    with pytest.raises(_fork.ForkError) as e:
+        _fork.fork(_pkg.load(src), tmp_path, name="Dog Fork D", fork_of=SIM)
+    msg = str(e.value)
+    assert f"records {SIM} as its parent" in msg and "deploy it by directory if it is this copy" in msg, msg
+    assert _snapshot(dest) == before
+    # the same parent on a copy of another template is not this copy
+    man = dest / "strategy.yaml"
+    man.write_text(man.read_text().replace("forked_from:\n  id: phalanx\n", "forked_from:\n  id: hawk\n", 1))
+    with pytest.raises(_fork.ForkError) as e:
+        _fork.fork(_pkg.load(src), tmp_path, name="Dog Fork D", fork_of=SIM)
+    assert "not a fork of phalanx" in str(e.value) and "by directory" not in str(e.value), str(e.value)
+
+
+def test_a_copy_of_a_fork_without_fork_of_into_a_held_name_is_refused_as_before(tmp_path):
+    src, dest = _leftover_copy(tmp_path, SIM)
+    before = _snapshot(dest)
+    with pytest.raises(_fork.ForkError) as e:
+        _fork.fork(_pkg.load(src), tmp_path, name="Dog Fork D")
+    assert str(e.value) == f"{dest} exists — deploy it by directory if it is this copy, or pass --name <another name>"
+    assert _snapshot(dest) == before
+
+
+def test_cli_create_with_fork_of_into_a_copy_with_another_parent_is_refused(tmp_path):
+    src, dest = _leftover_copy(tmp_path, SIM)
+    before = _snapshot(dest)
+    for pkg_dir in (src, dest):
+        out = _run(["create", str(pkg_dir), "--budget", "100", "--dry-run", "--name", "Dog Fork D",
+                    "--fork-of", LIVE], tmp_path)
+        assert out.returncode == 2, (out.stdout, out.stderr)
+        assert f"its parent is {SIM}" in out.stderr and "pass --name <another name>" in out.stderr, out.stderr
+        assert "by directory" not in out.stderr and "planned:" not in out.stdout, out.stderr
+    assert _snapshot(dest) == before
